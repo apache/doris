@@ -43,6 +43,7 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 
 import java.util.HashMap;
@@ -256,6 +257,13 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                 fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
             }
         }
+        if (IcebergExternalCatalog.ICEBERG_REST.equals(getIcebergCatalogType())
+                && !Boolean.parseBoolean(origProps.get("iceberg.rest.vended-credentials-enabled"))
+                && (s3Target instanceof GCSProperties
+                        || origProps.keySet().stream().anyMatch(key -> key.startsWith("fs.gs.")))) {
+            // Adding iceberg-gcp must not route HMAC-backed gs:// files to GCSFileIO's ADC identity.
+            fileIOProperties.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+        }
     }
 
     /**
@@ -321,7 +329,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                         credential.getImpersonationServiceAccount());
             }
             options.put(StorageProperties.FS_PROVIDER_KEY, "GCP");
-            options.put(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
+            // A catalog's explicit FileIO must retain its own credential handling.
+            options.putIfAbsent(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
             options.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
         }
     }

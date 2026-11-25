@@ -178,6 +178,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         isDropped = false;
     }
 
+    /** True while the database is being dropped (before it is removed from the catalog). */
+    public boolean isDropped() {
+        return isDropped;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }

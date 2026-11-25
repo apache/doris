@@ -275,13 +275,14 @@ public final class LineageUtils {
             if (key == null) {
                 continue;
             }
-            if (PrintableMap.HIDDEN_KEY.contains(key) || PrintableMap.SENSITIVE_KEY.contains(key)) {
+            if (PrintableMap.HIDDEN_KEY.contains(key) || PrintableMap.isSensitiveKey(key)) {
                 continue;
             }
             if (catalog instanceof ExternalCatalog && ExternalCatalog.HIDDEN_PROPERTIES.contains(key)) {
                 continue;
             }
-            sanitized.put(key, entry.getValue());
+            // A non-secret name can still carry a JDBC connection string or URL credentials.
+            sanitized.put(key, PrintableMap.redactProperty(key, entry.getValue()));
         }
         return sanitized;
     }

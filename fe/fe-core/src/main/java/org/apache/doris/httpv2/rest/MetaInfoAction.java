@@ -251,7 +251,7 @@ public class MetaInfoAction extends RestBaseController {
         tbl.readLock();
         try {
             long baseId = -1;
-            if (tbl.getType() == Table.TableType.OLAP) {
+            if (tbl.isManagedTable()) {
                 baseId = ((OlapTable) tbl).getBaseIndexId();
             } else {
                 baseId += tbl.getId();

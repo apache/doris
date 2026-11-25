@@ -44,16 +44,16 @@ suite("test_stopwords", "p0"){
         sql "sync"
         sql """ set enable_segment_limit_pushdown = true """
 
-        qt_sql """ select * from ${indexTbName} where b match 'a'; """
-        qt_sql """ select * from ${indexTbName} where b match 'are'; """
-        qt_sql """ select * from ${indexTbName} where b match 'to'; """
+        order_qt_sql """ select * from ${indexTbName} where b match 'a'; """
+        order_qt_sql """ select * from ${indexTbName} where b match 'are'; """
+        order_qt_sql """ select * from ${indexTbName} where b match 'to'; """
 
-        qt_sql """ select * from ${indexTbName} where c match 'a'; """
-        qt_sql """ select * from ${indexTbName} where c match 'are'; """
-        qt_sql """ select * from ${indexTbName} where c match 'to'; """
+        order_qt_sql """ select * from ${indexTbName} where c match 'a'; """
+        order_qt_sql """ select * from ${indexTbName} where c match 'are'; """
+        order_qt_sql """ select * from ${indexTbName} where c match 'to'; """
 
-        qt_sql """ select * from ${indexTbName} where b match_phrase 'like a box'; """
-        qt_sql """ select * from ${indexTbName} where c match_phrase 'like a box'; """
+        order_qt_sql """ select * from ${indexTbName} where b match_phrase 'like a box'; """
+        order_qt_sql """ select * from ${indexTbName} where c match_phrase 'like a box'; """
 
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")

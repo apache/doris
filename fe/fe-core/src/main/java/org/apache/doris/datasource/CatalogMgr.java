@@ -191,6 +191,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(removedCatalog.catalogId);
         }
         Env.getCurrentEnv().getQueryStats().clear(removedCatalog.catalogId);
+        Env.getCurrentEnv().onCatalogChanged(removedCatalog.catalogName);
         LOG.info("Removed catalog with id {}, name {}", removedCatalog.catalogId, removedCatalog.catalogName);
     }
 
@@ -698,11 +699,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (PrintableMap.HIDDEN_KEY.contains(key)) {
                         return;
                     }
-                    if (PrintableMap.SENSITIVE_KEY.contains(key)) {
-                        sortedMap.put(key, PrintableMap.PASSWORD_MASK);
-                    } else {
-                        sortedMap.put(key, value);
-                    }
+                    sortedMap.put(key, PrintableMap.redactProperty(key, value));
                 }
         );
         return sortedMap;

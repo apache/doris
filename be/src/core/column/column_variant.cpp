@@ -882,6 +882,14 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
 }
 
 void ColumnVariant::try_insert(const Field& field) {
+    if (UNLIKELY(field.is_null())) {
+        // get() represents an empty object (and a NULL value) as an empty Field, and callers such
+        // as ReaderReplaceFunction and insert_from() re-insert the Field returned by get().
+        // Field::destroy() frees the VariantField but leaves its pointer in the union storage, so
+        // dereferencing get<TYPE_VARIANT>() here would read freed memory.
+        insert_default();
+        return;
+    }
     size_t old_size = size();
     const auto& object = field.get<TYPE_VARIANT>().legacy_map();
     for (const auto& [key, value] : object) {

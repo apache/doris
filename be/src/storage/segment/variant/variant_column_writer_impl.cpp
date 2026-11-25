@@ -370,7 +370,9 @@ Status prepare_materialized_subcolumn_writer(
                                          .path_info = full_path});
         const auto& indexes =
                 base_opts.rowset_ctx->tablet_schema->inverted_indexs(parent_column.unique_id());
-        variant_util::inherit_index(indexes, subcolumn_indexes, tablet_column);
+        variant_util::inherit_index(
+                indexes, subcolumn_indexes, tablet_column,
+                base_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys());
     }
 
     ColumnWriterOptions opts;
@@ -1347,6 +1349,9 @@ bool VariantV1ColumnWriter::_can_use_nested_group_streaming_compaction() const {
 }
 
 Status VariantV1ColumnWriter::init() {
+    if (_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+        return Status::NotSupported("variant_escape_dots_in_keys requires the Variant V2 writer");
+    }
     const bool can_use_streaming = _can_use_nested_group_streaming_compaction();
 
     if (can_use_streaming) {
@@ -1861,6 +1866,13 @@ Status VariantColumnWriterImpl::_ensure_writer_for_empty_segment() {
     if (_input_format != VariantWriterInputFormat::UNSET) {
         return Status::OK();
     }
+    if (_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+        auto writer = std::make_unique<VariantV2ColumnWriter>(_opts, _tablet_column);
+        RETURN_IF_ERROR(writer->init());
+        _v2_writer = std::move(writer);
+        _input_format = VariantWriterInputFormat::V2;
+        return Status::OK();
+    }
     return _initialize_v1_writer();
 }
 
@@ -2012,6 +2024,10 @@ Status VariantSubcolumnWriter::_ensure_input_format(const VariantColumnData& col
     VariantWriterInputFormat input_format;
     RETURN_IF_ERROR(variant_writer_helpers::classify_variant_writer_input(
             column, _input_format, "Variant subcolumn writer", &input_format));
+    if (input_format == VariantWriterInputFormat::V1 &&
+        _opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+        return Status::NotSupported("variant_escape_dots_in_keys requires the Variant V2 writer");
+    }
     if (_input_format != VariantWriterInputFormat::UNSET) {
         return Status::OK();
     }
@@ -2211,7 +2227,12 @@ Status VariantSubcolumnWriter::finalize() {
         return Status::OK();
     }
     if (_input_format == VariantWriterInputFormat::UNSET) {
-        _input_format = VariantWriterInputFormat::V1;
+        if (_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+            RETURN_IF_ERROR(_initialize_v2_builder());
+            _input_format = VariantWriterInputFormat::V2;
+        } else {
+            _input_format = VariantWriterInputFormat::V1;
+        }
     }
     RETURN_IF_ERROR(_seal_chunk());
 
@@ -2407,6 +2428,10 @@ Status VariantDocCompactWriter::_ensure_input_format(const VariantColumnData& co
     VariantWriterInputFormat input_format;
     RETURN_IF_ERROR(variant_writer_helpers::classify_variant_writer_input(
             column, _input_format, "Variant doc compact writer", &input_format));
+    if (input_format == VariantWriterInputFormat::V1 &&
+        _opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+        return Status::NotSupported("variant_escape_dots_in_keys requires the Variant V2 writer");
+    }
     if (_input_format != VariantWriterInputFormat::UNSET) {
         return Status::OK();
     }
@@ -2676,7 +2701,12 @@ Status VariantDocCompactWriter::finalize() {
         return Status::OK();
     }
     if (_input_format == VariantWriterInputFormat::UNSET) {
-        _input_format = VariantWriterInputFormat::V1;
+        if (_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+            RETURN_IF_ERROR(_initialize_v2_shredder());
+            _input_format = VariantWriterInputFormat::V2;
+        } else {
+            _input_format = VariantWriterInputFormat::V1;
+        }
     }
     const auto& parent_column =
             _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());

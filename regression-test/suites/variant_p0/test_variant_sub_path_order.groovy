@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_variant_sub_path_order", "p0") {
+    // V2 execution keeps a JSON string as a string Variant value; V1 parsed it on insert.
+    def variantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = variantV2 ? "parse_to_variant" : ""
+    def jsonVariant = { String json ->
+        variantV2 ? "parse_to_variant('${json}')" : "CAST('${json}' AS VARIANT)"
+    }
     sql "DROP TABLE IF EXISTS variant_sub_path_order"
     sql """
         CREATE TABLE variant_sub_path_order (
@@ -28,7 +34,7 @@ suite("test_variant_sub_path_order", "p0") {
     """
     sql """
         INSERT INTO variant_sub_path_order VALUES
-            (1, '{"a":{"b":1},"b":{"a":2}}')
+            (1, ${variantV2Function}('{"a":{"b":1},"b":{"a":2}}'))
     """
 
     sql "SET experimental_enable_prune_nested_column = false"
@@ -39,7 +45,7 @@ suite("test_variant_sub_path_order", "p0") {
             FROM variant_sub_path_order
             UNION ALL
             SELECT 2 AS id, 'constant' AS branch_name,
-                    CAST('{"a":{"b":1},"b":{"a":2}}' AS VARIANT) AS c
+                    ${jsonVariant('{"a":{"b":1},"b":{"a":2}}')} AS c
         )
         SELECT id, branch_name, CAST(c['a']['b'] AS INT) AS value
         FROM u
@@ -63,7 +69,7 @@ suite("test_variant_sub_path_order", "p0") {
             FROM variant_sub_path_order
             UNION ALL
             SELECT 2 AS id, 'constant' AS branch_name,
-                    CAST('{"a":{"b":1},"b":{"a":2}}' AS VARIANT) AS c
+                    ${jsonVariant('{"a":{"b":1},"b":{"a":2}}')} AS c
         )
         SELECT id, branch_name, CAST(c['a']['b'] AS INT) AS value
         FROM u

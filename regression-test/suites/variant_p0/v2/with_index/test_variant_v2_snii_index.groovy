@@ -23,8 +23,8 @@ suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
         def typedInventors = "cast(inventors['inventors'] as array<text>)"
 
         // Match the session subcolumn limit to parse_to_variant() output.
-        sql """ set default_variant_max_subcolumns_count = 0 """
-        sql """ set default_variant_enable_doc_mode = false """
+        sql """ set debug_variant_max_subcolumns_count = 0 """
+        sql """ set debug_variant_enable_doc_mode = false """
 
         sql "DROP TABLE IF EXISTS ${tblName}"
         sql """

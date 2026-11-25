@@ -27,7 +27,7 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_escape_dots_in_keys" = "false");
     """ 
 
     sql """insert into ${table_name} values (1, ${variantV2Function}('{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}'))"""

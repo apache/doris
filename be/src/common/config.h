@@ -1381,6 +1381,8 @@ DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
+DECLARE_mDouble(file_cache_io_adaptor_skip_read_factor);
+
 // async file cache write
 DECLARE_mBool(enable_async_file_cache_write);
 DECLARE_mInt32(async_file_cache_write_workers_per_disk);
@@ -1485,6 +1487,8 @@ DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
+// The kuromoji (Japanese) analyzer
+DECLARE_mBool(enable_kuromoji_analyzer);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
@@ -1619,6 +1623,10 @@ DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// Enable compression for eligible compactions above the dense-memory threshold.
+DECLARE_mBool(enable_compressed_rowid_conversion);
+// Nonnegative byte threshold for physical input rows * 8; 0 compresses any nonempty mapping.
+DECLARE_mInt64(compressed_rowid_conversion_threshold_bytes);
 // missing rows correctness check when compaction for mow table
 DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
@@ -1991,7 +1999,12 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DECLARE_Int32(omp_threads_limit);
+// OpenMP threads per ANN train/add call, capped by the global budget above.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+DECLARE_Int32(ann_index_build_threads_per_task);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
 // Cache for ANN index IVF on-disk list data.

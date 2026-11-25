@@ -1111,6 +1111,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
@@ -1166,6 +1167,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
     private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
+    // The built-in values of the debug_variant_* session variables.
+    private static final SessionVariable BUILT_IN_SESSION_VARIABLE = new SessionVariable();
 
     private static class ColumnDefinitionWithPath {
         private final ColumnDefinition columnDefinition;
@@ -5399,26 +5402,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)) {
+            throw new NotSupportedException("variant_escape_dots_in_keys is a table property; "
+                    + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
+        }
 
-        int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
-        boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
-        int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
+        // The debug_variant_* session variables only drive the tests, which run with debug points enabled.
+        // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the
+        // session holds (a fuzzed session, or a global value set while debug points were enabled), so a DDL text,
+        // such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
+        SessionVariable variantDefaults = BUILT_IN_SESSION_VARIABLE;
+        if (Config.enable_debug_points && ConnectContext.get() != null) {
+            variantDefaults = ConnectContext.get().getSessionVariable();
+        }
+        int variantMaxSubcolumnsCount = variantDefaults.getDefaultVariantMaxSubcolumnsCount();
+        boolean enableTypedPathsToSparse = variantDefaults.getDefaultEnableTypedPathsToSparse();
+        int variantMaxSparseColumnStatisticsSize = variantDefaults.getDefaultVariantMaxSparseColumnStatisticsSize();
         // default no bucketing
-        int variantSparseHashShardCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantSparseHashShardCount();
+        int variantSparseHashShardCount = variantDefaults.getDefaultVariantSparseHashShardCount();
 
-        boolean enableVariantDocMode = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocMode();
-        long variantDocMaterializationMinRows = ConnectContext.get() == null ? 0L :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocMaterializationMinRows();
-        int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
+        boolean enableVariantDocMode = variantDefaults.getDefaultVariantEnableDocMode();
+        long variantDocMaterializationMinRows = variantDefaults.getDefaultVariantDocMaterializationMinRows();
+        int variantDocHashShardCount = variantDefaults.getDefaultVariantDocHashShardCount();
 
-        boolean enableNestedGroup = ConnectContext.get() == null ? true :
-                ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
+        boolean enableNestedGroup = variantDefaults.getDefaultVariantEnableNestedGroup();
 
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
@@ -7179,7 +7186,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowCharset(ShowCharsetContext ctx) {
-        return new ShowCharsetCommand();
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowCharsetCommand(
+                        SqlLiteralUtils.parseStringLiteral(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            }
+            return new ShowCharsetCommand(null, getExpression(ctx.wildWhere().expression()));
+        }
+        return new ShowCharsetCommand(null, null);
     }
 
     @Override

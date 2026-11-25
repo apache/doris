@@ -57,25 +57,41 @@ public:
                 _received_rf_size_num, _received_sum_size);
     }
 
-    // If input is a disabled predicate, the final result is a disabled predicate.
+    // Keep a private copy of the first input: later merges must not change a producer wrapper
+    // which a local consumer may already be probing. A disabled input disables the result.
     // Returns true only for the call that makes the merger ready.
     Status merge_from(const RuntimeFilter* other, bool* ready) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
-        _received_producer_num++;
-        if (_expected_producer_num < _received_producer_num) {
+        *ready = false;
+        if (_expected_producer_num <= _received_producer_num) {
             return Status::InternalError(
                     "runtime filter merger input product more than expected, {}", debug_string());
         }
+        Status status;
+        if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
+            // For example, consider a join whose probe side has two scan targets:
+            //   SELECT p.k FROM build_table b JOIN
+            //     (SELECT k FROM local_probe UNION ALL SELECT k FROM merged_probe) p ON b.k = p.k;
+            // Depending on the physical plan, the same RF can be routed as follows:
+            //   producer 1 RF {5} -----> Scan(local_probe)  [direct, no merge]
+            //           |-- copy --> merger <-- producer 2 RF {6}
+            //                         |
+            //                         +----> Scan(merged_probe) [merged: {5, 6}]
+            // The merger must clone producer 1's wrapper: adopting it would let the
+            // later merge change the direct scan's filter from {5} to {5, 6}.
+            status = other->_wrapper->clone(&_wrapper);
+        } else {
+            status = _wrapper->merge(other->_wrapper.get());
+        }
+        RETURN_IF_ERROR(status);
+        // A failed copy or merge must not count as an arrival: otherwise later inputs could
+        // publish a filter that does not contain the failed producer's values.
+        ++_received_producer_num;
         *ready = _received_producer_num == _expected_producer_num;
-        if (_received_producer_num == _expected_producer_num) {
+        if (*ready) {
             _rf_state = State::READY;
         }
-        if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
-            _wrapper = other->_wrapper;
-            return Status::OK();
-        }
-        auto st = _wrapper->merge(other->_wrapper.get());
-        return st;
+        return Status::OK();
     }
 
     // Only raise the expected producer count. RuntimeFilterMgr may compute the

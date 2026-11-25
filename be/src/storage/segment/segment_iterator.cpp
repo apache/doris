@@ -2061,7 +2061,7 @@ Status SegmentIterator::_init_index_iterators() {
                     }
                 }
                 inverted_indexs_holder = variant_reader->find_subcolumn_tablet_indexes(
-                        column, data_type, _opts.stats);
+                        column, data_type, _opts.stats, _opts.tablet_schema.get());
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());

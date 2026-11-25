@@ -18,12 +18,16 @@
 package org.apache.doris.common;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -33,6 +37,8 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -41,6 +47,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import org.junit.rules.ExpectedException;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -51,8 +58,126 @@ import java.util.Map;
 import java.util.Set;
 
 public class PropertyAnalyzerTest {
+    private boolean previousVariantV2;
+    private boolean previousVariantEscape;
+
+    @org.junit.Before
+    public void enableVariantV2() {
+        previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        previousVariantEscape = org.apache.doris.common.Config.enable_variant_escape_dots_in_keys;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = true;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+    }
+
+    @org.junit.After
+    public void restoreVariantV2() {
+        org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = previousVariantEscape;
+    }
+
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
+
+    @Test
+    public void testVariantTableValidation() throws AnalysisException {
+        Column variant = Mockito.mock(Column.class);
+        Mockito.when(variant.getType()).thenReturn(Type.VARIANT);
+        Index badIndex = new Index(1, "idx", ImmutableList.of("v"), IndexType.INVERTED,
+                ImmutableMap.of("field_pattern", "a.bad%2e"), "");
+        PropertyAnalyzer.validateVariantTable(false, ImmutableList.of(variant), ImmutableList.of(badIndex));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(true);
+        PropertyAnalyzer.validateVariantTable(false, ImmutableList.of(variant), ImmutableList.of(badIndex));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(variant), ImmutableList.of()));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(false);
+        Mockito.when(variant.getChildren()).thenReturn(ImmutableList.of(new Column("a.bad%2e", Type.INT)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(variant), ImmutableList.of()));
+        Mockito.when(variant.getChildren()).thenReturn(ImmutableList.of(new Column("a.good%2E", Type.INT)));
+        PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(variant), ImmutableList.of());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(variant), ImmutableList.of(badIndex)));
+        Index goodIndex = new Index(2, "good", ImmutableList.of("v"), IndexType.INVERTED,
+                ImmutableMap.of("field_pattern", "a.good%2E*"), "");
+        PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(variant), ImmutableList.of(goodIndex));
+    }
+
+    @Test
+    public void testRejectVariantEscapeAlterAndExternal() throws AnalysisException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(null);
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(ImmutableMap.of("other", "true"));
+        for (String key : ImmutableList.of("variant_escape_dots_in_keys", "VARIANT_ESCAPE_DOTS_IN_KEYS")) {
+            for (String value : ImmutableList.of("true", "false", "invalid")) {
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(ImmutableMap.of(key, value)));
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(ImmutableMap.of(key, value)));
+            }
+        }
+    }
+
+    @Test
+    public void testConsistentVariantSources() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escaped.getBaseSchema()).thenReturn(ImmutableList.of(new Column("v", Type.VARIANT)));
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        Mockito.when(legacy.getBaseSchema()).thenReturn(ImmutableList.of(new Column("v", Type.VARIANT)));
+        OlapTable integers = Mockito.mock(OlapTable.class);
+        Mockito.when(integers.getBaseSchema()).thenReturn(ImmutableList.of(new Column("k", Type.INT)));
+        OlapTable escapedIntegers = Mockito.mock(OlapTable.class);
+        Mockito.when(escapedIntegers.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escapedIntegers.getBaseSchema()).thenReturn(ImmutableList.of(new Column("k", Type.INT)));
+        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(escapedIntegers), true));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(escapedIntegers), false));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(integers, escaped), true));
+        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(legacy), true));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "TRUE"), ImmutableList.of(escaped), true));
+        Assertions.assertEquals(ImmutableMap.of(key, "false"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "FALSE"), ImmutableList.of(legacy), true));
+        for (Map<String, String> props : ImmutableList.of(ImmutableMap.<String, String>of(), ImmutableMap.of(key, "true"), ImmutableMap.of(key, "false"))) {
+            Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    props, ImmutableList.of(legacy, escaped), true));
+        }
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "false"), ImmutableList.of(escaped), true));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "true"), ImmutableList.of(legacy), true));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "true"), ImmutableList.of(integers, Mockito.mock(TableIf.class)), true));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(legacy, escaped), false));
+    }
+
+    @Test
+    public void testInheritVariantEscapeDotsInKeys() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        TableIf external = Mockito.mock(TableIf.class);
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "TRUE"), ImmutableList.of(legacy, external), false));
+        Assertions.assertEquals(ImmutableMap.of(key, "false"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "FALSE"), ImmutableList.of(escaped), false));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(escaped), false));
+        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(legacy), false));
+        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(external), false));
+        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(null, ImmutableList.of(), false));
+        Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(), ImmutableList.of(legacy, external, escaped), false));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                ImmutableMap.of(key, "invalid"), ImmutableList.of(escaped), false));
+    }
 
     @Test
     public void testBfColumns() throws AnalysisException {
@@ -474,9 +599,64 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
-        SessionVariable sessionVariable = new SessionVariable();
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
-        sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        // The debug_variant_* variables can only be set with debug points enabled.
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            SessionVariable sessionVariable = new SessionVariable();
+            UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
+            Assertions.assertTrue(e.getMessage().contains("it must between 1 and 50000"), e.getMessage());
+            sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testEscapedVariantPropertyAndStoragePathCodec() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String value : new String[] {"true", "TRUE", "false", "FALSE"}) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, value);
+            Assertions.assertEquals(Boolean.parseBoolean(value),
+                    PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            Assertions.assertTrue(properties.isEmpty());
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String key : new String[] {"", "a.b", "50%", "a%2Eb", "%25", "ordinary"}) {
+            String encoded = PropertyAnalyzer.encodeVariantPathComponent(key);
+            Assertions.assertEquals(key, PropertyAnalyzer.decodeVariantPathComponent(encoded));
+            PropertyAnalyzer.validateVariantStoragePath("parent." + encoded);
+        }
+        for (String invalid : new String[] {"%", "%2", "%2e", "%20", "a%25%"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.validateVariantStoragePath("parent." + invalid));
+        }
+    }
+
+    @Test
+    public void testEscapeRequiresPersistedV2Policy() throws Exception {
+        Config.enable_variant_v2 = false;
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(new HashMap<>()));
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(
+                new HashMap<>(ImmutableMap.of(key, "false"))));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(
+                new HashMap<>(ImmutableMap.of(key, "true"))));
+        Assertions.assertDoesNotThrow(
+                () -> PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(), ImmutableList.of()));
+        OlapTable source = Mockito.mock(OlapTable.class);
+        Mockito.when(source.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(source.getBaseSchema()).thenReturn(ImmutableList.of(new Column("v", Type.VARIANT)));
+        for (boolean consistent : new boolean[] {true, false}) {
+            Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    ImmutableMap.of(), ImmutableList.of(source), consistent));
+        }
+        // A compute-only type is transient; enabling it cannot authorize persistent escaped storage.
+        Assertions.assertTrue(org.apache.doris.nereids.types.VariantType.COMPUTE_V2_INSTANCE.isExecutionV2());
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.requireVariantV2ForEscape(true));
     }
 }

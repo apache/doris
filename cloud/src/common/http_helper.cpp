@@ -33,7 +33,10 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -44,6 +47,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_rate_limit_helper.h"
+#include "recycler/checker.h"
 #include "recycler/recycler.h"
 #include "recycler/recycler_service.h"
 namespace doris::cloud {
@@ -354,10 +358,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_alter_ram_user((MS*)s, c); },
                   .role = HttpRole::META_SERVICE}},
-                {"alter_iam",
-                 {.handler = [](void* s,
-                                brpc::Controller* c) { return process_alter_iam((MS*)s, c); },
-                  .role = HttpRole::META_SERVICE}},
                 {"adjust_rate_limit",
                  {.handler =
                           [](void* s, brpc::Controller* c) {
@@ -404,6 +404,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                 {"check_instance",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
+                  .role = HttpRole::RECYCLER}},
+                {"check_delete_bitmap_orphan",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_check_delete_bitmap_orphan((RS*)s, c);
+                          },
                   .role = HttpRole::RECYCLER}},
                 {"skip_instance_data_cleanup",
                  {.handler =
@@ -608,14 +614,6 @@ HttpResponse process_alter_ram_user(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
-HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    AlterIamRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
-    AlterIamResponse resp;
-    service->alter_iam(ctrl, &req, &resp, nullptr);
-    return http_json_reply(resp.status());
-}
-
 HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
     const auto& uri = cntl->http_request().uri();
     auto qps_limit_str = std::string {http_query(uri, "qps_limit")};
@@ -759,7 +757,7 @@ HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Contro
                                "failed to parse RecycleInstanceRequest");
     }
     RecycleInstanceResponse res;
-    service->recycle_instance(cntl, &req, &res, nullptr);
+    service->recycle_instance(*cntl, req, res);
     return http_text_reply(res.status(), res.status().msg());
 }
 
@@ -813,6 +811,81 @@ HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controll
     std::string msg = "OK";
     service->check_instance(*instance_id, code, msg);
     return http_text_reply(code, msg, msg);
+}
+
+HttpResponse process_check_delete_bitmap_orphan(RecyclerServiceImpl* service,
+                                                brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    const auto* instance_id = uri.GetQuery("instance_id");
+    if (!instance_id || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    auto parse_positive_query = [&uri](const char* name, int64_t* value) {
+        const auto* query = uri.GetQuery(name);
+        if (query == nullptr) {
+            return true;
+        }
+        auto [ptr, ec] = std::from_chars(query->data(), query->data() + query->size(), *value);
+        return ec == std::errc() && ptr == query->data() + query->size() && *value > 0;
+    };
+    int64_t tablet_id = 0;
+    int64_t max_scan_keys = 0;
+    if (!parse_positive_query("tablet_id", &tablet_id) ||
+        tablet_id == std::numeric_limits<int64_t>::max()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "tablet_id must be a positive integer smaller than INT64_MAX");
+    }
+    if (!parse_positive_query("max_scan_keys", &max_scan_keys)) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "max_scan_keys must be a positive integer");
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] =
+            check_delete_bitmap_orphan(service->txn_kv(), *instance_id, tablet_id, max_scan_keys,
+                                       &result, [cntl] { return cntl->IsCanceled(); });
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    writer.StartObject();
+    writer.Key("status");
+    const char* status = "incomplete";
+    if (result.cancelled) {
+        status = "cancelled";
+        LOG(INFO) << "delete bitmap orphan check cancelled, instance_id=" << *instance_id
+                  << ", tablet_id=" << tablet_id << ", scanned_kvs=" << result.scanned_kvs;
+    } else if (!result.key.empty()) {
+        status = "suspected_orphan";
+    } else if (result.range_exhausted) {
+        status = "passed";
+    }
+    writer.String(status);
+    writer.Key("scanned_kvs");
+    writer.Int64(result.scanned_kvs);
+    writer.Key("range_exhausted");
+    writer.Bool(result.range_exhausted);
+    writer.Key("elapsed_ms");
+    writer.Int64(std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - start)
+                         .count());
+    if (!result.key.empty()) {
+        writer.Key("key");
+        writer.String(hex(result.key).c_str());
+        writer.Key("tablet_id");
+        writer.Int64(result.tablet_id);
+        writer.Key("rowset_id");
+        writer.String(result.rowset_id.c_str());
+        writer.Key("version");
+        writer.Int64(result.version);
+        writer.Key("segment_id");
+        writer.Int64(result.segment_id);
+    }
+    writer.EndObject();
+    return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
 }
 
 HttpResponse process_check_job_info(RecyclerServiceImpl* service, brpc::Controller* cntl) {

@@ -123,6 +123,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1884,7 +1885,6 @@ public class SchemaChangeHandler extends AlterHandler {
             indexChangeJob.getInfo(indexChangeJobInfos);
         }
 
-
         // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
         indexChangeJobInfos.sort(comparator);
@@ -2273,6 +2273,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    indexSchemaMap.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
+                    newIndexes);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
                         + " buildIndexChange: {}, indexSchemaMap:{}",
@@ -2315,7 +2319,6 @@ public class SchemaChangeHandler extends AlterHandler {
                                OlapTable olapTable) throws UserException {
         // TODO: convert alterClauses to alterSystemCommands for schema change
     }
-
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
@@ -2526,7 +2529,6 @@ public class SchemaChangeHandler extends AlterHandler {
                         Long.parseLong(properties
                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)));
         }
-
 
         int verticalCompactionNumColumnsPerGroup = -1; // < 0 means don't update
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
@@ -3677,7 +3679,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
-
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,

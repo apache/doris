@@ -73,6 +73,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }

@@ -38,7 +38,7 @@ suite("variant_stream_load_batch", "variant_type,p2") {
 
     def create_table = { ->
         // allow unlimited variant subcolumns for this test
-        sql "set default_variant_max_subcolumns_count = 1"
+        sql "set debug_variant_max_subcolumns_count = 1"
         sql """
             DROP TABLE IF EXISTS ${tbl}
         """

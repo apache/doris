@@ -115,7 +115,7 @@ public class AgentTaskTest {
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
+                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false, false,
                 storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, 5);
 
         // drop
@@ -239,5 +239,24 @@ public class AgentTaskTest {
         dropTask2.failed();
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum(backendId1, TTaskType.DROP, true));
         Assert.assertEquals(2, AgentTaskQueue.getTaskNum(-1, TTaskType.DROP, true));
+    }
+
+    @Test
+    public void escapedReplicaPreservesPolicyWithV1Queries() throws Exception {
+        CreateReplicaTask replica = (CreateReplicaTask) createReplicaTask;
+        boolean previous = org.apache.doris.common.Config.enable_variant_v2;
+        java.lang.reflect.Field escaped = CreateReplicaTask.class.getDeclaredField("variantEscapeDotsInKeys");
+        escaped.setAccessible(true);
+        try {
+            org.apache.doris.common.Config.enable_variant_v2 = true;
+            escaped.setBoolean(createReplicaTask, true);
+            Assert.assertTrue(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
+            org.apache.doris.common.Config.enable_variant_v2 = false;
+            Assert.assertTrue(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
+            escaped.setBoolean(createReplicaTask, false);
+            Assert.assertFalse(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = previous;
+        }
     }
 }

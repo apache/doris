@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -336,11 +337,16 @@ public class PlanTranslatorContext {
         SlotRef slotRef;
         slotRef = new SlotRef(slotDescriptor);
         if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
-            slotDescriptor.setSubColLables(slotReference.getSubPath());
+            // BE resolves storage columns by these components, so send them in storage spelling.
+            List<String> subPath = slotReference.getOriginalTable()
+                    .filter(OlapTable.class::isInstance)
+                    .map(sourceTable -> ((OlapTable) sourceTable).toVariantStoragePath(slotReference.getSubPath()))
+                    .orElse(slotReference.getSubPath());
+            slotDescriptor.setSubColLables(subPath);
             // use lower case name for variant's root, since backend treat parent column as lower case
             // see issue: https://github.com/apache/doris/pull/32999/commits
             slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
-                    + "." + String.join(".", slotReference.getSubPath()));
+                    + "." + String.join(".", subPath));
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());

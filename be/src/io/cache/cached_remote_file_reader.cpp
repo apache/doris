@@ -48,9 +48,12 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_io_adaptor.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/peer_file_cache_reader.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/hdfs_file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
@@ -124,7 +127,11 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
           _cache_write_mode(opts.cache_write_mode),
           _tablet_id(opts.is_doris_table ? opts.tablet_id : 0),
           _storage_resource_id(opts.storage_resource_id),
-          _remote_file_reader(std::move(remote_file_reader)) {
+          _remote_file_reader(std::move(remote_file_reader)),
+          // HDFS destroys its handle after read errors. Even a successful cache fallback would
+          // leave size() and later required misses unusable, so never issue optional HDFS reads.
+          _io_adaptor_supports_fallback(dynamic_cast<HdfsFileReader*>(_remote_file_reader.get()) ==
+                                        nullptr) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
     if (_is_doris_table) {
         _init_doris_table_cache();
@@ -319,20 +326,6 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
                 .tag("error", st.msg());
     }
     stats.from_peer_cache = st.ok();
-    return st;
-}
-
-// Execute S3 read
-Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
-                       ReadStatistics& stats, const IOContext* io_ctx,
-                       FileReaderSPtr remote_file_reader) {
-    s3_read_counter << 1;
-    SCOPED_RAW_TIMER(&stats.remote_read_timer);
-    stats.from_peer_cache = false;
-    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
-    if (st.ok()) {
-        stats.remote_physical_read_bytes += size;
-    }
     return st;
 }
 
@@ -602,7 +595,7 @@ Status CachedRemoteFileReader::_execute_s3_fallback(size_t empty_start, size_t s
     }
     buffer.reset(new char[span_size]);
     size_t read_size = span_size;
-    return execute_s3_read(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
+    return _read_remote_at(empty_start, Slice(buffer.get(), span_size), &read_size, io_ctx, stats);
 }
 
 Status CachedRemoteFileReader::_execute_sequential_peer_read(
@@ -1060,15 +1053,11 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             size_t remote_bytes_read {0};
             stats.hit_cache = false;
             stats.from_peer_cache = false;
-            s3_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(
+            RETURN_IF_ERROR(_read_remote_at(
                     current_offset, Slice(result.data + (current_offset - offset), read_size),
-                    &remote_bytes_read, io_ctx));
+                    &remote_bytes_read, io_ctx, stats));
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
-            // Self-heal fell back to a real storage GET; count it as physical remote IO.
-            stats.remote_physical_read_bytes += remote_bytes_read;
             DCHECK(remote_bytes_read == read_size);
         }
 
@@ -1121,6 +1110,53 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     return Status::OK();
 }
 
+bool CachedRemoteFileReader::_try_read_from_inflight_buffers(size_t offset, Slice result,
+                                                             size_t bytes_req, bool is_dryrun,
+                                                             ReadStatistics& stats) {
+    if (!config::enable_async_file_cache_write_inflight_write_buffer_index) {
+        return false;
+    }
+    auto* inflight_index = _cache->inflight_write_buffer_index();
+    DORIS_CHECK(inflight_index != nullptr);
+    const auto block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(block_size > 0);
+    const size_t request_end = offset + bytes_req;
+    std::vector<size_t> block_offsets;
+    for (size_t block_offset = offset / block_size * block_size; block_offset < request_end;
+         block_offset += block_size) {
+        block_offsets.emplace_back(block_offset);
+    }
+    auto entries = inflight_index->lookup_all(_cache_hash, block_offsets);
+    bool fully_covered = true;
+    for (const auto& item : entries) {
+        if (item.entry == nullptr) {
+            ++stats.inflight_write_buffer_index_miss;
+            fully_covered = false;
+        } else {
+            ++stats.inflight_write_buffer_index_hit;
+        }
+    }
+    if (!fully_covered) {
+        return false;
+    }
+    for (const auto& item : entries) {
+        const auto& entry = item.entry;
+        DORIS_CHECK(entry->buffer != nullptr);
+        DORIS_CHECK(entry->buffer_offset == item.block_offset);
+        const size_t copy_left = std::max(offset, item.block_offset);
+        const size_t copy_end = std::min(request_end, item.block_offset + block_size);
+        const size_t copy_size = copy_end - copy_left;
+        const size_t buffer_offset = copy_left - item.block_offset;
+        DORIS_CHECK(buffer_offset <= entry->buffer_size);
+        DORIS_CHECK(copy_size <= entry->buffer_size - buffer_offset);
+        if (!is_dryrun) [[likely]] {
+            std::memcpy(result.data + copy_left - offset, entry->buffer->data() + buffer_offset,
+                        copy_size);
+        }
+    }
+    return true;
+}
+
 Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         size_t offset, Slice result, size_t bytes_req, bool is_dryrun, size_t* bytes_read,
         ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
@@ -1129,8 +1165,8 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         stats.hit_cache = false;
         stats.from_peer_cache = false;
         stats.skip_cache = true;
-        s3_read_counter << 1;
         if (is_dryrun) [[unlikely]] {
+            s3_read_counter << 1;
             *bytes_read = bytes_req;
             g_read_cache_indirect_bytes << 0;
             g_read_cache_indirect_total_bytes << bytes_req;
@@ -1138,22 +1174,31 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         }
 
         size_t remote_bytes_read = bytes_req;
-        SCOPED_RAW_TIMER(&stats.remote_read_timer);
-        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
-                                                     &remote_bytes_read, io_ctx));
+        RETURN_IF_ERROR(_read_remote_at(offset, Slice(result.data, bytes_req), &remote_bytes_read,
+                                        io_ctx, stats));
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
-        // This is a real storage GET, so it must count as physical remote IO just like
-        // the block-download path; otherwise profiles show scanned-from-remote bytes
-        // with zero physical reads whenever remote-only-on-miss is active.
-        stats.remote_physical_read_bytes += remote_bytes_read;
         g_read_cache_indirect_bytes << remote_bytes_read;
         g_read_cache_indirect_total_bytes << remote_bytes_read;
         return Status::OK();
     };
 
     g_read_cache_indirect_num << 1;
+    // A zero write budget must not hide buffers accepted before async writes were disabled.
+    // Check full memory coverage before disk metadata, matching the memory-first async planner.
+    if (_try_read_from_inflight_buffers(offset, result, bytes_req, is_dryrun, stats)) {
+        const size_t local_read_bytes = is_dryrun ? 0 : bytes_req;
+        if (is_dryrun) [[unlikely]] {
+            g_skip_local_cache_io_sum_bytes << bytes_req;
+        }
+        *bytes_read = bytes_req;
+        stats.hit_cache = true;
+        source_read_breakdown.local_bytes += local_read_bytes;
+        g_read_cache_indirect_bytes << local_read_bytes;
+        g_read_cache_indirect_total_bytes << bytes_req;
+        return Status::OK();
+    }
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
     cache_context.tablet_id = _tablet_id;
@@ -1210,6 +1255,213 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
     g_read_cache_indirect_bytes << local_read_bytes;
     g_read_cache_indirect_total_bytes << bytes_req;
     return Status::OK();
+}
+
+namespace {
+
+// A partial cache copy cannot be published: the caller retries the complete range through
+// the normal planner when any block fails, preserving its cache-repair and remote fallback.
+bool read_adaptor_cached_blocks(BlockFileCache* cache, const UInt128Wrapper& hash,
+                                const FileBlocks& blocks, size_t offset, Slice result,
+                                ReadStatistics& stats) {
+    const auto bytes_req = result.size;
+    const auto local_start = MonotonicNanos();
+    ++stats.io_adaptor_local_reads;
+    Defer local_timer {[&] {
+        const auto elapsed = MonotonicNanos() - local_start;
+        stats.io_adaptor_local_time_ns += elapsed;
+        stats.local_read_timer += elapsed;
+    }};
+    for (const auto& block : blocks) {
+        const auto left = std::max(offset, block->range().left);
+        const auto right = std::min(offset + bytes_req - 1, block->range().right);
+        Status status = block->read(Slice(result.data + left - offset, right - left + 1),
+                                    left - block->range().left);
+        if (!status.ok()) {
+            // Concurrent eviction can remove a previously downloaded file. The ordinary path
+            // already handles self-healing and remote fallback, so retry the full request there.
+            if (status.is<ErrorCode::NOT_FOUND>()) {
+                cache->remove_if_cached_async(hash);
+            }
+            return false;
+        }
+    }
+    const auto elapsed = MonotonicNanos() - local_start;
+    cache->io_adaptor().record_local(bytes_req, elapsed / 1000);
+    return true;
+}
+
+// Inspect memory coverage without taking the disk-cache mutex. The ordinary memory-first planners
+// retain responsibility for copying data and counting inflight hits or misses exactly once.
+bool fully_covered_by_inflight_buffers(BlockFileCache* cache, const UInt128Wrapper& hash,
+                                       size_t offset, size_t bytes_req) {
+    const size_t block_size = config::file_cache_each_block_size;
+    std::vector<size_t> offsets;
+    for (size_t block_offset = offset / block_size * block_size; block_offset < offset + bytes_req;
+         block_offset += block_size) {
+        offsets.push_back(block_offset);
+    }
+    const auto entries = cache->inflight_write_buffer_index()->lookup_all(hash, offsets);
+    return std::ranges::all_of(entries, [](const auto& item) { return item.entry != nullptr; });
+}
+
+} // namespace
+
+Status CachedRemoteFileReader::_read_remote_at(size_t offset, Slice result, size_t* bytes_read,
+                                               const IOContext* io_ctx, ReadStatistics& stats) {
+    s3_read_counter << 1;
+    stats.from_peer_cache = false;
+    const auto start = MonotonicNanos();
+    auto status = _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
+    const auto elapsed = MonotonicNanos() - start;
+    stats.remote_read_timer += elapsed;
+    if (status.ok()) {
+        stats.remote_physical_read_bytes += *bytes_read;
+        // Misses can expand to full blocks or issue several GETs. Sample each complete call
+        // at its actual size; neither cache writeback nor a later GET belongs to this sample.
+        if (*bytes_read == result.size && _io_adaptor_eligible(result.size, io_ctx)) {
+            _cache->io_adaptor().record_remote(*bytes_read, elapsed / 1000);
+        }
+    }
+    return status;
+}
+
+bool CachedRemoteFileReader::_io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const {
+    // Only explicitly enabled external query reads may adapt. Background/index/warmup reads
+    // and memory-cache/inflight payloads retain their existing policies. After an optional
+    // remote read fails, keep later cache hits on the normal path for this reader's lifetime.
+    return io_ctx->enable_file_cache_io_adaptor && !_is_doris_table && !io_ctx->is_dryrun &&
+           !_io_adaptor_remote_failed.load(std::memory_order_acquire) && !io_ctx->is_warmup &&
+           !io_ctx->is_index_data && !io_ctx->is_inverted_index && !io_ctx->should_stop &&
+           io_ctx->read_file_cache && bytes > 0 && _io_adaptor_supports_fallback &&
+           _cache->get_storage()->get_type() == FileCacheStorageType::DISK;
+}
+
+Status CachedRemoteFileReader::_try_read_with_io_adaptor(
+        size_t offset, Slice result, size_t bytes_req, CacheWriteMode cache_write_mode,
+        size_t* bytes_read, const IOContext* io_ctx, ReadStatistics& stats,
+        SourceReadBreakdown& sources, bool* handled) {
+    *handled = false;
+    // Accepted async payloads remain readable after async writes are disabled. The
+    // remote-only-on-miss planner still checks memory first for a query with zero write budget,
+    // so it must not wait for unrelated disk eviction under _cache->_mutex either.
+    const bool memory_first = cache_write_mode == CacheWriteMode::ASYNC_WRITE ||
+                              use_remote_only_on_cache_miss(io_ctx);
+    if (memory_first && config::enable_async_file_cache_write_inflight_write_buffer_index &&
+        fully_covered_by_inflight_buffers(_cache, _cache_hash, offset, bytes_req)) {
+        return Status::OK();
+    }
+    FileBlocks blocks;
+    bool fully_covered = false;
+    CacheContext context(io_ctx);
+    context.stats = &stats;
+    context.tablet_id = _tablet_id;
+    ++stats.io_adaptor_lookup_count;
+    {
+        SCOPED_RAW_TIMER(&stats.io_adaptor_lookup_time_ns);
+        RETURN_IF_ERROR(_cache->get_downloaded_blocks_if_fully_covered(
+                _cache_hash, offset, bytes_req, context, &blocks, &fully_covered));
+    }
+    if (!fully_covered) {
+        // A mixed hit/miss or inflight-buffer request follows the existing sync/async planner.
+        // In particular, a bypass must never acquire downloader ownership or cause writeback.
+        return Status::OK();
+    }
+    auto& adaptor = _cache->io_adaptor();
+    const auto decision = adaptor.select(bytes_req, config::file_cache_io_adaptor_skip_read_factor);
+    // Release the path-wide probe permit even on cancellation, short reads or local repair.
+    Defer probe_done {[&] {
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
+    }};
+    stats.io_adaptor_local_probes += decision.local_probe;
+    stats.io_adaptor_remote_probes += decision.remote_probe;
+    if (decision.read_remote()) {
+        // Requested and returned bytes differ for failed/short reads recovered from local cache.
+        ++stats.io_adaptor_bypass_count;
+        stats.io_adaptor_bypass_bytes += bytes_req;
+        size_t remote_bytes = 0;
+        s3_read_counter << 1;
+        const auto start = MonotonicNanos();
+        Status status = _remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
+                                                     &remote_bytes, io_ctx);
+        const auto elapsed = MonotonicNanos() - start;
+        stats.io_adaptor_remote_time_ns += elapsed;
+        stats.remote_read_timer += elapsed;
+        stats.io_adaptor_remote_bytes += remote_bytes;
+        if (status.ok() && remote_bytes == bytes_req) {
+            stats.remote_physical_read_bytes += remote_bytes;
+            adaptor.record_remote(remote_bytes, elapsed / 1000);
+            sources.remote_bytes += remote_bytes;
+            stats.hit_cache = false;
+            stats.skip_cache = true;
+            *bytes_read = remote_bytes;
+            *handled = true;
+            return Status::OK();
+        }
+        ++stats.io_adaptor_remote_failures;
+        if (io_ctx->should_stop || status.is<ErrorCode::CANCELLED>()) {
+            return status.ok() ? Status::Cancelled("Adaptive cache read cancelled") : status;
+        }
+        // Repeating an optional failing GET would delay every subsequent cached range. Keep
+        // required remote misses available without poisoning other readers' shared estimates.
+        _io_adaptor_remote_failed.store(true, std::memory_order_release);
+        // The same immutable range is still cached. Overwrite the complete caller range after
+        // an error/short remote read; never publish the partially overwritten buffer as success.
+        ++stats.io_adaptor_fallback_local;
+    }
+    if (read_adaptor_cached_blocks(_cache, _cache_hash, blocks, offset,
+                                   Slice(result.data, bytes_req), stats)) {
+        // Lookup alone must not count: a failed disk copy retries through the ordinary planner.
+        _cache->record_query_cache_hit(blocks);
+        sources.local_bytes += bytes_req;
+        *bytes_read = bytes_req;
+        *handled = true;
+    }
+    return Status::OK();
+}
+
+Status CachedRemoteFileReader::_read_with_cache_policy(size_t offset, Slice result,
+                                                       size_t bytes_req, size_t* bytes_read,
+                                                       const IOContext* io_ctx,
+                                                       ReadStatistics& stats,
+                                                       SourceReadBreakdown& source_read_breakdown) {
+    const bool is_dryrun = io_ctx->is_dryrun;
+    Status read_st = Status::OK();
+    const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
+    TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
+    if (_io_adaptor_eligible(bytes_req, io_ctx)) {
+        bool handled = false;
+        read_st = _try_read_with_io_adaptor(offset, result, bytes_req, cache_write_mode, bytes_read,
+                                            io_ctx, stats, source_read_breakdown, &handled);
+        if (!read_st.ok() || handled) {
+            return read_st;
+        }
+    }
+    if (use_remote_only_on_cache_miss(io_ctx)) {
+        read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
+                                                  stats, source_read_breakdown, io_ctx);
+        return read_st;
+    }
+
+    size_t already_read = 0;
+    if (_try_read_from_cached_files_directly(offset, result, bytes_req, is_dryrun, stats,
+                                             source_read_breakdown, already_read, bytes_read)) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
+    DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
+                cache_write_mode == CacheWriteMode::ASYNC_WRITE);
+    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE) {
+        read_st = _read_async_write_path(offset, result, bytes_req, already_read, bytes_read, stats,
+                                         source_read_breakdown, io_ctx);
+    } else {
+        read_st = _read_from_indirect_cache(offset, result, bytes_req, already_read, is_dryrun,
+                                            bytes_read, stats, source_read_breakdown, io_ctx);
+    }
+    return read_st;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -1282,30 +1534,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
-    if (use_remote_only_on_cache_miss(io_ctx)) {
-        read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
-                                                  stats, source_read_breakdown, io_ctx);
-        return read_st;
-    }
-
-    size_t already_read = 0;
-    if (_try_read_from_cached_files_directly(offset, result, bytes_req, is_dryrun, stats,
-                                             source_read_breakdown, already_read, bytes_read)) {
-        return Status::OK();
-    }
-
-    const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
-    TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
-    DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
-    DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
-                cache_write_mode == CacheWriteMode::ASYNC_WRITE);
-    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE) {
-        read_st = _read_async_write_path(offset, result, bytes_req, already_read, bytes_read, stats,
-                                         source_read_breakdown, io_ctx);
-    } else {
-        read_st = _read_from_indirect_cache(offset, result, bytes_req, already_read, is_dryrun,
-                                            bytes_read, stats, source_read_breakdown, io_ctx);
-    }
+    read_st = _read_with_cache_policy(offset, result, bytes_req, bytes_read, io_ctx, stats,
+                                      source_read_breakdown);
     return read_st;
 }
 
@@ -1412,6 +1642,18 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+    statis->io_adaptor_lookup_count += read_stats.io_adaptor_lookup_count;
+    statis->io_adaptor_lookup_time_ns += read_stats.io_adaptor_lookup_time_ns;
+    statis->io_adaptor_local_reads += read_stats.io_adaptor_local_reads;
+    statis->io_adaptor_local_time_ns += read_stats.io_adaptor_local_time_ns;
+    statis->io_adaptor_bypass_count += read_stats.io_adaptor_bypass_count;
+    statis->io_adaptor_bypass_bytes += read_stats.io_adaptor_bypass_bytes;
+    statis->io_adaptor_remote_bytes += read_stats.io_adaptor_remote_bytes;
+    statis->io_adaptor_remote_time_ns += read_stats.io_adaptor_remote_time_ns;
+    statis->io_adaptor_local_probes += read_stats.io_adaptor_local_probes;
+    statis->io_adaptor_remote_probes += read_stats.io_adaptor_remote_probes;
+    statis->io_adaptor_remote_failures += read_stats.io_adaptor_remote_failures;
+    statis->io_adaptor_fallback_local += read_stats.io_adaptor_fallback_local;
     statis->async_cache_write_submitted += read_stats.async_cache_write_submitted;
     statis->async_cache_write_rejected += read_stats.async_cache_write_rejected;
     statis->async_cache_write_buffer_alloc_fail += read_stats.async_cache_write_buffer_alloc_fail;

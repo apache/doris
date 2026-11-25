@@ -43,6 +43,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -56,8 +57,10 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CleanableFailure;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -85,8 +88,7 @@ import java.util.function.BooleanSupplier;
 public class IcebergTransaction implements Transaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergTransaction.class);
-    private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
-    private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
+    private static final String LEGACY_DELETE_ISOLATION_LEVEL = "delete_isolation_level";
 
     private final IcebergMetadataOps ops;
     private Table table;
@@ -101,7 +103,9 @@ public class IcebergTransaction implements Transaction {
     private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
     private String branchName;
     private Long baseSnapshotId;
+    private IsolationLevel rowLevelIsolationLevel;
     private boolean hasStagedUpdates;
+    private boolean commitMayHaveSucceeded;
     private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     // Rewrite operation support
@@ -347,7 +351,10 @@ public class IcebergTransaction implements Transaction {
                                 + " must have format version 2 or higher for position deletes");
                     }
                 }
-                this.transaction = newWriteTransaction();
+                org.apache.iceberg.Transaction opened = newWriteTransaction();
+                this.rowLevelIsolationLevel = resolveIsolationLevel(opened.table(),
+                        TableProperties.DELETE_ISOLATION_LEVEL, TableProperties.DELETE_ISOLATION_LEVEL_DEFAULT);
+                this.transaction = opened;
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
@@ -443,7 +450,13 @@ public class IcebergTransaction implements Transaction {
                                 + " must have format version 2 or higher for position deletes");
                     }
                 }
-                this.transaction = newWriteTransaction();
+                org.apache.iceberg.Transaction opened = newWriteTransaction();
+                boolean mergeInto = insertCtx != null && insertCtx.isMergeInto();
+                this.rowLevelIsolationLevel = resolveIsolationLevel(opened.table(),
+                        mergeInto ? TableProperties.MERGE_ISOLATION_LEVEL : TableProperties.UPDATE_ISOLATION_LEVEL,
+                        mergeInto ? TableProperties.MERGE_ISOLATION_LEVEL_DEFAULT
+                                : TableProperties.UPDATE_ISOLATION_LEVEL_DEFAULT);
+                this.transaction = opened;
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started merge transaction for table: {}", dorisTable.getName());
                 return null;
@@ -701,11 +714,19 @@ public class IcebergTransaction implements Transaction {
                 if (!hasStagedUpdates) {
                     validatePinnedWriterMetadata();
                 }
+                // A REST catalog may publish metadata before its response is lost or malformed.
+                // From this point, only an SDK CleanableFailure proves that deletion is safe.
+                commitMayHaveSucceeded = true;
                 transaction.commitTransaction();
             });
         } catch (RuntimeException e) {
+            if (e instanceof CleanableFailure) {
+                commitMayHaveSucceeded = false;
+            }
+            cleanupReportedFiles();
             throw e;
         } catch (Exception e) {
+            cleanupReportedFiles();
             throw new UserException("Failed to commit Iceberg transaction: " + e.getMessage(), e);
         } finally {
             releaseWritableTableLease();
@@ -842,6 +863,7 @@ public class IcebergTransaction implements Transaction {
     @Override
     public void rollback() {
         try {
+            cleanupReportedFiles();
             if (isRewriteMode) {
                 // Clear the collected files for rewrite mode
                 synchronized (filesToDelete) {
@@ -852,9 +874,52 @@ public class IcebergTransaction implements Transaction {
                 }
                 LOG.info("Rewrite transaction rolled back");
             }
-            // For insert mode, do nothing as original implementation
         } finally {
             releaseWritableTableLease();
+        }
+    }
+
+    private void cleanupReportedFiles() {
+        List<TIcebergCommitData> pending;
+        synchronized (this) {
+            pending = new ArrayList<>(commitDataList);
+            commitDataList.clear();
+        }
+        Table rollbackTable = table;
+        if (commitMayHaveSucceeded) {
+            LOG.warn("Preserving {} reported Iceberg files because the commit may have succeeded", pending.size());
+            return;
+        }
+        if (rollbackTable == null || pending.isEmpty()) {
+            return;
+        }
+        Set<String> paths = new HashSet<>();
+        for (TIcebergCommitData data : pending) {
+            if (data != null && data.isSetFilePath() && data.getFilePath() != null
+                    && !data.getFilePath().isEmpty()) {
+                paths.add(data.getFilePath());
+            }
+        }
+        if (paths.isEmpty()) {
+            return;
+        }
+        try {
+            // Cleanup must finish before releasing the lease and its generation's FileIO.
+            // If begin failed before acquiring a lease, use the retained metadata ops' credentials.
+            ExecutionAuthenticator authenticator = writableTableLease == null
+                    ? ops.getExecutionAuthenticator() : writableAuthenticator();
+            authenticator.execute(() -> {
+                for (String path : paths) {
+                    try {
+                        rollbackTable.io().deleteFile(path);
+                    } catch (Exception e) {
+                        // Keep the original query failure; log cleanup failures for orphan maintenance.
+                        LOG.warn("Failed to delete uncommitted Iceberg file {}: {}", path, e.getMessage());
+                    }
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to clean reported Iceberg files: {}", e.getMessage());
         }
     }
 
@@ -947,7 +1012,7 @@ public class IcebergTransaction implements Transaction {
             List<TIcebergCommitData> commitDataList, List<String> referencedDataFiles) {
         applyBaseSnapshotValidation(rowDelta);
         applyConflictDetectionFilter(rowDelta, icebergTable, commitDataList);
-        if (isSerializableIsolationLevel(icebergTable)) {
+        if (rowLevelIsolationLevel == IsolationLevel.SERIALIZABLE) {
             rowDelta.validateNoConflictingDataFiles();
         }
         rowDelta.validateDeletedFiles();
@@ -1072,13 +1137,12 @@ public class IcebergTransaction implements Transaction {
         return Collections.emptyList();
     }
 
-    private boolean isSerializableIsolationLevel(Table icebergTable) {
-        if (icebergTable == null) {
-            return true;
-        }
-        String level = icebergTable.properties()
-                .getOrDefault(DELETE_ISOLATION_LEVEL, DELETE_ISOLATION_LEVEL_DEFAULT);
-        return "serializable".equalsIgnoreCase(level);
+    private IsolationLevel resolveIsolationLevel(Table icebergTable, String property, String defaultLevel) {
+        // Resolve before BE file writes and retain the selection for this statement's commit.
+        // Standard operation settings override the legacy key; parse only the selected value.
+        Map<String, String> properties = icebergTable.properties();
+        return IsolationLevel.fromName(properties.getOrDefault(property,
+                properties.getOrDefault(LEGACY_DELETE_ISOLATION_LEVEL, defaultLevel)));
     }
 
     private boolean shouldRewritePreviousDeleteFiles() {
