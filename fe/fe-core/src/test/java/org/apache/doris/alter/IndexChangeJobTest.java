@@ -960,6 +960,26 @@ public class IndexChangeJobTest {
     }
 
     @Test
+    public void testDropIndexOnPartitionRejectedInCloudMode() throws Exception {
+        PartitionNamesInfo partition = new PartitionNamesInfo(false, Lists.newArrayList("p1"));
+        DropIndexOp partitionDrop = new DropIndexOp("index1", false, null, true, partition);
+        DropIndexOp tableDrop = new DropIndexOp("index1", false, null, true, null);
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud_drop_index_on_partition";
+            // Dropping the index from the whole table still works in cloud mode.
+            tableDrop.validate(new ConnectContext());
+            partitionDrop.validate(new ConnectContext());
+            Assert.fail("DROP INDEX ON PARTITION must be rejected in cloud mode");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage(),
+                    e.getMessage().contains("DROP INDEX ON PARTITION is not supported in cloud mode"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
     public void testDropIndexOnPartitionRejectsNonPartitionedTable() throws UserException {
         // testTable1 uses SinglePartitionInfo (non-partitioned), so DROP INDEX ON PARTITION should fail
         fakeEnv = new FakeEnv();
