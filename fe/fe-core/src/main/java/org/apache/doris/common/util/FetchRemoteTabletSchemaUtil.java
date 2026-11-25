@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -98,13 +99,15 @@ public class FetchRemoteTabletSchemaUtil {
             return Collections.emptyList();
         }
         boolean cloudMode = Config.isCloudMode();
+        List<Long> cloudVersions = cloudMode ? getCloudVisibleVersions(partitions) : List.of();
         int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
         List<Tablet> tablets = Lists.newArrayList();
         long tabletCount = 0;
-        for (PartitionTablets partition : partitions) {
-            if (cloudMode && partition.partition().getVisibleVersion() <= Partition.PARTITION_INIT_VERSION) {
+        for (int i = 0; i < partitions.size(); ++i) {
+            if (cloudMode && cloudVersions.get(i) <= Partition.PARTITION_INIT_VERSION) {
                 continue;
             }
+            PartitionTablets partition = partitions.get(i);
             tabletCount += partition.tablets().size();
             if (tabletCount <= maxTablets) {
                 tablets.addAll(partition.tablets());
@@ -112,6 +115,19 @@ public class FetchRemoteTabletSchemaUtil {
         }
         checkTabletCount(tabletCount, maxTablets);
         return tablets;
+    }
+
+    private static List<Long> getCloudVisibleVersions(List<PartitionTablets> partitions) throws AnalysisException {
+        if (partitions.size() == 1) {
+            return List.of(partitions.get(0).partition().getVisibleVersion());
+        }
+        try {
+            // The batch API returns versions in the same order as the catalog snapshot.
+            return CloudPartition.getSnapshotVisibleVersion(
+                    partitions.stream().map(p -> (CloudPartition) p.partition()).toList());
+        } catch (RpcException e) {
+            throw new AnalysisException("Extended DESCRIBE could not fetch partition versions", e);
+        }
     }
 
     private static void checkTabletCount(long tabletCount, int maxTablets) throws AnalysisException {
