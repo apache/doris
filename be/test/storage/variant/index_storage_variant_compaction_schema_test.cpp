@@ -24,6 +24,7 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/tablet/tablet.h"
 #include "storage/variant/index_storage_variant_test_base.h"
 #include "util/defer_op.h"
 
@@ -31,17 +32,17 @@ namespace doris::index_storage_test {
 
 class IndexStorageVariantCompactionSchemaTest : public IndexStorageTestFixture {
 protected:
-    Status write_desc_rowsets(std::vector<RowsetSharedPtr>& rowsets);
+    Status write_desc_rowsets(std::vector<RowsetSharedPtr>& rowsets, int64_t tablet_id = 110055);
 };
 
 Status IndexStorageVariantCompactionSchemaTest::write_desc_rowsets(
-        std::vector<RowsetSharedPtr>& rowsets) {
+        std::vector<RowsetSharedPtr>& rowsets, int64_t tablet_id) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
     variant.max_subcolumns_count = 0;
     IndexTabletOptions options;
-    options.tablet_id = 110055;
+    options.tablet_id = tablet_id;
     options.external_segment_meta = true;
     options.variant_columns = {std::move(variant)};
     RETURN_IF_ERROR(create_tablet(options));
@@ -60,9 +61,41 @@ Status IndexStorageVariantCompactionSchemaTest::write_desc_rowsets(
     return Status::OK();
 }
 
-TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMetadata) {
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescCachesOnlyTheCapturedRowsets) {
     std::vector<RowsetSharedPtr> rowsets;
     const auto status = write_desc_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status;
+    auto describe = [&](const std::vector<RowsetSharedPtr>& snapshot) {
+        return variant_util::VariantCompactionUtil::get_extended_desc_schema(
+                tablet()->get_tablet_info(), snapshot, tablet_schema());
+    };
+
+    const std::vector<RowsetSharedPtr> original {rowsets.front()};
+    auto first = describe(original);
+    ASSERT_TRUE(first.has_value()) << first.error();
+    EXPECT_FALSE(schema_has_extracted_variant_path(*first.value(), 2, "extra"));
+    auto repeated = describe(original);
+    ASSERT_TRUE(repeated.has_value()) << repeated.error();
+    EXPECT_EQ(first.value(), repeated.value());
+
+    auto updated = describe(rowsets);
+    ASSERT_TRUE(updated.has_value()) << updated.error();
+    EXPECT_TRUE(schema_has_extracted_variant_path(*updated.value(), 2, "existing"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*updated.value(), 2, "extra"));
+    auto previous = describe(original);
+    ASSERT_TRUE(previous.has_value()) << previous.error();
+    EXPECT_EQ(first.value(), previous.value());
+
+    TabletInfo recreated(tablet()->tablet_id(), UniqueId::gen_uid());
+    auto replacement = variant_util::VariantCompactionUtil::get_extended_desc_schema(
+            recreated, original, tablet_schema());
+    ASSERT_TRUE(replacement.has_value()) << replacement.error();
+    EXPECT_NE(first.value(), replacement.value());
+}
+
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMetadata) {
+    std::vector<RowsetSharedPtr> rowsets;
+    const auto status = write_desc_rowsets(rowsets, 110056);
     ASSERT_TRUE(status.ok()) << status;
 
     auto* sync = SyncPoint::get_instance();
@@ -78,13 +111,13 @@ TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMet
     {
         sync->enable_processing();
         Defer cleanup {[&] { sync->disable_processing(); }};
-        auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
-                rowsets, tablet_schema());
+        auto result = variant_util::VariantCompactionUtil::get_extended_desc_schema(
+                tablet()->get_tablet_info(), rowsets, tablet_schema());
         ASSERT_FALSE(result.has_value()) << "DESC returned a partial schema";
         EXPECT_TRUE(result.error().is<ErrorCode::IO_ERROR>()) << result.error();
     }
-    auto recovered = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
-            rowsets, tablet_schema());
+    auto recovered = variant_util::VariantCompactionUtil::get_extended_desc_schema(
+            tablet()->get_tablet_info(), rowsets, tablet_schema());
     ASSERT_TRUE(recovered.has_value()) << recovered.error();
     EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "existing"));
     EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "extra"));

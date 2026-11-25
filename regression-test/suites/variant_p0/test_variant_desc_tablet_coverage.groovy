@@ -74,4 +74,11 @@ suite("test_variant_desc_tablet_coverage", "p0") {
 
     sql "SET max_fetch_remote_schema_tablet_count = 0"
     assertTrue(variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_empty)").isEmpty())
+
+    sql """INSERT INTO variant_desc_tablet_coverage VALUES (11, PARSE_TO_VARIANT('{"later":1}'))"""
+    sql "SET max_fetch_remote_schema_tablet_count = 5"
+    def updatedPaths = allPaths + ["payload.later"]
+    assertEquals(updatedPaths.sort(), variantPaths("DESC variant_desc_tablet_coverage"))
+    assertEquals(["payload.later", "payload.narrow"],
+            variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_narrow)"))
 }

@@ -26,6 +26,7 @@
 #include <gen_cpp/Status_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -94,6 +95,7 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "util/client_cache.h"
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
@@ -355,55 +357,22 @@ TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string&
     return result;
 }
 
-// check if two paths which same prefix have different structure
-static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
-                                                 const PathInData::Parts& rhs) {
-    if (lhs.size() != rhs.size()) {
-        return false; // different size means different structure
-    }
-    // Since we group by path string, lhs and rhs must have the same size and keys
-    // We only need to check if they have different nested structure
-    for (size_t i = 0; i < lhs.size(); ++i) {
-        if (lhs[i] != rhs[i]) {
-            VLOG_DEBUG << fmt::format(
-                    "Check different structure: {} vs {}, lhs[i].is_nested: {}, rhs[i].is_nested: "
-                    "{}",
-                    lhs[i].key, rhs[i].key, lhs[i].is_nested, rhs[i].is_nested);
-            return true;
-        }
-    }
-    return false;
-}
-
 Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
-    // Group paths by their string representation to reduce comparisons
-    std::unordered_map<std::string, std::vector<size_t>> path_groups;
-
-    for (size_t i = 0; i < tuple_paths.size(); ++i) {
-        // same path should have same structure, so we group them by path
-        path_groups[tuple_paths[i].get_path()].push_back(i);
-        // print part of tuple_paths[i]
-        VLOG_DEBUG << "tuple_paths[i]: " << tuple_paths[i].get_path();
+    if (tuple_paths.size() < 2) {
+        return Status::OK();
     }
-
-    // Only compare paths within the same group
-    for (const auto& [path_str, indices] : path_groups) {
-        if (indices.size() <= 1) {
-            continue; // No conflicts possible
-        }
-
-        // Compare all pairs within this group
-        for (size_t i = 0; i < indices.size(); ++i) {
-            for (size_t j = 0; j < i; ++j) {
-                if (has_different_structure_in_same_path(tuple_paths[indices[i]].get_parts(),
-                                                         tuple_paths[indices[j]].get_parts())) {
-                    return Status::DataQualityError(
-                            "Ambiguous paths: {} vs {} with different nested part {} vs {}",
-                            tuple_paths[indices[i]].get_path(), tuple_paths[indices[j]].get_path(),
-                            tuple_paths[indices[i]].has_nested_part(),
-                            tuple_paths[indices[j]].has_nested_part());
-                }
-            }
+    // A dotted key and a nested key can share the same text with different part counts.
+    // For the same text and part count, comparing with the first path is sufficient.
+    phmap::flat_hash_map<std::pair<std::string_view, size_t>, const PathInData*> first_paths;
+    for (const auto& path : tuple_paths) {
+        const auto& parts = path.get_parts();
+        auto [first, inserted] = first_paths.try_emplace(
+                std::pair<std::string_view, size_t> {path.get_path(), parts.size()}, &path);
+        if (!inserted && first->second->get_parts() != parts) {
+            return Status::DataQualityError(
+                    "Ambiguous paths: {} vs {} with different nested part {} vs {}",
+                    path.get_path(), first->second->get_path(), path.has_nested_part(),
+                    first->second->has_nested_part());
         }
     }
     return Status::OK();
@@ -1628,6 +1597,27 @@ Result<TabletSchemaSPtr> VariantCompactionUtil::calculate_variant_extended_schem
     RETURN_IF_ERROR_RESULT(
             get_least_common_schema(schemas, base_schema, least_common_schema, false));
     return least_common_schema;
+}
+
+Result<TabletSchemaSPtr> VariantCompactionUtil::get_extended_desc_schema(
+        const TabletInfo& tablet, const std::vector<RowsetSharedPtr>& rowsets,
+        const TabletSchemaSPtr& base_schema) {
+    auto* cache = TabletSchemaCache::instance();
+    const auto key =
+            TabletSchemaCache::build_extended_desc_cache_key(tablet, *base_schema, rowsets);
+    auto [handle, schema] = cache->lookup_schema(key);
+    if (handle != nullptr) {
+        cache->release(handle);
+        return schema;
+    }
+
+    auto merged_schema = calculate_variant_extended_schema(rowsets, base_schema);
+    if (!merged_schema.has_value()) {
+        return ResultError(std::move(merged_schema.error()));
+    }
+    auto [inserted_handle, cached_schema] = cache->insert(key, std::move(merged_schema).value());
+    cache->release(inserted_handle);
+    return cached_schema;
 }
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,

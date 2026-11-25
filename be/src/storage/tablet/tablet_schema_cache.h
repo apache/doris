@@ -20,12 +20,15 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
+struct TabletInfo;
 
 class OlapTableSchemaParam;
 struct OlapTableIndexSchema;
@@ -61,6 +64,10 @@ public:
                                                    const OlapTableSchemaParam* table_schema_param,
                                                    const TabletSchema& ori_tablet_schema,
                                                    const OlapTableIndexSchema* index_schema);
+
+    static std::string build_extended_desc_cache_key(const TabletInfo& tablet,
+                                                     const TabletSchema& base_schema,
+                                                     const std::vector<RowsetSharedPtr>& rowsets);
 
     void release(Cache::Handle*);
 
