@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -57,7 +58,6 @@
 #include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 
 namespace doris::format::csv {
@@ -601,7 +601,7 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
     });
     ASSERT_TRUE(ThreadPoolBuilder("CsvPrefetchTest")
                         .set_min_threads(1)
@@ -611,8 +611,8 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
     // Keep the small fixture on the same prefetch path as a large S3 CSV file.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<CsvPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [client](const ObjStorageClientConfig&) { return client; });
     _params.__set_file_type(TFileType::FILE_S3);
     _state._query_options.__set_enable_file_cache(false);
 

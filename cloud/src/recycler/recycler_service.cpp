@@ -41,7 +41,7 @@
 #include "common/http_helper.h"
 #include "common/logging.h"
 #include "common/util.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"

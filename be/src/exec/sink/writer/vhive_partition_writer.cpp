@@ -26,7 +26,7 @@
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -178,8 +178,8 @@ bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pen
         return false;
     }
 
-    doris::io::S3FileWriter* s3_mpu_file_writer =
-            dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
+    doris::io::ObjStorageFileWriter* s3_mpu_file_writer =
+            dynamic_cast<doris::io::ObjStorageFileWriter*>(_file_writer.get());
     DCHECK(s3_mpu_file_writer != nullptr);
     std::string upload_id = s3_mpu_file_writer->upload_id();
     if (upload_id.empty()) {

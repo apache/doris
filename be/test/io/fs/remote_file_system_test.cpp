@@ -40,12 +40,12 @@
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
 #include "runtime/exec_env.h"
 #include "util/jni-util.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
+#include "io/object_storage/be_obj_storage_config_parser.h"
 
 namespace doris {
 
@@ -413,13 +413,14 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
                           .set_min_threads(5)
                           .set_max_threads(10)
                           .build(&_pool);
-    ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
-    S3Conf s3_conf;
+    ExecEnv::GetInstance()->_obj_storage_upload_thread_pool = std::move(_pool);
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());
-    CHECK_STATUS_OK(S3ClientFactory::convert_properties_to_s3_conf(s3_prop, s3_uri, &s3_conf));
-    std::shared_ptr<io::S3FileSystem> fs;
-    CHECK_STATUS_OK(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
+    auto resource = parse_be_obj_storage_config(s3_prop, s3_uri.get_bucket());
+    ASSERT_TRUE(resource.has_value()) << resource.error();
+    auto fs_result = io::ObjStorageFileSystem::create(std::move(resource).value(), "");
+    ASSERT_TRUE(fs_result.has_value()) << fs_result.error();
+    auto fs = std::move(fs_result).value();
 
     // delete directory
     io::Path delete_path = s3_location + "/tmp1";
@@ -562,7 +563,7 @@ TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     std::string download_content;
     CHECK_STATUS_OK(fs->direct_download(direct_remote_file, &download_content));
     ASSERT_EQ("abc", download_content);
-    ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+    ExecEnv::GetInstance()->_obj_storage_upload_thread_pool.reset();
 }
 
 } // namespace doris

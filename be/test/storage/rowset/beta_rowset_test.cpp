@@ -40,12 +40,13 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/parser/obj_storage_config.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
@@ -60,7 +61,6 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/s3_util.h"
 
 namespace Aws {
 namespace S3 {
@@ -293,20 +293,16 @@ public:
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, rowset_meta, "");
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket",
+            .prefix = "prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);

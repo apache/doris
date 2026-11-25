@@ -145,9 +145,9 @@ void BaseStorageEngine::_start_adaptive_thread_controller() {
     }
 
     auto* system_metrics = DorisMetrics::instance()->system_metrics();
-    auto* s3_upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* obj_storage_upload_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
 
-    _adaptive_thread_controller.init(system_metrics, s3_upload_pool);
+    _adaptive_thread_controller.init(system_metrics, obj_storage_upload_pool);
 
     if (_memtable_flush_executor) {
         auto* flush_pool = _memtable_flush_executor->flush_pool();
