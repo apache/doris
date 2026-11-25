@@ -50,6 +50,7 @@
 #include "common/status.h"
 #include "cpp/aws_sdk.h"
 #include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
+#include "cpp/sync_point.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
@@ -133,6 +134,7 @@
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/s3_client_registry.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
@@ -336,8 +338,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     // Initialize on the main thread, after CacheManager exists and before
     // storage-engine/packed-file workers can acquire clients concurrently.
-    // AWS InitAPI and ShutdownAPI must run on this same thread.
-    S3ClientFactory::instance().init_client_cache();
+    S3ClientRegistry::instance()->init_cache(config::s3_client_cache_capacity,
+                                             config::s3_client_cache_stale_sweep_time_sec);
 
     if (config::is_cloud_mode()) {
         io::FileRangeReadSchedulerOptions options {
@@ -918,8 +920,8 @@ void ExecEnv::_shutdown_object_storage() {
     // submit an upload buffer. shutdown() discards queued tasks: losing either
     // callback would leave a writer waiting forever on its future/countdown.
     // Keep the upload pool alive until all of these producers have drained.
-    for (auto* pool : {_s3_file_system_thread_pool.get(), _lazy_release_obj_pool.get(),
-                       _non_block_close_thread_pool.get(), _s3_file_upload_thread_pool.get()}) {
+    for (auto* pool : {_obj_storage_file_system_thread_pool.get(), _lazy_release_obj_pool.get(),
+                       _non_block_close_thread_pool.get(), _obj_storage_upload_thread_pool.get()}) {
         // Offline tools and BE tests initialize only the pools they use.
         if (pool) {
             TEST_SYNC_POINT_CALLBACK("ExecEnv::_shutdown_object_storage:before_wait", pool);
@@ -933,10 +935,10 @@ void ExecEnv::_shutdown_object_storage() {
         _packed_file_manager->release_resources();
         _packed_file_manager = nullptr;
     }
-    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_file_system_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_upload_thread_pool);
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
@@ -1096,6 +1098,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
+    // Scanner schedulers and query owners are gone; release tail entries while CacheManager is alive.
     destroy_fluss_union_tail_cache();
 
     // cache_manager must be destoried after all cache.
@@ -1103,7 +1106,7 @@ void ExecEnv::destroy() {
     // Partial/offline ExecEnvs do not own the process-wide client's cache. The
     // initialized environment releases it before its CacheManager disappears.
     if (_cache_manager) {
-        S3ClientFactory::instance().release_client_cache();
+        S3ClientRegistry::instance()->release_cache();
     }
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);

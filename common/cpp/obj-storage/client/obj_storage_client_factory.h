@@ -44,12 +44,19 @@ public:
     void clear_client_creator_for_test();
 #endif
 
+    // BE installs its lifecycle-aware cache before starting request producers.
+    // Recycler bypasses caching and does not depend on BE memory management.
+    using ClientCacheCallback = std::function<ObjStorageClientBuildResult(
+            const ObjStorageClientConfig&, const std::string&)>;
+    void set_client_cache(ClientCacheCallback cache);
+
 private:
     ObjStorageClientFactory() = default;
 
     using ClientCache = std::unordered_map<ObjStorageClientConfig,
                                            std::shared_ptr<ObjStorageClient>, ObjStorageClientHash>;
     std::mutex _lock;
+    std::shared_ptr<ClientCacheCallback> _client_cache;
     std::unordered_map<std::string, ClientCache> _cache;
 #ifdef BE_TEST
     std::function<std::shared_ptr<ObjStorageClient>(const ObjStorageClientConfig&)>

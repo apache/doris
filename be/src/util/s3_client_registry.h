@@ -21,20 +21,34 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/parser/obj_storage_config.h"
 
 namespace doris {
 
-class ObjStorageClient;
-struct S3ClientConf;
+struct S3ClientKey {
+    ObjStorageClientConfig config;
+    std::string bucket;
+    bool operator==(const S3ClientKey&) const = default;
+};
+
+struct S3ClientKeyHash {
+    size_t operator()(const S3ClientKey& key) const noexcept {
+        size_t hash = ObjStorageClientHash {}(key.config);
+        return hash ^
+               (std::hash<std::string> {}(key.bucket) + 0x9e3779b9 + (hash << 6) + (hash >> 2));
+    }
+};
 
 // Index real users weakly and optionally retain a bounded LRU of clients across
 // queries. Eviction releases only the cache's owner, never an active user's.
 class S3ClientRegistry {
 public:
     using Client = std::shared_ptr<ObjStorageClient>;
-    using Creator = std::function<Result<Client>(const S3ClientConf&)>;
+    using Creator = std::function<Result<Client>(const S3ClientKey&)>;
 
     struct Stats {
         size_t indexed;
@@ -50,6 +64,9 @@ public:
         size_t cached;
     };
 
+    // Installs the BE cache in the shared factory before production IO starts.
+    static std::shared_ptr<S3ClientRegistry> instance();
+
     S3ClientRegistry();
     ~S3ClientRegistry();
 
@@ -58,8 +75,10 @@ public:
 
     // creator returns a new client. Preserve its original control block so
     // shared_from_this(), iterators and asynchronous users share its lifetime.
-    Result<Client> get_or_create(const S3ClientConf& conf, const Creator& creator);
+    Result<Client> get_or_create(const S3ClientKey& conf, const Creator& creator);
     Stats stats() const;
+    ObjStorageClientBuildResult create(const ObjStorageClientConfig& config,
+                                       const std::string& bucket);
 
     // Initialize before request producers start, after CacheManager exists.
     // A zero capacity keeps only the weak index (e.g. offline tools).
@@ -89,7 +108,7 @@ public:
     S3ClientScope(const S3ClientScope&) = delete;
     S3ClientScope& operator=(const S3ClientScope&) = delete;
 
-    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const S3ClientConf& conf);
+    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const S3ClientKey& conf);
 
 private:
     struct Impl;

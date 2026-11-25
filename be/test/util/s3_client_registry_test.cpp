@@ -32,29 +32,35 @@
 #include <vector>
 
 #include "common/config.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/rate_limit/rate_limited_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/file_factory.h"
+#include "io/fs/obj_storage_file_reader.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/packed_file_manager.h"
-#include "io/fs/s3_file_reader.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/thread_context.h"
 #include "testutil/http_utils.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 
 namespace doris {
 namespace {
 
-S3ClientConf client_conf(std::string token = "token") {
-    S3ClientConf conf;
-    conf.endpoint = "s3-registry-test.example.com";
-    conf.region = "us-east-1";
-    conf.token = std::move(token);
+S3ClientKey client_conf(std::string token = "token") {
+    S3ClientKey conf {
+            .config =
+                    AwsObjStorageConfig {
+                            .connection = {.endpoint = "s3-registry-test.example.com"},
+                            .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                        .secret_key = "sk",
+                                                                        .session_token =
+                                                                                std::move(token)}},
+                            .region = "us-east-1"},
+            .bucket = {}};
     return conf;
 }
 
@@ -63,12 +69,12 @@ S3ClientRegistry::Client fake_client() {
 }
 
 S3ClientRegistry::Creator fake_creator() {
-    return [](const S3ClientConf&) -> Result<S3ClientRegistry::Client> { return fake_client(); };
+    return [](const S3ClientKey&) -> Result<S3ClientRegistry::Client> { return fake_client(); };
 }
 
 class AllowAllPolicy final : public ObjStorageRateLimitPolicy {
 public:
-    ObjStorageAdmission acquire(S3RateLimitType, size_t) const override { return {}; }
+    ObjStorageAdmission acquire(ObjStorageRateLimitType, size_t) const override { return {}; }
 };
 
 // Bound scheduling waits without sleeping or leaving blocked futures behind.
@@ -108,7 +114,7 @@ TEST(S3ClientRegistryTest, LazyIteratorKeepsOriginalOwnerIndexed) {
     for (bool decorated : {false, true}) {
         S3ClientRegistry registry;
         S3ClientRegistry::Creator creator =
-                [decorated](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+                [decorated](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
             auto client = fake_client();
             if (decorated) {
                 return std::make_shared<RateLimitedObjStorageClient>(
@@ -165,7 +171,7 @@ TEST(S3ClientRegistryTest, LifetimeGuardOutlivesSdkMembers) {
         S3ClientRegistry registry;
         int sdk_releases = 0;
         S3ClientRegistry::Creator creator =
-                [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+                [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
             // The null SDK pointer has an owning control block so its deleter
             // observes the real member teardown without constructing an SDK client.
             auto sdk = std::shared_ptr<Aws::S3::S3Client>(nullptr, [&](Aws::S3::S3Client*) {
@@ -241,7 +247,7 @@ TEST(S3ClientRegistryTest, DestructionRunsOutsideRegistryLock) {
     S3ClientRegistry registry;
     int destroyed = 0;
     S3ClientRegistry::Creator creator =
-            [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+            [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
         return S3ClientRegistry::Client(
                 new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
                 [&](ObjStorageClient* p) {
@@ -264,7 +270,7 @@ TEST(S3ClientRegistryTest, OldSdkDestructorCannotEraseReplacementRegistration) {
     auto gate = resume.get_future().share();
     auto old = registry.get_or_create(
                                client_conf(),
-                               [&](const S3ClientConf&) {
+                               [&](const S3ClientKey&) {
                                    auto sdk = std::shared_ptr<Aws::S3::S3Client>(
                                            nullptr, [&](Aws::S3::S3Client*) {
                                                destroying.set_value();
@@ -312,12 +318,10 @@ TEST(S3ClientRegistryTest, AsyncRequestOwnsClientUntilCompletion) {
     EXPECT_EQ(registry.stats().indexed, 0);
 }
 
-TEST(S3ClientRegistryTest, FullConfigurationEqualitySurvivesHashCollisions) {
+TEST(S3ClientRegistryTest, FullConfigurationEqualityAndBucketIsolation) {
     auto a = client_conf();
     auto b = a;
-    b.is_internal_bucket = !a.is_internal_bucket;
-    b.use_virtual_addressing = !a.use_virtual_addressing;
-    ASSERT_EQ(a.get_hash(), b.get_hash());
+    b.bucket = "other-bucket";
     ASSERT_NE(a, b);
     S3ClientRegistry registry;
     auto first = registry.get_or_create(a, fake_creator()).value();
@@ -326,30 +330,36 @@ TEST(S3ClientRegistryTest, FullConfigurationEqualitySurvivesHashCollisions) {
     EXPECT_EQ(registry.get_or_create(a, fake_creator()).value(), first);
     EXPECT_EQ(registry.get_or_create(b, fake_creator()).value(), second);
     b = a;
-    b.token = "rotated-token";
+    std::get<AccessKeyObjStorageAuth>(std::get<AwsObjStorageConfig>(b.config).auth.source)
+            .session_token = "rotated-token";
     EXPECT_NE(registry.get_or_create(b, fake_creator()).value(), first);
 }
 
 TEST(S3ClientRegistryTest, ConfigurationHashIsNothrowAndOrdersCredentials) {
     auto conf = client_conf(std::string(4096, 't'));
-    conf.ak = std::string(32, 'a');
-    conf.sk = std::string(40, 's');
-    conf.endpoint = std::string(256, 'e');
-    conf.region = std::string(64, 'r');
+    auto& aws = std::get<AwsObjStorageConfig>(conf.config);
+    auto& auth = std::get<AccessKeyObjStorageAuth>(aws.auth.source);
+    auth.access_key = std::string(32, 'a');
+    auth.secret_key = std::string(40, 's');
+    aws.connection.endpoint = std::string(256, 'e');
+    aws.region = std::string(64, 'r');
     conf.bucket = std::string(128, 'b');
-    conf.role_arn = std::string(256, 'n');
-    conf.external_id = std::string(256, 'x');
-    static_assert(noexcept(conf.get_hash()));
-    static_assert(noexcept(S3ClientConfHash {}(conf)));
-    EXPECT_EQ(conf.get_hash(), S3ClientConfHash {}(conf));
-
+    aws.auth.assume_role = AwsAssumeRole {.role_arn = std::string(256, 'n'),
+                                          .external_id = std::string(256, 'x'),
+                                          .request_timeout = {}};
+    static_assert(noexcept(S3ClientKeyHash {}(conf)));
     auto swapped = conf;
-    std::swap(swapped.ak, swapped.sk);
-    EXPECT_NE(conf.get_hash(), swapped.get_hash());
+    auto& swapped_auth = std::get<AccessKeyObjStorageAuth>(
+            std::get<AwsObjStorageConfig>(swapped.config).auth.source);
+    std::swap(swapped_auth.access_key, swapped_auth.secret_key);
+    EXPECT_NE(S3ClientKeyHash {}(conf), S3ClientKeyHash {}(swapped));
     auto native = conf;
-    native.credential =
-            GcpCredentialConfig {.impersonation_service_account = std::string(256, 'g')};
-    EXPECT_NE(conf.get_hash(), native.get_hash());
+    native.config =
+            GcpObjStorageConfig {.connection = {},
+                                 .auth = GcpNativeObjStorageAuth {.impersonation_service_account =
+                                                                          std::string(256, 'g')},
+                                 .region = {}};
+    EXPECT_NE(S3ClientKeyHash {}(conf), S3ClientKeyHash {}(native));
 }
 
 TEST(S3ClientRegistryTest, ExecEnvReleasesPackedFileOwnersBeforeSdkShutdown) {
@@ -359,7 +369,8 @@ TEST(S3ClientRegistryTest, ExecEnvReleasesPackedFileOwnersBeforeSdkShutdown) {
     S3ClientRegistry registry;
     auto client = registry.get_or_create(client_conf(), fake_creator()).value();
     std::weak_ptr<ObjStorageClient> weak = client;
-    auto fs = std::make_shared<io::S3FileSystem>(S3Conf {}, "packed-shutdown-test");
+    auto fs = std::shared_ptr<io::ObjStorageFileSystem>(
+            new io::ObjStorageFileSystem(ObjStorageResourceConfig {}, "packed-shutdown-test"));
     fs->_client->_client = std::move(client);
     manager._default_file_system = fs;
     manager._file_systems["vault"] = fs;
@@ -398,9 +409,11 @@ TEST(S3ClientRegistryTest, SingleFlightAndDifferentKeysCreateIndependently) {
     auto gate = resume.get_future().share();
     std::atomic<int> calls = 0;
     S3ClientRegistry::Creator creator =
-            [&](const S3ClientConf& conf) -> Result<S3ClientRegistry::Client> {
+            [&](const S3ClientKey& conf) -> Result<S3ClientRegistry::Client> {
         ++calls;
-        if (conf.token == "slow") {
+        if (std::get<AccessKeyObjStorageAuth>(
+                    std::get<AwsObjStorageConfig>(conf.config).auth.source)
+                    .session_token == "slow") {
             entered.set_value();
             gate.wait();
         }
@@ -446,7 +459,7 @@ TEST(S3ClientRegistryTest, FailureAndExceptionWakeFollowersAndAllowRetry) {
         std::promise<void> resume;
         auto gate = resume.get_future().share();
         S3ClientRegistry::Creator creator =
-                [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+                [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
             entered.set_value();
             gate.wait();
             if (throws) {
@@ -484,7 +497,7 @@ TEST(S3ClientRegistryTest, CloseWaitsForCreationAndPreservesReturnedOwner) {
     auto create = std::async(std::launch::async, [&] {
         SCOPED_INIT_THREAD_CONTEXT();
         return registry.get_or_create(client_conf(),
-                                      [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+                                      [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
                                           entered.set_value();
                                           gate.wait();
                                           return fake_client();
@@ -703,14 +716,13 @@ TEST_F(S3ClientCacheTest, FullConfigurationSeparatesCollisionsAndCredentialVersi
     registry.init_cache(4, 300);
     auto a = client_conf();
     auto b = a;
-    b.is_internal_bucket = !a.is_internal_bucket;
-    b.use_virtual_addressing = !a.use_virtual_addressing;
-    ASSERT_EQ(a.get_hash(), b.get_hash());
+    b.bucket = "other-bucket";
     auto first = registry.get_or_create(a, fake_creator()).value();
     auto second = registry.get_or_create(b, fake_creator()).value();
     EXPECT_NE(first, second);
     auto c = a;
-    c.token = "new-credentials";
+    std::get<AccessKeyObjStorageAuth>(std::get<AwsObjStorageConfig>(c.config).auth.source)
+            .session_token = "new-credentials";
     auto third = registry.get_or_create(c, fake_creator()).value();
     EXPECT_NE(third, first);
     EXPECT_EQ(registry.get_or_create(a, fake_creator()).value(), first);
@@ -724,7 +736,7 @@ TEST_F(S3ClientCacheTest, ConcurrentQueriesRetainOneOriginalClient) {
     std::promise<void> entered;
     std::promise<void> resume;
     auto gate = resume.get_future().share();
-    auto creator = [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+    auto creator = [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
         entered.set_value();
         gate.wait();
         return fake_client();
@@ -760,7 +772,7 @@ TEST_F(S3ClientCacheTest, EvictedSdkDestructionCanReenterAcquisition) {
     S3ClientRegistry registry;
     registry.init_cache(1, 300);
     int destroyed = 0;
-    auto creator = [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+    auto creator = [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
         return S3ClientRegistry::Client(
                 new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
                 [&](ObjStorageClient* client) {
@@ -788,7 +800,7 @@ TEST_F(S3ClientCacheTest, CloseDrainsCacheAndWaitsForBlockedCreators) {
     auto created = std::async(std::launch::async, [&] {
         SCOPED_INIT_THREAD_CONTEXT();
         return registry.get_or_create(client_conf("blocked"),
-                                      [&](const S3ClientConf&) -> Result<S3ClientRegistry::Client> {
+                                      [&](const S3ClientKey&) -> Result<S3ClientRegistry::Client> {
                                           entered.set_value();
                                           gate.wait();
                                           return fake_client();
@@ -904,11 +916,17 @@ TEST_F(S3ClientCacheTest, PruningReportsMetadataBytesConsistently) {
 }
 
 TEST_F(S3ClientCacheTest, FactoryReusesRealSdkAcrossQueriesAndExpiresAfterReadersFinish) {
-    auto& factory = S3ClientFactory::instance();
-    auto original = std::move(factory._registry);
-    factory._registry = std::make_unique<S3ClientRegistry>();
-    Defer restore_factory([&] { factory._registry.swap(original); });
-    factory.init_client_cache();
+    S3ClientRegistry::instance();
+    auto& factory = ObjStorageClientFactory::instance();
+    auto original = std::move(factory._client_cache);
+    auto registry = std::make_shared<S3ClientRegistry>();
+    factory.set_client_cache(
+            [registry](const ObjStorageClientConfig& config, const std::string& bucket) {
+                return registry->create(config, bucket);
+            });
+    Defer restore_factory([&] { factory._client_cache.swap(original); });
+    registry->init_cache(config::s3_client_cache_capacity,
+                         config::s3_client_cache_stale_sweep_time_sec);
     std::weak_ptr<ObjStorageClient> weak;
     io::FileReaderSPtr active_reader;
     for (int query = 0; query < 4; ++query) {
@@ -925,8 +943,9 @@ TEST_F(S3ClientCacheTest, FactoryReusesRealSdkAcrossQueriesAndExpiresAfterReader
             auto result = FileFactory::create_file_reader(properties, description,
                                                           io::FileReaderOptions::DEFAULT, nullptr);
             ASSERT_TRUE(result.has_value()) << result.error();
-            const auto& reader = static_cast<const io::S3FileReader&>(*result.value());
+            const auto& reader = static_cast<const io::ObjStorageFileReader&>(*result.value());
             auto client = reader._client->get();
+            client = static_cast<RateLimitedObjStorageClient&>(*client).inner_;
             if (query != 0 || file != 0) {
                 EXPECT_EQ(weak.lock(), client);
             }
@@ -935,23 +954,23 @@ TEST_F(S3ClientCacheTest, FactoryReusesRealSdkAcrossQueriesAndExpiresAfterReader
                 active_reader = result.value();
             }
         }
-        EXPECT_EQ(factory._registry->stats().created, 1);
-        EXPECT_EQ(factory._registry->stats().cached, 1);
-        EXPECT_EQ(factory._registry->stats().destroyed, 0);
+        EXPECT_EQ(registry->stats().created, 1);
+        EXPECT_EQ(registry->stats().cached, 1);
+        EXPECT_EQ(registry->stats().destroyed, 0);
     }
     clock = int64_t(config::s3_client_cache_stale_sweep_time_sec) * 1000;
     sweep();
-    EXPECT_EQ(factory._registry->stats().cached, 0);
+    EXPECT_EQ(registry->stats().cached, 0);
     EXPECT_FALSE(weak.expired());
-    EXPECT_EQ(factory._registry->stats().live, 1);
-    EXPECT_EQ(factory._registry->stats().destroyed, 0);
+    EXPECT_EQ(registry->stats().live, 1);
+    EXPECT_EQ(registry->stats().destroyed, 0);
     ASSERT_TRUE(active_reader->close().ok());
     EXPECT_FALSE(weak.expired());
     active_reader.reset();
     EXPECT_TRUE(weak.expired());
-    EXPECT_EQ(factory._registry->stats().live, 0);
-    EXPECT_EQ(factory._registry->stats().destroyed, 1);
-    factory.release_client_cache();
+    EXPECT_EQ(registry->stats().live, 0);
+    EXPECT_EQ(registry->stats().destroyed, 1);
+    registry->release_cache();
 }
 
 } // namespace doris

@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
-#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exprs/function/ai/ai_functions.h"
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "util/defer_op.h"
@@ -478,15 +477,9 @@ private:
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
         auto resource = DORIS_TRY(parse_be_obj_storage_config(properties, s3_uri.get_bucket()));
-        auto result =
-                ObjStorageClientFactory::instance().create(resource.client, true, resource.bucket);
-        if (!result.client) {
-            if (result.unsupported) {
-                return Status::NotSupported("{}", result.error);
-            }
-            return Status::InvalidArgument<false>(result.error);
-        }
-        media_url = result.client->generate_presigned_url(
+        auto client = DORIS_TRY(
+                s3_clients.get_or_create({.config = resource.client, .bucket = resource.bucket}));
+        media_url = client->generate_presigned_url(
                 {.bucket = resource.bucket, .key = s3_uri.get_key()}, ttl_seconds);
         return Status::OK();
     }

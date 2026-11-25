@@ -87,7 +87,8 @@ non-fwd project headers into a `*_fwd.h`.
 ## Object-storage client reuse
 
 The BE shares object-storage SDK clients by their complete connection and
-credential configuration. Two startup settings bound cross-query retention:
+credential configuration within each bucket. Equal configurations in different
+buckets retain separate clients. Two startup settings bound cross-query retention:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

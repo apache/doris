@@ -58,6 +58,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/obj_storage_file_buffer.h"
 #include "io/fs/obj_storage_file_system.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
@@ -329,15 +330,15 @@ protected:
     struct ShutdownPools {
         explicit ShutdownPools(ExecEnv* exec_env)
                 : env(exec_env),
-                  saved_upload_pool(std::move(env->_s3_file_upload_thread_pool)),
+                  saved_upload_pool(std::move(env->_obj_storage_upload_thread_pool)),
                   saved_close_pool(std::move(env->_non_block_close_thread_pool)),
-                  saved_filesystem_pool(std::move(env->_s3_file_system_thread_pool)),
+                  saved_filesystem_pool(std::move(env->_obj_storage_file_system_thread_pool)),
                   saved_lazy_pool(std::move(env->_lazy_release_obj_pool)),
                   saved_manager(env->_packed_file_manager) {
             DORIS_CHECK(ThreadPoolBuilder("shutdown_upload")
                                 .set_min_threads(1)
                                 .set_max_threads(1)
-                                .build(&env->_s3_file_upload_thread_pool)
+                                .build(&env->_obj_storage_upload_thread_pool)
                                 .ok());
             DORIS_CHECK(ThreadPoolBuilder("shutdown_close")
                                 .set_min_threads(1)
@@ -347,20 +348,20 @@ protected:
             DORIS_CHECK(ThreadPoolBuilder("shutdown_filesystem")
                                 .set_min_threads(1)
                                 .set_max_threads(1)
-                                .build(&env->_s3_file_system_thread_pool)
+                                .build(&env->_obj_storage_file_system_thread_pool)
                                 .ok());
             env->_packed_file_manager = &manager;
         }
 
         ~ShutdownPools() {
-            env->_s3_file_system_thread_pool->wait();
+            env->_obj_storage_file_system_thread_pool->wait();
             env->_non_block_close_thread_pool->wait();
-            env->_s3_file_upload_thread_pool->wait();
+            env->_obj_storage_upload_thread_pool->wait();
             manager.release_resources();
             env->_packed_file_manager = saved_manager;
-            env->_s3_file_upload_thread_pool = std::move(saved_upload_pool);
+            env->_obj_storage_upload_thread_pool = std::move(saved_upload_pool);
             env->_non_block_close_thread_pool = std::move(saved_close_pool);
-            env->_s3_file_system_thread_pool = std::move(saved_filesystem_pool);
+            env->_obj_storage_file_system_thread_pool = std::move(saved_filesystem_pool);
             env->_lazy_release_obj_pool = std::move(saved_lazy_pool);
         }
 
@@ -374,6 +375,12 @@ protected:
     };
 
     void check_shutdown_with_queued_writer(ShutdownQueue queue) {
+        // These shutdown tests have no disk cache; master initializes the cache
+        // builder even when the packed writer disables writing cache entries.
+        const bool file_cache_enabled = config::enable_file_cache;
+        config::enable_file_cache = false;
+        Defer restore_file_cache(
+                [file_cache_enabled] { config::enable_file_cache = file_cache_enabled; });
         auto* env = ExecEnv::GetInstance();
         mock_client = std::make_shared<MockS3Client>();
         auto* sp = SyncPoint::get_instance();
@@ -393,15 +400,15 @@ protected:
             sp->clear_call_back("ExecEnv::_shutdown_object_storage:before_wait");
         }};
 
-        manager._file_systems["shutdown"] = s3_fs;
+        manager._file_systems["shutdown"] = obj_fs;
         auto& context = manager._current_packed_files["shutdown"];
         ASSERT_TRUE(manager.create_new_packed_file_context("shutdown", context).ok());
         auto* writer = context->writer.get();
-        auto* blocked_pool = env->s3_file_upload_thread_pool();
+        auto* blocked_pool = env->obj_storage_upload_thread_pool();
         if (queue == ShutdownQueue::CLOSE) {
             blocked_pool = env->non_block_close_thread_pool();
         } else if (queue == ShutdownQueue::FILE_SYSTEM) {
-            blocked_pool = env->s3_file_system_thread_pool();
+            blocked_pool = env->obj_storage_file_system_thread_pool();
         }
         ASSERT_TRUE(blocked_pool
                             ->submit_func([&] {

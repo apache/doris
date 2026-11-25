@@ -269,7 +269,7 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
                 std::move(resource.client),
                 ObjStorageRateLimiterManager::policy_for(resource.is_internal_bucket),
                 resource.bucket);
-        RETURN_IF_ERROR_RESULT(client_holder->init());
+        RETURN_IF_ERROR_RESULT(client_holder->init(system_properties.s3_client_scope.get()));
         return io::ObjStorageFileReader::create(std::move(client_holder),
                                                 std::move(resource.bucket), s3_uri.get_key(),
                                                 file_description.file_size, profile)

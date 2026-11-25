@@ -80,9 +80,6 @@ protected:
         obj_storage_client.reset();
     }
 
-    // Release suite-owned SDK clients before the factory shuts down AWS at exit.
-    static void TearDownTestSuite() { obj_storage_client.reset(); }
-
     void SetUp() override {
         if (S3ObjStorageClientRoleTest::obj_storage_client == nullptr) {
             GTEST_SKIP() << "Skipping S3 test, because AWS environment not set";

@@ -798,14 +798,14 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_client_lifetime) {
 
     // Exercise the real SDK factory and signer, without an object-storage request. The
     // adapter is mocked so the test needs neither object storage nor an AI service.
-    auto& factory = S3ClientFactory::instance();
-    const auto before = factory._registry->stats();
+    auto registry = S3ClientRegistry::instance();
+    const auto before = registry->stats();
     const auto start = std::chrono::steady_clock::now();
     const auto status = FunctionEmbed().execute(ctx.get(), block, {0, 1}, 2, rows, config, adapter);
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - start);
     ASSERT_TRUE(status.ok()) << status;
-    const auto after = factory._registry->stats();
+    const auto after = registry->stats();
     RecordProperty("s3_clients_created", std::to_string(after.created - before.created));
     RecordProperty("elapsed_us", std::to_string(elapsed.count()));
     EXPECT_EQ(after.created - before.created, 1);

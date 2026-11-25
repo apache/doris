@@ -27,7 +27,8 @@
 
 namespace doris {
 class ObjStorageRateLimitPolicy;
-}
+class S3ClientScope;
+} // namespace doris
 
 namespace doris::io {
 
@@ -40,7 +41,7 @@ public:
             std::string bucket = {});
     ~ObjStorageClientHolder();
 
-    Status init();
+    Status init(S3ClientScope* scope = nullptr);
 
     // Readers keep using the current client while a credential update is being built.
     Status reset(const ObjStorageClientConfig& conf);
@@ -56,8 +57,8 @@ public:
     }
 
 private:
-    Result<std::shared_ptr<ObjStorageClient>> create_client(
-            const ObjStorageClientConfig& conf) const;
+    Result<std::shared_ptr<ObjStorageClient>> create_client(const ObjStorageClientConfig& conf,
+                                                            S3ClientScope* scope = nullptr) const;
 
     std::shared_ptr<const ObjStorageRateLimitPolicy> _rate_limit_policy;
     const std::string _bucket;

@@ -29,12 +29,12 @@
 #include <utility>
 
 #include "core/custom_allocator.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "cpp/sync_point.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 
 namespace doris {
 
@@ -181,7 +181,7 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
     };
 
     struct ClientLifetime {
-        ClientLifetime(std::shared_ptr<Impl> registry, S3ClientConf key, const Client& client)
+        ClientLifetime(std::shared_ptr<Impl> registry, S3ClientKey key, const Client& client)
                 : state(std::move(registry)), conf(std::move(key)), identity(client) {
             state->created.add(1);
             state->live.add(1);
@@ -203,7 +203,7 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
         // State has only weak references back to clients, so this is not a cycle.
         // Keep tracking and index cleanup valid even if a user outlives the registry.
         std::shared_ptr<Impl> state;
-        S3ClientConf conf;
+        S3ClientKey conf;
         std::weak_ptr<ObjStorageClient> identity;
     };
 
@@ -212,9 +212,8 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
         std::shared_future<Result<Client>> future = promise.get_future().share();
     };
     template <typename Value>
-    using Map =
-            std::unordered_map<S3ClientConf, Value, S3ClientConfHash, std::equal_to<S3ClientConf>,
-                               CustomStdAllocator<std::pair<const S3ClientConf, Value>>>;
+    using Map = std::unordered_map<S3ClientKey, Value, S3ClientKeyHash, std::equal_to<S3ClientKey>,
+                                   CustomStdAllocator<std::pair<const S3ClientKey, Value>>>;
 
     Impl()
             : tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
@@ -233,7 +232,7 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
         Map<std::shared_ptr<Pending>>().swap(pending);
     }
 
-    Result<Client> acquire(const S3ClientConf& conf, const Creator& creator) {
+    Result<Client> acquire(const S3ClientKey& conf, const Creator& creator) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
         // A weak lock may become the last owner while other users finish IO.
         // Release both clients and completed futures outside the registry mutex.
@@ -273,7 +272,7 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
         return create_and_publish(conf, creator, task);
     }
 
-    Result<Client> create_and_publish(const S3ClientConf& conf, const Creator& creator,
+    Result<Client> create_and_publish(const S3ClientKey& conf, const Creator& creator,
                                       const std::shared_ptr<Pending>& task) {
         try {
             auto result = creator(conf);
@@ -355,13 +354,47 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
     std::unique_ptr<bvar::PassiveStatus<size_t>> inflight_metric;
 };
 
+std::shared_ptr<S3ClientRegistry> S3ClientRegistry::instance() {
+    static auto registry = [] {
+        auto state = std::make_shared<S3ClientRegistry>();
+        state->expose_metrics();
+        ObjStorageClientFactory::instance().set_client_cache(
+                [state](const ObjStorageClientConfig& config, const std::string& bucket) {
+                    return state->create(config, bucket);
+                });
+        return state;
+    }();
+    return registry;
+}
+
+ObjStorageClientBuildResult S3ClientRegistry::create(const ObjStorageClientConfig& config,
+                                                     const std::string& bucket) {
+    auto result = get_or_create(
+            {.config = config, .bucket = bucket}, [](const S3ClientKey& key) -> Result<Client> {
+                auto built =
+                        ObjStorageClientFactory::instance().create(key.config, false, key.bucket);
+                if (!built.client) {
+                    return ResultError(built.unsupported
+                                               ? Status::NotSupported("{}", built.error)
+                                               : Status::InvalidArgument<false>(built.error));
+                }
+                return std::move(built.client);
+            });
+    if (!result.has_value()) {
+        return ObjStorageClientBuildResult {
+                .error = result.error().to_string(),
+                .unsupported = result.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>()};
+    }
+    return ObjStorageClientBuildResult {.client = std::move(result).value()};
+}
+
 S3ClientRegistry::S3ClientRegistry() : _impl(std::make_shared<Impl>()) {}
 
 S3ClientRegistry::~S3ClientRegistry() {
     close();
 }
 
-Result<S3ClientRegistry::Client> S3ClientRegistry::get_or_create(const S3ClientConf& conf,
+Result<S3ClientRegistry::Client> S3ClientRegistry::get_or_create(const S3ClientKey& conf,
                                                                  const Creator& creator) {
     auto result = _impl->acquire(conf, creator);
     // Invalid configuration/provider failures never enter the retention cache.
@@ -421,8 +454,8 @@ void S3ClientRegistry::expose_metrics() {
 
 struct S3ClientScope::Impl {
     using Client = std::shared_ptr<ObjStorageClient>;
-    using Map = std::unordered_map<S3ClientConf, Client, S3ClientConfHash, std::equal_to<>,
-                                   CustomStdAllocator<std::pair<const S3ClientConf, Client>>>;
+    using Map = std::unordered_map<S3ClientKey, Client, S3ClientKeyHash, std::equal_to<>,
+                                   CustomStdAllocator<std::pair<const S3ClientKey, Client>>>;
 
     Impl() : tracker(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()) {}
     ~Impl() {
@@ -438,7 +471,7 @@ struct S3ClientScope::Impl {
 S3ClientScope::S3ClientScope() : _impl(std::make_unique<Impl>()) {}
 S3ClientScope::~S3ClientScope() = default;
 
-Result<std::shared_ptr<ObjStorageClient>> S3ClientScope::get_or_create(const S3ClientConf& conf) {
+Result<std::shared_ptr<ObjStorageClient>> S3ClientScope::get_or_create(const S3ClientKey& conf) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_impl->tracker);
     {
         std::lock_guard lock(_impl->mutex);
@@ -449,12 +482,14 @@ Result<std::shared_ptr<ObjStorageClient>> S3ClientScope::get_or_create(const S3C
     }
     // SDK construction and losing-owner destruction run outside the scope lock.
     // The factory's single-flight registry coordinates overlapping acquisitions.
-    auto result = S3ClientFactory::instance().create(conf);
+    S3ClientRegistry::instance();
+    auto result = ObjStorageClientFactory::instance().create(conf.config, true, conf.bucket);
     // Invalid configuration or provider construction failure remains retryable.
-    if (!result.has_value()) {
-        return ResultError(std::move(result).error());
+    if (!result.client) {
+        return ResultError(result.unsupported ? Status::NotSupported("{}", result.error)
+                                              : Status::InvalidArgument<false>(result.error));
     }
-    auto client = std::move(result).value();
+    auto client = std::move(result.client);
     std::shared_ptr<ObjStorageClient> winner;
     {
         std::lock_guard lock(_impl->mutex);
