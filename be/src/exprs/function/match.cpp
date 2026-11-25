@@ -26,7 +26,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "common/cast_set.h"
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/field.h"
+#include "core/value/variant/variant_leaf_visitor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
@@ -51,6 +55,167 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
                 context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
+}
+
+class MatchAnyTerms {
+public:
+    explicit MatchAnyTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _terms.emplace(token.get_single_term());
+        }
+    }
+
+    void start_row(size_t /*row*/) {}
+    bool feed(std::string_view term) const { return _terms.contains(term); }
+
+private:
+    std::unordered_set<std::string_view> _terms;
+};
+
+class MatchAllTerms {
+public:
+    explicit MatchAllTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _term_ids.emplace(token.get_single_term(), _term_ids.size());
+        }
+        _last_seen_row.resize(_term_ids.size());
+    }
+
+    void start_row(size_t row) {
+        _row_marker = row + 1;
+        _remaining = _term_ids.size();
+    }
+
+    bool feed(std::string_view term) {
+        auto it = _term_ids.find(term);
+        if (it == _term_ids.end() || _last_seen_row[it->second] == _row_marker) {
+            return false;
+        }
+        _last_seen_row[it->second] = _row_marker;
+        return --_remaining == 0;
+    }
+
+private:
+    std::unordered_map<std::string_view, size_t> _term_ids;
+    std::vector<size_t> _last_seen_row;
+    size_t _row_marker = 0;
+    size_t _remaining = 0;
+};
+
+// The stream and the batch tokenize values one at a time and are reused across a block.
+struct BlockTokenizer {
+    BlockTokenizer() = default;
+
+    explicit BlockTokenizer(const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+        if (analyzer_ctx != nullptr && analyzer_ctx->requires_analysis() &&
+            analyzer_ctx->analyzer != nullptr) {
+            stream = analyzer_ctx->analyzer->create_stream();
+        }
+    }
+
+    std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream;
+    segment_v2::inverted_index::TokenBatch batch;
+};
+
+template <typename Matcher>
+Status match_variant_leaf(std::string_view text,
+                          const segment_v2::inverted_index::TextAnalyzer* analyzer,
+                          BlockTokenizer& tokenizer, Matcher& matcher, bool& matched) {
+    if (analyzer == nullptr) {
+        matched = matched || matcher.feed(text);
+        return Status::OK();
+    }
+    try {
+        if (tokenizer.stream == nullptr) {
+            tokenizer.stream = analyzer->create_stream();
+        }
+        tokenizer.stream->reset(text);
+        // Keep draining even on a match: later tokens and leaves can report analyzer errors.
+        while (tokenizer.stream->next_batch(tokenizer.batch)) {
+            for (const auto& token : tokenizer.batch.tokens()) {
+                if (token.size != 0) {
+                    matched = matched || matcher.feed(token.term());
+                }
+            }
+        }
+        tokenizer.batch.release_oversized();
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       text, e.what());
+    }
+    return Status::OK();
+}
+
+template <typename Matcher>
+Status match_variant_rows(const ColumnVariantV2& variant, size_t input_rows_count,
+                          const segment_v2::inverted_index::TextAnalyzer* analyzer, Matcher matcher,
+                          ColumnUInt8::Container& result) {
+    BlockTokenizer tokenizer;
+    Status evaluation_status = Status::OK();
+    try {
+        visit_variant_v2_values(
+                variant, 0, input_rows_count, {}, [](size_t) {},
+                [&](size_t row, const VariantRef& value) {
+                    if (!evaluation_status.ok()) {
+                        return;
+                    }
+                    matcher.start_row(row);
+                    bool matched = false;
+                    evaluation_status =
+                            for_each_variant_leaf_text(value, [&](std::string_view text) {
+                                return match_variant_leaf(text, analyzer, tokenizer, matcher,
+                                                          matched);
+                            });
+                    result[row] = matched;
+                });
+    } catch (const Exception& exception) {
+        return exception.to_status();
+    }
+    return evaluation_status;
+}
+
+Status execute_variant_values_match(const FunctionMatchBase& function, FunctionContext* context,
+                                    const ColumnVariantV2& variant,
+                                    const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                    const std::string& match_query_str,
+                                    const std::string& column_name, Block& block, uint32_t result,
+                                    size_t input_rows_count) {
+    const InvertedIndexQueryType query_type = function.get_query_type_from_fn_name();
+    if (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
+        query_type != InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT root supports only MATCH, MATCH_ANY, and MATCH_ALL");
+    }
+    RETURN_IF_ERROR(function.check(context, function.get_name()));
+
+    // Only root VARIANT inputs reach this branch; FE casts every other VARIANT input to STRING.
+    if (analyzer_ctx == nullptr ||
+        (analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer == nullptr)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT MATCH requires a bound analyzer");
+    }
+
+    auto result_values = ColumnUInt8::create();
+    ColumnUInt8::Container& result_data = result_values->get_data();
+    result_data.resize_fill(input_rows_count);
+    const auto query_tokens =
+            function.analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
+    if (query_tokens.empty()) {
+        block.replace_by_position(result, std::move(result_values));
+        return Status::OK();
+    }
+
+    const auto analyzer =
+            analyzer_ctx->requires_analysis() ? analyzer_ctx->get_analyzer() : nullptr;
+    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer.get(),
+                                           MatchAnyTerms(query_tokens), result_data));
+    } else {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer.get(),
+                                           MatchAllTerms(query_tokens), result_data));
+    }
+    block.replace_by_position(result, std::move(result_values));
+    return Status::OK();
 }
 
 enum class PhraseMode { EXACT, PREFIX, EDGE };
@@ -237,20 +402,6 @@ private:
     bool _pending_sorted = true;
 };
 
-// The stream and the batch that tokenize the values of one block, made once per execute_match()
-// call. The stream is null when the values are not analyzed.
-struct BlockTokenizer {
-    explicit BlockTokenizer(const InvertedIndexAnalyzerCtx* analyzer_ctx) {
-        if (analyzer_ctx != nullptr && analyzer_ctx->requires_analysis() &&
-            analyzer_ctx->analyzer != nullptr) {
-            stream = analyzer_ctx->analyzer->create_stream();
-        }
-    }
-
-    std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream;
-    segment_v2::inverted_index::TokenBatch batch;
-};
-
 template <typename Callback>
 bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::string& column_name,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx,
@@ -409,6 +560,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    // Default NULL handling already unwrapped the input column.
+    if (const auto* variant = check_and_get_column<ColumnVariantV2>(source_col.get())) {
+        return execute_variant_values_match(*this, context, *variant, analyzer_ctx, match_query_str,
+                                            column_name, block, result, input_rows_count);
+    }
+
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     const ColumnUInt8::Container* array_element_null_map = nullptr;
@@ -583,18 +740,14 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    std::unordered_set<std::string> query_terms;
-    for (const auto& token : query_tokens) {
-        query_terms.emplace(token.get_single_term());
-    }
-
+    const MatchAnyTerms matcher(query_tokens);
     BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
         if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
                                          array_offsets, array_element_null_map,
                                          [&](std::span<const segment_v2::TermInfo> data_tokens) {
                                              for (const auto& info : data_tokens) {
-                                                 if (query_terms.contains(info.get_single_term())) {
+                                                 if (matcher.feed(info.get_single_term())) {
                                                      return true;
                                                  }
                                              }
@@ -627,33 +780,20 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    std::unordered_map<std::string, size_t> query_term_ids;
-    for (const auto& token : query_tokens) {
-        query_term_ids.emplace(token.get_single_term(), query_term_ids.size());
-    }
-    std::vector<size_t> last_seen_row;
-
+    MatchAllTerms matcher(query_tokens);
     BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        size_t remaining = query_term_ids.size();
-        if (for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
-                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
-                        if (last_seen_row.empty()) {
-                            last_seen_row.resize(query_term_ids.size(), 0);
-                        }
-                        for (const auto& info : data_tokens) {
-                            auto it = query_term_ids.find(info.get_single_term());
-                            if (it != query_term_ids.end() &&
-                                last_seen_row[it->second] != static_cast<size_t>(i) + 1) {
-                                last_seen_row[it->second] = static_cast<size_t>(i) + 1;
-                                if (--remaining == 0) {
-                                    return true;
-                                }
-                            }
-                        }
-                        return false;
-                    })) {
+        matcher.start_row(i);
+        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                         array_offsets, array_element_null_map,
+                                         [&](std::span<const segment_v2::TermInfo> data_tokens) {
+                                             for (const auto& info : data_tokens) {
+                                                 if (matcher.feed(info.get_single_term())) {
+                                                     return true;
+                                                 }
+                                             }
+                                             return false;
+                                         })) {
             result[i] = true;
         }
     }

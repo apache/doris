@@ -69,6 +69,7 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
         private final int port;
         private final ServerSocket listener;
         private ThriftServer server;
+        private volatile boolean privateFileKeys;
 
         private OssThriftServerStarter(int port, ServerSocket listener) {
             this.port = port;
@@ -115,6 +116,7 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
                 ThriftServer candidate = new ThriftServer(port, processor);
                 candidate.start(transportListener);
                 server = candidate;
+                privateFileKeys = tls;
                 started = true;
                 LOG.info("FE thrift starter started on {}", port);
             } finally {
@@ -126,10 +128,17 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
 
         @Override
         public void stop() throws Exception {
+            privateFileKeys = false;
             if (server != null) {
                 server.stop();
                 server.join();
             }
+        }
+
+        @Override
+        public boolean supportsPrivateFileKeys() {
+            // Configuration alone cannot prove that the split listener actually started with TLS.
+            return privateFileKeys && PrivateRpcTls.supportsPrivateFileKeys(TlsProtocolSet.Protocol.THRIFT);
         }
     }
 

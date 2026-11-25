@@ -17,21 +17,34 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.server.FeServerStarterFactory;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -43,6 +56,82 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 class PipelineExecutionTaskTest {
+    @ParameterizedTest
+    @CsvSource({"unchanged,true", "port,false", "removed,false", "replaced,false", "capability,false"})
+    void encryptedFragmentsRequireTheRegisteredBoundDestination(String change, boolean allowed) throws Exception {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend = new Backend(1, "192.0.2.1", 9050);
+        long now = System.currentTimeMillis();
+        BackendHbResponse heartbeat = new BackendHbResponse(1, 9060, 8040, 8060, now, now,
+                "fixture-version", Tag.VALUE_MIX, 0, 0, false, 8070);
+        heartbeat.setNativeFileEncryptionSupported(true);
+        backend.handleHbResponse(heartbeat, false);
+        backend.setBrpcPort(8060);
+        service.addBackend(backend);
+        TNetworkAddress boundAddress = backend.getBrpcAddress();
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        ByteString fragments = ByteString.copyFromUtf8("fixture-fragment");
+        Mockito.when(proxy.execPlanFragmentsAsync(boundAddress, fragments, false))
+                .thenReturn(CompletableFuture.completedFuture(PExecPlanFragmentResult.getDefaultInstance()));
+        MultiFragmentsPipelineTask task = new MultiFragmentsPipelineTask(Mockito.mock(CoordinatorContext.class),
+                backend, proxy, fragments, Map.of(), true);
+        switch (change) {
+            case "port":
+                backend.setBrpcPort(8061);
+                break;
+            case "removed":
+                service.replayDropBackend(backend);
+                break;
+            case "replaced":
+                Backend replacement = new Backend(backend.getId(), backend.getHost(), backend.getHeartbeatPort());
+                replacement.setBrpcPort(boundAddress.port);
+                service.addBackend(replacement);
+                break;
+            case "capability":
+                heartbeat.setNativeFileEncryptionSupported(false);
+                backend.handleHbResponse(heartbeat, false);
+                break;
+            default:
+                break;
+        }
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+                MockedStatic<PrivateRpcTls> tls = Mockito.mockStatic(PrivateRpcTls.class);
+                MockedStatic<FeServerStarterFactory> listener = Mockito.mockStatic(FeServerStarterFactory.class)) {
+            env.when(Env::getCurrentSystemInfo).thenReturn(service);
+            tls.when(() -> PrivateRpcTls.supportsPrivateFileKeys(Protocol.BRPC)).thenReturn(true);
+            tls.when(() -> PrivateRpcTls.supportsPrivateFileKeys(Protocol.THRIFT)).thenReturn(true);
+            listener.when(FeServerStarterFactory::supportsPrivateFileKeys).thenReturn(true);
+            Assertions.assertEquals(!"capability".equals(change), NativeFileEncryptionSupport.supported(backend));
+            PExecPlanFragmentResult result = task.sendPhaseOneRpc(false).get();
+            if (allowed) {
+                Assertions.assertEquals(TStatusCode.OK.getValue(), result.getStatus().getStatusCode());
+                Mockito.verify(proxy).execPlanFragmentsAsync(boundAddress, fragments, false);
+            } else {
+                Assertions.assertEquals(TStatusCode.NOT_IMPLEMENTED_ERROR.getValue(), result.getStatus().getStatusCode());
+                Assertions.assertTrue(result.getStatus().getErrorMsgs(0).contains("READ_UNAVAILABLE"));
+                Mockito.verifyNoInteractions(proxy);
+            }
+        }
+    }
+
+    @Test
+    void encryptionCapabilityIsCheckedAgainBeforeSendingSerializedFragments() throws Exception {
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        MultiFragmentsPipelineTask task = new MultiFragmentsPipelineTask(context, backend, proxy,
+                ByteString.copyFromUtf8("fixture-fragment"), Map.of(), true);
+        try (MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(NativeFileEncryptionSupport.class)) {
+            proof.when(() -> NativeFileEncryptionSupport.require(backend.getId(), backend.getBrpcAddress()))
+                    .thenThrow(new IllegalStateException("File encryption [READ_UNAVAILABLE]"));
+            PExecPlanFragmentResult result = task.sendPhaseOneRpc(false).get();
+            Assertions.assertTrue(result.getStatus().getErrorMsgs(0).contains("READ_UNAVAILABLE"));
+            Assertions.assertEquals(TStatusCode.NOT_IMPLEMENTED_ERROR.getValue(), result.getStatus().getStatusCode());
+            Mockito.verifyNoInteractions(proxy);
+            Assertions.assertNull(Deencapsulation.getField(task, "serializeFragments"));
+        }
+    }
+
     @Test
     void expiredDeadlineCancelsAlreadySubmittedFragments() throws Exception {
         CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);

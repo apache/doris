@@ -138,7 +138,7 @@ class ReviewCheckoutWorkflowTest(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/code-review-aggregate-status.yml", caller)
         self.assertIn("needs: resolve-event", caller)
         self.assertIn("fromJSON(needs.resolve-event.outputs.head_shas)", caller)
-        self.assertIn("workflows: [Pull Request Events]", sync)
+        self.assertIn("workflows: [Pull Request Events, Code Review Dismissal]", sync)
         github = self.pr_event()
         self.assert_trusted_default_checkout(github)
         head = github["event"]["pull_request"]["head"]["sha"]

@@ -125,7 +125,10 @@ bool FileScanLocalState::_can_generate_physical_splits(bool is_load,
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
-    if (format == TFileFormatType::FORMAT_PARQUET || format == TFileFormatType::FORMAT_ORC) {
+    // PME retains Parquet row groups: one coarse encrypted range must not cap the scan to one
+    // scanner before refinement can publish its row-group children.
+    if (format == TFileFormatType::FORMAT_PARQUET ||
+        format == TFileFormatType::FORMAT_PARQUET_PME || format == TFileFormatType::FORMAT_ORC) {
         // Keep scanner creation aligned with the downstream refinement guard. Otherwise an
         // Iceberg delete split creates idle scanners even though it can never publish children.
         return FileScannerV2::can_refine_source_split(range);

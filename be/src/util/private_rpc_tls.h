@@ -36,6 +36,8 @@ class ThriftServer;
 
 namespace doris::rpc_tls {
 
+// Native encrypted reads require both the PME dependency and authenticated key transports.
+bool supports_native_file_encryption();
 bool enabled(std::string_view protocol);
 bool enabled_for_java_thrift();
 Status configure_channel(brpc::ChannelOptions* options);

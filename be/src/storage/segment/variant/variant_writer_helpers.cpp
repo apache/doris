@@ -229,37 +229,39 @@ Status create_column_writer(uint32_t cid, const TabletColumn& column,
     return Status::OK();
 }
 
+MutableColumnPtr materialize_sparse_column_range(const IColumn& values,
+                                                 std::span<const uint32_t> rowids, size_t row_begin,
+                                                 size_t num_rows, size_t& next_value) {
+    MutableColumnPtr batch = values.clone_empty();
+    batch->reserve(num_rows);
+    const size_t row_end = row_begin + num_rows;
+    size_t next_row = row_begin;
+    while (next_value < rowids.size() && rowids[next_value] < row_end) {
+        const size_t row = rowids[next_value];
+        DORIS_CHECK_GE(row, next_row);
+        batch->insert_many_defaults(row - next_row);
+
+        size_t run_length = 1;
+        while (next_value + run_length < rowids.size() && row + run_length < row_end &&
+               rowids[next_value + run_length] == row + run_length) {
+            ++run_length;
+        }
+        batch->insert_range_from(values, next_value, run_length);
+        next_value += run_length;
+        next_row = row + run_length;
+    }
+    batch->insert_many_defaults(row_end - next_row);
+    return batch;
+}
+
 namespace {
 
 Status append_sparse_array_column(ColumnWriter* writer, const ColumnPtr& values_column,
                                   std::span<const uint32_t> rowids, size_t total_rows) {
-    // Example: values=[a,b], rowids=[1,4], total_rows=6 becomes
-    // [NULL,a,NULL,NULL,b,NULL]. The gaps cannot go through ArrayColumnWriter::append_nulls(),
-    // which feeds no index, so materialize only this path while it is being written. Scalar
-    // paths never allocate the full N-row representation.
-    MutableColumnPtr full_column = values_column->clone_empty();
-    full_column->reserve(total_rows);
-    size_t next_row = 0;
-    size_t value_index = 0;
-    while (value_index < rowids.size()) {
-        const size_t row = rowids[value_index];
-        DORIS_CHECK_GE(row, next_row);
-        full_column->insert_many_defaults(row - next_row);
-
-        size_t run_length = 1;
-        while (value_index + run_length < rowids.size() &&
-               rowids[value_index + run_length] == row + run_length) {
-            ++run_length;
-        }
-        full_column->insert_range_from(*values_column, value_index, run_length);
-        value_index += run_length;
-        next_row = row + run_length;
-    }
-    DORIS_CHECK_LE(next_row, total_rows);
-    full_column->insert_many_defaults(total_rows - next_row);
-
-    // ArrayColumnWriter rebases the offsets and recurses into the item writer
-    // itself, so the materialized column goes straight in.
+    // Route NULL gaps through append so ArrayColumnWriter maintains the inverted index.
+    size_t next_value = 0;
+    auto full_column =
+            materialize_sparse_column_range(*values_column, rowids, 0, total_rows, next_value);
     return writer->append(*full_column, 0, total_rows);
 }
 

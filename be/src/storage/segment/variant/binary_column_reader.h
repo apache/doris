@@ -44,6 +44,8 @@ class BinaryColumnReader {
 public:
     virtual ~BinaryColumnReader() = default;
 
+    virtual Status healthy_status() const = 0;
+
     virtual Status new_binary_column_iterator(ColumnIteratorUPtr* iter) const = 0;
 
     virtual Status add_binary_column_reader(std::shared_ptr<ColumnReader> reader,
@@ -63,6 +65,8 @@ public:
 // for example, old version variant column without any binary data.
 class DummyBinaryColumnReader : public BinaryColumnReader {
 public:
+    Status healthy_status() const override { return Status::OK(); }
+
     Status new_binary_column_iterator(ColumnIteratorUPtr* iter) const override;
     Status add_binary_column_reader(std::shared_ptr<ColumnReader> reader, uint32_t index) override;
     std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
@@ -74,6 +78,8 @@ public:
 
 class SingleSparseColumnReader : public BinaryColumnReader {
 public:
+    Status healthy_status() const override;
+
     Status add_binary_column_reader(std::shared_ptr<ColumnReader> reader, uint32_t index) override;
 
     std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
@@ -93,6 +99,8 @@ private:
 
 class MultipleBinaryColumnReader : public BinaryColumnReader {
 public:
+    Status healthy_status() const override;
+
     Status new_binary_column_iterator(ColumnIteratorUPtr* iter) const override;
 
     Status add_binary_column_reader(std::shared_ptr<ColumnReader> reader, uint32_t index) override;

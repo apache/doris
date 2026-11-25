@@ -47,6 +47,14 @@ public final class PrivateRpcTls {
         return Config.enable_tls && TlsProtocolSet.isProtocolIncluded(protocol);
     }
 
+    public static boolean supportsPrivateFileKeys(Protocol protocol) {
+        return enabled(protocol) && "verify_fail_if_no_peer_cert".equals(Config.tls_verify_mode)
+                && !Config.tls_certificate_path.isEmpty() && !Config.tls_private_key_path.isEmpty()
+                && !Config.tls_ca_certificate_path.isEmpty() && Config.tls_cert_refresh_interval_seconds == 0
+                && Config.tls_peer_cert_required_san_dns.isEmpty()
+                && (protocol != Protocol.THRIFT || Config.thrift_rpc_connect_timeout_ms > 0);
+    }
+
     public static SslContext grpcClientContext() {
         validateConfiguration();
         try {

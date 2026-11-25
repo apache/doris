@@ -182,6 +182,8 @@ using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
+    Status healthy_status() const override;
+
     uint32_t path_encoding() const { return _path_encoding; }
 
     VariantColumnReader() = default;
@@ -364,7 +366,8 @@ private:
                             const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
                             PathToBinaryColumnCache* binary_column_cache_ptr);
 
-    static bool _need_read_flat_leaves(const StorageReadOptions* opts);
+    static bool _need_read_flat_leaves(const StorageReadOptions* opts,
+                                       const TabletColumn& target_col);
     bool _can_use_nested_group_read_path() const;
     // Only root-path reads need the extra merge; child-path reads are already served by the
     // specific iterator selected in the plan.
@@ -422,7 +425,7 @@ private:
 
     // Protect the external meta load guard, subcolumn metadata and statistics.
     mutable std::shared_mutex _subcolumns_meta_mutex;
-    std::optional<DorisCallOnce<Status>> _external_meta_load_once {std::in_place};
+    DorisCallOnce<Status> _external_meta_load_once;
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
