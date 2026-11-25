@@ -59,6 +59,7 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -291,6 +292,116 @@ class IcebergFormatV4ReadTest {
                         ranges.stream().map(range -> range.getPath().orElseThrow()).collect(Collectors.toSet()));
             }
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rootedLegacyListIgnoresNonAvroRelativeCandidate(boolean cached) throws Exception {
+        Table table = rootedListTable(3);
+        String list = table.currentSnapshot().manifestListLocation();
+        try (OutputStream output = table.io().newOutputFile(table.location() + "/" + list).create()) {
+            output.write(0);
+        }
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        // A metadata-only upgrade preserves the rooted list's snapshot and its legacy path semantics.
+        Assertions.assertEquals(1, table.currentSnapshot().allManifests(table.io()).size());
+        // Without an expected snapshot, a standalone serialized resolver must not infer legacy provenance.
+        Assertions.assertThrows(RuntimeIOException.class, () -> coldMetadata(table).currentSnapshot()
+                .allManifests(new IcebergV4FileIO(table.io(), table.location())));
+        List<ConnectorScanRange> eager = provider(coldMetadata(table), cached).planScan(listReadSession(), request());
+        List<ConnectorScanRange> streamed = new ArrayList<>();
+        try (ConnectorSplitSource source = provider(coldMetadata(table), cached)
+                .streamSplits(listReadSession(), request())) {
+            while (source.hasNext()) {
+                streamed.add(source.next());
+            }
+        }
+        for (List<ConnectorScanRange> ranges : List.of(eager, streamed)) {
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals("/data/correct.parquet", ranges.get(0).getPath().orElseThrow());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"4,true,false", "4,true,true", "3,false,false", "3,false,true", "0,true,false", "0,true,true"})
+    void nonAvroListRequiresMatchingLegacyRoot(int version, boolean sameSnapshot, boolean cached) throws Exception {
+        Table table = rootedListTable(version == 0 ? 3 : version);
+        String list = table.currentSnapshot().manifestListLocation();
+        TableMetadata frozen = ((BaseTable) table).operations().current();
+        if (!sameSnapshot) {
+            table.newFastAppend().appendFile(data(table, "/data/another.parquet")).commit();
+            try (org.apache.iceberg.io.SeekableInputStream input = table.io()
+                    .newInputFile(table.currentSnapshot().manifestListLocation()).newStream();
+                    OutputStream output = table.io().newOutputFile(list).createOrOverwrite()) {
+                input.transferTo(output);
+            }
+        } else if (version == 0) {
+            table.io().deleteFile(list);
+        }
+        try (OutputStream output = table.io().newOutputFile(table.location() + "/" + list).create()) {
+            output.write(0);
+        }
+        TableMetadata upgraded = TableMetadata.buildFrom(frozen).upgradeFormatVersion(4).build();
+        Table cold = new BaseTable(new StaticTableOperations(TableMetadataParser.fromJson(
+                frozen.metadataFileLocation(), TableMetadataParser.toJson(upgraded)), table.io()), table.name());
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> provider(cold, cached).planScan(listReadSession(), request()));
+        Throwable cause = failure;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        Assertions.assertInstanceOf(org.apache.avro.InvalidAvroMagicException.class, cause);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void legacyListFallbackPreservesStorageFailures(boolean permissionFailure, boolean cached) {
+        Table table = rootedListTable(3);
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        String relative = table.location() + "/" + table.currentSnapshot().manifestListLocation();
+        IOException storageFailure = permissionFailure ? new java.nio.file.AccessDeniedException("candidate")
+                : new IOException("Storage read failed");
+        FileIO storage = new FileIO() {
+            @Override
+            public InputFile newInputFile(String location) {
+                if (relative.equals(location)) {
+                    throw new RuntimeIOException(storageFailure, "Cannot open candidate");
+                }
+                return table.io().newInputFile(location);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String location) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void deleteFile(String location) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Table cold = new BaseTable(new StaticTableOperations(((BaseTable) coldMetadata(table)).operations().current(),
+                storage), table.name());
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> provider(cold, cached).planScan(listReadSession(), request()));
+        Throwable cause = failure;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        Assertions.assertSame(storageFailure, cause);
+    }
+
+    private static ConnectorSession listReadSession() {
+        return new IcebergStatementScopeTest.ScopeSession(1, "list-provenance",
+                org.apache.doris.connector.spi.ConnectorStatementScope.NONE);
+    }
+
+    private Table rootedListTable(int version) {
+        Table table = createTable(version);
+        table.updateProperties().set(TableProperties.WRITE_METADATA_LOCATION, "/metadata/legacy").commit();
+        table.newFastAppend().appendFile(data(table, "/data/correct.parquet")).commit();
+        Assertions.assertTrue(table.currentSnapshot().manifestListLocation().startsWith("/metadata/legacy/"));
+        return table;
     }
 
     @ParameterizedTest

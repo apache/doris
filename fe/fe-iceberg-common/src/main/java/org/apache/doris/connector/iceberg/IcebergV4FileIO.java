@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import org.apache.avro.InvalidAvroMagicException;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
@@ -33,6 +34,7 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.avro.AvroIterable;
 import org.apache.iceberg.exceptions.NotFoundException;
+import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.CloseableIterable;
@@ -244,7 +246,16 @@ public final class IcebergV4FileIO implements FileIO {
 
     private MetadataHeader snapshotHeader(String path, long snapshotId) {
         String relative = hasBase() || isAbsolute(path) ? resolve(tableLocation, path) : null;
-        MetadataHeader header = relative == null ? null : existingHeader(relative, FileFormat.AVRO);
+        MetadataHeader header = null;
+        RuntimeIOException nonAvroCandidate = null;
+        try {
+            header = relative == null ? null : existingHeader(relative, FileFormat.AVRO);
+        } catch (RuntimeIOException failure) {
+            if (!path.startsWith("/") || !(failure.getCause() instanceof InvalidAvroMagicException)) {
+                throw failure;
+            }
+            nonAvroCandidate = failure;
+        }
         if (header != null && Objects.equals(header.snapshotId, snapshotId)) {
             if (path.startsWith("/")) {
                 remember(path, relative, snapshotId);
@@ -253,10 +264,15 @@ public final class IcebergV4FileIO implements FileIO {
         }
         if (path.startsWith("/")) {
             header = existingHeader(path, FileFormat.AVRO);
-            if (header != null && Objects.equals(header.snapshotId, snapshotId)) {
+            // Only a matching legacy producer proves that non-Avro bytes belong to an unrelated candidate.
+            if (header != null && Objects.equals(header.snapshotId, snapshotId)
+                    && (nonAvroCandidate == null || (header.version >= 1 && header.version < 4))) {
                 remember(path, path, snapshotId);
                 return header;
             }
+        }
+        if (nonAvroCandidate != null) {
+            throw nonAvroCandidate;
         }
         throw new NotFoundException("Cannot find manifest list for snapshot %s: %s", snapshotId, path);
     }
