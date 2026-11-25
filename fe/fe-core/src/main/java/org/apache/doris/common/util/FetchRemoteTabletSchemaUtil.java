@@ -70,23 +70,55 @@ public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
     private final int tabletCount;
-    private final Map<Long, List<Replica>> tabletReplicas = Maps.newLinkedHashMap();
+    private final Map<Long, TabletReplicas> tabletReplicas = Maps.newLinkedHashMap();
 
-    /** Capture the candidate replica lists under the table lock and resolve Cloud routes during fetch. */
-    public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
-        tabletCount = tablets.size();
-        for (Tablet tablet : tablets) {
-            tabletReplicas.put(tablet.getId(), Lists.newArrayList(tablet.getReplicas()));
+    private static final class TabletReplicas {
+        private final List<Replica> replicas;
+        private final long visibleVersion;
+
+        private TabletReplicas(List<Replica> replicas, long visibleVersion) {
+            this.replicas = replicas;
+            this.visibleVersion = visibleVersion;
         }
     }
 
-    public static class PartitionTablets {
+    public static final class VersionedTablet {
+        private final Tablet tablet;
+        private final long visibleVersion;
+
+        public VersionedTablet(Tablet tablet, long visibleVersion) {
+            this.tablet = tablet;
+            this.visibleVersion = visibleVersion;
+        }
+
+        public Tablet getTablet() {
+            return tablet;
+        }
+
+        public long getVisibleVersion() {
+            return visibleVersion;
+        }
+    }
+
+    /** Capture the candidate replica lists under the table lock and resolve Cloud routes during fetch. */
+    public FetchRemoteTabletSchemaUtil(List<VersionedTablet> tablets) {
+        tabletCount = tablets.size();
+        for (VersionedTablet target : tablets) {
+            Tablet tablet = target.getTablet();
+            tabletReplicas.put(tablet.getId(),
+                    new TabletReplicas(Lists.newArrayList(tablet.getReplicas()), target.getVisibleVersion()));
+        }
+    }
+
+    public static final class PartitionTablets {
         private final Partition partition;
         private final List<Tablet> tablets;
+        private final long visibleVersion;
 
-        public PartitionTablets(Partition partition, List<Tablet> tablets) {
+        public PartitionTablets(Partition partition, List<Tablet> tablets, long visibleVersion) {
             this.partition = partition;
             this.tablets = tablets;
+            this.visibleVersion = visibleVersion;
         }
     }
 
@@ -95,30 +127,34 @@ public class FetchRemoteTabletSchemaUtil {
         boolean cloudMode = Config.isCloudMode();
         List<PartitionTablets> snapshot = Lists.newArrayList();
         for (Partition partition : partitions) {
-            if (cloudMode || partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
-                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets()));
+            long visibleVersion = cloudMode ? -1L : partition.getVisibleVersion();
+            if (cloudMode || visibleVersion > Partition.PARTITION_INIT_VERSION) {
+                snapshot.add(new PartitionTablets(partition, partition.getBaseIndex().getTablets(), visibleVersion));
             }
         }
         return snapshot;
     }
 
-    public static List<Tablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
+    public static List<VersionedTablet> collectTablets(List<PartitionTablets> partitions) throws AnalysisException {
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
         boolean cloudMode = Config.isCloudMode();
         List<Long> cloudVersions = cloudMode ? getCloudVisibleVersions(partitions) : Collections.emptyList();
         int maxTablets = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-        List<Tablet> tablets = Lists.newArrayList();
+        List<VersionedTablet> tablets = Lists.newArrayList();
         long tabletCount = 0;
         for (int i = 0; i < partitions.size(); ++i) {
-            if (cloudMode && cloudVersions.get(i) <= Partition.PARTITION_INIT_VERSION) {
+            PartitionTablets partition = partitions.get(i);
+            long version = cloudMode ? cloudVersions.get(i) : partition.visibleVersion;
+            if (version <= Partition.PARTITION_INIT_VERSION) {
                 continue;
             }
-            PartitionTablets partition = partitions.get(i);
             tabletCount += partition.tablets.size();
             if (tabletCount <= maxTablets) {
-                tablets.addAll(partition.tablets);
+                for (Tablet tablet : partition.tablets) {
+                    tablets.add(new VersionedTablet(tablet, version));
+                }
             }
         }
         checkTabletCount(tabletCount, maxTablets);
@@ -126,13 +162,10 @@ public class FetchRemoteTabletSchemaUtil {
     }
 
     private static List<Long> getCloudVisibleVersions(List<PartitionTablets> partitions) throws AnalysisException {
-        if (partitions.size() == 1) {
-            return Collections.singletonList(partitions.get(0).partition.getVisibleVersion());
-        }
         try {
-            // The batch API returns versions in the same order as the catalog snapshot.
-            return CloudPartition.getSnapshotVisibleVersion(
-                    partitions.stream().map(p -> (CloudPartition) p.partition).collect(Collectors.toList()));
+            // Obtain the authoritative versions in one RPC. A cached empty partition might have been written to.
+            return CloudPartition.getSnapshotVisibleVersionFromMs(
+                    partitions.stream().map(p -> (CloudPartition) p.partition).collect(Collectors.toList()), false);
         } catch (RpcException e) {
             throw new AnalysisException("Extended DESCRIBE could not fetch partition versions", e);
         }
@@ -208,9 +241,9 @@ public class FetchRemoteTabletSchemaUtil {
         String clusterId = null;
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
         Map<Long, Backend> liveBackends = Maps.newHashMap();
-        for (Map.Entry<Long, List<Replica>> tablet : tabletReplicas.entrySet()) {
+        for (Map.Entry<Long, TabletReplicas> tablet : tabletReplicas.entrySet()) {
             boolean hasLiveBackend = false;
-            for (Replica replica : tablet.getValue()) {
+            for (Replica replica : tablet.getValue().replicas) {
                 if (!replica.isAlive()) {
                     continue;
                 }
@@ -252,29 +285,38 @@ public class FetchRemoteTabletSchemaUtil {
         List<Backend> coordinatorBackend = Lists.newArrayList(liveBackends.values());
         for (Map.Entry<Long, Set<Long>> entry : beIdToTabletId.entrySet()) {
             Backend backend = liveBackends.get(entry.getKey());
-            locations.add(PTabletsLocation.newBuilder()
-                    .setHost(backend.getHost())
-                    .setBrpcPort(backend.getBrpcPort())
-                    .addAllTabletId(entry.getValue())
-                    .build());
+            PTabletsLocation.Builder location = PTabletsLocation.newBuilder()
+                    .setHost(backend.getHost()).setBrpcPort(backend.getBrpcPort());
+            for (long tabletId : entry.getValue()) {
+                location.addTabletId(tabletId);
+                location.addTabletVisibleVersion(tabletReplicas.get(tabletId).visibleVersion);
+            }
+            locations.add(location.build());
         }
         Collections.shuffle(coordinatorBackend);
         PFetchRemoteSchemaRequest request = PFetchRemoteSchemaRequest.newBuilder()
                 .addAllTabletLocation(locations)
                 .setIsCoordinator(true)
                 .build();
-        long timeoutSeconds = ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds;
+        long timeoutSeconds = Math.max(0L, ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds);
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        long startNanos = System.nanoTime();
         Exception lastFailure = null;
         for (Backend be : coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()))) {
+            // A second coordinator only gets the time left by the first attempt.
+            if (lastFailure != null && System.nanoTime() - startNanos >= timeoutNanos) {
+                break;
+            }
+            PFetchRemoteSchemaResponse response;
             try {
                 Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
                         .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
-                PFetchRemoteSchemaResponse response;
                 try {
                     while (DebugPointUtil.isEnable("FetchRemoteTabletSchemaUtil.fetch.waitForResponse")) {
                         Thread.sleep(100);
                     }
-                    response = future.get(timeoutSeconds, TimeUnit.SECONDS);
+                    long remainingNanos = Math.max(0L, timeoutNanos - (System.nanoTime() - startNanos));
+                    response = future.get(remainingNanos, TimeUnit.NANOSECONDS);
                 } catch (TimeoutException e) {
                     future.cancel(true);
                     throw new AnalysisException("Remote schema RPC timed out on " + be.getBrpcAddress(), e);
@@ -282,21 +324,37 @@ public class FetchRemoteTabletSchemaUtil {
                     future.cancel(true);
                     throw e;
                 }
-                if (!response.hasStatus() || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new AnalysisException("Remote schema RPC failed on " + be.getBrpcAddress() + " "
-                            + response.getStatus().getErrorMsgsList());
-                }
-                if (!response.hasMergedSchema()) {
-                    throw new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
-                }
-                return decodeColumns(response.getMergedSchema());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new AnalysisException("Extended DESCRIBE interrupted while fetching remote schema", e);
             } catch (AnalysisException | RpcException | ExecutionException e) {
                 lastFailure = e;
                 LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), e);
+                continue;
             }
+            if (!response.hasStatus() || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                AnalysisException failure = new AnalysisException("Remote schema RPC failed on "
+                        + be.getBrpcAddress() + " " + response.getStatus().getErrorMsgsList());
+                // Worker RPCs already retry transport failures within their own deadline.
+                // Moving an accepted request to another coordinator repeats the worker fan-out.
+                if (response.hasStatus() && response.getCoordinatorAccepted()
+                        && response.getStatus().getStatusCode() != TStatusCode.NETWORK_ERROR.getValue()) {
+                    throw failure;
+                }
+                lastFailure = failure;
+            } else if (!response.hasMergedSchema()) {
+                lastFailure = new AnalysisException("Missing merged schema from " + be.getBrpcAddress());
+            } else if (!response.getTabletVersionsVerified()) {
+                lastFailure = new AnalysisException("Coordinator could not verify tablet versions on "
+                        + be.getBrpcAddress());
+            } else {
+                try {
+                    return decodeColumns(response.getMergedSchema());
+                } catch (AnalysisException e) {
+                    lastFailure = e;
+                }
+            }
+            LOG.warn("Failed to fetch remote schema from {}", be.getBrpcAddress(), lastFailure);
         }
         throw new AnalysisException("Extended DESCRIBE failed to fetch a complete remote schema"
                 + (lastFailure == null ? "" : " (" + lastFailure.getMessage() + ")"), lastFailure);

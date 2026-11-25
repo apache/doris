@@ -17,20 +17,30 @@
 
 #include "olap/storage_engine.h"
 
+#include <brpc/callback.h>
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/tablet_manager.h"
+#include "runtime/exec_env.h"
+#include "runtime/load_stream_mgr.h"
+#include "service/backend_options.h"
+#include "service/internal_service.h"
+#include "util/defer_op.h"
+#include "util/runtime_profile.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -175,6 +185,75 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
               config::max_tablet_version_num);
     _storage_engine->_process_async_publish();
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
+}
+
+TEST_F(StorageEngineTest, RemoteDescDoesNotUseLaggingReplica) {
+    constexpr int64_t tablet_id = 710051;
+    TColumnType type;
+    type.__set_type(TPrimitiveType::INT);
+    TColumn key;
+    key.__set_column_name("id");
+    key.__set_column_type(type);
+    key.__set_is_key(true);
+    TTabletSchema schema;
+    schema.__set_short_key_column_count(1);
+    schema.__set_schema_hash(71005);
+    schema.__set_keys_type(TKeysType::DUP_KEYS);
+    schema.__set_storage_type(TStorageType::COLUMN);
+    schema.__set_columns({key});
+    TCreateTabletReq create;
+    create.__set_tablet_id(tablet_id);
+    create.__set_version(2);
+    create.__set_tablet_schema(schema);
+    std::vector<DataDir*> dirs {_data_dir.get()};
+    RuntimeProfile profile("CreateDescTestTablet");
+    auto status = _storage_engine->tablet_manager()->create_tablet(create, dirs, &profile);
+    ASSERT_TRUE(status.ok()) << status;
+    ExecEnv::GetInstance()->set_storage_engine(std::move(_storage_engine));
+    ASSERT_TRUE(ExecEnv::get_tablet(tablet_id).has_value());
+
+    const auto heavy_threads = config::brpc_heavy_work_pool_threads;
+    const auto light_threads = config::brpc_light_work_pool_threads;
+    const auto flight_threads = config::brpc_arrow_flight_work_pool_threads;
+    Defer restore_threads {[&] {
+        config::brpc_heavy_work_pool_threads = heavy_threads;
+        config::brpc_light_work_pool_threads = light_threads;
+        config::brpc_arrow_flight_work_pool_threads = flight_threads;
+    }};
+    config::brpc_heavy_work_pool_threads = 1;
+    config::brpc_light_work_pool_threads = 1;
+    config::brpc_arrow_flight_work_pool_threads = 1;
+
+    ExecEnv worker_env;
+    worker_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
+    PInternalService worker(&worker_env);
+    PFetchRemoteSchemaRequest request;
+    request.set_is_coordinator(false);
+    request.set_report_tablet_coverage(true);
+    auto* location = request.add_tablet_location();
+    location->set_host(BackendOptions::get_local_backend().host);
+    location->set_brpc_port(config::brpc_port);
+    location->add_tablet_id(tablet_id);
+    location->add_tablet_visible_version(3);
+
+    PFetchRemoteSchemaResponse response;
+    std::promise<void> finished;
+    auto reply = finished.get_future();
+    Defer drain {[&] {
+        worker._heavy_work_pool.shutdown();
+        worker._heavy_work_pool.join();
+        worker_env.load_stream_mgr()->set_heavy_work_pool(nullptr);
+    }};
+    const auto signal_response = +[](std::promise<void>* completion) { completion->set_value(); };
+    worker.fetch_remote_tablet_schema(nullptr, &request, &response,
+                                      brpc::NewCallback(signal_response, &finished));
+    ASSERT_EQ(std::future_status::ready, reply.wait_for(std::chrono::seconds(10)));
+    ASSERT_TRUE(response.has_status());
+    EXPECT_EQ(0, response.status().status_code());
+    EXPECT_TRUE(response.tablet_versions_verified());
+    EXPECT_FALSE(response.has_merged_schema());
+    ASSERT_EQ(1, response.tablet_coverage().missing_tablet_id_size());
+    EXPECT_EQ(tablet_id, response.tablet_coverage().missing_tablet_id(0));
 }
 
 } // namespace doris

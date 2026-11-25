@@ -42,9 +42,6 @@ suite("test_variant_desc_tablet_coverage", "p0") {
     wideTablets.each { tabletId ->
         assertEquals(1, sql("SELECT id FROM variant_desc_tablet_coverage TABLET(${tabletId})").size())
     }
-    // Scan the narrow partition as well so Cloud has synchronized its rowsets before the coverage checks.
-    def narrowRows = sql("SELECT id FROM variant_desc_tablet_coverage PARTITION (p_narrow)")
-    assertEquals([10], narrowRows.collect { it[0].intValue() })
 
     def dbName = sql("SELECT DATABASE()")[0][0]
     def dbId = get_database_id("internal", dbName)
@@ -69,6 +66,10 @@ suite("test_variant_desc_tablet_coverage", "p0") {
         sql "DESC variant_desc_tablet_coverage"
         exception "Extended DESCRIBE needs to read 5 tablets"
     }
+    sql "SET max_fetch_remote_schema_tablet_count = 1"
+    assertEquals(["payload.narrow"], variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_narrow,p_narrow)"))
+    assertEquals(["payload.narrow"], variantPaths("SHOW PROC '${schemaPath}/p_narrow,p_narrow'"))
+
     sql "SET max_fetch_remote_schema_tablet_count = 0"
     assertTrue(variantPaths("DESC variant_desc_tablet_coverage PARTITION (p_empty)").isEmpty())
 }

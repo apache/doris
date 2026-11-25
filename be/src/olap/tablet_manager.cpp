@@ -591,9 +591,10 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     return Status::OK();
 }
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err,
+                                          bool* missing) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
-    return _get_tablet_unlocked(tablet_id, include_deleted, err);
+    return _get_tablet_unlocked(tablet_id, include_deleted, err, missing);
 }
 
 std::vector<TabletSharedPtr> TabletManager::get_all_tablet(std::function<bool(Tablet*)>&& filter) {
@@ -623,7 +624,7 @@ void TabletManager::for_each_tablet(std::function<void(const TabletSharedPtr&)>&
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
-                                                    string* err) {
+                                                    string* err, bool* missing) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id);
     if (tablet == nullptr && include_deleted) {
@@ -637,6 +638,10 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         }
     }
 
+    // A known tablet on an unusable disk is different from a missing replica.
+    if (missing != nullptr) {
+        *missing = tablet == nullptr;
+    }
     if (tablet == nullptr) {
         if (err != nullptr) {
             *err = "tablet does not exist. " + BackendOptions::get_localhost();

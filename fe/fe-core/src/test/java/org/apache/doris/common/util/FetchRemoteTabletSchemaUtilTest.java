@@ -33,6 +33,7 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.RemoteIndexSchemaProcDir;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil.PartitionTablets;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil.VersionedTablet;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaRequest;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaResponse;
 import org.apache.doris.proto.OlapFile.ColumnPB;
@@ -60,9 +61,11 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 class FetchRemoteTabletSchemaUtilTest {
     private static final PFetchRemoteSchemaResponse FAILED = PFetchRemoteSchemaResponse.newBuilder()
@@ -70,6 +73,48 @@ class FetchRemoteTabletSchemaUtilTest {
                     .addErrorMsgs("injected metadata read failure"))
             .build();
     private static final PStatus OK = PStatus.newBuilder().setStatusCode(TStatusCode.OK.getValue()).build();
+
+    @Test
+    void reportsWorkerFailureWithoutRepeatingFanOut() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
+                Futures.immediateFuture(FAILED.toBuilder().setCoordinatorAccepted(true).build()));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, true));
+        Assertions.assertTrue(error.getMessage().contains("injected metadata read failure"));
+        Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void cancelsTimedOutRequestWithoutCallingAnotherCoordinatorAfterDeadline() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        CompletableFuture<PFetchRemoteSchemaResponse> pending = new CompletableFuture<>();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(pending);
+        Tablet tablet = tabletWithReplicas(101);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> withBackends(proxy, true, true, () -> {
+                    ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds = 0;
+                    return new FetchRemoteTabletSchemaUtil(ImmutableList.of(new VersionedTablet(tablet, 2L))).fetch();
+                }));
+        Assertions.assertTrue(error.getMessage().contains("Remote schema RPC timed out"));
+        Assertions.assertTrue(pending.isCancelled());
+        Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void retriesAcceptedWorkerTransportFailureOnAnotherCoordinator() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        PFetchRemoteSchemaResponse networkFailure = PFetchRemoteSchemaResponse.newBuilder()
+                .setCoordinatorAccepted(true)
+                .setStatus(PStatus.newBuilder().setStatusCode(TStatusCode.NETWORK_ERROR.getValue()))
+                .build();
+        PFetchRemoteSchemaResponse success = PFetchRemoteSchemaResponse.newBuilder()
+                .setStatus(OK).setTabletVersionsVerified(true)
+                .setMergedSchema(TabletSchemaPB.getDefaultInstance()).build();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
+                Futures.immediateFuture(networkFailure), Futures.immediateFuture(success));
+        Assertions.assertTrue(fetch(proxy, true, true).isEmpty());
+        Mockito.verify(proxy, Mockito.times(2)).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
 
     @Test
     void failsWhenAllCoordinatorsFail() throws Exception {
@@ -98,27 +143,39 @@ class FetchRemoteTabletSchemaUtilTest {
     void retriesAndReturnsOnlyTheCompleteResponse() throws Exception {
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         PFetchRemoteSchemaResponse recovered = PFetchRemoteSchemaResponse.newBuilder()
-                .setStatus(OK)
+                .setStatus(OK).setTabletVersionsVerified(true)
                 .setMergedSchema(TabletSchemaPB.newBuilder().addColumn(
                         ColumnPB.newBuilder().setUniqueId(-1).setName("v.key").setType("INT")))
                 .build();
         Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenReturn(
                 Futures.immediateFuture(FAILED), Futures.immediateFuture(recovered));
-        Assertions.assertEquals(ImmutableList.of("v.key"), fetch(proxy, true, true).stream().map(Column::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(ImmutableList.of("v.key"),
+                fetch(proxy, true, true).stream().map(Column::getName).collect(Collectors.toList()));
         Mockito.verify(proxy, Mockito.times(2)).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void refusesSchemaWithoutVerifiedTabletVersions() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        PFetchRemoteSchemaResponse legacyReply = PFetchRemoteSchemaResponse.newBuilder()
+                .setStatus(OK).setMergedSchema(TabletSchemaPB.getDefaultInstance()).build();
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFuture(legacyReply));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> fetch(proxy, true, false));
+        Assertions.assertTrue(error.getMessage().contains("could not verify tablet versions"));
     }
 
     @Test
     void retriesDecodeFailureWithoutKeepingPartialColumns() throws Exception {
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         PFetchRemoteSchemaResponse malformed = PFetchRemoteSchemaResponse.newBuilder()
-                .setStatus(OK)
+                .setStatus(OK).setTabletVersionsVerified(true)
                 .setMergedSchema(TabletSchemaPB.newBuilder()
                         .addColumn(ColumnPB.newBuilder().setUniqueId(-1).setName("v.stale").setType("INT"))
                         .addColumn(ColumnPB.newBuilder().setUniqueId(-1).setName("v.bad").setType("DECODE_ERROR")))
                 .build();
         PFetchRemoteSchemaResponse recovered = PFetchRemoteSchemaResponse.newBuilder()
-                .setStatus(OK)
+                .setStatus(OK).setTabletVersionsVerified(true)
                 .setMergedSchema(TabletSchemaPB.newBuilder()
                         .addColumn(ColumnPB.newBuilder().setUniqueId(-1).setName("v.key").setType("INT")))
                 .build();
@@ -153,8 +210,8 @@ class FetchRemoteTabletSchemaUtilTest {
             }
         };
         List<PartitionTablets> partitions = ImmutableList.of(
-                new PartitionTablets(Mockito.mock(Partition.class), ImmutableList.of(tabletWithReplicas(101))),
-                new PartitionTablets(Mockito.mock(Partition.class), oversizedTablets));
+                new PartitionTablets(Mockito.mock(Partition.class), ImmutableList.of(tabletWithReplicas(101)), 2L),
+                new PartitionTablets(Mockito.mock(Partition.class), oversizedTablets, 2L));
         ConnectContext context = Mockito.mock(ConnectContext.class);
         Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
         try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
@@ -168,14 +225,37 @@ class FetchRemoteTabletSchemaUtilTest {
     }
 
     @Test
+    void collectsEveryTabletAcrossUnevenPartitionsWithinTheLimit() throws Exception {
+        List<Tablet> large = LongStream.rangeClosed(1, 500).mapToObj(Tablet::new)
+                .collect(Collectors.toList());
+        Tablet small = new Tablet(501);
+        List<PartitionTablets> partitions = ImmutableList.of(
+                new PartitionTablets(Mockito.mock(Partition.class), large, 2L),
+                new PartitionTablets(Mockito.mock(Partition.class), ImmutableList.of(small), 2L));
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
+            contextStatic.when(ConnectContext::get).thenReturn(context);
+            configStatic.when(Config::isCloudMode).thenReturn(false);
+            List<Tablet> tablets = FetchRemoteTabletSchemaUtil.collectTablets(partitions).stream()
+                    .map(VersionedTablet::getTablet).collect(Collectors.toList());
+            Assertions.assertEquals(501, tablets.size());
+            Assertions.assertEquals(large, tablets.subList(0, 500));
+            Assertions.assertEquals(small, tablets.get(500));
+        }
+    }
+
+    @Test
     void collectsCloudTabletsUsingOneVersionLookup() throws Exception {
         List<CloudPartition> cloudPartitions = ImmutableList.of(Mockito.mock(CloudPartition.class),
                 Mockito.mock(CloudPartition.class), Mockito.mock(CloudPartition.class));
         Tablet first = tabletWithReplicas(101);
         Tablet last = tabletWithReplicas(303);
-        List<PartitionTablets> partitions = ImmutableList.of(new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(first)),
-                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202))),
-                new PartitionTablets(cloudPartitions.get(2), ImmutableList.of(last)));
+        List<PartitionTablets> partitions = ImmutableList.of(
+                new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(first), -1L),
+                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202)), -1L),
+                new PartitionTablets(cloudPartitions.get(2), ImmutableList.of(last), -1L));
         ConnectContext context = Mockito.mock(ConnectContext.class);
         Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
         long initVersion = Partition.PARTITION_INIT_VERSION;
@@ -184,10 +264,73 @@ class FetchRemoteTabletSchemaUtilTest {
                 MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
             contextStatic.when(ConnectContext::get).thenReturn(context);
             configStatic.when(Config::isCloudMode).thenReturn(true);
-            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions))
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions, false))
                     .thenReturn(ImmutableList.of(initVersion + 1, initVersion, initVersion + 2));
-            Assertions.assertEquals(ImmutableList.of(first, last), FetchRemoteTabletSchemaUtil.collectTablets(partitions));
-            cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions));
+            List<VersionedTablet> result = FetchRemoteTabletSchemaUtil.collectTablets(partitions);
+            Assertions.assertEquals(ImmutableList.of(first, last),
+                    result.stream().map(VersionedTablet::getTablet).collect(Collectors.toList()));
+            Assertions.assertEquals(ImmutableList.of(initVersion + 1, initVersion + 2),
+                    result.stream().map(VersionedTablet::getVisibleVersion).collect(Collectors.toList()));
+            cloudStatic.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions, false));
+        }
+    }
+
+    @Test
+    void refreshesCachedEmptyCloudPartitionBeforeSkippingIt() throws Exception {
+        CloudPartition partition = Mockito.mock(CloudPartition.class);
+        Tablet tablet = tabletWithReplicas(101);
+        Mockito.when(partition.getVisibleVersion()).thenReturn(Partition.PARTITION_INIT_VERSION);
+        Mockito.when(partition.getCachedVisibleVersion()).thenReturn(Partition.PARTITION_INIT_VERSION);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> contextStatic = Mockito.mockStatic(ConnectContext.class);
+                MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
+            contextStatic.when(ConnectContext::get).thenReturn(context);
+            configStatic.when(Config::isCloudMode).thenReturn(true);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(ImmutableList.of(partition), false))
+                    .thenReturn(ImmutableList.of(Partition.PARTITION_INIT_VERSION + 1L));
+            List<PartitionTablets> partitions = ImmutableList.of(
+                    new PartitionTablets(partition, ImmutableList.of(tablet), -1L));
+            List<VersionedTablet> result = FetchRemoteTabletSchemaUtil.collectTablets(partitions);
+            Assertions.assertEquals(1, result.size());
+            Assertions.assertEquals(tablet, result.get(0).getTablet());
+            Assertions.assertEquals(Partition.PARTITION_INIT_VERSION + 1, result.get(0).getVisibleVersion());
+        }
+    }
+
+    @Test
+    void rejectsRemoteColumnsFromAConcurrentLightSchemaChange() throws Exception {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        MaterializedIndexMeta indexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        AtomicInteger schemaVersion = new AtomicInteger(7);
+        Mockito.when(indexMeta.getSchemaVersion()).thenAnswer(invocation -> schemaVersion.get());
+        Mockito.when(table.getIndexMetaByIndexId(1L)).thenReturn(indexMeta);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.getSchemaByIndexId(1L)).thenReturn(ImmutableList.of(new Column("old_root", Type.VARIANT)));
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(partition.getVisibleVersion()).thenReturn(2L);
+        Mockito.when(partition.getBaseIndex()).thenReturn(index);
+        Tablet tablet = tabletWithReplicas(101);
+        Mockito.when(index.getTablets()).thenReturn(ImmutableList.of(tablet));
+        Mockito.when(table.getPartitions()).thenReturn(ImmutableList.of(partition));
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+            schemaVersion.incrementAndGet();
+            return Futures.immediateFuture(PFetchRemoteSchemaResponse.newBuilder()
+                    .setStatus(OK).setTabletVersionsVerified(true)
+                    .setMergedSchema(TabletSchemaPB.newBuilder().addColumn(
+                            ColumnPB.newBuilder().setUniqueId(-1).setName("new_root.key").setType("INT")))
+                    .build());
+        });
+        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
+            configStatic.when(Config::isCloudMode).thenReturn(false);
+            AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                    () -> withBackends(proxy, true, false,
+                            () -> new RemoteIndexSchemaProcDir(table, 1L).fetchResult()));
+            Assertions.assertTrue(failure.getMessage().contains("Table schema changed"), failure.getMessage());
+            Mockito.verify(proxy).fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any());
         }
     }
 
@@ -196,13 +339,14 @@ class FetchRemoteTabletSchemaUtilTest {
         List<CloudPartition> cloudPartitions = ImmutableList.of(Mockito.mock(CloudPartition.class),
                 Mockito.mock(CloudPartition.class));
         List<PartitionTablets> partitions = ImmutableList.of(
-                new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(tabletWithReplicas(101))),
-                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202))));
+                new PartitionTablets(cloudPartitions.get(0), ImmutableList.of(tabletWithReplicas(101)), -1L),
+                new PartitionTablets(cloudPartitions.get(1), ImmutableList.of(tabletWithReplicas(202)), -1L));
         RpcException unavailable = new RpcException("meta-service", "injected batch version failure");
         try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
                 MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
             configStatic.when(Config::isCloudMode).thenReturn(true);
-            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersion(cloudPartitions)).thenThrow(unavailable);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions, false))
+                    .thenThrow(unavailable);
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> FetchRemoteTabletSchemaUtil.collectTablets(partitions));
             Assertions.assertTrue(error.getMessage().contains("could not fetch partition versions"));
@@ -226,13 +370,14 @@ class FetchRemoteTabletSchemaUtilTest {
         long indexId = 1;
         MaterializedIndexMeta indexMeta = Mockito.mock(MaterializedIndexMeta.class);
         Mockito.when(table.getIndexMetaByIndexId(indexId)).thenReturn(indexMeta);
+        Mockito.when(table.getBaseIndexId()).thenReturn(indexId);
         AtomicReference<List<Column>> schema = new AtomicReference<>(ImmutableList.of(new Column("before", Type.INT)));
         Mockito.when(table.getSchemaByIndexId(indexId)).thenAnswer(invocation -> {
             Assertions.assertTrue(lock.getReadHoldCount() > 0);
             return schema.get();
         });
 
-        Partition partition = Mockito.mock(Partition.class);
+        CloudPartition partition = Mockito.mock(CloudPartition.class);
         Mockito.when(table.getPartitions()).thenReturn(ImmutableList.of(partition));
         Mockito.when(table.getPartition("p1")).thenReturn(partition);
         Tablet originalTablet = tabletWithReplicas(101);
@@ -246,44 +391,48 @@ class FetchRemoteTabletSchemaUtilTest {
             Assertions.assertTrue(lock.getReadHoldCount() > 0);
             return baseIndex.get();
         });
-        Mockito.when(partition.getVisibleVersion()).thenAnswer(invocation -> {
-            Assertions.assertEquals(0, lock.getReadHoldCount());
-            CompletableFuture.runAsync(() -> {
-                lock.writeLock().lock();
-                try {
-                    schema.set(ImmutableList.of(new Column("after", Type.INT)));
-                    baseIndex.set(replacement);
-                } finally {
-                    lock.writeLock().unlock();
-                }
-            }).get(5, TimeUnit.SECONDS);
-            return Partition.PARTITION_INIT_VERSION + 1L;
-        });
-
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Mockito.when(proxy.fetchRemoteTabletSchemaAsync(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
             Assertions.assertEquals(0, lock.getReadHoldCount());
             PFetchRemoteSchemaRequest request = invocation.getArgument(1);
             Assertions.assertEquals(ImmutableList.of(101L), request.getTabletLocation(0).getTabletIdList());
+            Assertions.assertEquals(ImmutableList.of(2L), request.getTabletLocation(0).getTabletVisibleVersionList());
             return Futures.immediateFuture(PFetchRemoteSchemaResponse.newBuilder()
-                    .setStatus(OK).setMergedSchema(TabletSchemaPB.getDefaultInstance()).build());
+                    .setStatus(OK).setTabletVersionsVerified(true)
+                    .setMergedSchema(TabletSchemaPB.getDefaultInstance()).build());
         });
 
-        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class)) {
+        try (MockedStatic<Config> configStatic = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudStatic = Mockito.mockStatic(CloudPartition.class)) {
             configStatic.when(Config::isCloudMode).thenReturn(true);
+            cloudStatic.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(ImmutableList.of(partition), false))
+                    .thenAnswer(invocation -> {
+                        Assertions.assertEquals(0, lock.getReadHoldCount());
+                        CompletableFuture.runAsync(() -> {
+                            lock.writeLock().lock();
+                            try {
+                                schema.set(ImmutableList.of(new Column("after", Type.INT)));
+                                baseIndex.set(replacement);
+                            } finally {
+                                lock.writeLock().unlock();
+                            }
+                        }).get(5, TimeUnit.SECONDS);
+                        return ImmutableList.of(Partition.PARTITION_INIT_VERSION + 1L);
+                    });
             ProcResult result = withBackends(proxy, true, false, () -> {
                 RemoteIndexSchemaProcDir dir = new RemoteIndexSchemaProcDir(table, indexId);
                 ProcNodeInterface node = namedPartition ? dir.lookup("p1") : dir;
                 return node.fetchResult();
             });
-            Assertions.assertEquals(ImmutableList.of("before"), result.getRows().stream().map(row -> row.get(0)).collect(Collectors.toList()));
+            Assertions.assertEquals(ImmutableList.of("before"),
+                    result.getRows().stream().map(row -> row.get(0)).collect(Collectors.toList()));
         }
     }
 
     private List<Column> fetch(BackendServiceProxy proxy, boolean firstAlive, boolean secondAlive) throws Exception {
         Tablet tablet = tabletWithReplicas(101);
         return withBackends(proxy, firstAlive, secondAlive,
-                () -> new FetchRemoteTabletSchemaUtil(ImmutableList.of(tablet)).fetch());
+                () -> new FetchRemoteTabletSchemaUtil(ImmutableList.of(new VersionedTablet(tablet, 2L))).fetch());
     }
 
     private Tablet tabletWithReplicas(long tabletId) {
