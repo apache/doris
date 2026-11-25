@@ -28,6 +28,8 @@ import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
@@ -37,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 class IcebergGoogleCredentialSecurityTest {
     @ParameterizedTest
@@ -77,6 +80,22 @@ class IcebergGoogleCredentialSecurityTest {
         Map<String, String> raw = restProperties();
         raw.put("gcp.auth.credentials-json", "{\"type\":\"service_account\",\"token_uri\":\"" + endpoint + "\"}");
         Assertions.assertThrows(IllegalArgumentException.class, () -> normalize(raw));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"client_id", "client_email", "private_key", "private_key_id", "project_id",
+            "quota_project_id", "universe_domain"})
+    void rejectsNonStringServiceAccountFieldsWithoutRetainingSecrets(String field) {
+        for (String value : new String[] {"7", "true", "[]", "{}", "null"}) {
+            Map<String, String> raw = restProperties();
+            String json = "{\"type\":\"service_account\",\"" + field + "\":" + value
+                    + ("private_key".equals(field) ? "}" : ",\"private_key\":\"synthetic-secret-material\"}");
+            raw.put("gcp.auth.credentials-json", json);
+            IllegalArgumentException failure = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> normalize(raw), field + ": " + value);
+            Assertions.assertFalse(failure.toString().contains("synthetic-secret-material"));
+            Assertions.assertNull(failure.getCause());
+        }
     }
 
     @ParameterizedTest
@@ -124,6 +143,23 @@ class IcebergGoogleCredentialSecurityTest {
             Assertions.assertFalse(masked.contains("synthetic-secret-material"));
             Assertions.assertTrue(masked.contains(PrintableMap.PASSWORD_MASK));
         }
+    }
+
+    @ParameterizedTest
+    @MethodSource("unicodeAuditStatements")
+    void masksSupplementaryCharactersWithoutLeavingSecretSuffixes(String template, String prefix) {
+        String sql = prefix + String.format(template,
+                "\"gcp.auth.credentials-json\"=\"synthetic-😀-secret-material\"");
+        NeedAuditEncryption command = (NeedAuditEncryption) new NereidsParser().parseSingle(sql);
+        String masked = command.geneEncryptionSQL(sql);
+        Assertions.assertEquals(prefix + String.format(template,
+                "\"gcp.auth.credentials-json\" = \"" + PrintableMap.PASSWORD_MASK + "\""), masked);
+    }
+
+    private static Stream<Arguments> unicodeAuditStatements() {
+        return Stream.of("CREATE CATALOG test PROPERTIES(%s)", "ALTER CATALOG test SET PROPERTIES(%s)")
+                .flatMap(template -> Stream.of("", "/* 😀 */ ", "/* 😀😀 */ ")
+                        .map(prefix -> Arguments.of(template, prefix)));
     }
 
     @ParameterizedTest

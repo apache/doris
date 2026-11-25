@@ -51,6 +51,14 @@ final class IcebergGoogleCredentialValidator {
         if (credential == null || !"service_account".equals(credential.get("type"))) {
             throw new IllegalArgumentException("gcp.auth.credentials-json must contain service_account credentials");
         }
+        // The SDK casts these fields to String; JSON null is also a non-String parser sentinel.
+        // Reject bad types here so downstream failures cannot expose a credential-bearing property map.
+        for (String field : new String[] {"client_id", "client_email", "private_key", "private_key_id", "project_id",
+                "token_uri", "quota_project_id", "universe_domain"}) {
+            if (credential.containsKey(field) && !(credential.get(field) instanceof String)) {
+                throw new IllegalArgumentException("gcp.auth.credentials-json fields must contain strings");
+            }
+        }
         Object endpoint = credential.get("token_uri");
         if (endpoint != null && !"https://oauth2.googleapis.com/token".equals(endpoint)
                 && !"https://accounts.google.com/o/oauth2/token".equals(endpoint)) {
