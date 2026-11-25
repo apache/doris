@@ -105,6 +105,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -224,7 +225,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * final project list. Intermediate projections carry child references and their own expressions, filtered by
      * live-column analysis when available.
      */
-    private final Set<Plan> outputProjects =
+    private final Set<Plan> outputOrderedPlans =
             Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     /**
@@ -355,11 +356,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private void markOutputProject(Plan plan) {
         Plan current = plan;
         while (current != null) {
-            if (current instanceof PhysicalProject) {
-                outputProjects.add(current);
+            if (current instanceof PhysicalProject || current instanceof PhysicalHashAggregate) {
+                outputOrderedPlans.add(current);
                 return;
             }
-            if (current instanceof PhysicalHashAggregate || current.arity() != 1) {
+            if (current.arity() != 1) {
                 return;
             }
             current = current.child(0);
@@ -526,7 +527,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             return;
         }
         Set<ExprId> childNeed = new HashSet<>();
-        boolean finalProject = outputProjects.contains(project);
+        boolean finalProject = outputOrderedPlans.contains(project);
         if (finalProject) {
             // the outermost projection emits its full projection list: every referenced
             // child column must stay alive
@@ -841,7 +842,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         generatedColumnSeq = 0;
         reservedOutputNames.clear();
         lateralViewSeq = 0;
-        outputProjects.clear();
+        outputOrderedPlans.clear();
         localAggParams.clear();
         distinctMergeBuffers.clear();
         markOutputProject(plan);
@@ -2135,6 +2136,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (!onConjuncts.isEmpty() && join.getJoinType() != JoinType.CROSS_JOIN) {
             onSql = " ON " + onConjuncts.stream()
                     .map(e -> exprSqlBuilder.print(e, joinRelation))
+                    .sorted()
                     .collect(Collectors.joining(" AND "));
         }
         String matchSql = "";
@@ -2205,7 +2207,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // "t_a.X" that are no longer in scope -> "Unknown column in t_N", or leave
             // duplicate bare names -> "ambiguous").
             List<Pair<ExprId, String>> explicitProjection = new ArrayList<>();
-            for (Map.Entry<ExprId, String> entry : joinRelation.getColumnNames().entrySet()) {
+            for (Map.Entry<ExprId, String> entry : joinRelation.getColumnNames().entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue()).toList()) {
                 if (isSystemColumnName(entry.getValue())) {
                     continue;
                 }
@@ -2452,7 +2455,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private void appendLivePreservedColumns(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
             SQLRelation preserved, SQLRelation joinRelation, List<Pair<ExprId, String>> selects) {
         Set<ExprId> need = neededOutputs.get(join);
-        for (Map.Entry<ExprId, String> entry : preserved.getColumnNames().entrySet()) {
+        for (Map.Entry<ExprId, String> entry : preserved.getColumnNames().entrySet().stream()
+                .sorted(Map.Entry.comparingByValue()).toList()) {
             String value = entry.getValue();
             if (isSystemColumnName(value)) {
                 continue;
@@ -2640,7 +2644,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         Set<ExprId> retainedGroupingKeys =
                 retainedGroupingKeysBelow(agg.child(0), ownGroupKeyIds(agg));
         List<Pair<ExprId, String>> selects = new ArrayList<>();
-        for (NamedExpression output : agg.getOutputExpressions()) {
+        List<NamedExpression> aggregateOutputs = outputOrderedPlans.contains(agg)
+                ? agg.getOutputExpressions() : canonicalOutputs(agg.getOutputExpressions(), childRelation);
+        for (NamedExpression output : aggregateOutputs) {
             appendAggSelect(aggRelation, childRelation, output, selects, distinctMergeCount,
                     stageHasDistinctMergeBuffer, dedupKeyIds, retainedGroupingKeys);
         }
@@ -3616,7 +3622,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // LIMIT 20 could not replace the captured value and the query kept the old cap).
         relation.getColumnNames().putAll(child.getColumnNames());
 
-        boolean isFinalProject = outputProjects.contains(project);
+        boolean isFinalProject = outputOrderedPlans.contains(project);
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         Set<ExprId> need = neededOutputs.get(project);
         if (isFinalProject) {
@@ -3637,11 +3643,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             for (Pair<ExprId, String> select : selects) {
                 emitted.add(select.first);
             }
-            for (NamedExpression projectExpr : project.getProjects()) {
+            List<NamedExpression> liveProjects = project.getProjects().stream()
+                    .filter(expression -> !emitted.contains(expression.getExprId())
+                            && (need == null || need.contains(expression.getExprId())))
+                    .toList();
+            for (NamedExpression projectExpr : canonicalOutputs(liveProjects, child)) {
                 if (emitted.contains(projectExpr.getExprId())) {
-                    continue;
-                }
-                if (need != null && !need.contains(projectExpr.getExprId())) {
                     continue;
                 }
                 appendProjectSelect(relation, child, projectExpr, selects);
@@ -3684,6 +3691,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         relation.setSelects(selects);
         relation.newAlias();
         return relation;
+    }
+
+    /** Orders internal output expressions by their rendered meaning before allocating SQL aliases. */
+    private List<NamedExpression> canonicalOutputs(List<NamedExpression> outputs, SQLRelation input) {
+        return outputs.stream().map(output -> Pair.of(output, exprSqlBuilder.print(resolveBufferSlots(output), input)))
+                .sorted(Comparator.comparing((Pair<NamedExpression, String> item) -> item.second)
+                        .thenComparing(item -> item.first.getName()))
+                .map(item -> item.first).toList();
     }
 
     /**
@@ -4205,7 +4220,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 relation.registerRef(select.key(), ref);
             }
         } else {
-            for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet()) {
+            for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue()).toList()) {
                 String ref = entry.getValue();
                 // plain reference names only (skip expressions / qualified names - those
                 // relations carry their own SELECT list instead). A FULLY QUOTED

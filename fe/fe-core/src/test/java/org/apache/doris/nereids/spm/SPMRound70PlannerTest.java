@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.NullType;
 
@@ -49,7 +48,7 @@ import java.util.List;
  *
  * - #3 a DOTTED output alias (`x.y`) is ONE column name: `* EXCEPT(y)` must not remove it
  *      because its last component is `y`, or the frozen header is renamed to another column;
- * - #5 a projected NULL (`SELECT NULL AS n`) is parameterized BOOLEAN, so an enclosing
+ * - #5 a projected NULL (`SELECT NULL AS n`) retains its type, so an enclosing
  *      Boolean binding keeps the slot (and the marker) instead of replacing it with a
  *      constant NULL;
  * - #6 `AVG(DISTINCT k + 1)` keeps its LARGEINT accumulator cast even though a placeholder
@@ -101,7 +100,7 @@ public class SPMRound70PlannerTest {
      * a later TRUE variant of the derived column then had nothing to substitute.
      */
     @Test
-    public void testProjectedNullIsParameterizedBoolean() {
+    public void testProjectedNullRetainsItsType() {
         LogicalPlan plan = parse("SELECT NULL AS n FROM t");
         SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
@@ -111,11 +110,8 @@ public class SPMRound70PlannerTest {
         Expression value = ((Alias) item).child();
         Assertions.assertTrue(value instanceof SpmConstVar,
                 "the projected NULL must stay a MARKER: " + value);
-        Assertions.assertFalse(((SpmConstVar) value).getDataType() instanceof NullType,
-                "a NullType slot is exactly what Boolean binding replaces");
-        Assertions.assertTrue(((SpmConstVar) value).getDataType() instanceof BooleanType,
-                "the projected NULL is parameterized BOOLEAN: "
-                        + ((SpmConstVar) value).getDataType());
+        Assertions.assertTrue(((SpmConstVar) value).getDataType() instanceof NullType,
+                "the projected NULL must retain its inferred type for every consumer");
     }
 
     // ==================== #6: the accumulator widening under arithmetic ====================

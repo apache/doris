@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -190,13 +189,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
-        // Carry the encounter order of the aggregate output expressions into frozen SQL.
-        List<AggregateFunction> pushDownFunctions = SPMOptimizer.isCapturePlanning() && !hasDistinctAgg
-                ? agg.getOutputExpressions().stream()
-                        .flatMap(output -> aggFunctionsForOutputExpressions.get(output).stream())
-                        .distinct().collect(Collectors.toList())
-                : new ArrayList<>(aggFunctions);
-        PushDownAggContext pushDownContext = new PushDownAggContext(pushDownFunctions,
+        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
                 new BilateralState());
         if (groupKeys.isEmpty() || !pushDownContext.isValid()) {

@@ -553,10 +553,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return named ? expression instanceof CreateNamedStruct : expression instanceof CreateStruct;
     }
 
-    private boolean isStructFieldPosition(Expression parent) {
-        return isStructCall(parent, false) || isStructCall(parent, true) && currentChildIndex() % 2 == 1;
-    }
-
     /**
      * Whether the expression is a container whose ELEMENT type is NullType (see producesNullType):
      * an all-NULL array or an all-NULL-valued map. Both overloads of element_at return the
@@ -999,14 +995,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return existing;
         }
         long id = nextId++;
-        boolean structField = isStructFieldPosition(parent);
         boolean containerPosition = isNullTypeContainerPosition(parent);
         boolean conditionalContainer = containerElementDepth > 0
                 && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
                 && isConditionalResultPosition(parent);
         SpmConstVar placeholder = SpmConstVar.of(id,
-                markerPayload(literal, parent, currentProjectItem() >= 0 || structField,
-                        structField || booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
+                markerPayload(literal, parent,
+                        booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && (containerPosition || conditionalContainer),
                         containerElementDepth > 0 && !containerPosition, mapKeyDepth));
         placeholderIndex.put(key, placeholder);
@@ -1052,13 +1047,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /**
      * Chooses the literal payload used while analyzing a scalar placeholder. The payload controls the marker's
      * capture-time type even though replay replaces the marker by id. A NULL used as a Boolean operand,
-     * conditional result or selected output can otherwise be coerced into a new Boolean NULL expression,
+     * conditional result can otherwise be coerced into a new Boolean NULL expression,
      * discarding the marker. Relevant scalar NULLs are therefore typed Boolean. All-NULL container payloads
      * receive corresponding element or value typing so the marker survives the same coercion. The replacement
      * still uses the caller's actual value and type.
      */
     private static Literal markerPayload(Literal literal, Expression parent,
-            boolean projectionItem, boolean booleanConditionalResult,
+            boolean booleanConditionalResult,
             boolean booleanElementContainer, boolean containerElement, int mapKeyDepth) {
         if (containerElement && literal.isNullLiteral()) {
             // array(NULL) builds its container from the ELEMENTS, so an all-NULL element list is
@@ -1077,29 +1072,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 return payload;
             }
         }
-        if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
-                && isAllNullContainer(literal)) {
-            // A consumer can read the NULL-typed element or value through a derived-table slot.
-            Literal payload = booleanContainerPayload(literal, parent, NO_MAP_KEY_DEPENDENCY);
-            if (payload != null) {
-                return payload;
-            }
-        }
         boolean booleanOperand = parent instanceof And || parent instanceof Or
                 || parent instanceof Not;
         if (literal.isNullLiteral() && (booleanOperand || booleanConditionalResult)) {
-            return NullLiteral.BOOLEAN_INSTANCE;
-        }
-        // A projected NULL (SELECT NULL AS n / a bare SELECT NULL) exposes a NullType
-        // SLOT, and a consumer that binds it as a BOOLEAN operand (an enclosing OR / AND /
-        // WHERE, even in another query block) has the analyzer replace that operand with a
-        // typed constant NULL - dropping the slot, and with it this marker. A TRUE variant of
-        // the derived column then has nothing to substitute and the replay keeps NULL.
-        // Typing the projected NULL BOOLEAN removes the NullType from the tree; a NULL value
-        // stays NULL through any later coercion, so the only thing that changes is that the
-        // marker (and the slot that carries it) survives.
-        if (literal.isNullLiteral() && projectionItem
-                && (parent == null || parent instanceof org.apache.doris.nereids.trees.expressions.Alias)) {
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         return literal;
@@ -1390,19 +1365,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         boolean changed = false;
         List<Expression> newChildren = new ArrayList<>(children.size());
-        // A projected value can reach a Boolean consumer through a derived-table or CTE slot.
-        // Retype NULL-producing expressions and containers before binding can erase their markers.
-        boolean projectedValue = currentProjectItem() >= 0
-                && (parent == null || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
-                        || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
-        // Each STRUCT field has its own type. A derived-table consumer can bind that
-        // type as a Boolean operand and discard a field whose marker still has NullType.
-        boolean typedOutput = projectedValue || isStructFieldPosition(parent);
-        boolean booleanConditionalOperand = (typedOutput
-                || parent instanceof And || parent instanceof Or || parent instanceof Not)
+        // Type only values reached through an actual Boolean consumer.
+        boolean booleanConditionalOperand = (parent instanceof And || parent instanceof Or || parent instanceof Not)
                 && producesNullType(expr);
-        boolean containerElementOperand = (typedOutput
-                || booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent))
+        boolean containerElementOperand = booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent)
                 && isAllNullContainer(expr);
 
         if (booleanConditionalOperand) {

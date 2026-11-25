@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Replaces unqualified marker function calls in a parsed frozen plan expression. Scalar ids select matched
@@ -45,6 +46,17 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
 
     /** Function name of the IN-list placeholder as printed into the frozen planSql. */
     public static final String CONST_LIST_FUNC = "_spm_const_list";
+
+    private final Set<Long> requiredScalarIds;
+
+    public SPMFrozenTreeReplacer() {
+        this(Set.of());
+    }
+
+    /** Tracks required scalar markers during the capture-time validation. */
+    public SPMFrozenTreeReplacer(Set<Long> requiredScalarIds) {
+        this.requiredScalarIds = requiredScalarIds;
+    }
 
     /**
      * Returns whether the expression is a frozen-tree placeholder call
@@ -121,6 +133,9 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             if (id != null) {
                 Expression userValue = placeholderValues.get(id);
                 if (userValue != null) {
+                    if (!requiredScalarIds.isEmpty()) {
+                        requiredScalarIds.remove(id);
+                    }
                     return userValue;
                 }
                 // no extracted value (plan-only placeholder): leave it for the caller's

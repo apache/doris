@@ -32,11 +32,16 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -48,8 +53,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Creates baseline metadata and attempts query replay. Creation parameterizes supported literal positions in bind
@@ -853,7 +860,8 @@ public class SPMPlanner {
         // usable through the parameterized tree. The check plans the frozen text once -
         // CREATE is a one-shot operation.
         if (frozen.decompiled) {
-            frozen = validateFrozenTextReplannable(ctx, frozen, planSql, optimizeResult.getPhysicalPlan());
+            frozen = validateFrozenTextReplannable(ctx, frozen, planSql, bindPlan, parameterizedPlan,
+                    optimizeResult.getPhysicalPlan());
         }
         if (globalScope) {
             // A GLOBAL baseline must never be frozen over a temporary table: the physical
@@ -956,7 +964,7 @@ public class SPMPlanner {
      * probe.
      */
     private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
-            DecompiledPlan frozen, String planSql, Plan writePlan) {
+            DecompiledPlan frozen, String planSql, LogicalPlan bindPlan, Plan parameterizedPlan, Plan writePlan) {
         try {
             LogicalPlan parsed = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects(frozen.sql);
             // Substitute the placeholders with the WRITER plan's own literal payloads
@@ -966,19 +974,49 @@ public class SPMPlanner {
             // baseline. List markers keep their option payloads and are supplied as
             // SpmConstList replacements to the same probe.
             Map<Long, Expression> placeholderValues = collectPlaceholderValues(writePlan);
-            SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
+            Set<Long> requiredNullMarkers = new HashSet<>();
+            collectPlaceholderValues(parameterizedPlan).forEach((id, value) -> {
+                if (value instanceof Literal && containsNullType(value.getDataType())) {
+                    requiredNullMarkers.add(id);
+                }
+            });
+            SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer(requiredNullMarkers);
             LogicalPlan substituted = SPMPlanTreeSupport.transform(parsed,
                     expr -> expr.accept(replacer, placeholderValues));
+            if (!requiredNullMarkers.isEmpty()) {
+                // NullType values are deliberately left untyped at their producer. If
+                // analysis or optimization erases one, replan from the caller's actual values.
+                LOG.info("SPM frozen SQL lost untyped NULL markers {}, retaining the original plan",
+                        requiredNullMarkers);
+                return new DecompiledPlan(planSql, false);
+            }
             if (SPMPlanTreeSupport.containsFrozenPlaceholder(substituted)) {
                 return frozen;
             }
-            SPMOptimizer.optimize(ctx, substituted, frozen.sql);
+            // A re-plannable tree can still be unusable for replay, for example a
+            // derived table folded to a one-row relation whose outputs cannot be aligned.
+            LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(substituted, bindPlan);
+            SPMOptimizer.optimize(ctx, aligned, frozen.sql);
             return frozen;
         } catch (UserException | RuntimeException e) {
             LOG.warn("SPM decompiled text cannot be re-planned; storing the user planSql"
                     + " instead (the baseline replays through the parameterized tree)", e);
             return new DecompiledPlan(planSql, false);
         }
+    }
+
+    private static boolean containsNullType(DataType type) {
+        if (type instanceof ArrayType) {
+            return containsNullType(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsNullType(map.getKeyType()) || containsNullType(map.getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream().anyMatch(field -> containsNullType(field.getDataType()));
+        }
+        return type.isNullType();
     }
 
     /**

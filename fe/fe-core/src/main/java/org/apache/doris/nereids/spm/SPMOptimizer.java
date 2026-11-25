@@ -28,7 +28,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -44,8 +43,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -351,19 +348,6 @@ public class SPMOptimizer {
                     + originalEnabled);
         }
         return String.join(",", enabled);
-    }
-
-    /** Whether the current optimizer pass is preparing a plan for SPM serialization. */
-    public static boolean isCapturePlanning() {
-        ConnectContext ctx = ConnectContext.get();
-        return ctx != null && ctx.getStatementContext() instanceof CaptureStatementContext;
-    }
-
-    /** Uses allocation order for internal aggregate outputs that will be serialized by SPM. */
-    public static <T extends NamedExpression> Collection<T> orderCaptureOutputs(Collection<T> outputs) {
-        return isCapturePlanning()
-                ? outputs.stream().sorted(Comparator.comparingInt(output -> output.getExprId().asInt())).toList()
-                : outputs;
     }
 
     /**

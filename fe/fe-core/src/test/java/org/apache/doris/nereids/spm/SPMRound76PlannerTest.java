@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -138,8 +139,8 @@ public class SPMRound76PlannerTest {
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
                 Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
-                        "a projected all-NULL IFNULL types its markers BOOLEAN, like the IF");
+                                instanceof NullType,
+                        "the projected IFNULL preserves its NULL type for all consumers");
             }
         }
         Assertions.assertEquals(2, nullMarkers,

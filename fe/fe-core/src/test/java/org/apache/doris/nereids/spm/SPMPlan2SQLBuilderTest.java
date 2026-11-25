@@ -268,6 +268,20 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     @Test
+    public void testInternalProjectionOrderDoesNotChangeFrozenSql() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+        Alias x = new Alias(new Add(a, new IntegerLiteral(1)), "x");
+        Alias y = new Alias(new Add(b, new IntegerLiteral(2)), "y");
+        PhysicalProject<?> first = mockProjectExprs(List.of(x, y), scan);
+        PhysicalProject<?> second = mockProjectExprs(List.of(y, x), scan);
+        Plan left = mockProjectExprs(List.of(x.toSlot(), y.toSlot()), first);
+        Plan right = mockProjectExprs(List.of(x.toSlot(), y.toSlot()), second);
+        Assertions.assertEquals(new SPMPlan2SQLBuilder().toSQL(left), new SPMPlan2SQLBuilder().toSQL(right));
+    }
+
+    @Test
     public void testDecompileJoin() {
         // Build a two-table JOIN physical plan:
         //   PhysicalHashJoin(INNER) [t1.a = t2.b]

@@ -28,6 +28,12 @@ true
 -- !projected_array_hit --
 true
 
+-- !mixed_null_consumers_types_hit_rows --
+true	true	true
+
+-- !projected_array_variant_types_types_hit_rows --
+true	true	true
+
 -- !qualified_star_rows --
 -1	10
 

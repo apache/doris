@@ -197,9 +197,8 @@ public class SPMRound73PlannerTest {
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 sawNullMarker = true;
                 Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
-                                instanceof BooleanType,
-                        "the projected IF's NULL results are BOOLEAN so the derived slot (and"
-                                + " them) survive an outer OR");
+                                instanceof NullType,
+                        "the projected IF preserves its NULL type for all consumers");
             }
         }
         Assertions.assertTrue(sawNullMarker, "the branch NULLs are still parameterized");

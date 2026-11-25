@@ -36,8 +36,8 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -163,8 +163,7 @@ public class SPMRound86PlannerTest {
     /**
      * {@code SELECT k, [NULL] AS a FROM t} exposes an ARRAY&lt;NULL_TYPE&gt; output, and the upper
      * block's {@code element_at(a, 1)} is NullType: the Boolean consumer then erased the whole
-     * call together with the markers, so the {@code [TRUE]} variant replayed NULL. The payload is
-     * retyped even though the projection is not itself a Boolean context.
+     * call together with the markers, so the {@code [TRUE]} variant replayed NULL. The payload retains its type, while the consuming predicate performs its own coercion.
      */
     @Test
     public void testDerivedArrayOutputKeepsItsMarkers() {
@@ -172,19 +171,19 @@ public class SPMRound86PlannerTest {
                 + " FROM (SELECT k, [NULL] AS a FROM t) x");
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        int booleanArrays = 0;
+        int nullArrays = 0;
         for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
             if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
             SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getDataType() instanceof ArrayType
-                    && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
-                booleanArrays++;
+                    && ((ArrayType) var.getDataType()).getItemType() instanceof NullType) {
+                nullArrays++;
             }
         }
-        Assertions.assertEquals(1, booleanArrays,
-                "the derived all-NULL array output is retyped ARRAY<BOOLEAN>: "
+        Assertions.assertEquals(1, nullArrays,
+                "the derived all-NULL array output retains ARRAY<NULL_TYPE>: "
                         + builder.getPlaceholderExprs());
     }
 

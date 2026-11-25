@@ -89,7 +89,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -760,11 +759,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             if (newChild == null) {
                 newChild = child;
             }
-            if (newChild.getDataType().isNullType()) {
-                newChild = NullLiteral.BOOLEAN_INSTANCE;
-            } else {
-                newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
-            }
+            newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
 
             if (!child.equals(newChild)) {
                 hasNewChild = true;
@@ -788,11 +783,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             if (newChild == null) {
                 newChild = child;
             }
-            if (newChild.getDataType().isNullType()) {
-                newChild = NullLiteral.BOOLEAN_INSTANCE;
-            } else {
-                newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
-            }
+            newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
 
             if (!child.equals(newChild)) {
                 hasNewChild = true;

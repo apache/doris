@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -166,7 +165,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         }
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
-                .addAll(SPMOptimizer.orderCaptureOutputs(originFuncToAliasPhase1.values()))
+                .addAll(originFuncToAliasPhase1.values())
                 .build();
         Plan anyLocalAgg = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), localAggOutput,
                 Optional.of(Utils.fastToImmutableList(logicalAgg.getDistinctArguments())), inputToResultParam,

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -140,7 +139,7 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         }
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll((List) aggregate.getGroupByExpressions())
-                .addAll(SPMOptimizer.orderCaptureOutputs(aggFunctionToAlias.values()))
+                .addAll(aggFunctionToAlias.values())
                 .build();
 
         PhysicalHashAggregate<? extends Plan> localAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),

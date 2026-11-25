@@ -23,7 +23,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,8 +49,6 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -62,7 +59,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * rewrite CteAnchor consumer side and producer side recursively， all CteAnchor must at top of the plan
@@ -272,15 +268,9 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
-        boolean capture = SPMOptimizer.isCapturePlanning();
-        Stream<Entry<RelationId, Set<Expression>>> consumerFilters =
-                cascadesContext.getConsumerIdToFilters().entrySet().stream()
-                        .filter(entry -> consumerIds.contains(entry.getKey()));
-        if (capture) {
-            // The first consumer determines which slot groups can be pushed to the producer.
-            consumerFilters = consumerFilters.sorted(Comparator.comparingInt(entry -> entry.getKey().asInt()));
-        }
-        List<Set<Expression>> filtersAboveEachConsumer = consumerFilters.map(Entry::getValue)
+        List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
+                .filter(kv -> consumerIds.contains(kv.getKey()))
+                .map(Entry::getValue)
                 .collect(Collectors.toList());
         Set<Expression> someone = filtersAboveEachConsumer.stream().findFirst().orElse(null);
         if (someone == null) {
@@ -311,22 +301,18 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
             if (matchCount >= filterSize) {
                 mightBeJoined.add(f);
-                conjuncts.add(ExpressionUtils.or(orderCaptureFilters(mightBeJoined, capture)));
+                conjuncts.add(ExpressionUtils.or(mightBeJoined));
             }
         }
         if (!conjuncts.isEmpty()) {
             // distinct conjuncts
             ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builderWithExpectedSize(conjuncts.size());
-            for (Expression conjunct : orderCaptureFilters(conjuncts, capture)) {
+            for (Expression conjunct : conjuncts) {
                 newConjuncts.addAll(ExpressionUtils.extractConjunction(conjunct));
             }
             LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child);
             return pushPlanUnderAnchor(filter);
         }
         return child;
-    }
-
-    private static Collection<Expression> orderCaptureFilters(Set<Expression> filters, boolean capture) {
-        return capture ? filters.stream().sorted(Comparator.comparing(Expression::toSql)).toList() : filters;
     }
 }

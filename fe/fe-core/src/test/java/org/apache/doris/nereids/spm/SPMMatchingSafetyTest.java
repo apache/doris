@@ -359,11 +359,8 @@ public class SPMMatchingSafetyTest {
             if (marker.getValue() instanceof Literal
                     && ((Literal) marker.getValue()).isNullLiteral()) {
                 nullMarkers++;
-                Assertions.assertTrue(marker.getValue().getDataType().isBooleanType(),
-                        "a projected all-NULL CASE types its NULL markers BOOLEAN: the"
-                                + " derived slot must not stay NullType, or the consumer's"
-                                + " OR binding replaces it with a constant NULL (marker"
-                                + " lost): " + marker);
+                Assertions.assertTrue(marker.getValue().getDataType().isNullType(),
+                        "projected CASE preserves its original NULL branch type: " + marker);
             }
         }
         Assertions.assertEquals(2, nullMarkers, "THEN and ELSE keep NULL markers: " + caseWhen);

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -92,6 +94,18 @@ public class SPMRound92GuardTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"n OR k > 0", "n AND k > 0"})
+    public void testBooleanConsumerCastsNullTypedSlot(String expression) {
+        SlotReference slot = new SlotReference("n", NullType.INSTANCE);
+        Scope scope = new Scope(List.of(slot, new SlotReference("k", IntegerType.INSTANCE)));
+        Expression analyzed = new ExpressionAnalyzer(null, scope, null, true, true)
+                .analyze(new NereidsParser().parseExpression(expression));
+        Assertions.assertTrue(analyzed.anyMatch(node -> node instanceof Cast
+                && node.child(0).equals(slot) && ((Expression) node).getDataType().isBooleanType()));
+        Assertions.assertTrue(slot.getDataType().isNullType());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {
             "ASSERT_ROWS (SELECT k FROM %s WHERE k > %d)",
             "(SELECT k FROM %s WHERE k > %d /*+PREAGGOPEN*/)"
@@ -118,10 +132,9 @@ public class SPMRound92GuardTest {
         List<SpmConstVar> nullMarkers = markers(query);
         List<SpmConstVar> valueMarkers = markers(query.replace("NULL", "TRUE"));
         Assertions.assertEquals(3, nullMarkers.size(), "threshold and two struct fields");
-        Assertions.assertEquals(valueMarkers.stream().map(SpmConstVar::getDataType).toList(),
-                nullMarkers.stream().map(SpmConstVar::getDataType).toList());
+        Assertions.assertEquals(nullMarkers.size(), valueMarkers.size());
         Assertions.assertTrue(nullMarkers.stream().anyMatch(marker ->
-                marker.getValue().isNullLiteral() && marker.getDataType().isBooleanType()));
+                marker.getValue().isNullLiteral() && marker.getDataType().isNullType()));
     }
 
     @Test
