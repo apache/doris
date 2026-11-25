@@ -128,6 +128,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
     def mowProjection = """SELECT id, CAST(v['p'] AS STRING), CAST(v['p']['a'] AS STRING),
         v['p']['a']['b'], CAST(v AS STRING) FROM sparse_ancestor_extended_mow ORDER BY id"""
     compact('sparse_ancestor_extended_mow')
+    // Variant V1 normalizes the empty array to a missing path before compaction.
     sql """INSERT INTO sparse_ancestor_extended_mow VALUES
         (1,'{"p":{"a":{"b":901}}}'),
         (3,'{"p":{"a":903}}'),
