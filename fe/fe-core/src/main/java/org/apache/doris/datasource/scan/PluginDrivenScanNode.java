@@ -213,6 +213,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
     private volatile ConnectorMetadata cachedMetadata;
 
+    // The columns Top-N lazy materialization fetches after this scan; see setTopnLazyMaterializedColumns.
+    private List<String> topnLazyMaterializedColumns = Collections.emptyList();
+
     // COUNT(*) providers can promise metadata-only execution before planning, but TABLESAMPLE and
     // routing decisions may invalidate that promise. Keep these plans synchronous and fence their
     // actual ranges before any old backend can receive a Variant payload.
@@ -1668,14 +1671,24 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * pruned to the requested columns must rebuild it over the full schema (legacy
      * {@code IcebergScanNode.createScanRangeLocations} {@code haveTopnLazyMatCol} parity). A no-op for
      * every non-lazy-mat scan and for every connector whose {@link ConnectorMetadata#applyTopnLazyMaterialization}
-     * is the default (handle unchanged), so it is byte-identical for normal reads.
+     * is the default (handle unchanged), so it is byte-identical for normal reads. The connector is also told
+     * which columns the second phase fetches ({@link #setTopnLazyMaterializedColumns}).
      */
     private void pinTopnLazyMaterialize() {
         if (!hasTopnLazyMaterializeSlot(desc.getSlots())) {
             return;
         }
         ConnectorMetadata metadata = metadata();
-        currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle);
+        currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle,
+                topnLazyMaterializedColumns);
+    }
+
+    /**
+     * The columns, by name, that Top-N lazy materialization fetches by row id after this scan instead of reading
+     * them here; set by the translator for a lazily materialized scan before the scan node initializes.
+     */
+    public void setTopnLazyMaterializedColumns(List<String> columns) {
+        this.topnLazyMaterializedColumns = Collections.unmodifiableList(new ArrayList<>(columns));
     }
 
     /**

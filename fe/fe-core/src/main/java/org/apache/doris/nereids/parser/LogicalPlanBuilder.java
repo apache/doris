@@ -1117,6 +1117,9 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.system.NodeType;
+import org.apache.doris.tablefunction.ExternalSearchTableValuedFunction;
+import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -2935,11 +2938,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Map<String, String> map = visitPropertyItemList(ctx.properties);
+            Map<String, Placeholder> parameters = new LinkedHashMap<>();
+            Map<String, String> map;
+            if (isSearchTableFunction(functionName) && ctx.properties != null) {
+                // A search function's argument can be a parameter of a prepared statement; whether that
+                // argument may vary between executions is the connector's to decide when the search is bound.
+                map = new HashMap<>();
+                Set<String> keys = new HashSet<>();
+                for (PropertyItemContext argument : ctx.properties.properties) {
+                    if (argument.key.constant() instanceof DorisParser.PlaceholderContext) {
+                        throw new AnalysisException(functionName + " property names must be constant");
+                    }
+                    String key = parsePropertyKey(argument.key).toLowerCase(Locale.ROOT);
+                    if (!keys.add(key)) {
+                        throw new AnalysisException("Duplicate " + functionName + " property: " + key);
+                    }
+                    if (argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                        if (ExternalSearchTableValuedFunction.TABLE.equals(key)) {
+                            throw new AnalysisException(functionName + " property 'table' must be constant");
+                        }
+                        parameters.put(key, (Placeholder) visit(argument.value.constant()));
+                    } else {
+                        map.put(key, parsePropertyValue(argument.value));
+                    }
+                }
+            } else {
+                map = visitPropertyItemList(ctx.properties);
+            }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map));
+                    functionName, new Properties(map), parameters);
             return withTableAlias(relation, ctx.tableAlias());
         });
+    }
+
+    private static boolean isSearchTableFunction(String functionName) {
+        return VectorSearchTableValuedFunction.NAME.equalsIgnoreCase(functionName)
+                || FullTextSearchTableValuedFunction.NAME.equalsIgnoreCase(functionName);
     }
 
     @Override

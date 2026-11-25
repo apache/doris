@@ -133,6 +133,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -847,6 +848,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Forward the pruned partitions so the connector reads only the surviving partitions
             // (mirrors the legacy MaxCompute / Hive branches below).
             pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            if (fileScan instanceof PhysicalLazyMaterializeFileScan) {
+                pluginScanNode.setTopnLazyMaterializedColumns(
+                        lazyColumnNames(((PhysicalLazyMaterializeFileScan) fileScan).getLazySlots()));
+            }
             // Forward TABLESAMPLE (mirrors the legacy Hive branch below). Whether it is actually applied
             // is decided in PluginDrivenScanNode by the connector's supportsTableSample() capability: a
             // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
@@ -2864,6 +2869,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputPlanFragment;
     }
 
+    /** The names of the columns a lazily materialized scan leaves to the second phase. */
+    private static List<String> lazyColumnNames(List<Slot> lazySlots) {
+        return lazySlots.stream()
+                .map(slot -> ((SlotReference) slot).getOriginalColumn().map(Column::getName).orElse(slot.getName()))
+                .collect(Collectors.toList());
+    }
+
     static boolean canUseRowStoreForLazySlots(List<Slot> lazySlots) {
         return RowStoreFetchChecker.canUseRowStoreForLazySlots(lazySlots);
     }
@@ -2912,6 +2924,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        if (scanNode instanceof PluginDrivenScanNode) {
+            ((PluginDrivenScanNode) scanNode).setTopnLazyMaterializedColumns(
+                    lazyColumnNames(tvfRelation.getLazySlots()));
+        }
         scanNode.setEnableConditionCache(true);
         scanNode.setDistributeExprLists(getDistributeExpr(tvfRelation));
         scanNode.setNereidsId(tvfRelation.getId());

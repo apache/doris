@@ -19,12 +19,14 @@ package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.connector.spi.search.ConnectorSearchLazyMaterialization;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.table.ExternalSearch;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
@@ -182,6 +184,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     boolean checkTVFRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
+        if (isExternalSearch(tvfRelation)) {
+            return lazyMaterializationOf(tvfRelation) != ConnectorSearchLazyMaterialization.NONE;
+        }
         Map<String, String> properties = tvfRelation.getFunction().getTVFProperties().getMap();
         String functionName = tvfRelation.getFunction().getName();
 
@@ -193,6 +198,16 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             }
         }
         return false;
+    }
+
+    /** Whether {@code plan} is the relation of a search table function, whose connector decides its lazy fetch. */
+    static boolean isExternalSearch(Object plan) {
+        return plan instanceof PhysicalTVFRelation
+                && ((PhysicalTVFRelation) plan).getFunction() instanceof ExternalSearch;
+    }
+
+    private static ConnectorSearchLazyMaterialization lazyMaterializationOf(PhysicalTVFRelation search) {
+        return ((ExternalSearch) search.getFunction()).getSearchFunction().getLazyMaterialization();
     }
 
     @Override
@@ -234,6 +249,12 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
+        // A search that fetches whole top-level columns keeps a projection of a nested field in its scan.
+        if (isExternalSearch(tvfRelation)
+                && lazyMaterializationOf(tvfRelation) == ConnectorSearchLazyMaterialization.TOP_LEVEL_COLUMNS
+                && context.slot.hasSubColPath()) {
+            return Optional.empty();
+        }
         if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
                 && !tvfRelation.getOperativeSlots().contains(context.slot)
                 && !context.requiredMaterializedSlots.contains(context.slot)) {

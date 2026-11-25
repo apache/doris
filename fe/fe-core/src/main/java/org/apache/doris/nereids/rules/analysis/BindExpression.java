@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -66,8 +67,11 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.table.ExternalSearch;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -101,6 +105,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
@@ -113,6 +118,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.ExternalSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -1895,7 +1901,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return rewriteProjectForDisabledFullGroupBy(boundSort).orElse(boundSort);
     }
 
-    private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
+    private Plan bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
         UnboundTVFRelation unboundTVFRelation = ctx.root;
         StatementContext statementContext = ctx.statementContext;
         Env env = statementContext.getConnectContext().getEnv();
@@ -1903,6 +1909,28 @@ public class BindExpression implements AnalysisRuleFactory {
 
         String functionName = unboundTVFRelation.getFunctionName();
         Properties arguments = unboundTVFRelation.getProperties();
+        Set<String> deferredArguments = ImmutableSet.of();
+        if (!unboundTVFRelation.getPropertyParameters().isEmpty()) {
+            if (statementContext.isPrepareStage()) {
+                // PREPARE only learns the columns: the function is built without these values.
+                deferredArguments = unboundTVFRelation.getPropertyParameters().keySet();
+            } else {
+                // The unbound plan is kept across EXECUTEs: bind each execution's values into a copy, so that
+                // no execution sees another's arguments or what the function pinned for them.
+                Map<String, String> boundProperties = new HashMap<>(arguments.getMap());
+                for (Map.Entry<String, Placeholder> parameter
+                        : unboundTVFRelation.getPropertyParameters().entrySet()) {
+                    Expression value = statementContext.getIdToPlaceholderRealExpr()
+                            .get(parameter.getValue().getPlaceholderId());
+                    if (!(value instanceof Literal) || value instanceof NullLiteral) {
+                        throw new AnalysisException(functionName + " parameter '" + parameter.getKey()
+                                + "' must be a non-null literal");
+                    }
+                    boundProperties.put(parameter.getKey(), ((Literal) value).getStringValue());
+                }
+                arguments = new Properties(boundProperties);
+            }
+        }
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
         Pair<? extends Expression, ? extends BoundFunction> bindResult
                 = functionBuilder.build(functionName, arguments);
@@ -1913,8 +1941,28 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
-                (TableValuedFunction) bindResult.first, ImmutableList.of());
+        TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
+        if (!(tableValuedFunction instanceof ExternalSearch)) {
+            return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
+        }
+        ExternalSearch search = (ExternalSearch) tableValuedFunction;
+        if (!deferredArguments.isEmpty()) {
+            search = search.withDeferredArguments(deferredArguments);
+        }
+        LogicalTVFRelation relation = new LogicalTVFRelation(
+                unboundTVFRelation.getRelationId(), search, ImmutableList.of());
+        // Each range of the scan returns its own best top_k + offset candidates. This TopN keeps the best of all
+        // of them. PushDownWhereThroughSearchTopN moves the WHERE written on the function below it, so that the
+        // WHERE filters the candidates as a scan residual, after the connector's search and before the merge.
+        ExternalSearchTableValuedFunction function = search.getSearchFunction();
+        Slot result = relation.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(function.getResultColumn()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(functionName + "() output is missing '"
+                        + function.getResultColumn() + "'"));
+        return new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(result, function.getFunction().isResultAscending(), false)),
+                function.getTopK(), function.getOffset(), relation);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

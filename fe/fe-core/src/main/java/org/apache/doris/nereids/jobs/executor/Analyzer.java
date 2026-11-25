@@ -49,6 +49,7 @@ import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationToProject;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
+import org.apache.doris.nereids.rules.analysis.PushDownWhereThroughSearchTopN;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
@@ -134,6 +135,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             topDown(new BindSink()),
             bottomUp(new CheckAnalysis(false)),
+            // Before HAVING, QUALIFY, subqueries and the optimizer add filters: here a filter over the TopN that
+            // merges a search table function's candidates is the WHERE written on the function.
+            topDown(new PushDownWhereThroughSearchTopN()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
                     new OneRowRelationToProject(),
