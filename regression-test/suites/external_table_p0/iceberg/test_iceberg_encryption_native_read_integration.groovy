@@ -172,6 +172,7 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
             long before = fixture("/kms/access", "GET").decryptRequests as Long
             assertEquals([1, 2, 3, 4], (sql "SELECT id FROM ${encrypted} ORDER BY id").collect { it[0] as Integer })
             assertTrue((fixture("/kms/access", "GET").decryptRequests as Long) > before)
+            long beforeDeniedNotModified = fixture("/rest/access", "GET").encryptedNotModifiedResponses as Long
             try {
                 fixture("/kms/access/deny", "POST")
                 // SQL exposes the KMS service message/status rather than its Java exception type.
@@ -184,6 +185,11 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
                         sql "SELECT COUNT(*) FROM ${encrypted}"
                         exception "Fixture decrypt permission revoked (Service: Kms, Status Code: 403"
                     }
+                }
+                if (flavor == "rest") {
+                    // Count only encrypted 304 responses during denial, rather than earlier plaintext cache hits.
+                    assertTrue((fixture("/rest/access", "GET").encryptedNotModifiedResponses as Long)
+                            > beforeDeniedNotModified)
                 }
             } finally {
                 fixture("/kms/access/allow", "POST")

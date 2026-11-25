@@ -70,3 +70,8 @@ the exact same encrypted data, manifests, position deletes and equality deletes
 as HMS, including independent file keys. They also exercise physical COUNT,
 encrypted-write refusal, enabled SQL-cache settings and warm KMS denial/recovery.
 The fixture does not implement REST mutations or a production authentication service.
+
+Load-table responses include content-based ETags and return HTTP 304 for matching
+`If-None-Match` requests. `GET /rest/access` reports total and encrypted
+conditional-response counts. The native suite requires encrypted HTTP 304
+responses during KMS denial, followed by successful reads after access is restored.

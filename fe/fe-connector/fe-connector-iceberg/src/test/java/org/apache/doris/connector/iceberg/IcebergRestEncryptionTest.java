@@ -33,6 +33,8 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.GenericStatisticsFile;
+import org.apache.iceberg.ImmutableGenericPartitionStatisticsFile;
 import org.apache.iceberg.LocationProviders;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -57,6 +59,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.rest.RESTCatalogProperties;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
@@ -65,6 +68,7 @@ import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.reflect.Field;
@@ -146,8 +150,8 @@ class IcebergRestEncryptionTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void nativeRestScansPreserveFileKeysAndReauthorizeAfterWarmReads(boolean count) throws Exception {
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    void nativeRestScansPreserveFileKeysAndReauthorizeAfterWarmReads(boolean count, boolean etags) throws Exception {
         FixtureKms.denied.set(false);
         FixtureKms.wrongKey.set(false);
         RecordingConnectorContext context = new RecordingConnectorContext();
@@ -155,7 +159,7 @@ class IcebergRestEncryptionTest {
         context.nativeFileEncryptionSupported = true;
         try (MemoryEncryptedTable writer = new MemoryEncryptedTable()) {
             writer.append();
-            try (Fixture fixture = new Fixture(true, writer.current(), true, context)) {
+            try (Fixture fixture = new Fixture(true, writer.current(), true, context, etags)) {
                 ConnectorScanRequest request = ConnectorScanRequest.builder(
                         new IcebergTableHandle("db", "encrypted"), List.of()).countPushdown(count).build();
                 for (int expectedFiles = 1; expectedFiles <= 2; expectedFiles++) {
@@ -190,6 +194,8 @@ class IcebergRestEncryptionTest {
                 Assertions.assertEquals("Fixture KMS denied decryption", cause.getMessage());
                 FixtureKms.denied.set(false);
                 Assertions.assertEquals(2, fixture.connector.getScanPlanProvider().planScan(null, request).size());
+                Assertions.assertEquals(etags, fixture.notModifiedResponses.get() > 0,
+                        "Conditional-response cases must exercise the SDK's actual HTTP 304 cache path");
             }
         } finally {
             FixtureKms.denied.set(false);
@@ -219,6 +225,54 @@ class IcebergRestEncryptionTest {
                 } else {
                     Assertions.assertEquals("Fixture KMS denied decryption", cause.getMessage());
                 }
+            }
+        } finally {
+            FixtureKms.denied.set(false);
+            FixtureKms.wrongKey.set(false);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void conditionalLoadsIsolateSnapshotsAndPreserveLazyHistoryAndMetadata(boolean refsOnly) throws Exception {
+        FixtureKms.denied.set(false);
+        FixtureKms.wrongKey.set(false);
+        try (MemoryEncryptedTable writer = new MemoryEncryptedTable()) {
+            writer.append();
+            long historical = writer.current().currentSnapshot().snapshotId();
+            writer.append();
+            BaseTable writerTable = new BaseTable(writer, "fixture");
+            writerTable.manageSnapshots().createTag("retained", writer.current().currentSnapshot().snapshotId()).commit();
+            writer.append();
+            writer.metadata = TableMetadata.buildFrom(writer.current())
+                    .withMetadataLocation(writer.current().metadataFileLocation())
+                    .setStatistics(new GenericStatisticsFile(historical, "memory://statistics.puffin", 100, 20, List.of()))
+                    .setPartitionStatistics(ImmutableGenericPartitionStatisticsFile.builder().snapshotId(historical)
+                            .path("memory://partition-statistics.parquet").fileSizeInBytes(100).build())
+                    .discardChanges().build();
+            try (Fixture fixture = new Fixture(true, writer.current(), true,
+                    new RecordingConnectorContext(), true, refsOnly)) {
+                BaseTable first = (BaseTable) fixture.load();
+                BaseTable second = (BaseTable) fixture.load();
+                Assertions.assertEquals(1, fixture.notModifiedResponses.get());
+                Assertions.assertNotSame(first.currentSnapshot(), second.currentSnapshot());
+                long tagged = first.refs().get("retained").snapshotId();
+                Assertions.assertNotSame(first.snapshot(tagged), second.snapshot(tagged));
+                int initialFullLoads = fixture.allSnapshotRequests.get();
+                Assertions.assertEquals(refsOnly ? 0 : 2, initialFullLoads,
+                        "Loading current or tagged snapshots must not fetch historical snapshots");
+                Assertions.assertEquals(3, filesAndPayloads(first, null));
+                Assertions.assertEquals(initialFullLoads, fixture.allSnapshotRequests.get());
+                Assertions.assertEquals(1, filesAndPayloads(first, historical));
+                Assertions.assertEquals(initialFullLoads + (refsOnly ? 1 : 0), fixture.allSnapshotRequests.get());
+                Assertions.assertNotSame(first.snapshot(historical), second.snapshot(historical));
+                Assertions.assertEquals(JsonUtil.mapper().readTree(TableMetadataParser.toJson(writer.current())),
+                        JsonUtil.mapper().readTree(TableMetadataParser.toJson(second.operations().current())),
+                        "Private snapshots must preserve refs, statistics, keys, row IDs and metadata history");
+                FixtureKms.denied.set(true);
+                Assertions.assertThrows(RuntimeException.class, () -> filesAndPayloads(second, historical));
+                FixtureKms.denied.set(false);
+                Assertions.assertEquals(1, filesAndPayloads(second, historical));
             }
         } finally {
             FixtureKms.denied.set(false);
@@ -404,6 +458,8 @@ class IcebergRestEncryptionTest {
 
         private final AtomicReference<TableMetadata> metadata;
         private final boolean tableConfig;
+        private final AtomicInteger notModifiedResponses = new AtomicInteger();
+        private final AtomicInteger allSnapshotRequests = new AtomicInteger();
 
         private Fixture(boolean tableConfig) throws Exception {
             this(tableConfig, emptyEncryptedMetadata());
@@ -433,22 +489,63 @@ class IcebergRestEncryptionTest {
 
         private Fixture(boolean tableConfig, TableMetadata initialMetadata, boolean configuredKms,
                 ConnectorContext context) throws Exception {
+            this(tableConfig, initialMetadata, configuredKms, context, false);
+        }
+
+        private Fixture(boolean tableConfig, TableMetadata initialMetadata, boolean configuredKms,
+                ConnectorContext context, boolean etags) throws Exception {
+            this(tableConfig, initialMetadata, configuredKms, context, etags, false);
+        }
+
+        private Fixture(boolean tableConfig, TableMetadata initialMetadata, boolean configuredKms,
+                ConnectorContext context, boolean etags, boolean refsOnly) throws Exception {
             this.tableConfig = tableConfig;
             metadata = new AtomicReference<>(initialMetadata);
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/v1/", exchange -> {
                 try (exchange) {
                     exchange.getRequestBody().close();
+                    // Metrics arrive asynchronously and must not count as load-table requests.
+                    if ("POST".equals(exchange.getRequestMethod())
+                            && exchange.getRequestURI().getPath().endsWith("/metrics")) {
+                        exchange.sendResponseHeaders(204, -1);
+                        return;
+                    }
                     byte[] body;
                     if (exchange.getRequestURI().getPath().equals("/v1/config")) {
                         body = "{\"defaults\":{},\"overrides\":{\"fixture.kms.scope\":\"catalog\"}}"
                                 .getBytes(StandardCharsets.UTF_8);
                     } else {
-                        LoadTableResponse.Builder load = LoadTableResponse.builder().withTableMetadata(metadata.get());
+                        TableMetadata responseMetadata = metadata.get();
+                        if ("snapshots=refs".equals(exchange.getRequestURI().getQuery())) {
+                            ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(
+                                    TableMetadataParser.toJson(responseMetadata));
+                            var snapshots = json.withArray("snapshots");
+                            for (int i = snapshots.size() - 1; i >= 0; i--) {
+                                long id = snapshots.get(i).get("snapshot-id").asLong();
+                                if (responseMetadata.refs().values().stream().noneMatch(ref -> ref.snapshotId() == id)) {
+                                    snapshots.remove(i);
+                                }
+                            }
+                            responseMetadata = TableMetadataParser.fromJson(responseMetadata.metadataFileLocation(),
+                                    json.toString());
+                        } else {
+                            allSnapshotRequests.incrementAndGet();
+                        }
+                        LoadTableResponse.Builder load = LoadTableResponse.builder().withTableMetadata(responseMetadata);
                         if (this.tableConfig) {
                             load.addConfig("fixture.kms.scope", "table");
                         }
                         body = LoadTableResponseParser.toJson(load.build()).getBytes(StandardCharsets.UTF_8);
+                        if (etags) {
+                            String etag = "\"" + UUID.nameUUIDFromBytes(body) + "\"";
+                            exchange.getResponseHeaders().set("ETag", etag);
+                            if (etag.equals(exchange.getRequestHeaders().getFirst("If-None-Match"))) {
+                                notModifiedResponses.incrementAndGet();
+                                exchange.sendResponseHeaders(304, -1);
+                                return;
+                            }
+                        }
                     }
                     exchange.getResponseHeaders().set("Content-Type", "application/json");
                     exchange.sendResponseHeaders(200, body.length);
@@ -459,6 +556,7 @@ class IcebergRestEncryptionTest {
             Map<String, String> properties = new HashMap<>(Map.of("iceberg.catalog.type", "rest",
                     "iceberg.rest.uri", "http://127.0.0.1:" + server.getAddress().getPort(),
                     "rest.auth.type", "none", "io-impl", TrackingFileIO.class.getName()));
+            properties.put(RESTCatalogProperties.SNAPSHOT_LOADING_MODE, refsOnly ? "refs" : "all");
             if (configuredKms) {
                 properties.put(CatalogProperties.ENCRYPTION_KMS_IMPL, FixtureKms.class.getName());
             }

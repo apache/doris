@@ -98,6 +98,8 @@ public final class IcebergEncryptionFixture {
     private final String keyId;
     private final AtomicBoolean decryptDenied = new AtomicBoolean();
     private final AtomicLong decryptRequests = new AtomicLong();
+    private final AtomicLong restNotModifiedResponses = new AtomicLong();
+    private final AtomicLong restEncryptedNotModifiedResponses = new AtomicLong();
 
     private IcebergEncryptionFixture(String[] args) throws IOException {
         hms = args[0];
@@ -176,6 +178,7 @@ public final class IcebergEncryptionFixture {
             }
         });
         server.createContext("/rest/v1/", fixture::restRequest);
+        server.createContext("/rest/access", fixture::restRequest);
         server.createContext("/benchmark/reset", request -> {
             try {
                 check("POST".equals(request.getRequestMethod()), "POST required");
@@ -454,6 +457,12 @@ public final class IcebergEncryptionFixture {
         try {
             check("GET".equals(request.getRequestMethod()) || "HEAD".equals(request.getRequestMethod()),
                     "Read-only REST fixture");
+            if (path.equals("/rest/access")) {
+                reply(request, 200, JsonUtil.mapper().writeValueAsString(
+                        Map.of("notModifiedResponses", restNotModifiedResponses.get(),
+                                "encryptedNotModifiedResponses", restEncryptedNotModifiedResponses.get())));
+                return;
+            }
             if (path.equals("/rest/v1/config")) {
                 reply(request, 200, "{\"defaults\":{\"scan-planning-mode\":\"client\"},\"overrides\":{}}");
                 return;
@@ -488,8 +497,23 @@ public final class IcebergEncryptionFixture {
                         Table table = catalog.loadTable(TableIdentifier.of(database, path.substring(prefix.length())));
                         // Keep REST metadata authoritative rather than reopening metadata.json in the client.
                         try (org.apache.iceberg.io.FileIO io = table.io()) {
-                            reply(request, 200, LoadTableResponseParser.toJson(LoadTableResponse.builder()
-                                    .withTableMetadata(((HasTableOperations) table).operations().current()).build()));
+                            TableMetadata metadata = ((HasTableOperations) table).operations().current();
+                            String body = LoadTableResponseParser.toJson(LoadTableResponse.builder()
+                                    .withTableMetadata(metadata).build());
+                            String etag = "\"" + java.util.UUID.nameUUIDFromBytes(
+                                    body.getBytes(StandardCharsets.UTF_8)) + "\"";
+                            request.getResponseHeaders().set("ETag", etag);
+                            if (etag.equals(request.getRequestHeaders().getFirst("If-None-Match"))) {
+                                restNotModifiedResponses.incrementAndGet();
+                                if (metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                                        || !metadata.encryptionKeys().isEmpty()) {
+                                    restEncryptedNotModifiedResponses.incrementAndGet();
+                                }
+                                request.sendResponseHeaders(304, -1);
+                                request.close();
+                            } else {
+                                reply(request, 200, body);
+                            }
                         }
                     }
                     return;

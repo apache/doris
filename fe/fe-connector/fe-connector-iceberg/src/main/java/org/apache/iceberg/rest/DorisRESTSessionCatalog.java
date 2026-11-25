@@ -17,6 +17,7 @@
 
 package org.apache.iceberg.rest;
 
+import org.apache.iceberg.DorisReadTableMetadata;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -55,8 +56,11 @@ public final class DorisRESTSessionCatalog extends RESTSessionCatalog {
                     endpoints, readQueryParams);
         }
         FileIO shared = Objects.requireNonNull(catalogFileIO.apply(this), "REST catalog FileIO ownership");
-        return new EncryptedTableOperations(client, path, readHeaders, mutationHeaders, io, metadata,
-                endpoints, readQueryParams, io != shared);
+        // SDK 304 suppliers share snapshots whose manifest descriptors retain decrypted keys across statements.
+        TableMetadata privateMetadata = metadata.formatVersion() == 3
+                ? DorisReadTableMetadata.copy(metadata) : metadata;
+        return new EncryptedTableOperations(client, path, readHeaders, mutationHeaders, io,
+                privateMetadata, endpoints, readQueryParams, io != shared);
     }
 
     private static final class EncryptedTableOperations extends RESTTableOperations {
