@@ -54,7 +54,6 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalSetOperation()
                 .when(operation -> operation.getQualifier() == Qualifier.DISTINCT)
-                .when(operation -> operation.children().stream().allMatch(this::rejectNLJ))
                 .then(setOperation -> {
                     ImmutableList.Builder<Plan> newChildren =
                             ImmutableList.builderWithExpectedSize(setOperation.arity());
@@ -76,7 +75,7 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
     }
 
     private boolean shouldInferDistinct(Plan child) {
-        return !isAgg(child) && shouldGenerateAggregateByNdv(child, child.getOutput());
+        return !isAgg(child) && rejectNLJ(child) && shouldGenerateAggregateByNdv(child, child.getOutput());
     }
 
     private boolean isAgg(Plan plan) {
@@ -84,8 +83,7 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
                 0) instanceof LogicalAggregate);
     }
 
-    // if children exist NLJ, we can't infer distinct
-    // because NLJ could generate bitmap runtime filter. and it will execute failed when we do infer distinct.
+    // Skip this child if its join predicates could generate a bitmap runtime filter.
     private boolean rejectNLJ(Plan plan) {
         if (plan instanceof LogicalProject) {
             plan = plan.child(0);
