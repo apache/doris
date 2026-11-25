@@ -63,7 +63,7 @@ import org.apache.iceberg.types.Types;
 
 /** Controlled native-reader fixtures. Public synthetic file keys deliberately need no KMS. */
 public final class NativeDeleteFixture {
-    private static final String DB = "iceberg_encryption_delete_db";
+    static final String DB = "iceberg_encryption_delete_db";
     private static final String WAREHOUSE = "s3://iceberg-encryption/native-deletes";
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
 

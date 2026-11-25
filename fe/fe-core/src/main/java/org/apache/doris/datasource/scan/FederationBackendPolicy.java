@@ -230,6 +230,10 @@ public class FederationBackendPolicy {
                 throw new UserException("No available backends for compute group: " + computeGroup.toString());
             }
         }
+        // Statement admission shares candidate membership, but one-split scans must not all start on one BE.
+        if (nodeSelectionStrategy == NodeSelectionStrategy.ROUND_ROBIN) {
+            nextBe = randomIndex.applyAsInt(backends.size());
+        }
         assignedWeightPerBackend.clear();
         assignedWeightCounts.clear();
         backendMap.clear();

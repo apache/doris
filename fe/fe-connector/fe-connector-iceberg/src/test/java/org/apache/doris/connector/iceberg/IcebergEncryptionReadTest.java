@@ -129,10 +129,11 @@ public class IcebergEncryptionReadTest {
         }
     }
 
-    @Test
-    public void encryptedMetadataRequiresPhysicalCountPlanningAndRejectsJniSystemSplits() {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void encryptedMetadataRequiresPhysicalCountPlanningAndRejectsJniSystemSplits(String flavor) {
         try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
-            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor),
                     ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
             Assertions.assertFalse(provider.canServeMetadataOnlyCount(null, HANDLE, Optional.empty()));
             Assertions.assertEquals(-1, provider.planScan(null, request(HANDLE, true)).get(0).getPushDownRowCount());
@@ -165,11 +166,13 @@ public class IcebergEncryptionReadTest {
     }
 
     @Test
-    public void nativeRestExecutionRemainsOutsideTheHmsReadScope() throws Exception {
+    public void verifiedNativeRestExecutionCanPlanEncryptedSdkManifests() throws Exception {
         try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
             IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("rest"),
                     ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
-            reject("UNSUPPORTED_CATALOG", () -> provider.planScan(null, request(HANDLE, false)));
+            Assertions.assertEquals(1, provider.planScan(null, request(HANDLE, false)).size());
+            Assertions.assertTrue(fixture.unwraps.get() > 0,
+                    "REST planning must authorize the same SDK manifest keys as HMS");
         }
     }
 

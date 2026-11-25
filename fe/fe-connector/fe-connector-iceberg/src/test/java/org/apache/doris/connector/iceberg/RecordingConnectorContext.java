@@ -49,6 +49,18 @@ import java.util.function.UnaryOperator;
  * the authenticator.
  */
 final class RecordingConnectorContext implements ConnectorContext, ConnectorStorageContext {
+    Map<String, String> connectorConfig = Collections.emptyMap();
+    boolean nativeFileEncryptionSupported;
+
+    @Override
+    public Map<String, String> getConnectorConfig() {
+        return connectorConfig;
+    }
+
+    @Override
+    public boolean supportsNativeFileEncryption() {
+        return nativeFileEncryptionSupported;
+    }
 
     // Storage services moved onto ConnectorStorageContext; this double implements both halves and hands
     // itself back, so its overrides below are the ones the connector reaches. Forgetting this getter would

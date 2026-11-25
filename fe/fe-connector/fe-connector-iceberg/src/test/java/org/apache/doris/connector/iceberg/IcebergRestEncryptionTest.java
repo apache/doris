@@ -17,7 +17,13 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
@@ -41,6 +47,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptingFileIO;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.encryption.KeyManagementClient;
+import org.apache.iceberg.encryption.NativeEncryptionKeyMetadata;
 import org.apache.iceberg.encryption.NativeEncryptionOutputFile;
 import org.apache.iceberg.encryption.StandardEncryptionManager;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -53,6 +60,7 @@ import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.ByteBuffers;
 import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -134,6 +142,58 @@ class IcebergRestEncryptionTest {
                 Assertions.assertThrows(UnsupportedOperationException.class,
                         () -> table.io().deleteFile("memory://unsupported-delete"));
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nativeRestScansPreserveFileKeysAndReauthorizeAfterWarmReads(boolean count) throws Exception {
+        FixtureKms.denied.set(false);
+        FixtureKms.wrongKey.set(false);
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.connectorConfig = Map.of("enable_encryption_read", "true");
+        context.nativeFileEncryptionSupported = true;
+        try (MemoryEncryptedTable writer = new MemoryEncryptedTable()) {
+            writer.append();
+            try (Fixture fixture = new Fixture(true, writer.current(), true, context)) {
+                ConnectorScanRequest request = ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db", "encrypted"), List.of()).countPushdown(count).build();
+                for (int expectedFiles = 1; expectedFiles <= 2; expectedFiles++) {
+                    List<ConnectorScanRange> ranges = fixture.connector.getScanPlanProvider().planScan(null, request);
+                    Assertions.assertEquals(expectedFiles, ranges.size());
+                    for (ConnectorScanRange range : ranges) {
+                        TFileRangeDesc file = new TFileRangeDesc();
+                        TTableFormatFileDesc format = new TTableFormatFileDesc();
+                        range.populateRangeParams(format, file);
+                        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET_PME, file.getFormatType());
+                        NativeEncryptionKeyMetadata key = writer.fileKeys.get(range.getPath().orElseThrow());
+                        Assertions.assertNotNull(key);
+                        Assertions.assertArrayEquals(ByteBuffers.toByteArray(key.encryptionKey()),
+                                format.getIcebergParams().getEncryptionInfo().getKey());
+                        Assertions.assertArrayEquals(ByteBuffers.toByteArray(key.aadPrefix()),
+                                format.getIcebergParams().getEncryptionInfo().getAadPrefix());
+                        Assertions.assertEquals(-1L, range.getPushDownRowCount());
+                    }
+                    if (expectedFiles == 1) {
+                        writer.append();
+                        fixture.metadata.set(writer.current());
+                    }
+                }
+                // A successful statement must not authorize the next one after KMS permission is revoked.
+                FixtureKms.denied.set(true);
+                RuntimeException denied = Assertions.assertThrows(RuntimeException.class,
+                        () -> fixture.connector.getScanPlanProvider().planScan(null, request));
+                Throwable cause = denied;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                Assertions.assertEquals("Fixture KMS denied decryption", cause.getMessage());
+                FixtureKms.denied.set(false);
+                Assertions.assertEquals(2, fixture.connector.getScanPlanProvider().planScan(null, request).size());
+            }
+        } finally {
+            FixtureKms.denied.set(false);
+            FixtureKms.wrongKey.set(false);
         }
     }
 
@@ -267,6 +327,7 @@ class IcebergRestEncryptionTest {
 
     private static final class MemoryEncryptedTable implements TableOperations, AutoCloseable {
         private final InMemoryFileIO raw = new InMemoryFileIO();
+        private final Map<String, NativeEncryptionKeyMetadata> fileKeys = new HashMap<>();
         private final StandardEncryptionManager manager = new StandardEncryptionManager(
                 List.of(), "fixture-key", 16, new FixtureKms());
         private final FileIO io = EncryptingFileIO.combine(raw, manager);
@@ -282,6 +343,7 @@ class IcebergRestEncryptionTest {
                 stream.write(new byte[] {1, 2, 3, 4});
             }
             long length = raw.newInputFile(path).getLength();
+            fileKeys.put(path, output.keyMetadata());
             DataFile data = DataFiles.builder(PartitionSpec.unpartitioned()).withPath(path)
                     .withFormat("parquet").withFileSizeInBytes(length).withRecordCount(1)
                     .withEncryptionKeyMetadata(output.keyMetadata().copyWithLength(length)).build();
@@ -366,6 +428,11 @@ class IcebergRestEncryptionTest {
         }
 
         private Fixture(boolean tableConfig, TableMetadata initialMetadata, boolean configuredKms) throws Exception {
+            this(tableConfig, initialMetadata, configuredKms, new RecordingConnectorContext());
+        }
+
+        private Fixture(boolean tableConfig, TableMetadata initialMetadata, boolean configuredKms,
+                ConnectorContext context) throws Exception {
             this.tableConfig = tableConfig;
             metadata = new AtomicReference<>(initialMetadata);
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -395,7 +462,7 @@ class IcebergRestEncryptionTest {
             if (configuredKms) {
                 properties.put(CatalogProperties.ENCRYPTION_KMS_IMPL, FixtureKms.class.getName());
             }
-            connector = new IcebergConnector(properties, new RecordingConnectorContext());
+            connector = new IcebergConnector(properties, context);
             Method get = IcebergConnector.class.getDeclaredMethod("getOrCreateCatalog");
             get.setAccessible(true);
             catalog = (Catalog) get.invoke(connector);

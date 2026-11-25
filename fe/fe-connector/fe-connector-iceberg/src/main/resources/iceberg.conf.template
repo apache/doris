@@ -32,5 +32,5 @@
 
 # Encrypted-read admission intent only; default false, with no fe.conf fallback.
 # Enabling this does not enable encrypted writes or bypass missing backend read capabilities.
-# Encrypted scan execution remains unavailable until explicit backend negotiation and readers exist.
+# Standard-encrypted V3 HMS/REST reads require capable native readers and protected private RPC.
 # enable_encryption_read=false

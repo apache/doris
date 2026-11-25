@@ -54,12 +54,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntUnaryOperator;
 
@@ -141,6 +143,49 @@ public class FederationBackendPolicySpreadTest {
                 NodeSelectionStrategy.CONSISTENT_HASHING, candidates, random);
         policy.init();
         return policy;
+    }
+
+    @Test
+    void roundRobinScansSpreadWithoutResamplingStatementCandidates() throws Exception {
+        Mockito.when(Env.getCurrentEnv().getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
+        backends.clear();
+        long firstId = NEXT_BACKEND_ID.getAndAdd(8);
+        for (int index = 0; index < 8; index++) {
+            Backend backend = new Backend(firstId + index, "192.0.2." + (index + 1), 9050);
+            backend.setAlive(true);
+            backends.add(backend);
+        }
+        context.setStatementContext(new StatementContext());
+        List<Backend> selected = FederationBackendPolicy.getQueryAvailableBackends();
+        Map<Backend, Integer> assignments = new HashMap<>();
+        for (int index = 0; index < 32; index++) {
+            int start = index % selected.size();
+            FederationBackendPolicy scan = new FederationBackendPolicy(NodeSelectionStrategy.ROUND_ROBIN,
+                    1, bound -> start);
+            scan.init();
+            Assertions.assertEquals(new HashSet<>(selected), new HashSet<>(scan.getBackends()));
+            FileSplit split = new FileSplit(LocationPath.of("s3://bucket/part-" + index + ".parquet"),
+                    0, 1000, 1000, 0, new String[0], Collections.emptyList());
+            assignments.merge(assign(scan, split), 1, Integer::sum);
+        }
+        Assertions.assertEquals(8, assignments.size(), "One-split scans must not share a fixed first backend");
+        assignments.values().forEach(count -> Assertions.assertEquals(4, count));
+        Assertions.assertSame(selected, FederationBackendPolicy.getQueryAvailableBackends());
+        Mockito.verify(computeGroup, Mockito.times(1)).getBackendList();
+    }
+
+    @Test
+    void roundRobinOffsetAdvancesAcrossBatchesAndHonorsExplicitLoadOrder() throws Exception {
+        FederationBackendPolicy scan = new FederationBackendPolicy(NodeSelectionStrategy.ROUND_ROBIN,
+                1, bound -> 2);
+        scan.init();
+        List<Backend> order = new ArrayList<>(scan.getBackends());
+        for (int index = 0; index < 7; index++) {
+            Assertions.assertSame(order.get((index + 2) % order.size()), assign(scan, split()));
+        }
+        scan.replaceBackendOrder(List.of(order.get(1), order.get(0)));
+        Assertions.assertSame(order.get(1), assign(scan, split()));
+        Assertions.assertSame(order.get(0), scan.getNextBe());
     }
 
     private Backend assign(FederationBackendPolicy policy, Split split) throws UserException {
@@ -457,11 +502,15 @@ public class FederationBackendPolicySpreadTest {
     public void testNonHashStrategiesDoNotUseSpreadRandomness() throws Exception {
         for (NodeSelectionStrategy strategy : Arrays.asList(NodeSelectionStrategy.ROUND_ROBIN,
                 NodeSelectionStrategy.RANDOM)) {
+            AtomicInteger draws = new AtomicInteger();
             FederationBackendPolicy policy = new FederationBackendPolicy(strategy, 3, bound -> {
-                throw new AssertionError("Non-hash policy must not use spread randomness");
+                Assertions.assertEquals(1, draws.incrementAndGet(),
+                        "Only the round-robin starting offset may use randomness");
+                return 0;
             });
             policy.init();
             Assertions.assertTrue(backends.contains(assign(policy, split())));
+            Assertions.assertEquals(strategy == NodeSelectionStrategy.ROUND_ROBIN ? 1 : 0, draws.get());
         }
     }
 

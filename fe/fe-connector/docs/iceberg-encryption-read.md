@@ -23,7 +23,7 @@ The initial target matrix is:
 
 | Dimension | Initial target | Current admission |
 | --- | --- | --- |
-| Catalog | HMS with the SDK standard encryption manager and an operator-configured KMS | Native execution remains HMS-only; REST metadata wiring is described separately below |
+| Catalog | HMS or REST with the SDK standard encryption manager and an operator-configured KMS | Both use the same native reader, protected transport and per-file validation |
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
 | Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | Independent data, position-delete and equality-delete keys |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
@@ -40,7 +40,7 @@ KMS credentials or key material.
 The writer's `write.format.default` is not evidence of the format of existing
 files. File format, algorithm, key metadata and AAD must be validated on the
 actual data/delete tasks. Imported files with per-file keys but no table-level
-declaration still pass the full deployment, HMS/v3 and standard-manager check
+declaration still pass the full deployment, HMS/REST v3 and standard-manager check
 when encountered. Unsupported encrypted file formats fail explicitly. Encrypted
 JNI metadata tables are rejected; native `$position_deletes` remains supported.
 
@@ -51,7 +51,7 @@ Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
 | Classification | Meaning |
 | --- | --- |
 | `READ_DISABLED` | Encrypted reads were not enabled in the plugin configuration |
-| `UNSUPPORTED_CATALOG` | The catalog is outside the requested metadata or HMS-only native execution scope |
+| `UNSUPPORTED_CATALOG` | The catalog is outside the supported HMS/REST execution scope |
 | `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
 | `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
 | `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
@@ -227,9 +227,10 @@ FileIO, but leaves a shared Catalog FileIO to the catalog owner. Refresh replace
 the encrypted metadata generation without discarding retained historical keys.
 Missing KMS configuration or a removed table-key property is rejected explicitly;
 retained keys must never make the SDK select a plaintext manager.
-Encrypted REST writes and maintenance operations remain unsupported, and the
-common SQL execution fence remains in place pending protected key transport and
-native execution admission. Changing the REST allowlist does not bypass that fence.
+Encrypted REST writes and maintenance operations remain unsupported. Native REST
+reads use the same explicit read switch, verified backend/private-transport proof
+and standard-manager/per-file checks as HMS. Metadata support alone does not grant
+execution when those prerequisites are missing. V4 encrypted tables remain rejected.
 
 `test_iceberg_encrypted_rest_metadata` reuses the mandatory encryption fixture's
 `/rest` endpoint and existing ports; no extra enable flag is required. Its dedicated
@@ -311,7 +312,8 @@ bash run-regression-test.sh --run -d external_table_p0/iceberg \
 Set `enableIcebergTest=true` and `enableIcebergEncryptionNativeRead=true` in the
 regression configuration. The isolated fixture is described in its
 [README](../../../docker/thirdparties/docker-compose/iceberg/encryption/README.md).
-It covers SDK/Spark historical results, independent data/delete keys, cache,
+It covers both HMS and REST against the same physical fixtures, SDK/Spark
+historical results, independent data/delete keys, cache,
 batch and pruning toggles, physical COUNT, joins, native position deletes,
 multi-file/row-group scans and same-endpoint warm-cache KMS revocation/restoration.
 Run the default-off admission suites in a separate deployment phase. The mock KMS

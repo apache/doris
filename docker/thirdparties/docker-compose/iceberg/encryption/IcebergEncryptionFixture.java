@@ -80,6 +80,7 @@ import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ByteBuffers;
+import org.apache.iceberg.util.JsonUtil;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -458,26 +459,34 @@ public final class IcebergEncryptionFixture {
                 return;
             }
             if (path.equals("/rest/v1/namespaces")) {
-                reply(request, 200, "{\"namespaces\":[[\"" + REST_DB + "\"]]}");
+                reply(request, 200, JsonUtil.mapper().writeValueAsString(Map.of("namespaces",
+                        List.of(List.of(REST_DB), List.of(DB), List.of(NativeDeleteFixture.DB)))));
                 return;
             }
-            String namespace = "/rest/v1/namespaces/" + REST_DB;
-            if (path.equals(namespace)) {
-                reply(request, 200, "{\"namespace\":[\"" + REST_DB + "\"],\"properties\":{}}");
-                return;
-            }
-            if (path.equals(namespace + "/tables")) {
-                reply(request, 200, "{\"identifiers\":[{\"namespace\":[\"" + REST_DB
-                        + "\"],\"name\":\"plain_v3\"},{\"namespace\":[\"" + REST_DB
-                        + "\"],\"name\":\"encrypted_v3\"}]}");
-                return;
-            }
-            for (String name : List.of("plain_v3", "encrypted_v3")) {
-                if (path.equals(namespace + "/tables/" + name)) {
+            // Both catalog entry points must read the same physical data/delete files and independent keys.
+            for (String database : List.of(REST_DB, DB, NativeDeleteFixture.DB)) {
+                String namespace = "/rest/v1/namespaces/" + database;
+                if (path.equals(namespace)) {
+                    reply(request, 200, JsonUtil.mapper().writeValueAsString(
+                            Map.of("namespace", List.of(database), "properties", Map.of())));
+                    return;
+                }
+                if (path.equals(namespace + "/tables")) {
                     try (HiveCatalog catalog = catalog(properties())) {
-                        Table table = catalog.loadTable(TableIdentifier.of(REST_DB, name));
-                        // Return trusted catalog metadata directly. A REST client must not reopen metadata.json
-                        // from the object store to reconstruct the encryption key chain.
+                        List<Object> identifiers = new ArrayList<>();
+                        for (TableIdentifier table : catalog.listTables(Namespace.of(database))) {
+                            identifiers.add(Map.of("namespace", List.of(database), "name", table.name()));
+                        }
+                        reply(request, 200, JsonUtil.mapper().writeValueAsString(Map.of("identifiers", identifiers)));
+                    }
+                    return;
+                }
+                String prefix = namespace + "/tables/";
+                if (path.startsWith(prefix) && path.length() > prefix.length()
+                        && path.indexOf('/', prefix.length()) < 0) {
+                    try (HiveCatalog catalog = catalog(properties())) {
+                        Table table = catalog.loadTable(TableIdentifier.of(database, path.substring(prefix.length())));
+                        // Keep REST metadata authoritative rather than reopening metadata.json in the client.
                         try (org.apache.iceberg.io.FileIO io = table.io()) {
                             reply(request, 200, LoadTableResponseParser.toJson(LoadTableResponse.builder()
                                     .withTableMetadata(((HasTableOperations) table).operations().current()).build()));
@@ -486,6 +495,10 @@ public final class IcebergEncryptionFixture {
                     return;
                 }
             }
+            reply(request, 404, "{\"error\":{\"message\":\"Unknown fixture table\","
+                    + "\"type\":\"NoSuchTableException\",\"code\":404}}");
+        } catch (org.apache.iceberg.exceptions.NoSuchNamespaceException
+                | org.apache.iceberg.exceptions.NoSuchTableException missing) {
             reply(request, 404, "{\"error\":{\"message\":\"Unknown fixture table\","
                     + "\"type\":\"NoSuchTableException\",\"code\":404}}");
         } catch (Exception | LinkageError e) {
