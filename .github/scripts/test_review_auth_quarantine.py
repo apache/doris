@@ -38,6 +38,7 @@ import unittest
 from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml"
+AUTH_HELPER = Path(__file__).with_name("configure_review_auth.sh")
 PREFIX = "oss://doris-community-ci/codex/"
 INVALIDATED_MESSAGE = "Your session has ended. Please log in again."
 INVALIDATED_STDERR = (
@@ -200,6 +201,7 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
     def new_runner(self):
         runner = Path(tempfile.mkdtemp(dir=self.root))
         shutil.copyfile(self.env["REVIEW_GH_HELPER"], runner / "review_github_api.py")
+        shutil.copyfile(AUTH_HELPER, runner / "configure_review_auth.sh")
         context = runner / "review-context"
         context.mkdir()
         (context / "codex_goal_prompt.txt").write_text("Fake review")
@@ -249,7 +251,112 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
         return self.object(f"auth.json.{slot}.invalid.{digest}")
 
     def configure(self, expected=0, **env):
-        return self.run_step("Configure Codex auth", expected=expected, **env)
+        return self.run_script(AUTH_HELPER.read_text(), expected=expected, **env)
+
+    def select_auth(self, **env):
+        logs, outputs = self.configure(CODEX_AUTH_SELECT_ONLY="true", **env)
+        values = dict(line.split("=", 1) for line in outputs.splitlines())
+        return logs, values
+
+    def test_selector_only_passes_slot_identity_to_the_queued_worker(self):
+        self.put_auth()
+        logs, outputs = self.select_auth()
+        self.assertEqual(outputs, {"auth_object": PREFIX + "auth.json.2", "auth_name": "auth.json.2"})
+        self.assertNotIn("refresh-old", logs)
+        self.assertNotIn("access-fake", logs)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+        self.assertFalse(Path(self.env["CODEX_HOME"], "auth.json").exists())
+        self.assertEqual(list(Path(self.env["CODEX_HOME"]).iterdir()), [])
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        self.assertFalse(any(call[0] == "cp" and call[-1].startswith(PREFIX) for call in calls))
+
+    def test_locked_worker_uses_its_assigned_slot_not_first_candidate(self):
+        self.put_auth()
+        self.put_auth(3, "refresh-other")
+        self.run_step("Configure Codex auth", CODEX_AUTH_CANDIDATE=PREFIX + "auth.json.3")
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], PREFIX + "auth.json.3")
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        self.assertNotIn(["ls", PREFIX + "auth.json."], calls)
+        self.assertFalse(any(call[0] == "cp" and call[1] == PREFIX + "auth.json.2" for call in calls))
+
+    def test_worker_downloads_refreshed_auth_after_waiting(self):
+        self.put_auth()
+        _, outputs = self.select_auth()
+        refreshed = self.put_auth(refresh="refresh-after-queue")
+        self.new_runner()
+        self.run_step("Configure Codex auth", CODEX_AUTH_CANDIDATE=outputs["auth_object"])
+        self.assertEqual(json.loads(Path(self.env["CODEX_HOME"], "auth.json").read_text()), refreshed)
+
+    def test_cooldown_added_while_waiting_cannot_fall_back_to_unlocked_slot(self):
+        self.put_auth()
+        self.put_auth(3, "refresh-other")
+        _, outputs = self.select_auth()
+        self.object("auth.json.2.context").write_text(json.dumps({
+            "version": 1, "state": "usage_limited", "retry_after_epoch": int(time.time()) + 3600,
+        }))
+        self.new_runner()
+        logs, failure = self.run_step("Configure Codex auth", expected=1,
+                                      CODEX_AUTH_CANDIDATE=outputs["auth_object"])
+        self.assertIn("refusing to use an unlocked auth slot", failure)
+        self.assertIn("Earliest usage-limit retry", failure)
+        self.assertIn("Re-run all jobs", failure)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+        self.assertFalse(Path(self.env["CODEX_HOME"], "auth.json").exists())
+
+    def test_quarantine_added_while_waiting_cannot_fall_back_to_unlocked_slot(self):
+        self.put_auth()
+        self.put_auth(3, "refresh-other")
+        _, outputs = self.select_auth()
+        self.marker().write_text("{}")
+        self.new_runner()
+        _, failure = self.run_step("Configure Codex auth", expected=1,
+                                   CODEX_AUTH_CANDIDATE=outputs["auth_object"])
+        self.assertIn("refusing to use an unlocked auth slot", failure)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+
+    def test_replacement_after_quarantine_is_loaded_in_the_assigned_slot(self):
+        self.put_auth()
+        _, outputs = self.select_auth()
+        self.marker().write_text("{}")
+        refreshed = self.put_auth(refresh="refresh-replaced")
+        self.new_runner()
+        self.run_step("Configure Codex auth", CODEX_AUTH_CANDIDATE=outputs["auth_object"])
+        self.assertEqual(json.loads(Path(self.env["CODEX_HOME"], "auth.json").read_text()), refreshed)
+
+    def test_worker_without_assignment_stops_before_any_oss_access(self):
+        self.put_auth()
+        logs, _ = self.run_step("Configure Codex auth", expected=1, CODEX_AUTH_CANDIDATE="")
+        self.assertIn("Missing queued Codex auth assignment", logs)
+        self.assertFalse((self.root / "calls.jsonl").exists())
+
+    def test_invalid_or_missing_assigned_object_never_selects_another_slot(self):
+        self.put_auth()
+        for candidate in (PREFIX + "auth.json.3", PREFIX + "auth.json.2.context",
+                          PREFIX + "auth.json.2\n" + PREFIX + "auth.json.3", "oss://other/auth.json.2"):
+            with self.subTest(candidate=candidate):
+                self.new_runner()
+                _, failure = self.run_step("Configure Codex auth", expected=1, CODEX_AUTH_CANDIDATE=candidate)
+                if candidate == PREFIX + "auth.json.3":
+                    self.assertIn("Failed to download", failure)
+                    self.assertIn("Re-run all jobs", failure)
+                self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+                self.assertFalse(Path(self.env["CODEX_HOME"], "auth.json").exists())
+
+    def test_auth_lock_covers_the_entire_worker_and_canary_uses_same_group(self):
+        workflow = WORKFLOW.read_text()
+        worker = workflow.split("  code-review:\n", 1)[1].split("  aggregate-status:\n", 1)[0]
+        canary = workflow.split("  runtime-canary:\n", 1)[1].split("  select-auth:\n", 1)[0]
+        self.assertIn("needs: select-auth", worker)
+        self.assertIn("group: code-review-auth-${{ needs.select-auth.outputs.auth_name }}", worker)
+        self.assertIn("CODEX_AUTH_CANDIDATE: ${{ needs.select-auth.outputs.auth_object }}", worker)
+        self.assertIn("group: code-review-auth-auth.json.4", canary)
+        for job in (worker, canary):
+            self.assertIn("cancel-in-progress: false", job)
+            self.assertIn("queue: max", job)
+            self.assertIn("always() && steps.auth.outcome == 'success'", job)
+        self.assertLess(worker.index("    concurrency:"), worker.index("    steps:"))
+        self.assertIn("Sync refreshed Codex auth back to OSS", worker)
+        self.assertIn('auth_object=oss://doris-community-ci/codex/auth.json.4', canary)
 
     def fail_review(self, events=None, stderr="", expected_invalid=True,
                     expected_reason="refresh_token_reused", **env):
