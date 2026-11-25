@@ -25,12 +25,14 @@ import json
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import Counter, deque
 from datetime import datetime, timedelta, timezone
 from html import escape
-from pathlib import Path
+from io import TextIOWrapper
+from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qsl, urlsplit
 from urllib.request import urlopen
 
@@ -247,10 +249,10 @@ def junit_results(path, counts):
         name = case.get("name", "")
         fields = [value for failure in failures for value in
                   (failure.get("type"), failure.get("message"), "".join(failure.itertext()))]
-        yield name, case.get("classname", ""), "\n".join(v for v in fields if v is not None), False
+        yield name, case.get("classname", ""), "\n".join(v for v in fields if v is not None)
 
 
-DOWNLOAD_NAMES = {"build": "Build log", "cluster": "Doris logs", "core": "Coredump"}
+DOWNLOAD_NAMES = {"cluster": "doris 日志", "build": "buildlog", "core": "Coredump"}
 # A broker URL is a scoped grant for one artifact. Never accept an arbitrary
 # URL from a build, or copy the redirect destination's cloud credentials.
 BROKER_PATH = re.compile(r"/_ci/diagnostics/d/[0-9a-f]{32}")
@@ -328,7 +330,7 @@ def stack_preview(text):
     return "\n".join(frames)
 
 
-def download_section(args, build):
+def download_section(args):
     links = {kind: [] for kind in DOWNLOAD_NAMES}
     expected = args.build_type_id
     core_state = "No core archive supplied"
@@ -346,9 +348,6 @@ def download_section(args, build):
                         links[kind].append((obj["name"], url, expires))
     for kind, filename in args.local_downloads.items():
         links[kind] = [(f"Download {DOWNLOAD_NAMES[kind].lower()}", filename, None)]
-    if build and args.teamcity_origin and not links["build"]:
-        links["build"].append(("Download from TeamCity (requires access)",
-                               f"{args.teamcity_origin}/downloadBuildLog.html?buildId={args.build_id}&archived=true", None))
     stacks = []
     if args.core_diagnostics:
         receipt = json.loads(args.core_diagnostics.read_text(encoding="utf-8"))
@@ -373,6 +372,7 @@ def download_section(args, build):
         if stack and core_state == "No core recorded" and not links["core"]:
             core_state = "Backtrace supplied, no downloadable archive listed"
     items = []
+    core_item = ""
     for kind, name in DOWNLOAD_NAMES.items():
         anchors = []
         for label, url, expires in links[kind]:
@@ -382,9 +382,14 @@ def download_section(args, build):
                 expiration = f' <small>Valid until {dt:%Y-%m-%d %H:%M UTC}</small>'
                 attr = f' data-expires="{expires}"'
             anchors.append(f'<a{attr} href="{escape(url, quote=True)}" rel="noreferrer">{escape(label)}</a>{expiration}')
-        unavailable = core_state if kind == "core" else "No archive supplied"
+        if kind == "core":
+            if anchors or args.core_diagnostics or args.core_backtrace:
+                core_item = f'<h2>{name}</h2><p>{"<br>".join(anchors) or core_state}</p>'
+            continue
+        unavailable = "No public Doris log archive for this build" if kind == "cluster" else "No build log available"
         items.append(f'<div><dt>{name}</dt><dd>{"<br>".join(anchors) or unavailable}</dd></div>')
     section = '<h2>Downloads</h2><dl>' + "".join(items) + '</dl>'
+    section += core_item
     if stacks:
         section += '<h2>Core backtrace</h2>' + "".join(f'<pre><code>{display(stack)}</code></pre>' for stack in stacks)
     elif links["core"] or args.core_backtrace or core_state.startswith("Core recorded"):
@@ -398,13 +403,25 @@ def report(args):
     build = read_teamcity(args)
     tests = build.get("testOccurrences", {})
     counters = tests.get("testCounters", {})
-    cases = []
+    failed_cases, muted_cases = [], []
     for row in tests.get("testOccurrence", []):
-        if row.get("status") in ("FAILURE", "ERROR"):
-            cases.append((row["name"], "", row.get("details", ""), row.get("muted", False)))
+        muted = row.get("muted", False)
+        if not muted and row.get("status") not in ("FAILURE", "ERROR"):
+            continue
+        scope = []
+        if muted:
+            scope.append("Ignored" if row.get("ignored") else str(row.get("status", "UNKNOWN")).title())
+        if type(row.get("duration")) is int:
+            scope.append(f'{row["duration"]:,} ms')
+        details = row.get("details") or ""
+        reason = row.get("ignoreDetails")
+        if reason and reason != details:
+            details = (details + "\n\n" if details else "") + reason
+        group = muted_cases if muted else failed_cases
+        group.append((row["name"], " · ".join(scope), details))
     junit = Counter()
     for path in args.junit:
-        cases.extend(junit_results(path, junit))
+        failed_cases.extend(junit_results(path, junit))
     stages, excerpts = log_sections(args.failure_log) if args.failure_log else ({}, [])
     problems = build.get("problemOccurrences", {}).get("problemOccurrence", [])
     title, result = PIPELINES[args.pipeline], RESULTS[args.status]
@@ -420,7 +437,7 @@ def report(args):
         rows.append((label, value))
     if args.unmuted_failed is not None:
         rows.append(("Unmuted failures", args.unmuted_failed))
-    sections = [download_section(args, build)]
+    sections = [download_section(args)]
     if any(v is not None for _,v in rows):
         sections.append(f'<h2>Test results</h2><dl>{facts(rows)}</dl>')
     elif args.pipeline != "compile" and not args.junit and not build:
@@ -433,17 +450,21 @@ def report(args):
         sections.append('<h2>Build problems</h2>')
         for item in problems:
             sections.append(f'<pre><code>{display(item.get("details", ""))}</code></pre>')
-    if cases:
-        sections.append('<h2>Failed tests</h2>')
-        if args.junit:
+    for heading, cases in (("Failed tests", failed_cases), ("Muted tests", muted_cases)):
+        if not cases:
+            continue
+        sections.append(f'<h2>{heading} ({len(cases)})</h2>')
+        if args.junit and heading == "Failed tests":
             sections.append(f'<p>{len(cases)} of {junit["failed"]} failures in supplied JUnit files have case details.</p>')
-        for idx,(name,classname,details,muted) in enumerate(cases):
-            badge = ' <small>Muted</small>' if muted else ''
-            scope = f'<p>{display(classname)}</p>' if classname else ''
-            sections.append(f'<details{" open" if idx == 0 else ""}><summary>{display(name)}{badge}</summary>'
-                            f'{scope}<pre><code>{display(details)}</code></pre></details>')
-    elif (args.junit and junit["failed"]) or (not args.junit and (counters.get("failed") or args.failed or args.unmuted_failed)):
+        for idx,(name,subtitle,details) in enumerate(cases):
+            scope = f'<p>{display(subtitle)}</p>' if subtitle else ''
+            debug = f'<pre><code>{display(details)}</code></pre>' if details else '<p>No debug output was recorded for this test.</p>'
+            sections.append(f'<details{" open" if idx == 0 else ""}><summary>{display(name)}</summary>'
+                            f'{scope}{debug}</details>')
+    if not failed_cases and (junit["failed"] or counters.get("failed") or args.failed or args.unmuted_failed):
         sections.append('<p>The supplied results contain failure counts without individual case details.</p>')
+    if not muted_cases and counters.get("muted"):
+        sections.append('<p>The supplied results contain muted counts without individual case details.</p>')
     if stages:
         rows_html = "".join(f'<tr><th scope="row">{display(name)}</th><td>{state}</td><td>{elapsed or "—"}</td></tr>'
                             for name,state,elapsed in stages.values())
@@ -477,38 +498,68 @@ def report(args):
 *{{box-sizing:border-box}}body{{margin:0;background:#f6f8f7;color:#162b32;font:1rem/1.5 system-ui,sans-serif}}
 main{{max-width:64rem;margin:auto;padding:clamp(1rem,4vw,3rem)}}h1{{margin:.3rem 0;font-size:2.6rem}}
 header{{border-bottom:1px solid #bdcfca;padding-bottom:1rem}}h2{{font-size:1.15rem;margin:1.7rem 0 .5rem}}
-strong{{color:#913827}}strong.success{{color:#236044}}strong.canceled,small,dt{{color:#536962}}
+.success{{color:#137333}}.failure,.error{{color:#b42318}}.canceled,small,dt{{color:#536962}}
 dl,table,details,pre{{background:#fff;border:1px solid #d2dfdb;border-radius:.4rem}}
 dl{{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:1rem;padding:1rem}}
 dd{{margin:0;overflow-wrap:anywhere}}pre{{padding:.9rem;white-space:pre-wrap;overflow-wrap:anywhere;font: .86rem/1.55 ui-monospace,monospace}}
 details{{padding:.6rem .9rem;margin:.4rem 0}}summary{{cursor:pointer;overflow-wrap:anywhere;white-space:pre-wrap}}details pre,.status{{border:0;margin:.4rem 0 0}}
 table{{width:100%;border-collapse:collapse}}td,th{{text-align:left;padding:.5rem;border-bottom:1px solid #d2dfdb}}a{{color:#165b64}}
-</style></head><body><main><header><div>Apache Doris · Community CI</div><h1>{title}</h1>
+</style></head><body><main><header><div>Apache Doris · Community CI</div><h1 class="{args.status}">{title}</h1>
 <strong class="{args.status}">{result}</strong> · Build #{args.build_id}{status_text}</header>{"".join(sections)}</main></body></html>
 """.encode("utf-8")
 
 
+def write_redacted_log(src, dst):
+    private_key = False
+    for line in log_lines(src):
+        if "\x00" in line:
+            raise ValueError("Expected a text log")
+        if re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", line):
+            private_key = True
+            dst.write(b"[redacted]\n")
+        if private_key:
+            if re.search(r"-----END [A-Z ]*PRIVATE KEY-----", line):
+                private_key = False
+            continue
+        dst.write(redact(line).encode("utf-8"))
+
+
 def prepare_public_log(source, folder):
     output = folder / "build-log.gz"
-    private_key = False
     with source.open(encoding="utf-8-sig") as src, output.open("wb") as dst:
         with gzip.GzipFile(filename="", fileobj=dst, mode="wb", mtime=0) as compressed:
-            while line := src.readline(65537):
-                if "\x00" in line or len(line) > 65536:
-                    raise ValueError("--public-build-log expects UTF-8 text with lines up to 64 Ki characters")
-                if re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", line):
-                    private_key = True
-                    compressed.write(b"[redacted]\n")
-                if private_key:
-                    if re.search(r"-----END [A-Z ]*PRIVATE KEY-----", line):
-                        private_key = False
-                    continue
-                compressed.write(redact(line).encode("utf-8"))
+            write_redacted_log(src, compressed)
     digest = hashlib.sha256()
     with output.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1048576), b""):
             digest.update(chunk)
     return output.rename(folder / f"build-log-{digest.hexdigest()}.txt.gz")
+
+
+def sanitize_doris_archive(source, folder):
+    """Keep runtime text logs from the CI export, discarding host diagnostics and binaries."""
+    archive = folder / "runtime-logs.tar.gz"
+    seen = set()
+    with tarfile.open(source, "r:gz") as original, archive.open("wb") as raw:
+        with gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as gz, tarfile.open(fileobj=gz, mode="w|") as out:
+            for member in original:
+                path = PurePosixPath(member.name)
+                if (not member.isreg() or path.is_absolute() or ".." in path.parts or "private-diagnostics" in path.parts
+                        or not re.fullmatch(r"[\w./-]+", member.name)
+                        or not re.search(r"(?:\.log(?:\.[\w-]+)*|\.out(?:\.redacted)?|\.xml\.redacted)$", path.name)
+                        or path.suffix in (".gz", ".zst", ".zip", ".xz", ".bz2")):
+                    continue
+                name = PRIVATE_IP.sub("private-address", str(path))
+                if name in seen:
+                    name = f"{len(seen)}-{name}"
+                seen.add(name)
+                with TextIOWrapper(original.extractfile(member), encoding="utf-8-sig", errors="replace") as src, tempfile.TemporaryFile(dir=folder) as clean:
+                    write_redacted_log(src, clean)
+                    info = tarfile.TarInfo(name)
+                    info.size = clean.tell()
+                    clean.seek(0)
+                    out.addfile(info, clean)
+    return archive if seen else None
 
 
 def stage_diagnostic(kind, source, folder):
@@ -571,6 +622,7 @@ def main(argv=None):
         parser.add_argument(f"--{name}", type=count)
     parser.add_argument("--public-build-log", type=Path, help="trusted, publication-ready full build log (UTF-8 text), stored beside the report as gzip")
     parser.add_argument("--public-doris-log", type=Path, help="publication-ready Doris log archive (.tar.gz) from this build")
+    parser.add_argument("--sanitize-doris-log", type=Path, help="select and redact runtime text logs from this build's CI tar.gz")
     parser.add_argument("--public-core", type=Path, help="publication-approved raw ELF core from this build")
     parser.add_argument("--artifact-index", type=Path, help="this build's native oss-artifacts.json download receipt")
     parser.add_argument("--core-diagnostics", type=Path, help="this build's native core-diagnostics.json or core-pairs.json")
@@ -589,6 +641,8 @@ def main(argv=None):
         parser.error("TEAMCITY_CURRENT_URL must be a trusted HTTPS origin")
     if args.teamcity and args.junit:
         parser.error("Choose TeamCity or JUnit as the source of test results")
+    if args.public_doris_log and args.sanitize_doris_log:
+        parser.error("Choose one source for the Doris logs")
     if len({p.resolve() for p in args.junit}) != len(args.junit):
         parser.error("Each JUnit input must be supplied only once")
     if not args.build_id or args.pr == 0:
@@ -603,6 +657,8 @@ def main(argv=None):
             folder = Path(staging).resolve()
             files = []
             args.local_downloads = {}
+            if args.sanitize_doris_log:
+                args.public_doris_log = sanitize_doris_archive(args.sanitize_doris_log, folder)
             for kind, source in (("build", args.public_build_log), ("cluster", args.public_doris_log), ("core", args.public_core)):
                 if source:
                     attachment = prepare_public_log(source, folder) if kind == "build" else stage_diagnostic(kind, source, folder)
@@ -615,7 +671,7 @@ def main(argv=None):
                     upload(file, str(Path(key).with_name(file.name)))
                 os.replace(file, output.with_name(file.name))
         print(output)
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, argparse.ArgumentTypeError, ET.ParseError) as exc:
+    except (OSError, subprocess.SubprocessError, tarfile.TarError, ValueError, KeyError, TypeError, argparse.ArgumentTypeError, ET.ParseError) as exc:
         parser.exit(1, f"{exc}\n")
 
 
