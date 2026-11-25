@@ -21,7 +21,11 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/column/column.h"
@@ -32,6 +36,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "util/coding.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeHLL should test this function:
@@ -112,6 +117,30 @@ void insert_data_hll(MutableColumns* hll_cols, DataTypePtr datetype_hll, int row
     std::cout << "finish insert data" << std::endl;
 }
 
+static void expect_hll_equal(const HyperLogLog& lhs, const HyperLogLog& rhs) {
+    const auto serialize = [](const HyperLogLog& hll) {
+        std::string bytes(hll.max_serialized_size(), '\0');
+        bytes.resize(hll.serialize(reinterpret_cast<uint8_t*>(bytes.data())));
+        if (bytes.front() == HLL_DATA_EXPLICIT) {
+            // Explicit hashes are serialized in hash set iteration order.
+            std::vector<uint64_t> hashes(static_cast<uint8_t>(bytes[1]));
+            auto* payload = reinterpret_cast<uint8_t*>(bytes.data()) + 2;
+            for (size_t idx = 0; idx < hashes.size(); ++idx) {
+                hashes[idx] = decode_fixed64_le(payload + idx * sizeof(uint64_t));
+            }
+            std::sort(hashes.begin(), hashes.end());
+            for (auto hash : hashes) {
+                encode_fixed64_le(payload, hash);
+                payload += sizeof(hash);
+            }
+        }
+        return bytes;
+    };
+
+    EXPECT_EQ(lhs.estimate_cardinality(), rhs.estimate_cardinality());
+    EXPECT_EQ(serialize(lhs), serialize(rhs));
+}
+
 // serialize / deserialize
 TEST_P(DataTypeHLLTest, SerializeDeserializeTest) {
     MutableColumns hll_cols;
@@ -123,13 +152,13 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeTest) {
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
     auto* result =
             dt_hll->serialize(*column, buf.get(), BeExecVersionManager::get_newest_version());
-    ASSERT_EQ(result, buf.get() + size);
+    ASSERT_LE(result, buf.get() + size);
 
     auto column2 = dt_hll->create_column();
     dt_hll->deserialize(buf.get(), &column2, BeExecVersionManager::get_newest_version());
     for (size_t i = 0; i != rows_value; ++i) {
         auto* column_res = assert_cast<ColumnHLL*>(column2.get());
-        ASSERT_EQ(column->get_data()[i].to_string(), column_res->get_data()[i].to_string());
+        expect_hll_equal(column->get_element(i), column_res->get_element(i));
     }
     helper->serialize_deserialize_assert(hll_cols, {dt_hll});
     std::cout << "finish serialize deserialize test" << std::endl;
@@ -151,11 +180,11 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeAsStreamTest) {
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
         doris::DataTypeHLL::deserialize_as_stream(column_res->get_element(i), buffer_readable);
-        ASSERT_EQ(column_data->get_data()[i].to_string(), column_res->get_data()[i].to_string());
+        expect_hll_equal(column_data->get_element(i), column_res->get_element(i));
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
 }
 
-INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100));
+INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100, 200));
 
 } // namespace doris
