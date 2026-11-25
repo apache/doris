@@ -39,8 +39,8 @@ namespace doris {
 // Shares a digest across QuantileState copies and detaches it before sample
 // writes. Readers use shared locks; compression uses an exclusive lock.
 struct QuantileState::TDigestHolder {
-    // At C=128 the explicit state converts on sample 129. Keeping the default 8*C
-    // unprocessed buffer would retain more centroids than the original 128 doubles.
+    // At C=32 the explicit state converts on sample 33. Keeping the default 8*C
+    // unprocessed buffer would retain more centroids than the original 32 doubles.
     explicit TDigestHolder(float compression)
             : digest(compression, compression < QUANTILE_STATE_COMPRESSION_DEFAULT
                                           ? static_cast<Index>(std::ceil(compression))

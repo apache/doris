@@ -110,31 +110,31 @@ TEST(function_quantile_state_test, low_compression_creation_gate) {
     const bool old_setting = config::enable_low_compression_quantile_state;
     Defer restore([&] { config::enable_low_compression_quantile_state = old_setting; });
     std::vector<uint8_t> bytes;
-    config::enable_low_compression_quantile_state = false;
-    auto disabled = execute_to_quantile_state(128, bytes);
-    EXPECT_FALSE(disabled.ok());
-    EXPECT_NE(std::string::npos,
-              disabled.to_string().find("enable_low_compression_quantile_state"));
-    disabled = execute_to_quantile_state(128, bytes, true);
-    EXPECT_FALSE(disabled.ok());
-    EXPECT_NE(std::string::npos,
-              disabled.to_string().find("enable_low_compression_quantile_state"));
+    for (float requested : {32.0F, 32.5F, 127.0F, 128.0F}) {
+        for (bool constant_values : {false, true}) {
+            config::enable_low_compression_quantile_state = false;
+            auto disabled = execute_to_quantile_state(requested, bytes, constant_values);
+            EXPECT_FALSE(disabled.ok());
+            EXPECT_NE(std::string::npos,
+                      disabled.to_string().find("enable_low_compression_quantile_state"));
 
-    for (float requested : {127.0F, 2048.0F, std::numeric_limits<float>::infinity(),
-                            std::numeric_limits<float>::quiet_NaN()}) {
-        ASSERT_TRUE(execute_to_quantile_state(requested, bytes).ok());
-        float actual = 0;
-        std::memcpy(&actual, bytes.data(), sizeof(actual));
-        EXPECT_EQ(2048, actual);
+            config::enable_low_compression_quantile_state = true;
+            ASSERT_TRUE(execute_to_quantile_state(requested, bytes, constant_values).ok());
+            float actual = 0;
+            std::memcpy(&actual, bytes.data(), sizeof(actual));
+            EXPECT_EQ(requested, actual);
+        }
     }
-    config::enable_low_compression_quantile_state = true;
-    ASSERT_TRUE(execute_to_quantile_state(128, bytes).ok());
-    float actual = 0;
-    std::memcpy(&actual, bytes.data(), sizeof(actual));
-    EXPECT_EQ(128, actual);
-    ASSERT_TRUE(execute_to_quantile_state(128, bytes, true).ok());
-    std::memcpy(&actual, bytes.data(), sizeof(actual));
-    EXPECT_EQ(128, actual);
+    for (bool enabled : {false, true}) {
+        config::enable_low_compression_quantile_state = enabled;
+        for (float requested : {31.0F, 2048.0F, std::numeric_limits<float>::infinity(),
+                                std::numeric_limits<float>::quiet_NaN()}) {
+            ASSERT_TRUE(execute_to_quantile_state(requested, bytes).ok());
+            float actual = 0;
+            std::memcpy(&actual, bytes.data(), sizeof(actual));
+            EXPECT_EQ(2048, actual);
+        }
+    }
 }
 
 TEST(function_quantile_state_test, nullable_compression_constant) {
@@ -142,23 +142,26 @@ TEST(function_quantile_state_test, nullable_compression_constant) {
     Defer restore([&] { config::enable_low_compression_quantile_state = old_setting; });
     std::vector<uint8_t> bytes;
     for (bool constant_values : {false, true}) {
-        config::enable_low_compression_quantile_state = false;
-        auto disabled = execute_to_quantile_state(128, bytes, constant_values, true);
-        EXPECT_FALSE(disabled.ok());
-        EXPECT_NE(std::string::npos,
-                  disabled.to_string().find("enable_low_compression_quantile_state"));
+        for (float requested : {32.0F, 127.0F, 128.0F}) {
+            config::enable_low_compression_quantile_state = false;
+            auto disabled = execute_to_quantile_state(requested, bytes, constant_values, true);
+            EXPECT_FALSE(disabled.ok());
+            EXPECT_NE(std::string::npos,
+                      disabled.to_string().find("enable_low_compression_quantile_state"));
 
-        config::enable_low_compression_quantile_state = true;
-        ASSERT_TRUE(execute_to_quantile_state(128, bytes, constant_values, true).ok());
-        float actual = 0;
-        std::memcpy(&actual, bytes.data(), sizeof(actual));
-        EXPECT_EQ(128, actual);
+            config::enable_low_compression_quantile_state = true;
+            ASSERT_TRUE(execute_to_quantile_state(requested, bytes, constant_values, true).ok());
+            float actual = 0;
+            std::memcpy(&actual, bytes.data(), sizeof(actual));
+            EXPECT_EQ(requested, actual);
+        }
 
         config::enable_low_compression_quantile_state = false;
         for (auto [requested, is_null] :
-             {std::pair {128.0F, true}, std::pair {127.0F, false}, std::pair {2048.0F, false}}) {
+             {std::pair {32.0F, true}, std::pair {31.0F, false}, std::pair {2048.0F, false}}) {
             ASSERT_TRUE(execute_to_quantile_state(requested, bytes, constant_values, true, is_null)
                                 .ok());
+            float actual = 0;
             std::memcpy(&actual, bytes.data(), sizeof(actual));
             EXPECT_EQ(2048, actual);
         }

@@ -23,29 +23,41 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
     options.beConfigs += ["enable_low_compression_quantile_state=true"]
     docker(options) {
         qt_singleton_roundtrip """
-            SELECT quantile_state_to_base64(to_quantile_state(1.0, 128)) !=
+            SELECT quantile_state_to_base64(to_quantile_state(1.0, 32)) !=
                        quantile_state_to_base64(to_quantile_state(1.0, 2048)),
                    quantile_state_to_base64(quantile_state_from_base64(
-                       quantile_state_to_base64(to_quantile_state(1.0, 128)))) =
-                       quantile_state_to_base64(to_quantile_state(1.0, 128))
+                       quantile_state_to_base64(to_quantile_state(1.0, 32)))) =
+                       quantile_state_to_base64(to_quantile_state(1.0, 32))
             FROM numbers("number" = "1")
         """
 
         qt_nullable_const_compression """
-            SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(128 AS float)))) =
-                   quantile_state_to_base64(to_quantile_state(1.0, 128))
+            SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(32 AS float)))) =
+                   quantile_state_to_base64(to_quantile_state(1.0, 32))
             FROM numbers("number" = "1")
         """
         qt_nullable_129_digest """
             SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2)
             FROM (
                 SELECT quantile_union(
-                    to_quantile_state(number, nullable(cast(128 AS float)))) AS s
+                    to_quantile_state(number, nullable(cast(32 AS float)))) AS s
                 FROM numbers("number" = "129")
             ) x
         """
 
         // The fifth serialized byte is the representation tag: 02=EXPLICIT, 03=TDIGEST.
+        qt_32_explicit """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 32)) AS s
+                  FROM numbers("number" = "32")) x
+        """
+        qt_33_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+                   quantile_percent(s, 0), quantile_percent(s, 1)
+            FROM (SELECT quantile_union(to_quantile_state(number, 32)) AS s
+                  FROM numbers("number" = "33")) x
+        """
         qt_128_explicit """
             SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
                    quantile_percent(s, 0), quantile_percent(s, 1)
@@ -88,7 +100,7 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
         """
         sql """
             INSERT INTO test_quantile_state_low_partials
-            SELECT 0, 1 + number DIV 480, quantile_union(to_quantile_state(7.0, 128))
+            SELECT 0, 1 + number DIV 480, quantile_union(to_quantile_state(7.0, 32))
             FROM numbers("number" = "960") GROUP BY 2
         """
         qt_stored_partials """
@@ -130,10 +142,10 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
             DISTRIBUTED BY HASH(k) BUCKETS 1
             PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true")
         """
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(1.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(1.0, 32))"
         sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(2.0, 256))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (2, to_quantile_state(3.0, 128))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(4.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (2, to_quantile_state(3.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(4.0, 32))"
         sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(5.0, 10000))"
         // The first four bytes of the state are the little-endian FLOAT compression.
         order_qt_before_compaction """

@@ -8,6 +8,12 @@ true
 -- !nullable_129_digest --
 03
 
+-- !32_explicit --
+02	0	31
+
+-- !33_digest --
+03	0	32
+
 -- !128_explicit --
 02	0	127
 
@@ -40,7 +46,7 @@ true
 
 -- !before_compaction --
 1	00008043	1	2
-2	00000043	3	3
+2	00000042	3	3
 3	00401C46	4	5
 
 -- !after_compaction --

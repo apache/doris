@@ -17,15 +17,19 @@
 
 suite("test_quantile_state_low_compression_disabled", "quantile_state_low_compression") {
     test {
-        sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, 128)) FROM numbers(\"number\" = \"1\")"
+        sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, 32)) FROM numbers(\"number\" = \"1\")"
         exception "enable_low_compression_quantile_state"
     }
     test {
-        sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(128 AS float)))) FROM numbers(\"number\" = \"1\")"
+        sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(32 AS float)))) FROM numbers(\"number\" = \"1\")"
         exception "enable_low_compression_quantile_state"
     }
     test {
-        sql "SELECT quantile_state_to_base64(to_quantile_state(number, nullable(cast(128 AS float)))) FROM numbers(\"number\" = \"1\")"
+        sql "SELECT quantile_state_to_base64(to_quantile_state(number, nullable(cast(32 AS float)))) FROM numbers(\"number\" = \"1\")"
+        exception "enable_low_compression_quantile_state"
+    }
+    test {
+        sql "SELECT quantile_state_to_base64(to_quantile_state(number, 127)) FROM numbers(\"number\" = \"1\")"
         exception "enable_low_compression_quantile_state"
     }
     qt_high_compression """
@@ -33,7 +37,7 @@ suite("test_quantile_state_low_compression_disabled", "quantile_state_low_compre
         FROM numbers("number" = "1")
     """
     qt_invalid_compression_fallback """
-        SELECT quantile_state_to_base64(to_quantile_state(number, 127)) =
+        SELECT quantile_state_to_base64(to_quantile_state(number, 31)) =
                quantile_state_to_base64(to_quantile_state(number, 2048))
         FROM numbers("number" = "1")
     """

@@ -186,7 +186,7 @@ TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
 
 TEST(QuantileStateTest, LowCompressionBoundaryAndDefault) {
     EXPECT_EQ(QUANTILE_STATE_COMPRESSION_DEFAULT, QuantileState()._compression);
-    for (float compression : {128.0F, 128.5F, 256.0F, 2047.0F, 2048.0F}) {
+    for (float compression : {32.0F, 32.5F, 127.0F, 128.0F, 128.5F, 256.0F, 2047.0F, 2048.0F}) {
         QuantileState state(compression);
         const auto limit = std::min<size_t>(QUANTILE_STATE_EXPLICIT_NUM,
                                             static_cast<size_t>(std::ceil(compression)));
@@ -201,6 +201,36 @@ TEST(QuantileStateTest, LowCompressionBoundaryAndDefault) {
         if (compression < QUANTILE_STATE_COMPRESSION_DEFAULT) {
             EXPECT_EQ(std::ceil(compression), state._mutable_tdigest().max_unprocessed());
         }
+    }
+}
+
+static void expect_minimum_compression_roundtrip(int count) {
+    QuantileState state(32);
+    for (int i = 0; i < count; ++i) {
+        state.add_value(i);
+    }
+    std::vector<uint8_t> bytes(state.get_serialized_size());
+    ASSERT_EQ(bytes.size(), state.serialize(bytes.data()));
+    const Slice slice(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    QuantileState restored;
+    ASSERT_TRUE(restored.is_valid(slice));
+    ASSERT_TRUE(restored.deserialize(slice));
+    EXPECT_EQ(32, restored._compression);
+    EXPECT_EQ(state._type, restored._type);
+    if (count > 0) {
+        EXPECT_EQ(0, restored.get_value_by_percentile(0));
+        EXPECT_EQ(count - 1, restored.get_value_by_percentile(1));
+    }
+    const float invalid_compression = 31;
+    std::memcpy(bytes.data(), &invalid_compression, sizeof(invalid_compression));
+    QuantileState invalid;
+    EXPECT_FALSE(invalid.is_valid(slice));
+    EXPECT_FALSE(invalid.deserialize(slice));
+}
+
+TEST(QuantileStateTest, MinimumCompressionRoundtripAndValidation) {
+    for (int count : {0, 1, 32, 33, 1440}) {
+        expect_minimum_compression_roundtrip(count);
     }
 }
 
