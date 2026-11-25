@@ -18,38 +18,43 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
+import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 
-/**
- * Fetches extended column metadata for a snapshot of an index or its selected partitions.
+/*
+ * SHOW PROC /dbs/dbId/tableId/index_schema/indexId/partitionName"
+ * show index schema
  */
 public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
-    private final ProcResult baseSchema;
-    private final Set<String> bfColumns;
-    private final Supplier<List<Column>> remoteSchemaFetcher;
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Field").add("Type").add("Null").add("Key")
+            .add("Default").add("Extra")
+            .build();
 
-    public RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns, List<Tablet> tablets) {
-        this(baseSchema, bfColumns, new FetchRemoteTabletSchemaUtil(tablets)::fetch);
+    @FunctionalInterface
+    interface RemoteSchemaFetcher {
+        List<Column> fetch() throws AnalysisException;
     }
 
-    public RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns,
-            Supplier<List<Column>> remoteSchemaFetcher) {
+    private final ProcResult baseSchema;
+    private final Set<String> bfColumns;
+    private final RemoteSchemaFetcher remoteSchemaFetcher;
+
+    RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns, RemoteSchemaFetcher remoteSchemaFetcher) {
         this.baseSchema = baseSchema;
         this.bfColumns = bfColumns;
         this.remoteSchemaFetcher = remoteSchemaFetcher;
     }
 
     @Override
-    public ProcResult fetchResult() {
-        List<Column> remoteSchema = remoteSchemaFetcher.get();
-        ProcResult remoteResult = IndexSchemaProcNode.createResult(remoteSchema, bfColumns, Collections.emptyList());
+    public ProcResult fetchResult() throws AnalysisException {
+        List<Column> remoteSchema = remoteSchemaFetcher.fetch();
+        ProcResult remoteResult = IndexSchemaProcNode.createResult(remoteSchema, bfColumns, List.of());
         BaseProcResult result = new BaseProcResult(baseSchema.getColumnNames(), new ArrayList<>(baseSchema.getRows()));
         result.addRows(remoteResult.getRows());
         return result;

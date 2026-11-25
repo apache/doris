@@ -17,68 +17,43 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil.PartitionTablets;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /*
- * SHOW PROC /dbs/dbId/tableId/index_schema/indexId
+ * SHOW PROC /dbs/dbId/tableId/index_schema/indexId"
  * show index schema
  */
 public class RemoteIndexSchemaProcDir implements ProcDirInterface {
-    private final OlapTable table;
-    private final ProcResult baseSchema;
-    private final Set<String> bfColumns;
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Field").add("Type").add("Null").add("Key")
+            .add("Default").add("Extra")
+            .build();
 
-    public RemoteIndexSchemaProcDir(OlapTable table, ProcResult baseSchema, Set<String> bfColumns) {
+    private final OlapTable table;
+    private final long indexId;
+
+    public RemoteIndexSchemaProcDir(OlapTable table, long indexId) {
         this.table = table;
-        this.baseSchema = baseSchema;
-        this.bfColumns = bfColumns;
+        this.indexId = indexId;
     }
 
     @Override
-    public ProcResult fetchResult() {
+    public ProcResult fetchResult() throws AnalysisException {
         return snapshot().fetchResult();
-    }
-
-    public RemoteIndexSchemaProcNode snapshot() {
-        table.readLock();
-        try {
-            int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-            if (Config.isCloudMode()) {
-                List<Partition> partitions = List.copyOf(table.getPartitions());
-                return new RemoteIndexSchemaProcNode(baseSchema, bfColumns,
-                        () -> snapshotCloudTablets(partitions, maxFetchCount).fetch());
-            }
-            return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, table.getSampleTablets(maxFetchCount));
-        } finally {
-            table.readUnlock();
-        }
-    }
-
-    private FetchRemoteTabletSchemaUtil snapshotCloudTablets(List<Partition> partitions, int maxFetchCount) {
-        // A cache miss in CloudPartition.getVisibleVersion can call Meta Service.
-        List<Partition> nonEmptyPartitions = partitions.stream()
-                .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
-                .collect(Collectors.toCollection(ArrayList::new));
-        table.readLock();
-        try {
-            // A partition can be replaced while the version requests are in flight.
-            nonEmptyPartitions.removeIf(partition -> table.getPartition(partition.getId()) != partition);
-            return new FetchRemoteTabletSchemaUtil(OlapTable.getSampleTablets(nonEmptyPartitions, maxFetchCount));
-        } finally {
-            table.readUnlock();
-        }
     }
 
     @Override
@@ -88,28 +63,60 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String partitionString) throws AnalysisException {
-        String[] partitionNames = partitionString.split(",");
-        if (partitionNames.length == 0) {
+        List<String> partitionNames = Arrays.asList(partitionString.split(","));
+        if (partitionNames.isEmpty()) {
             throw new AnalysisException("Describe table[" + table.getName() + "] failed");
         }
+        return snapshot(partitionNames);
+    }
+
+    public RemoteIndexSchemaProcNode snapshot() throws AnalysisException {
+        return snapshot(List.of());
+    }
+
+    private RemoteIndexSchemaProcNode snapshot(List<String> partitionNames) throws AnalysisException {
         table.readLock();
         try {
-            List<Tablet> tablets = new ArrayList<>();
-            for (String partitionName : partitionNames) {
-                Partition partition = table.getPartition(partitionName);
-                if (partition == null) {
-                    throw new AnalysisException("Describe table[" + table.getName() + "] failed");
-                }
-                tablets.addAll(partition.getBaseIndex().getTablets());
+            if (table.getIndexMetaByIndexId(indexId) == null) {
+                throw new AnalysisException("Index " + indexId + " does not exist");
             }
-            int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
-            if (tablets.size() > maxFetchCount) {
-                Collections.shuffle(tablets);
-                tablets = tablets.subList(0, maxFetchCount);
-            }
-            return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, tablets);
+            Collection<Partition> partitions = partitionNames.isEmpty()
+                    ? table.getPartitions() : getNamedPartitions(partitionNames);
+            List<Column> schema = table.getSchemaByIndexId(indexId);
+            Set<String> bfColumns = IndexInfoProcDir.getBloomFilterColumns(table);
+            ProcResult baseSchema = IndexSchemaProcNode.createResult(schema, bfColumns, List.of());
+            List<PartitionTablets> partitionTablets = FetchRemoteTabletSchemaUtil.snapshotPartitions(partitions);
+            return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, () -> fetchRemoteSchema(partitionTablets));
         } finally {
             table.readUnlock();
         }
+    }
+
+    private List<Column> fetchRemoteSchema(List<PartitionTablets> partitions) throws AnalysisException {
+        // Cloud partition visibility may require a Meta Service RPC.
+        List<Tablet> tablets = FetchRemoteTabletSchemaUtil.collectTablets(partitions);
+        if (tablets.isEmpty()) {
+            return List.of();
+        }
+        FetchRemoteTabletSchemaUtil fetcher;
+        table.readLock();
+        try {
+            fetcher = new FetchRemoteTabletSchemaUtil(tablets);
+        } finally {
+            table.readUnlock();
+        }
+        return fetcher.fetch();
+    }
+
+    private List<Partition> getNamedPartitions(List<String> partitionNames) throws AnalysisException {
+        List<Partition> partitions = new ArrayList<>(partitionNames.size());
+        for (String name : partitionNames) {
+            Partition partition = table.getPartition(name);
+            if (partition == null) {
+                throw new AnalysisException("Describe table[" + table.getName() + "] failed");
+            }
+            partitions.add(partition);
+        }
+        return partitions;
     }
 }

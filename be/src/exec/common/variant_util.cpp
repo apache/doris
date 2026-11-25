@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -72,6 +73,7 @@
 #include "core/field.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
+#include "cpp/sync_point.h"
 #include "exec/common/field_visitors.h"
 #include "exec/common/sip_hash.h"
 #include "exprs/function/function.h"
@@ -1553,83 +1555,78 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
     return false;
 }
 
-TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
-    if (rowsets.empty()) {
-        return nullptr;
+static Status collect_rowset_variant_schemas(const RowsetSharedPtr& rs,
+                                             std::vector<TabletSchemaSPtr>& schemas) {
+    const auto& tablet_schema = rs->tablet_schema();
+    SegmentCacheHandle segment_cache;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
+    for (const auto& segment : segment_cache.get_segments()) {
+        TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
+        for (const auto& column : tablet_schema->columns()) {
+            if (!column->is_variant_type()) {
+                continue;
+            }
+            std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
+            OlapReaderStatistics stats;
+            StorageReadOptions read_options(stats);
+            auto st =
+                    segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                // Old segments predating an ALTER-added VARIANT have no physical subcolumn
+                // metadata, so only newer segments contribute to the calculated schema.
+                continue;
+            }
+            RETURN_IF_ERROR(st);
+            DORIS_CHECK(variant_column_reader != nullptr);
+            st = variant_column_reader->load_external_meta_once();
+            TEST_SYNC_POINT_CALLBACK(
+                    "VariantCompactionUtil::calculate_variant_extended_schema.external_meta_status",
+                    &st, rs.get());
+            RETURN_IF_ERROR(st);
+            const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
+            for (const auto& entry : *subcolumn_meta_info) {
+                if (entry->path.empty()) {
+                    continue;
+                }
+                const std::string& column_name =
+                        column->name_lower_case() + "." + entry->path.get_path();
+                const DataTypePtr& data_type = entry->data.file_column_type;
+                PathInDataBuilder full_path_builder;
+                auto full_path = full_path_builder.append(column->name_lower_case(), false)
+                                         .append(entry->path.get_parts(), false)
+                                         .build();
+                TabletColumn subcolumn =
+                        get_column_by_type(data_type, column_name,
+                                           ExtraInfo {.unique_id = -1,
+                                                      .parent_unique_id = column->unique_id(),
+                                                      .path_info = full_path});
+                schema->append_column(subcolumn);
+            }
+        }
+        schemas.emplace_back(schema);
     }
+    return Status::OK();
+}
 
+Result<TabletSchemaSPtr> VariantCompactionUtil::calculate_variant_extended_schema(
+        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
     std::vector<TabletSchemaSPtr> schemas;
     for (const auto& rs : rowsets) {
         if (rs->num_segments() == 0) {
             continue;
         }
-        const auto& tablet_schema = rs->tablet_schema();
-        SegmentCacheHandle segment_cache;
-        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
-                                                           &segment_cache);
+        Status st;
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = collect_rowset_variant_schemas(rs, schemas), st);
         if (!st.ok()) {
-            return base_schema;
-        }
-        for (const auto& segment : segment_cache.get_segments()) {
-            TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
-            for (const auto& column : tablet_schema->columns()) {
-                if (!column->is_variant_type()) {
-                    continue;
-                }
-                std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
-                OlapReaderStatistics stats;
-                StorageReadOptions read_options(stats);
-                st = segment->get_variant_root_reader(*column, read_options,
-                                                      &variant_column_reader);
-                if (st.is<ErrorCode::NOT_FOUND>()) {
-                    // Old segments predating an ALTER-added VARIANT have no physical subcolumn
-                    // metadata, so only newer segments contribute to the calculated schema.
-                    continue;
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to get VARIANT root reader for column: "
-                                 << column->name() << " error: " << st.to_string();
-                    // Extended-schema collection is best-effort per segment. Skip this column but
-                    // preserve metadata already collected from the remaining readable segments.
-                    continue;
-                }
-                DORIS_CHECK(variant_column_reader != nullptr);
-                // load external meta before getting subcolumn meta info
-                st = variant_column_reader->load_external_meta_once();
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
-                                 << " error: " << st.to_string();
-                    continue;
-                }
-                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
-                for (const auto& entry : *subcolumn_meta_info) {
-                    if (entry->path.empty()) {
-                        continue;
-                    }
-                    const std::string& column_name =
-                            column->name_lower_case() + "." + entry->path.get_path();
-                    const DataTypePtr& data_type = entry->data.file_column_type;
-                    PathInDataBuilder full_path_builder;
-                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
-                                             .append(entry->path.get_parts(), false)
-                                             .build();
-                    TabletColumn subcolumn =
-                            get_column_by_type(data_type, column_name,
-                                               ExtraInfo {.unique_id = -1,
-                                                          .parent_unique_id = column->unique_id(),
-                                                          .path_info = full_path});
-                    schema->append_column(subcolumn);
-                }
-            }
-            schemas.emplace_back(schema);
+            st.prepend(fmt::format("Extended DESCRIBE could not read rowset {}. ",
+                                   rs->rowset_id().to_string()));
+            return ResultError(std::move(st));
         }
     }
     TabletSchemaSPtr least_common_schema;
-    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
-    if (!st.ok()) {
-        return base_schema;
-    }
+    RETURN_IF_ERROR_RESULT(
+            get_least_common_schema(schemas, base_schema, least_common_schema, false));
     return least_common_schema;
 }
 
