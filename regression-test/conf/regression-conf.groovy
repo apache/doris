@@ -145,6 +145,8 @@ oceanbase_cdc_port=2883
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableHiveTest=false
 enablePaimonTest=false
+// Required when Legacy DLF suites are enabled.
+dlfWarehouse=""
 
 // port of hive2 docker
 hive2HmsPort=9083

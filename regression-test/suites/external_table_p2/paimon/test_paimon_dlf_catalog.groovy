@@ -21,13 +21,15 @@ suite("test_paimon_dlf_catalog", "p2,external") {
         return
     }
 
+    String warehouse = context.config.otherConfigs.get("dlfWarehouse")
+    assertTrue(warehouse != null && !warehouse.trim().isEmpty(),
+            "Configure dlfWarehouse before enabling Legacy DLF suites")
+
     try {
         String catalog = "test_paimon_dlf_catalog"
         String uid = context.config.otherConfigs.get("dlf_uid")
         String region = context.config.otherConfigs.get("dlf_region")
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
-        String warehouse = context.config.otherConfigs.get("dlfWarehouse")
-                ?: "oss://selectdb-qa-datalake-test/p2_regression_case"
         String access_key = context.config.otherConfigs.get("dlf_access_key")
         String secret_key = context.config.otherConfigs.get("dlf_secret_key")
 

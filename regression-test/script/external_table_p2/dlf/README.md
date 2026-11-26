@@ -173,9 +173,12 @@ in the existing private `dlf_access_key` / `dlf_secret_key` settings, and set:
 | --- | --- |
 | `dlf_uid`, `dlf_region`, `dlf_catalog_id` | Legacy catalog owner, region and target catalog ID |
 | `dlf_vpc_endpoint`, `dlf_public_endpoint`, `s3Endpoint` | Regional Legacy DLF endpoints and OSS endpoint used by parameter-validation cases |
-| `dlfWarehouse` | Legacy OSS warehouse; old default is `oss://selectdb-qa-datalake-test/p2_regression_case` |
+| `dlfWarehouse` | Required nonblank Legacy OSS warehouse; no default service address |
 | `paimonDlfRestCatalog` | Paimon catalog property string: type, REST URI, target warehouse, DLF token provider and credentials |
 | `icebergDlfRestCatalog` | Iceberg catalog property string: type, REST URI, target warehouse, SigV4 signing and credentials |
+
+Enabled Legacy DLF suites reject missing or blank `dlfWarehouse` before executing
+SQL. Set it explicitly in the private regression configuration.
 
 The Beijing REST URI shape exercised was
 `https://cn-beijing-vpc.dlf.aliyuncs.com`; Iceberg used the additional `/iceberg`
