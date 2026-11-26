@@ -21,8 +21,6 @@
 #include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
-#include <cstring>
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -39,6 +37,7 @@
 #include "core/types.h"
 #include "exec/common/util.hpp"
 #include "exprs/function/function.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 
@@ -128,7 +127,8 @@ public:
             if (array.size() == 0) {
                 continue;
             }
-            if (std::memchr(array.get_null_map_data(), 1, array.size()) != nullptr) {
+            // Any nonzero null-map byte denotes an invalid NULL coordinate, e.g. [1, NULL, 3].
+            if (simd::contain_one(array.get_null_map_data(), array.size())) {
                 return Status::InvalidArgument("{} for function {} cannot have null", arg_name,
                                                name);
             }
