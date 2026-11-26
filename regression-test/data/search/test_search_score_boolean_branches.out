@@ -57,3 +57,35 @@
 7	0.4932
 8	0
 9	0.4932
+
+-- !variant_search --
+1	1.3164
+3	0.833
+5	0.833
+9	1.6659
+
+-- !variant_match_or --
+1	1.3164
+3	0.833
+5	0.833
+9	1.6659
+
+-- !variant_not_absent --
+1	0.6582
+2	0
+3	0.833
+6	0
+9	0.833
+
+-- !nullable_not_and --
+2
+3
+
+-- !variant_not_and_absent --
+2
+4
+6
+
+-- !variant_dotted_path --
+1
+
