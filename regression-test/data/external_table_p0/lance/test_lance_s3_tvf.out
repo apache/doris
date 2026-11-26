@@ -2,7 +2,7 @@
 -- !desc --
 bfloat16_vector_col	array<float>	Yes	false	\N	NONE
 binary_col	varbinary(2147483647)	Yes	false	\N	NONE
-blob_col	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
+blob_col	FILE	Yes	false	\N	NONE
 bool_col	boolean	Yes	false	\N	NONE
 date32_col	date	Yes	false	\N	NONE
 date64_col	date	Yes	false	\N	NONE

@@ -227,7 +227,19 @@ class LanceTypeMappingTest {
                 new FieldType(true, ArrowType.Struct.INSTANCE, null,
                         Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
                 Collections.emptyList());
-        Assertions.assertEquals(UNSUPPORTED, map(blobField));
+        Assertions.assertEquals(ConnectorType.of("FILE"), map(blobField));
+    }
+
+    @Test
+    void blobSupportsTopLevelStructStorageOnly() {
+        Field blob = extensionField("image", ArrowType.Struct.INSTANCE, "lance.blob.v2");
+        Assertions.assertEquals(ConnectorType.of("FILE"), map(blob));
+        Assertions.assertEquals(UNSUPPORTED, map(extensionField("invalid", ArrowType.LargeBinary.INSTANCE,
+                "lance.blob.v2")));
+        Assertions.assertEquals(UNSUPPORTED, map(new Field("images", FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(blob))));
+        Assertions.assertEquals(UNSUPPORTED, map(new Field("nested", FieldType.nullable(ArrowType.Struct.INSTANCE),
+                Collections.singletonList(blob))));
     }
 
     /** A column the engine cannot read stays visible, and only a query reading it fails. */
@@ -236,14 +248,14 @@ class LanceTypeMappingTest {
         Field commented = new Field("label",
                 new FieldType(false, ArrowType.Utf8.INSTANCE, null, Collections.singletonMap("comment", "a label")),
                 Collections.emptyList());
-        Field blob = extensionField("blob_col", ArrowType.LargeBinary.INSTANCE, "lance.blob.v2");
+        Field blob = extensionField("blob_col", ArrowType.Struct.INSTANCE, "lance.blob.v2");
         List<ConnectorColumn> columns = LanceTypeMapping.toColumns(new Schema(Arrays.asList(commented, blob)));
         Assertions.assertEquals(2, columns.size());
         Assertions.assertEquals("label", columns.get(0).getName());
         Assertions.assertEquals("a label", columns.get(0).getComment());
         Assertions.assertFalse(columns.get(0).isNullable());
         Assertions.assertFalse(columns.get(0).isKey());
-        Assertions.assertEquals(UNSUPPORTED, columns.get(1).getType());
+        Assertions.assertEquals(ConnectorType.of("FILE"), columns.get(1).getType());
         Assertions.assertTrue(columns.get(1).isNullable());
     }
 

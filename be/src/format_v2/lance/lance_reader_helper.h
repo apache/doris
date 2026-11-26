@@ -19,9 +19,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -38,8 +40,13 @@ class Array;
 class DataType;
 class Field;
 class MemoryPool;
+class RecordBatch;
 class Schema;
 } // namespace arrow
+
+namespace doris::format {
+struct ColumnDefinition;
+}
 
 namespace doris::format::lance {
 
@@ -265,9 +272,35 @@ Status import_lance_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow:
 
 // Validate and convert the fragment and index-segment identifiers carried by the FE into the
 // unsigned and packed representations expected by lance-c.
-Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids);
-Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
+Status parse_fragment_ids(const TLanceFileDesc& split_params, std::vector<uint64_t>* fragment_ids);
+Status parse_index_segment_uuids(const TLanceFileDesc& split_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count);
+
+// Resolve old-FE range identity into reader-owned scan parameters, then validate the same URI and
+// version contract as new-FE scan parameters. Version zero remains valid for schema/latest scans.
+bool has_dataset_identity(const TFileScanRangeParams& scan_params);
+Status set_legacy_dataset_identity(const TFileRangeDesc& range, TFileScanRangeParams* scan_params);
+Status validate_dataset_params(const TFileScanRangeParams& scan_params);
+Status require_fixed_version(const TLanceScanParams& params, std::string_view what);
+
+// Local datasets and external objects are unsupported for BLOB reads. FE checks registered bases.
+bool lance_blob_storage_is_local(std::string_view uri);
+
+// Convert Lance scan descriptors into a FILE column. Unknown external lengths remain
+// NULL until FL_GET_BINARY resolves a handle in the pinned snapshot. FILE.uri is display-only;
+// blob_source_id and blob_row_id identify the content within the current query.
+Status convert_lance_blob_descriptors_to_file_column(
+        const std::shared_ptr<arrow::Array>& descriptors, const std::vector<uint64_t>& row_ids,
+        const ColumnDefinition& column, uint32_t source_id, MutableColumnPtr* output);
+
+// Build FILE columns containing logical BLOB descriptors using FE's source IDs and native row IDs.
+// This does not read BLOB payloads.
+// Empty batches produce empty columns without requiring a row-ID array.
+Status build_lance_blob_descriptor_columns(
+        const std::shared_ptr<arrow::RecordBatch>& batch,
+        const std::vector<ColumnDefinition>& projected_columns,
+        const std::map<std::string, int32_t>& source_ids,
+        std::unordered_map<std::string, MutableColumnPtr>* blob_columns);
 
 // Resolves one Arrow field once when a stream schema is bound. Runtime conversion then reuses this
 // plan instead of rescanning extension metadata and nested fields for every array.
@@ -320,6 +353,8 @@ Status convert_arrow_schema_to_doris(const std::shared_ptr<arrow::Schema>& arrow
 // The FE sends storage options in Lance's own vocabulary. Preserve the key-value sequence exactly
 // while validating that every value can cross the C-string boundary into lance-c.
 Status build_lance_storage_options(const TFileScanRangeParams* scan_params,
+                                   std::vector<std::string>* options);
+Status build_lance_storage_options(const std::map<std::string, std::string>& storage_options,
                                    std::vector<std::string>* options);
 
 // Copy and release lance-c's thread-local error message before returning a Doris status.

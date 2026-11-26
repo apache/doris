@@ -92,6 +92,7 @@ namespace doris::format::lance {
 namespace {
 
 using Columns = std::vector<ColumnDefinition>;
+using SearchRows = std::vector<std::pair<int64_t, float>>;
 
 // The BE-wide Lance session reads its configs once, when a test first opens a dataset. The
 // default data cache gives Foyer's disk tier 100 GiB in 2 MiB blocks: 51200 files that stay open
@@ -468,24 +469,38 @@ Status get_index_segment_uuids(const std::filesystem::path& dataset_uri, const c
 
 // A split over `fragment_ids` searching the segments of `index_name`, as FE plans an indexed split;
 // BE searches a vector index only through the segments FE names.
-TFileRangeDesc make_indexed_lance_range(const std::filesystem::path& dataset_uri,
-                                        const LanceFixtureInfo& fixture,
-                                        std::vector<int64_t> fragment_ids, const char* index_name) {
-    auto range = make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids));
+Status make_indexed_lance_range(const std::filesystem::path& dataset_uri,
+                                const LanceFixtureInfo& fixture, std::vector<int64_t> fragment_ids,
+                                const char* index_name, TFileRangeDesc* output) {
     std::vector<std::string> segment_uuids;
-    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
+    RETURN_IF_ERROR(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids));
+    auto range = make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids));
     range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
-    return range;
+    *output = std::move(range);
+    return Status::OK();
 }
 
-TFileRangeDesc make_full_text_search_range(const std::filesystem::path& dataset_uri,
-                                           const LanceFixtureInfo& fixture,
-                                           const char* index_name) {
-    auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
-    std::vector<std::string> segment_uuids;
-    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
-    range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
-    return range;
+Status make_full_text_search_range(const std::filesystem::path& dataset_uri,
+                                   const LanceFixtureInfo& fixture, const char* index_name,
+                                   TFileRangeDesc* output) {
+    return make_indexed_lance_range(dataset_uri, fixture, fixture.fragment_ids, index_name, output);
+}
+
+TEST(LanceTableReaderVectorSearchTest, RejectsMissingIndexBeforeBuildingRange) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    const auto fixture_status = get_fixture_info(uri, &fixture);
+    ASSERT_TRUE(fixture_status.ok()) << fixture_status.to_string();
+    TFileRangeDesc range;
+    auto status = make_indexed_lance_range(uri, fixture, fixture.fragment_ids, "missing_test_index",
+                                           &range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("missing_test_index"), std::string::npos);
+    EXPECT_FALSE(range.__isset.table_format_params);
+    status = make_full_text_search_range(uri, fixture, "missing_test_index", &range);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("missing_test_index"), std::string::npos);
+    EXPECT_FALSE(range.__isset.table_format_params);
 }
 
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadingIt) {
@@ -647,12 +662,12 @@ TEST(LanceTableReaderFullTextSearchTest, ValidatesQuerySpecificParameters) {
               std::string::npos);
 }
 
-std::vector<std::pair<int64_t, float>> read_full_text_search_rows(LanceTableReader* reader,
-                                                                  Block* block) {
-    std::vector<std::pair<int64_t, float>> rows;
+Status read_full_text_search_rows(LanceTableReader* reader, Block* block, SearchRows* rows) {
+    rows->clear();
     bool eos = false;
     while (!eos) {
-        EXPECT_TRUE(reader->get_block(block, &eos).ok());
+        // A read error does not imply EOF. Stop before decoding the failed batch.
+        RETURN_IF_ERROR(reader->get_block(block, &eos));
         if (eos) {
             continue;
         }
@@ -661,10 +676,21 @@ std::vector<std::pair<int64_t, float>> read_full_text_search_rows(LanceTableRead
         const auto& score_values = assert_cast<const ColumnFloat32&>(scores.get_nested_column());
         for (size_t row = 0; row < block->rows(); ++row) {
             EXPECT_EQ(0, scores.get_null_map_data()[row]);
-            rows.emplace_back(row_ids.get_data()[row], score_values.get_data()[row]);
+            rows->emplace_back(row_ids.get_data()[row], score_values.get_data()[row]);
         }
     }
-    return rows;
+    return Status::OK();
+}
+
+TEST(LanceTableReaderFullTextSearchTest, ReturnsReadFailureWithoutWaitingForEof) {
+    LanceTableReader reader;
+    Block block;
+    SearchRows rows;
+    const auto status = read_full_text_search_rows(&reader, &block, &rows);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Lance scanner is not initialized for the current split"),
+              std::string::npos);
+    EXPECT_TRUE(rows.empty());
 }
 
 TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScoreProjection) {
@@ -672,7 +698,9 @@ TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScor
             "./be/test/format_v2/table/lance/data/fts_indexed.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+    TFileRangeDesc range;
+    const auto range_status = make_full_text_search_range(dataset_uri, fixture, "body_fts", &range);
+    ASSERT_TRUE(range_status.ok()) << range_status.to_string();
 
     const Columns scored_columns {
             projected_column("row_id", TYPE_BIGINT, false),
@@ -688,7 +716,10 @@ TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScor
     ASSERT_TRUE(prepare_range(&scored_reader, range).ok());
     Block scored_block;
     add_output_columns(&scored_block, scored_columns);
-    const auto scored_rows = read_full_text_search_rows(&scored_reader, &scored_block);
+    SearchRows scored_rows;
+    const auto scored_rows_status =
+            read_full_text_search_rows(&scored_reader, &scored_block, &scored_rows);
+    ASSERT_TRUE(scored_rows_status.ok()) << scored_rows_status.to_string();
     ASSERT_EQ(4U, scored_rows.size());
     EXPECT_EQ((std::vector<int64_t> {3, 2, 1, 7}),
               (std::vector<int64_t> {scored_rows[0].first, scored_rows[1].first,
@@ -731,7 +762,9 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
             "./be/test/format_v2/table/lance/data/fts_indexed.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+    TFileRangeDesc range;
+    const auto range_status = make_full_text_search_range(dataset_uri, fixture, "body_fts", &range);
+    ASSERT_TRUE(range_status.ok()) << range_status.to_string();
 
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
@@ -750,7 +783,10 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
     ASSERT_TRUE(prepare_range(&match_and_reader, range).ok());
     Block match_and_block;
     add_output_columns(&match_and_block, columns);
-    const auto match_and_rows = read_full_text_search_rows(&match_and_reader, &match_and_block);
+    SearchRows match_and_rows;
+    const auto match_and_rows_status =
+            read_full_text_search_rows(&match_and_reader, &match_and_block, &match_and_rows);
+    ASSERT_TRUE(match_and_rows_status.ok()) << match_and_rows_status.to_string();
     ASSERT_EQ(1U, match_and_rows.size());
     EXPECT_EQ(7, match_and_rows[0].first);
     EXPECT_TRUE(match_and_reader.close().ok());
@@ -762,7 +798,10 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
     ASSERT_TRUE(prepare_range(&phrase_reader, range).ok());
     Block phrase_block;
     add_output_columns(&phrase_block, columns);
-    const auto phrase_rows = read_full_text_search_rows(&phrase_reader, &phrase_block);
+    SearchRows phrase_rows;
+    const auto phrase_rows_status =
+            read_full_text_search_rows(&phrase_reader, &phrase_block, &phrase_rows);
+    ASSERT_TRUE(phrase_rows_status.ok()) << phrase_rows_status.to_string();
     std::vector<int64_t> phrase_row_ids;
     phrase_row_ids.reserve(phrase_rows.size());
     for (const auto& [row_id, score] : phrase_rows) {
@@ -782,8 +821,10 @@ TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
     ASSERT_TRUE(prepare_range(&phrase_slop_reader, range).ok());
     Block phrase_slop_block;
     add_output_columns(&phrase_slop_block, columns);
-    const auto phrase_slop_rows =
-            read_full_text_search_rows(&phrase_slop_reader, &phrase_slop_block);
+    SearchRows phrase_slop_rows;
+    const auto phrase_slop_rows_status =
+            read_full_text_search_rows(&phrase_slop_reader, &phrase_slop_block, &phrase_slop_rows);
+    ASSERT_TRUE(phrase_slop_rows_status.ok()) << phrase_slop_rows_status.to_string();
     std::vector<int64_t> phrase_slop_row_ids;
     phrase_slop_row_ids.reserve(phrase_slop_rows.size());
     for (const auto& [row_id, score] : phrase_slop_rows) {
@@ -800,7 +841,9 @@ TEST(LanceTableReaderFullTextSearchTest, SearchFilterHonorsPrefilterFlag) {
             "./be/test/format_v2/table/lance/data/fts_indexed.lance";
     LanceFixtureInfo fixture;
     ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
-    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+    TFileRangeDesc range;
+    const auto range_status = make_full_text_search_range(dataset_uri, fixture, "body_fts", &range);
+    ASSERT_TRUE(range_status.ok()) << range_status.to_string();
 
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
@@ -824,7 +867,9 @@ TEST(LanceTableReaderFullTextSearchTest, SearchFilterHonorsPrefilterFlag) {
         ASSERT_TRUE(prepare_range(&reader, range).ok());
         Block block;
         add_output_columns(&block, columns);
-        const auto rows = read_full_text_search_rows(&reader, &block);
+        SearchRows rows;
+        const auto rows_status = read_full_text_search_rows(&reader, &block, &rows);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         if (prefilter) {
             ASSERT_EQ(1U, rows.size());
             EXPECT_EQ(2, rows[0].first);
@@ -862,12 +907,12 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader* reader,
-                                                               Block* block) {
-    std::vector<std::pair<int64_t, float>> rows;
+Status read_vector_search_rows(LanceTableReader* reader, Block* block, SearchRows* rows) {
+    rows->clear();
     bool eos = false;
     while (!eos) {
-        EXPECT_TRUE(reader->get_block(block, &eos).ok());
+        // A read error does not imply EOF. Stop before decoding the failed batch.
+        RETURN_IF_ERROR(reader->get_block(block, &eos));
         if (eos) {
             continue;
         }
@@ -878,20 +923,45 @@ std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader*
                 assert_cast<const ColumnFloat32&>(distances.get_nested_column());
         for (size_t row = 0; row < block->rows(); ++row) {
             EXPECT_EQ(0, distances.get_null_map_data()[row]);
-            rows.emplace_back(row_ids.get_data()[row], distance_values.get_data()[row]);
+            rows->emplace_back(row_ids.get_data()[row], distance_values.get_data()[row]);
         }
     }
-    return rows;
+    return Status::OK();
 }
 
-GlobalRowLoacationV2 decode_lance_row_id(const ColumnString& column, size_t row) {
+Status decode_lance_row_id(const ColumnString& column, size_t row, GlobalRowLoacationV2* location) {
     const auto encoded = column.get_data_at(row);
-    EXPECT_EQ(sizeof(GlobalRowLoacationV2), encoded.size);
-    GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, 0, 0, 0);
-    if (encoded.size == sizeof(location)) {
-        std::memcpy(&location, encoded.data, sizeof(location));
+    if (encoded.size != sizeof(*location)) { // A malformed ID must not become row 0.
+        return Status::Corruption("Invalid Lance global row id size: expected {}, got {}",
+                                  sizeof(*location), encoded.size);
     }
-    return location;
+    std::memcpy(location, encoded.data, sizeof(*location));
+    return Status::OK();
+}
+
+TEST(LanceTableReaderVectorSearchTest, RejectsMalformedGlobalRowIdWithoutReturningDefault) {
+    auto column = ColumnString::create();
+    for (const size_t size :
+         {size_t {0}, sizeof(GlobalRowLoacationV2) - 1, sizeof(GlobalRowLoacationV2) + 1}) {
+        const std::string encoded(size, '\0');
+        column->insert_data(encoded.data(), encoded.size());
+        GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, 1, 2, 77);
+        const auto status = decode_lance_row_id(*column, column->size() - 1, &location);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Invalid Lance global row id size"), std::string::npos);
+        EXPECT_EQ(77, location.lance_row_id);
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, ReturnsReadFailureWithoutWaitingForEof) {
+    LanceTableReader reader;
+    Block block;
+    SearchRows rows;
+    const auto status = read_vector_search_rows(&reader, &block, &rows);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Lance scanner is not initialized for the current split"),
+              std::string::npos);
+    EXPECT_TRUE(rows.empty());
 }
 
 TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexedCoverage) {
@@ -963,7 +1033,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                 ASSERT_TRUE(prepare_range(&reader, range).ok());
                 Block block;
                 add_output_columns(&block, columns);
-                auto rows = read_vector_search_rows(&reader, &block);
+                SearchRows rows;
+                const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+                ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
                 ASSERT_EQ(filtered ? 2 : 4, rows.size());
                 // L2 is sum of per-query nearest squared distances; null/empty rows never rank.
                 if (!indexed) {
@@ -1125,7 +1197,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
                     ASSERT_TRUE(prepare_range(&reader, range).ok());
                     Block block;
                     add_output_columns(&block, columns);
-                    auto rows = read_vector_search_rows(&reader, &block);
+                    SearchRows rows;
+                    const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+                    ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
                     ASSERT_EQ(20, rows.size());
                     for (const auto& row : rows) EXPECT_EQ(split, (row.first - 1) % 3);
                     candidates.insert(candidates.end(), rows.begin(), rows.end());
@@ -1192,7 +1266,8 @@ TEST(LanceTableReaderVectorSearchTest, SplitWithoutIndexSegmentsSearchesFlat) {
         ASSERT_TRUE(prepare_range(&reader, range).ok());
         Block block;
         add_output_columns(&block, columns);
-        results[mode] = read_vector_search_rows(&reader, &block);
+        const auto rows_status = read_vector_search_rows(&reader, &block, &results[mode]);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         ASSERT_EQ(5, results[mode].size());
         EXPECT_TRUE(reader.close().ok());
         auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
@@ -1260,7 +1335,10 @@ TEST(LanceTableReaderVectorSearchTest, RejectsIndexSegmentsWhenUseIndexIsFalse) 
             ASSERT_TRUE(status.ok()) << status.to_string();
             Block block;
             add_output_columns(&block, columns);
-            EXPECT_EQ(5, read_vector_search_rows(&reader, &block).size());
+            SearchRows rows;
+            const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+            ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
+            EXPECT_EQ(5, rows.size());
             auto* flat = profile.get_counter("LancePlannedFlatSearchFragmentCount");
             ASSERT_NE(nullptr, flat);
             EXPECT_EQ(1, flat->value());
@@ -1304,15 +1382,19 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             RuntimeProfile profile("multi_vector_top_one");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
-                                                                 uri, fixture, fixture.fragment_ids,
-                                                                 "batch_vectors_idx")
-                                                       : make_lance_range(uri, fixture.version,
-                                                                          fixture.fragment_ids))
-                                .ok());
+            auto range = make_lance_range(uri, fixture.version, fixture.fragment_ids);
+            if (indexed) {
+                const auto range_status = make_indexed_lance_range(
+                        uri, fixture, fixture.fragment_ids, "batch_vectors_idx", &range);
+                ASSERT_TRUE(range_status.ok()) << range_status.to_string();
+            }
+            const auto prepare_status = prepare_range(&reader, std::move(range));
+            ASSERT_TRUE(prepare_status.ok()) << prepare_status.to_string();
             Block block;
             add_output_columns(&block, columns);
-            auto rows = read_vector_search_rows(&reader, &block);
+            SearchRows rows;
+            const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+            ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
             ASSERT_EQ(1, rows.size());
             EXPECT_EQ(indexed ? 3 : 2, rows[0].first);
             EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
@@ -1355,15 +1437,19 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
             RuntimeProfile profile("multi_vector_cosine_zero_norm");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
-                                                                 uri, fixture, fixture.fragment_ids,
-                                                                 "vectors_idx")
-                                                       : make_lance_range(uri, fixture.version,
-                                                                          fixture.fragment_ids))
-                                .ok());
+            auto range = make_lance_range(uri, fixture.version, fixture.fragment_ids);
+            if (indexed) {
+                const auto range_status = make_indexed_lance_range(
+                        uri, fixture, fixture.fragment_ids, "vectors_idx", &range);
+                ASSERT_TRUE(range_status.ok()) << range_status.to_string();
+            }
+            const auto prepare_status = prepare_range(&reader, std::move(range));
+            ASSERT_TRUE(prepare_status.ok()) << prepare_status.to_string();
             Block block;
             add_output_columns(&block, columns);
-            auto rows = read_vector_search_rows(&reader, &block);
+            SearchRows rows;
+            const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+            ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
             std::sort(rows.begin(), rows.end());
             // Undefined pairs cannot poison valid matches in the same row or other fragments.
             const std::vector<std::pair<int64_t, float>> expected =
@@ -1410,7 +1496,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcros
         ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, {fragment}).ok());
         Block block;
         add_output_columns(&block, columns);
-        auto rows = read_vector_search_rows(&reader, &block);
+        SearchRows rows;
+        const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         all_rows.insert(all_rows.end(), rows.begin(), rows.end());
         EXPECT_TRUE(reader.close().ok());
         auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
@@ -1521,7 +1609,9 @@ TEST(LanceTableReaderVectorSearchTest, AppliesDistanceBoundsAndOffset) {
         ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
         Block block;
         add_output_columns(&block, columns);
-        const auto rows = read_vector_search_rows(&reader, &block);
+        SearchRows rows;
+        const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         if (mode == 4) {
             EXPECT_TRUE(rows.empty());
         } else {
@@ -1577,7 +1667,9 @@ TEST(LanceTableReaderVectorSearchTest, DistanceRangeFallbackPreservesExactScores
                 ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
                 Block block;
                 add_output_columns(&block, columns);
-                const auto rows = read_vector_search_rows(&reader, &block);
+                SearchRows rows;
+                const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+                ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
                 ASSERT_EQ(1U, rows.size());
                 EXPECT_EQ(dot ? 0 : 256, rows[0].first);
                 if (dot) {
@@ -1628,7 +1720,10 @@ TEST(LanceTableReaderVectorSearchTest, DistanceRangeCoversIndexedAndAppendedFrag
                 ASSERT_TRUE(prepare_range(&reader, range).ok());
                 Block block;
                 add_output_columns(&block, columns);
-                for (const auto& [id, distance] : read_vector_search_rows(&reader, &block)) {
+                SearchRows rows;
+                const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+                ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
+                for (const auto& [id, distance] : rows) {
                     ids.push_back(id);
                     EXPECT_FLOAT_EQ(1.0F, distance);
                 }
@@ -1660,7 +1755,9 @@ TEST(LanceTableReaderVectorSearchTest, QueryParallelismPreservesResults) {
         ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
         Block block;
         add_output_columns(&block, columns);
-        const auto rows = read_vector_search_rows(&reader, &block);
+        SearchRows rows;
+        const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         ASSERT_EQ(2U, rows.size());
         EXPECT_EQ(2, rows[0].first);
         EXPECT_EQ(4, rows[1].first);
@@ -1697,7 +1794,9 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
 
     Block block;
     add_output_columns(&block, columns);
-    const auto rows = read_vector_search_rows(&reader, &block);
+    SearchRows rows;
+    const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+    ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
     ASSERT_EQ(2U, rows.size());
     EXPECT_EQ(2, rows[0].first);
     EXPECT_FLOAT_EQ(1.0F, rows[0].second);
@@ -1731,7 +1830,9 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopKWhenPrefilte
 
     Block block;
     add_output_columns(&block, columns);
-    const auto rows = read_vector_search_rows(&reader, &block);
+    SearchRows rows;
+    const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+    ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
     ASSERT_EQ(1U, rows.size());
     EXPECT_EQ(4, rows[0].first);
     EXPECT_FLOAT_EQ(8.25F, rows[0].second);
@@ -1764,7 +1865,9 @@ TEST(LanceTableReaderVectorSearchTest, SearchFilterDefaultsToPostfilter) {
 
     Block block;
     add_output_columns(&block, columns);
-    const auto rows = read_vector_search_rows(&reader, &block);
+    SearchRows rows;
+    const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+    ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
     // The nearest row has row_id < 3, so filtering the top-1 candidate leaves nothing. With
     // prefilter enabled, the same request returns row 4 (see the test above).
     EXPECT_TRUE(rows.empty());
@@ -1806,7 +1909,9 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
         ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, {fragment_id}).ok());
         Block block;
         add_output_columns(&block, columns);
-        const auto rows = read_vector_search_rows(&reader, &block);
+        SearchRows rows;
+        const auto rows_status = read_vector_search_rows(&reader, &block, &rows);
+        ASSERT_TRUE(rows_status.ok()) << rows_status.to_string();
         for (const auto& row : rows) {
             row_ids.emplace_back(row.first);
         }
@@ -1838,23 +1943,15 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
-    const auto scan_row_ids = [&]() {
-        std::map<int64_t, uint64_t> row_ids;
-        const auto prepare_status =
-                prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids, context);
-        EXPECT_TRUE(prepare_status.ok()) << prepare_status.to_string();
-        if (!prepare_status.ok()) {
-            return row_ids;
-        }
+    const auto scan_row_ids = [&](std::map<int64_t, uint64_t>* row_ids) -> Status {
+        row_ids->clear();
+        RETURN_IF_ERROR(
+                prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids, context));
         Block block;
         add_output_columns(&block, columns);
         bool eos = false;
         while (!eos) {
-            const auto read_status = reader.get_block(&block, &eos);
-            EXPECT_TRUE(read_status.ok()) << read_status.to_string();
-            if (!read_status.ok()) {
-                break;
-            }
+            RETURN_IF_ERROR(reader.get_block(&block, &eos));
             if (eos) {
                 continue;
             }
@@ -1863,21 +1960,26 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
             const auto& global_row_ids =
                     assert_cast<const ColumnString&>(*block.get_by_position(1).column);
             for (size_t row = 0; row < block.rows(); ++row) {
-                const auto location = decode_lance_row_id(global_row_ids, row);
+                GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, 0, 0, 0);
+                RETURN_IF_ERROR(decode_lance_row_id(global_row_ids, row, &location));
                 EXPECT_EQ(static_cast<uint8_t>(ROW_VERSION::LANCE_DATASET_ROW_ID),
                           location.version);
                 EXPECT_EQ(context.backend_id, location.backend_id);
                 EXPECT_EQ(context.file_id, location.lance_file_id);
-                row_ids.emplace(logical_row_ids.get_data()[row], location.lance_row_id);
+                row_ids->emplace(logical_row_ids.get_data()[row], location.lance_row_id);
             }
         }
-        return row_ids;
+        return Status::OK();
     };
 
-    const auto first_scan = scan_row_ids();
-    const auto second_scan = scan_row_ids();
-    EXPECT_EQ(4U, first_scan.size());
-    EXPECT_EQ(first_scan, second_scan);
+    std::map<int64_t, uint64_t> first_scan;
+    std::map<int64_t, uint64_t> second_scan;
+    const auto first_status = scan_row_ids(&first_scan);
+    ASSERT_TRUE(first_status.ok()) << first_status.to_string();
+    const auto second_status = scan_row_ids(&second_scan);
+    ASSERT_TRUE(second_status.ok()) << second_status.to_string();
+    ASSERT_EQ(4U, first_scan.size());
+    ASSERT_EQ(first_scan, second_scan);
     EXPECT_TRUE(reader.close().ok());
 
     ASSERT_TRUE(first_scan.contains(2));
@@ -1971,7 +2073,9 @@ TEST(LanceTableReaderVectorSearchTest, ReadsOnlyGlobalRowIdVirtualColumn) {
         const auto& global_row_ids =
                 assert_cast<const ColumnString&>(*block.get_by_position(0).column);
         for (size_t row = 0; row < block.rows(); ++row) {
-            const auto location = decode_lance_row_id(global_row_ids, row);
+            GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, 0, 0, 0);
+            const auto decode_status = decode_lance_row_id(global_row_ids, row, &location);
+            ASSERT_TRUE(decode_status.ok()) << decode_status.to_string();
             EXPECT_EQ(static_cast<uint8_t>(ROW_VERSION::LANCE_DATASET_ROW_ID), location.version);
             EXPECT_EQ(context.backend_id, location.backend_id);
             EXPECT_EQ(context.file_id, location.lance_file_id);
@@ -3005,7 +3109,7 @@ TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtension
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
 
-    EXPECT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json",
+    ASSERT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json",
                                          "bfloat16_vector", "dictionary", "unknown_extension",
                                          "name"}),
               column_names);
@@ -4497,7 +4601,7 @@ TEST(LanceTableReaderSchemaTest, MapsZeroFieldStructsAsUnsupported) {
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
 
-    EXPECT_EQ((std::vector<std::string> {"id", "empty", "struct_child", "list_item", "map_value",
+    ASSERT_EQ((std::vector<std::string> {"id", "empty", "struct_child", "list_item", "map_value",
                                          "non_empty"}),
               column_names);
     ASSERT_EQ(6, column_types.size());
@@ -4548,7 +4652,7 @@ TEST(LanceTableReaderSchemaTest, FetchesZeroFieldStructAsUnsupportedAndScansSibl
     const auto status = schema_reader.fetch_schema(make_latest_lance_range(dataset_uri),
                                                    scan_params, &column_names, &column_types);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ((std::vector<std::string> {"id", "empty"}), column_names);
+    ASSERT_EQ((std::vector<std::string> {"id", "empty"}), column_names);
     ASSERT_EQ(2, column_types.size());
     ASSERT_NE(nullptr, column_types[0]);
     ASSERT_NE(nullptr, column_types[1]);
@@ -4618,7 +4722,7 @@ TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {
     const auto status = reader.fetch_schema(make_latest_lance_range(dataset_uri), scan_params,
                                             &column_names, &column_types);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ((std::vector<std::string> {"negative_scale_decimal"}), column_names);
+    ASSERT_EQ((std::vector<std::string> {"negative_scale_decimal"}), column_names);
     ASSERT_EQ(1, column_types.size());
     ASSERT_NE(nullptr, column_types[0]);
     EXPECT_EQ(INVALID_TYPE, column_types[0]->get_primitive_type());

@@ -117,7 +117,10 @@ void expect_opaque_file_bytes(const Field& value, const Field& expected) {
 
 } // namespace
 
-TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
+class FileCollectListTest : public testing::TestWithParam<int> {};
+
+TEST_P(FileCollectListTest, PartialStatesPreserveOpaqueBytes) {
+    const int version = GetParam();
     const auto file_type = std::make_shared<DataTypeFile>();
     const auto nullable_file = make_nullable(file_type);
     const auto file = Field::create_field<TYPE_FILE>(
@@ -148,9 +151,9 @@ TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
                 argument_types.push_back(std::make_shared<DataTypeInt32>());
             }
             auto function = AggregateFunctionSimpleFactory::instance().get(
-                    "collect_list", argument_types, nullptr, false,
-                    BeExecVersionManager::get_newest_version());
+                    "collect_list", argument_types, nullptr, false, version);
             ASSERT_NE(function, nullptr);
+            function->set_version(version);
             AggregateFunctionGuard partial(function.get());
             AggregateFunctionGuard restored(function.get());
             AggregateFunctionGuard global(function.get());
@@ -201,6 +204,55 @@ TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
                 ASSERT_FALSE(item.is_null());
                 expect_opaque_file_bytes(item, value);
             }
+        }
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(ExecutionVersions, FileCollectListTest,
+                         testing::Values(SUPPORT_LANCE_BLOB_RESOURCES_VERSION - 1,
+                                         SUPPORT_LANCE_BLOB_RESOURCES_VERSION));
+
+TEST(FileAggregateTest, CollectListPartialStatesPreserveBlobIds) {
+    const auto file = std::make_shared<DataTypeFile>();
+    const auto array = std::make_shared<DataTypeArray>(make_nullable(file));
+    for (int version :
+         {SUPPORT_LANCE_BLOB_RESOURCES_VERSION - 1, SUPPORT_LANCE_BLOB_RESOURCES_VERSION}) {
+        File value(6);
+        value[0] = Field::create_field<TYPE_STRING>("lance-blob://91");
+        value.blob_source_id = version < SUPPORT_LANCE_BLOB_RESOURCES_VERSION ? 0 : 7;
+        value.blob_row_id = value.blob_source_id == 0 ? 0 : 91;
+        const auto field = Field::create_field<TYPE_FILE>(value);
+        for (const auto& [type, input] : std::vector<std::pair<DataTypePtr, Field>> {
+                     {file, field},
+                     {array, Field::create_field<TYPE_ARRAY>(Array {field, Field()})}}) {
+            auto function = AggregateFunctionSimpleFactory::instance().get("collect_list", {type},
+                                                                           nullptr, false, version);
+            ASSERT_NE(function, nullptr);
+            function->set_version(version);
+            AggregateFunctionGuard partial(function.get());
+            AggregateFunctionGuard restored(function.get());
+            Arena arena;
+            auto source = type->create_column();
+            source->insert(input);
+            const IColumn* columns[] = {source.get()};
+            function->add_batch_single_place(1, partial.data(), columns, arena);
+            ColumnString wire;
+            VectorBufferWriter writer(wire);
+            function->serialize(partial.data(), writer);
+            writer.commit();
+            source->clear();
+            function->reset(partial.data());
+            VectorBufferReader reader(wire.get_data_at(0));
+            function->deserialize(restored.data(), reader, arena);
+            EXPECT_FALSE(reader.has_remaining());
+            auto result = function->get_return_type()->create_column();
+            function->insert_result_into(restored.data(), *result);
+            auto collected = (*result)[0].get<TYPE_ARRAY>()[0];
+            const auto leaf = type->get_primitive_type() == TYPE_ARRAY
+                                      ? collected.get<TYPE_ARRAY>()[0]
+                                      : collected;
+            EXPECT_EQ(leaf.get<TYPE_FILE>().blob_source_id, value.blob_source_id);
+            EXPECT_EQ(leaf.get<TYPE_FILE>().blob_row_id, value.blob_row_id);
         }
     }
 }

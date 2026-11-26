@@ -44,6 +44,7 @@ final class LanceTypeMapping {
     private static final int MAX_DECIMAL_PRECISION = 76;
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
     private static final String ARROW_JSON_EXTENSION = "arrow.json";
+    private static final String LANCE_BLOB_EXTENSION = "lance.blob.v2";
     private static final String LANCE_JSON_EXTENSION = "lance.json";
     private static final String LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
     private static final String COMMENT_METADATA_KEY = "comment";
@@ -57,7 +58,7 @@ final class LanceTypeMapping {
     static List<ConnectorColumn> toColumns(Schema schema) {
         List<ConnectorColumn> columns = new ArrayList<>(schema.getFields().size());
         for (Field field : schema.getFields()) {
-            columns.add(new ConnectorColumn(field.getName(), toConnectorType(field), commentOf(field),
+            columns.add(new ConnectorColumn(field.getName(), toConnectorType(field, true), commentOf(field),
                     field.isNullable(), null));
         }
         return columns;
@@ -88,8 +89,20 @@ final class LanceTypeMapping {
         return false;
     }
 
+    static boolean isBlob(Field field) {
+        return LANCE_BLOB_EXTENSION.equals(extensionNameOf(field));
+    }
+
     /** Converts one Arrow field, including Null leaves in complex types. */
     static ConnectorType toConnectorType(Field field) {
+        return toConnectorType(field, true);
+    }
+
+    private static ConnectorType toConnectorType(Field field, boolean topLevel) {
+        if (isBlob(field)) {
+            return topLevel && field.getType().getTypeID() == ArrowType.ArrowTypeID.Struct
+                    ? ConnectorType.of("FILE") : UNSUPPORTED;
+        }
         // TODO(lance): Dataset.getSchema() currently erases the Dictionary marker, while
         // Dataset.getLanceSchema() fails to convert a schema containing Dictionary in the
         // Lance Java SDK. Reject physical Dictionary columns after that SDK
@@ -153,7 +166,7 @@ final class LanceTypeMapping {
             case LargeList:
             case FixedSizeList:
                 requireChildren(field, 1);
-                ConnectorType itemType = toConnectorType(field.getChildren().get(0));
+                ConnectorType itemType = toConnectorType(field.getChildren().get(0), false);
                 return isUnsupported(itemType) ? UNSUPPORTED : ConnectorType.arrayOf(itemType);
             case Map:
                 requireChildren(field, 1);
@@ -161,8 +174,8 @@ final class LanceTypeMapping {
                 requireChildren(entries, 2);
                 Field key = entries.getChildren().get(0);
                 Field value = entries.getChildren().get(1);
-                ConnectorType keyType = toConnectorType(key);
-                ConnectorType valueType = toConnectorType(value);
+                ConnectorType keyType = toConnectorType(key, false);
+                ConnectorType valueType = toConnectorType(value, false);
                 if (isUnsupported(keyType) || isUnsupported(valueType)) {
                     return UNSUPPORTED;
                 }
@@ -187,7 +200,7 @@ final class LanceTypeMapping {
         List<Boolean> nullable = new ArrayList<>(children.size());
         List<String> comments = new ArrayList<>(children.size());
         for (Field child : children) {
-            ConnectorType childType = toConnectorType(child);
+            ConnectorType childType = toConnectorType(child, false);
             if (isUnsupported(childType)) {
                 return UNSUPPORTED;
             }

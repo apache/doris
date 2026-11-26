@@ -16,7 +16,7 @@
 # under the License.
 # Exact pins for the Lance fixture builders in this directory
 # (lance_build_array_predicates.py, lance_build_column_case.py, lance_build_nested_null.py,
-# lance_build_predicate_pushdown.py).
+# lance_build_predicate_pushdown.py, lance_build_blob.py).
 #
 # pylance writes the data and index files and lance-namespace writes the __manifest and
 # picks the hash-prefixed directory names, so those two decide what lands on disk. The

@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -93,7 +94,68 @@ class LanceScanPlanProviderTest {
 
     private static LanceTableMetadata metadata(Map<String, String> storageOptions, LanceFragmentInfo... fragments) {
         return new LanceTableMetadata(new LanceTableAccess(URI, storageOptions, false), 3, SCHEMA,
-                Arrays.asList(fragments));
+                Arrays.asList(fragments), Collections.emptyList());
+    }
+
+    @Test
+    void declaresOnlyProjectedBlobColumnsWithPinnedIdentity() {
+        Field blob = new Field("Image", new FieldType(true,
+                ArrowType.Struct.INSTANCE, null,
+                Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")), Collections.emptyList());
+        Schema schema = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(32, true)), blob));
+        LanceTableMetadata metadata = new LanceTableMetadata(new LanceTableAccess(URI,
+                Collections.singletonMap("aws_endpoint", "http://minio:9000"), false), 3, schema,
+                Collections.singletonList(new LanceFragmentInfo(0, 1, 1)),
+                Arrays.asList("s3://warehouse/base", "oss://warehouse/base", "hdfs://namenode/base"));
+        readInThisStatement(metadata);
+        LanceScanPlanProvider provider = provider(Collections.emptyMap());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, provider.getScanNodePropertiesResult(session, handle,
+                Collections.singletonList(new NamedColumnHandle("IMAGE")), Optional.empty()).getProperties());
+        Assertions.assertEquals(URI, params.getLanceScanParams().getDatasetUri());
+        Assertions.assertEquals(3, params.getLanceScanParams().getVersion());
+        Assertions.assertEquals(Collections.singletonMap("Image", 0),
+                params.getLanceScanParams().getBlobReadSourceIds());
+        provider.populateScanLevelParams(params, provider.getScanNodePropertiesResult(session, handle,
+                Collections.singletonList(new NamedColumnHandle("id")), Optional.empty()).getProperties());
+        Assertions.assertFalse(params.getLanceScanParams().isSetBlobReadSourceIds());
+    }
+
+    @Test
+    void rejectsLocalBlobRootsDuringScanPlanning() {
+        for (String root : Arrays.asList("/tmp/assets.lance", "file:///tmp/assets.lance",
+                "FILE:///tmp/assets.lance", "memory://assets.lance")) {
+            assertBlobStorageRejected(root, Collections.emptyList(),
+                    "Lance BLOB reads require a remote dataset");
+        }
+    }
+
+    @Test
+    void rejectsLocalRegisteredBasesDuringScanPlanning() {
+        for (String base : Arrays.asList("/tmp/blobs", "relative/blobs", "file:///tmp/blobs",
+                "FiLe:///tmp/blobs", "memory://blobs")) {
+            assertBlobStorageRejected(URI, Arrays.asList("s3://warehouse/base", base),
+                    "Local Lance BLOB base paths are not supported");
+        }
+    }
+
+    private void assertBlobStorageRejected(String root, List<String> bases, String message) {
+        LanceTestSession query = new LanceTestSession();
+        Field blob = new Field("image", new FieldType(true, ArrowType.Struct.INSTANCE, null,
+                Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")), Collections.emptyList());
+        Schema schema = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(32, true)), blob));
+        LanceTableMetadata metadata = new LanceTableMetadata(
+                new LanceTableAccess(root, Collections.emptyMap(), false), 3, schema,
+                Collections.singletonList(new LanceFragmentInfo(0, 1, 1)), bases);
+        LanceStatementScope.sharedMetadata(query, handle, () -> metadata);
+        LanceScanPlanProvider provider = provider(Collections.emptyMap());
+        // Local storage does not prevent planning ordinary columns from the same snapshot.
+        Assertions.assertDoesNotThrow(() -> provider.getScanNodePropertiesResult(query, handle,
+                Collections.singletonList(new NamedColumnHandle("id")), Optional.empty()));
+        Assertions.assertEquals(message, Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.getScanNodePropertiesResult(query, handle,
+                        Collections.singletonList(new NamedColumnHandle("IMAGE")), Optional.empty()))
+                .getMessage());
     }
 
     @Test
@@ -184,13 +246,15 @@ class LanceScanPlanProviderTest {
     }
 
     @Test
-    void catalogWithoutStorageOptionsSendsNoLanceScanParams() {
+    void catalogWithoutStorageOptionsSendsDatasetIdentity() {
         readInThisStatement(metadata(Collections.emptyMap(), new LanceFragmentInfo(0, 1, 1)));
         LanceScanPlanProvider provider = provider(Collections.emptyMap());
         TFileScanRangeParams params = new TFileScanRangeParams();
         provider.populateScanLevelParams(params, provider.getScanNodePropertiesResult(session, handle,
                 Collections.emptyList(), Optional.empty()).getProperties());
-        Assertions.assertFalse(params.isSetLanceScanParams());
+        Assertions.assertTrue(params.isSetLanceScanParams());
+        Assertions.assertTrue(params.getLanceScanParams().isSetDatasetUri());
+        Assertions.assertTrue(params.getLanceScanParams().getVersion() > 0);
     }
 
     /**
@@ -300,7 +364,8 @@ class LanceScanPlanProviderTest {
         Assertions.assertEquals(Collections.singleton(0), nothingPushed.getNotPushedConjunctIndices());
         TFileScanRangeParams none = new TFileScanRangeParams();
         provider.populateScanLevelParams(none, nothingPushed.getProperties());
-        Assertions.assertFalse(none.isSetLanceScanParams());
+        Assertions.assertTrue(none.isSetLanceScanParams());
+        Assertions.assertFalse(none.getLanceScanParams().isSetLanceSubstraitFilter());
     }
 
     /**

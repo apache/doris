@@ -17,7 +17,6 @@
 
 #include "format_v2/table/lance_reader.h"
 
-#include <arrow/array.h>
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
@@ -30,6 +29,7 @@
 #include <limits>
 #include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/common/endian.h"
@@ -52,7 +52,12 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     if (column_names == nullptr || column_types == nullptr) {
         return Status::InvalidArgument("Lance schema output must not be null");
     }
-    const auto& params = range.table_format_params.lance_params;
+    auto resolved_scan_params = scan_params;
+    if (!has_dataset_identity(resolved_scan_params)) {
+        RETURN_IF_ERROR(set_legacy_dataset_identity(range, &resolved_scan_params));
+    }
+    RETURN_IF_ERROR(validate_dataset_params(resolved_scan_params));
+    const auto& params = resolved_scan_params.lance_scan_params;
     std::vector<std::string> storage_options;
     RETURN_IF_ERROR(build_lance_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
@@ -76,10 +81,18 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
 }
 
 Status LanceTableReader::init(TableReadOptions&& options) {
+    if (options.runtime_state != nullptr && options.scan_params != nullptr &&
+        !has_dataset_identity(*options.scan_params)) {
+        _legacy_scan_params = *options.scan_params;
+        options.scan_params = &*_legacy_scan_params;
+    }
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
     DORIS_CHECK(_runtime_state != nullptr);
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
+    if (!_legacy_scan_params.has_value()) {
+        RETURN_IF_ERROR(validate_dataset_params(*_scan_params));
+    }
     RETURN_IF_ERROR(_resolve_search_kind());
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
@@ -135,7 +148,23 @@ Status LanceTableReader::init(TableReadOptions&& options) {
         _scanner_profile->add_info_string("LancePushdownFormat", "SUBSTRAIT");
     }
 
-    return _record_batch_converter.init(_runtime_state, _projected_columns, _search_kind);
+    RETURN_IF_ERROR(_record_batch_converter.init(_runtime_state, _projected_columns, _search_kind));
+    return _init_blob_columns();
+}
+
+Status LanceTableReader::_init_blob_columns() {
+    if (_record_batch_converter.has_blob_columns()) {
+        if (_runtime_state->be_exec_version() < SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+            return Status::NotSupported("Lance BLOB reads require be_exec_version >= {}",
+                                        SUPPORT_LANCE_BLOB_RESOURCES_VERSION);
+        }
+        if (!_scan_params->lance_scan_params.__isset.blob_read_source_ids) {
+            return Status::NotSupported("Lance BLOB reads require sources assigned by FE");
+        }
+        _blob_descriptor_build_time = add_lance_counter(_scanner_profile, "LanceBlobDescriptorTime",
+                                                        TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    }
+    return Status::OK();
 }
 
 Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
@@ -153,12 +182,19 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
+    if (_legacy_scan_params.has_value()) {
+        RETURN_IF_ERROR(set_legacy_dataset_identity(options.current_range, &*_legacy_scan_params));
+        RETURN_IF_ERROR(validate_dataset_params(*_legacy_scan_params));
+    }
     if (_record_batch_converter.requires_global_rowid() && !_global_rowid_context.has_value()) {
         return Status::InvalidArgument(
                 "Lance global row id requested without global row id context");
     }
 
-    RETURN_IF_ERROR(_ensure_dataset_open(options.current_range));
+    if (_search_kind != SearchKind::NORMAL) {
+        RETURN_IF_ERROR(require_fixed_version(_scan_params->lance_scan_params, "search split"));
+    }
+    RETURN_IF_ERROR(_ensure_dataset_open());
     RETURN_IF_ERROR(_open_scanner(options.current_range));
     return Status::OK();
 }
@@ -258,13 +294,25 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
                                                     TUnit::UNIT, LANCE_READER_PROFILE, 1);
     SCOPED_TIMER(_row_id_fetch_total_time);
 
+    if (_legacy_scan_params.has_value()) {
+        RETURN_IF_ERROR(set_legacy_dataset_identity(range, &*_legacy_scan_params));
+        RETURN_IF_ERROR(validate_dataset_params(*_legacy_scan_params));
+    }
+    // Row IDs mean something only within the snapshot phase one read.
+    RETURN_IF_ERROR(require_fixed_version(_scan_params->lance_scan_params, "row-id fetch"));
     // Phase-two row fetch does not execute FTS, so a reader created only for take_rows must not
     // collect query-specific global statistics.
-    RETURN_IF_ERROR(_ensure_dataset_open(range, false));
+    RETURN_IF_ERROR(_ensure_dataset_open(false));
     std::vector<const char*> columns;
     columns.reserve(_projected_columns.size() + 1);
     for (const auto& column : _projected_columns) {
         columns.emplace_back(column.name.c_str());
+    }
+    if (_record_batch_converter.has_blob_columns() &&
+        std::ranges::none_of(_projected_columns, [](const auto& column) {
+            return column.name == LANCE_ROW_ID_COLUMN;
+        })) {
+        columns.emplace_back(LANCE_ROW_ID_COLUMN.data());
     }
     columns.emplace_back(nullptr);
 
@@ -311,8 +359,7 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
         size_t rows = 0;
         {
             SCOPED_TIMER(_arrow_to_doris_block_time);
-            RETURN_IF_ERROR(_record_batch_converter.convert_record_batch_to_block(
-                    record_batch, block, _global_rowid_context, &rows));
+            RETURN_IF_ERROR(_convert_record_batch(record_batch, block, &rows));
         }
         fetched_rows += rows;
         COUNTER_UPDATE(fetch_rows, rows);
@@ -583,10 +630,9 @@ Status LanceTableReader::_validate_external_search_request() const {
     return Status::OK();
 }
 
-Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
-                                              bool prepare_fts_context) {
+Status LanceTableReader::_ensure_dataset_open(bool prepare_fts_context) {
     DatasetKey key;
-    RETURN_IF_ERROR(_dataset_key(range, &key));
+    RETURN_IF_ERROR(_dataset_key(&key));
     if (_dataset == nullptr) {
         RETURN_IF_ERROR(_open_dataset(key));
         _opened_dataset_key = key;
@@ -602,6 +648,10 @@ Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range,
 }
 
 Status LanceTableReader::_open_dataset(const DatasetKey& key) {
+    if (_record_batch_converter.has_blob_columns() &&
+        (key.version <= 0 || lance_blob_storage_is_local(key.uri))) {
+        return Status::NotSupported("Lance BLOB scan must use the remote snapshot fixed by FE");
+    }
     std::vector<const char*> storage_option_ptrs;
     storage_option_ptrs.reserve(key.storage_options.size() + 1);
     for (const auto& option : key.storage_options) {
@@ -618,6 +668,7 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
                 static_cast<uint64_t>(key.version), &raw_dataset));
         dataset.reset(raw_dataset);
     }
+
     _dataset = dataset.release();
     return Status::OK();
 }
@@ -704,6 +755,9 @@ void LanceTableReader::_init_scanner_profile() {
 }
 
 Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.lance_params) {
+        return Status::InvalidArgument("Lance scan range requires TLanceFileDesc");
+    }
     _init_scanner_profile();
     SCOPED_TIMER(_scanner_configure_time);
     std::vector<const char*> columns;
@@ -748,6 +802,10 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         return lance_error("create Lance scanner");
     }
     std::unique_ptr<LanceScanner, LanceScannerDeleter> scanner_guard(scanner);
+    if (_record_batch_converter.has_blob_columns() &&
+        lance_scanner_set_blob_handling(scanner, LANCE_BLOB_HANDLING_BLOBS_DESCRIPTIONS) != 0) {
+        return lance_error("keep Lance BLOB descriptors in scanner output");
+    }
     const auto collect_scan_statistics = [](void* callback_ctx,
                                             const LanceScanStatistics* statistics) noexcept {
         try {
@@ -760,7 +818,8 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         return lance_error("set Lance scanner statistics callback");
     }
 
-    if (_record_batch_converter.requires_global_rowid() &&
+    if ((_record_batch_converter.requires_global_rowid() ||
+         _record_batch_converter.has_blob_columns()) &&
         lance_scanner_with_row_id(scanner, true) != 0) {
         return lance_error("enable Lance row id output");
     }
@@ -788,16 +847,16 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     RETURN_IF_ERROR(_configure_scan_options(scanner));
 
-    const auto& lance_params = range.table_format_params.lance_params;
+    const auto& split_params = range.table_format_params.lance_params;
     switch (_search_kind) {
     case SearchKind::NORMAL:
-        RETURN_IF_ERROR(_configure_normal_scan(scanner, lance_params));
+        RETURN_IF_ERROR(_configure_normal_scan(scanner, split_params));
         break;
     case SearchKind::VECTOR:
-        RETURN_IF_ERROR(_configure_vector_search(scanner, lance_params));
+        RETURN_IF_ERROR(_configure_vector_search(scanner, split_params));
         break;
     case SearchKind::FULL_TEXT:
-        RETURN_IF_ERROR(_configure_full_text_search(scanner, lance_params));
+        RETURN_IF_ERROR(_configure_full_text_search(scanner, split_params));
         break;
     }
     _scanner = scanner_guard.release();
@@ -832,47 +891,47 @@ Status LanceTableReader::_configure_scan_options(LanceScanner* scanner) const {
 }
 
 Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
-                                                const TLanceFileDesc& lance_params) const {
+                                                const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     std::vector<uint64_t> fragment_ids;
-    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(parse_fragment_ids(split_params, &fragment_ids));
     if (!fragment_ids.empty() &&
         lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
         return lance_error("set Lance scanner fragment ids");
     }
     std::vector<uint8_t> segment_uuids;
     size_t segment_count = 0;
-    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    RETURN_IF_ERROR(parse_index_segment_uuids(split_params, &segment_uuids, &segment_count));
     if (segment_count > 1) {
         return Status::InvalidArgument("normal Lance scan accepts only one scalar index segment");
     }
     if (segment_count == 1) {
-        if (fragment_ids.empty() || !lance_params.__isset.version || lance_params.version <= 0) {
+        if (_scan_params->lance_scan_params.version <= 0 || fragment_ids.empty()) {
             return Status::InvalidArgument(
                     "Lance scalar index segment requires a fixed version and nonempty fragment "
                     "ids");
         }
-        if (lance_params.__isset.use_scalar_index && !lance_params.use_scalar_index) {
+        if (split_params.__isset.use_scalar_index && !split_params.use_scalar_index) {
             return Status::InvalidArgument(
                     "Lance scalar index segment cannot be combined with use_scalar_index=false");
         }
         if (lance_scanner_set_scalar_index_segment(scanner, segment_uuids.data()) != 0) {
             return lance_error("set Lance scanner scalar index segment");
         }
-    } else if (lance_params.__isset.use_scalar_index &&
-               lance_scanner_set_use_scalar_index(scanner, lance_params.use_scalar_index) != 0) {
+    } else if (split_params.__isset.use_scalar_index &&
+               lance_scanner_set_use_scalar_index(scanner, split_params.use_scalar_index) != 0) {
         return lance_error("set Lance scanner scalar index usage");
     }
     // FE sets this only when every predicate has been pushed into Lance.
-    if (lance_params.__isset.limit && lance_params.limit > 0 &&
-        lance_scanner_set_limit(scanner, lance_params.limit) != 0) {
+    if (split_params.__isset.limit && split_params.limit > 0 &&
+        lance_scanner_set_limit(scanner, split_params.limit) != 0) {
         return lance_error("set Lance scanner limit");
     }
     return Status::OK();
 }
 
 Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
-                                                  const TLanceFileDesc& lance_params) const {
+                                                  const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
     DORIS_CHECK(_scan_params->__isset.lance_scan_params);
@@ -881,14 +940,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     const auto& request = lance_scan_params.external_search_request;
     const bool prefilter = request.__isset.prefilter && request.prefilter;
     std::vector<uint64_t> fragment_ids;
-    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(parse_fragment_ids(split_params, &fragment_ids));
     if (!fragment_ids.empty() &&
         lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
         return lance_error("set Lance vector scanner fragment ids");
     }
     std::vector<uint8_t> segment_uuids;
     size_t segment_count = 0;
-    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    RETURN_IF_ERROR(parse_index_segment_uuids(split_params, &segment_uuids, &segment_count));
     // FE plans index segments only when use_index allows them. A split carrying both contradicts
     // itself, and the BE would have to override either FE's plan or the request.
     if (segment_count > 0 && request.__isset.vector_search_options &&
@@ -1061,7 +1120,7 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
 }
 
 Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
-                                                     const TLanceFileDesc& lance_params) const {
+                                                     const TLanceFileDesc& split_params) const {
     DORIS_CHECK(scanner != nullptr);
     DORIS_CHECK(_fts_query_context != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
@@ -1069,10 +1128,10 @@ Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
     // are not installed as a generic fragment filter because lance-c rejects combining one with a
     // prepared FTS context; the segment UUID is the execution boundary.
     std::vector<uint64_t> fragment_ids;
-    RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(parse_fragment_ids(split_params, &fragment_ids));
     std::vector<uint8_t> segment_uuids;
     size_t segment_count = 0;
-    RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
+    RETURN_IF_ERROR(parse_index_segment_uuids(split_params, &segment_uuids, &segment_count));
     if (segment_count == 0) {
         return Status::InvalidArgument(
                 "Lance full-text search split requires at least one FTS index segment UUID");
@@ -1234,12 +1293,24 @@ Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* 
                                      result.status().message());
     }
 
-    return _record_batch_converter.convert_record_batch_to_block(
-            std::move(result).ValueUnsafe(), block, _global_rowid_context, rows);
+    return _convert_record_batch(std::move(result).ValueUnsafe(), block, rows);
 }
 
-Status LanceTableReader::_dataset_key(const TFileRangeDesc& range, DatasetKey* key) const {
-    const auto& params = range.table_format_params.lance_params;
+Status LanceTableReader::_convert_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
+                                               Block* block, size_t* rows) {
+    std::unordered_map<std::string, MutableColumnPtr> blob_columns;
+    if (_record_batch_converter.has_blob_columns()) {
+        SCOPED_TIMER(batch->num_rows() != 0 ? _blob_descriptor_build_time : nullptr);
+        RETURN_IF_ERROR(build_lance_blob_descriptor_columns(
+                batch, _projected_columns, _scan_params->lance_scan_params.blob_read_source_ids,
+                &blob_columns));
+    }
+    return _record_batch_converter.convert_record_batch_to_block(
+            batch, block, _global_rowid_context, rows, &blob_columns);
+}
+
+Status LanceTableReader::_dataset_key(DatasetKey* key) const {
+    const auto& params = _scan_params->lance_scan_params;
     key->uri = params.dataset_uri;
     key->version = params.version;
     return build_lance_storage_options(_scan_params, &key->storage_options);

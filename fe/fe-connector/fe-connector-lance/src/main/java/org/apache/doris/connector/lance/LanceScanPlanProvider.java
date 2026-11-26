@@ -46,6 +46,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -83,6 +84,8 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
     /** Connector-private node-property keys: from {@link #getScanNodePropertiesResult} to the params and EXPLAIN. */
     static final String PROP_STORAGE_OPTION_PREFIX = "lance.storage_option.";
     static final String PROP_CATALOG_TYPE = "lance.catalog_type";
+    static final String PROP_DATASET_URI = "lance.dataset_uri";
+    static final String PROP_BLOB_COLUMN_PREFIX = "lance.blob_column.";
     static final String PROP_VERSION = "lance.version";
     static final String PROP_FRAGMENTS = "lance.fragments";
     /** The serialized Substrait filter, base64; absent when nothing is pushed. */
@@ -183,6 +186,18 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
             props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, ADDITIONAL_TYPES_SEMANTICS);
         }
         props.put(PROP_CATALOG_TYPE, source.catalogType());
+        props.put(PROP_DATASET_URI, metadata.getDatasetUri());
+        Set<String> projected = new HashSet<>();
+        for (ConnectorColumnHandle column : columns) {
+            projected.add(((NamedColumnHandle) column).getName().toLowerCase(Locale.ROOT));
+        }
+        for (Field field : metadata.getSchema().getFields()) {
+            if (projected.contains(field.getName().toLowerCase(Locale.ROOT))
+                    && LanceTypeMapping.isBlob(field)) {
+                metadata.validateBlobStorage();
+                props.put(PROP_BLOB_COLUMN_PREFIX + field.getName(), field.getName());
+            }
+        }
         props.put(PROP_VERSION, String.valueOf(metadata.getVersion()));
         props.put(PROP_FRAGMENTS, String.valueOf(metadata.getFragments().size()));
 
@@ -208,10 +223,19 @@ final class LanceScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         String substraitFilter = nodeProperties.get(PROP_SUBSTRAIT_FILTER);
-        if (storageOptions.isEmpty() && substraitFilter == null) {
-            return;
-        }
         TLanceScanParams lanceScanParams = new TLanceScanParams();
+        lanceScanParams.setDatasetUri(nodeProperties.get(PROP_DATASET_URI));
+        lanceScanParams.setVersion(Long.parseLong(nodeProperties.get(PROP_VERSION)));
+        Map<String, Integer> blobColumns = new TreeMap<>();
+        for (Map.Entry<String, String> entry : nodeProperties.entrySet()) {
+            if (entry.getKey().startsWith(PROP_BLOB_COLUMN_PREFIX)) {
+                // The engine assigns query-wide IDs before serializing any fragment.
+                blobColumns.put(entry.getValue(), 0);
+            }
+        }
+        if (!blobColumns.isEmpty()) {
+            lanceScanParams.setBlobReadSourceIds(blobColumns);
+        }
         if (!storageOptions.isEmpty()) {
             lanceScanParams.setLanceStorageOptions(storageOptions);
         }

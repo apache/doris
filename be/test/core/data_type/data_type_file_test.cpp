@@ -151,22 +151,55 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field(), Field(), Field(), Field(), Field(),
                   Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
-    const auto version = BeExecVersionManager::get_newest_version();
-    const auto size = type.get_uncompressed_serialized_bytes(*column, version);
-    std::string buffer(size, '\0');
-    const char* end = type.serialize(*column, buffer.data(), version);
-    auto restored = type.create_column();
-    EXPECT_EQ(type.deserialize(buffer.data(), &restored, version), end);
-    ASSERT_EQ(restored->size(), 3);
-    auto value = (*restored)[0];
-    EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), uri);
-    EXPECT_EQ(value.get<TYPE_FILE>()[3].get<TYPE_STRING>(), content_type);
-    EXPECT_EQ(value.get<TYPE_FILE>()[4].get<TYPE_STRING>(), checksum);
-    const auto& inline_value = value.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>();
-    EXPECT_EQ(std::string(inline_value.data(), inline_value.size()), bytes);
-    EXPECT_TRUE((*restored)[1].get<TYPE_FILE>()[5].is_null());
-    EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[0].is_null());
-    EXPECT_EQ((*restored)[2].get<TYPE_FILE>()[5].as_string_view(), bytes);
+    for (int version :
+         {SUPPORT_LANCE_BLOB_RESOURCES_VERSION - 1, SUPPORT_LANCE_BLOB_RESOURCES_VERSION}) {
+        const auto size = type.get_uncompressed_serialized_bytes(*column, version);
+        std::string buffer(size, '\0');
+        const char* end = type.serialize(*column, buffer.data(), version);
+        auto restored = type.create_column();
+        EXPECT_EQ(type.deserialize(buffer.data(), &restored, version), end);
+        ASSERT_EQ(restored->size(), 3);
+        auto value = (*restored)[0];
+        EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), uri);
+        EXPECT_EQ(value.get<TYPE_FILE>()[3].get<TYPE_STRING>(), content_type);
+        EXPECT_EQ(value.get<TYPE_FILE>()[4].get<TYPE_STRING>(), checksum);
+        const auto& inline_value = value.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>();
+        EXPECT_EQ(std::string(inline_value.data(), inline_value.size()), bytes);
+        EXPECT_TRUE((*restored)[1].get<TYPE_FILE>()[5].is_null());
+        EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[0].is_null());
+        EXPECT_EQ((*restored)[2].get<TYPE_FILE>()[5].as_string_view(), bytes);
+    }
+}
+
+TEST(DataTypeFileTest, BlockRoundTripPreservesBlobSourceAndRowIds) {
+    const auto type = std::make_shared<DataTypeFile>();
+    auto values = type->create_column();
+    for (uint64_t row_id : {91, 3, 91}) {
+        File value(DataTypeFile::FIELD_COUNT);
+        value[DataTypeFile::URI_FIELD_INDEX] = Field::create_field<TYPE_STRING>("lance-blob://row");
+        value.blob_source_id = 7;
+        value.blob_row_id = row_id;
+        values->insert(Field::create_field<TYPE_FILE>(std::move(value)));
+    }
+    Block source {{std::move(values), type, "blob"}};
+    PBlock wire;
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    int64_t codec_time = 0;
+    ASSERT_TRUE(source.serialize(SUPPORT_LANCE_BLOB_RESOURCES_VERSION, &wire, &uncompressed_bytes,
+                                 &compressed_bytes, &codec_time, segment_v2::NO_COMPRESSION)
+                        .ok());
+    Block restored;
+    ASSERT_TRUE(restored.deserialize(wire, &uncompressed_bytes, &codec_time).ok());
+    const auto& files = assert_cast<const ColumnFile&>(*restored.get_by_position(0).column);
+    ASSERT_EQ(files.size(), 3);
+    for (size_t row = 0; row < files.size(); ++row) {
+        EXPECT_EQ(files.blob_source_id_at(row), 7);
+        EXPECT_EQ(files.blob_row_id_at(row), row == 1 ? 3 : 91);
+    }
+    EXPECT_THROW(type->get_uncompressed_serialized_bytes(files,
+                                                         SUPPORT_LANCE_BLOB_RESOURCES_VERSION - 1),
+                 Exception);
 }
 
 TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {

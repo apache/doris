@@ -81,6 +81,6 @@ class LanceStatementScopeTest {
 
     private static LanceTableMetadata metadata(long version) {
         return new LanceTableMetadata(new LanceTableAccess("/tmp/t.lance", Collections.emptyMap(), false), version,
-                new Schema(Collections.emptyList()), Collections.emptyList());
+                new Schema(Collections.emptyList()), Collections.emptyList(), Collections.emptyList());
     }
 }
