@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  * Struct type in Nereids.
  */
 @Developing
-public class StructType extends DataType implements ComplexDataType, NestedColumnPrunable {
+public class StructType extends DataType implements ComplexDataType, NamedFieldType {
 
     public static final StructType SYSTEM_DEFAULT = new StructType();
 
@@ -71,6 +71,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         }
     }
 
+    @Override
     public List<StructField> getFields() {
         return fields;
     }
@@ -89,6 +90,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     }
 
     /** Get a field by its case-insensitive runtime name. */
+    @Override
     public StructField getField(String name) {
         StructField field = nameToFields.get(name.toLowerCase(Locale.ROOT));
         if (field != null && (!field.isLegacyLocaleDependentName() || field.getName().equals(name))) {
@@ -208,6 +210,11 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public String toString() {
         return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return fields.stream().allMatch(field -> field.getDataType().allowsKeyUse(keyUse));
     }
 
     @Override

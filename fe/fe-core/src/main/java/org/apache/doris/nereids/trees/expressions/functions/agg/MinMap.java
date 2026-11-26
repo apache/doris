@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 
@@ -49,6 +50,11 @@ public class MinMap extends MapAggregateFunction {
     @Override
     protected DataType returnValueType(DataType valueType) {
         return normalizeValueType(valueType);
+    }
+
+    @Override
+    protected AnyDataType valueTypeTemplate() {
+        return AnyDataType.ORDERING_WITHOUT_INDEX;
     }
 
     @Override

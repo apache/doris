@@ -44,8 +44,10 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
 
     /** isImplicitlyCastable */
     static boolean isPrimitiveImplicitlyCastable(DataType signatureType, DataType realType) {
-        if (signatureType instanceof AnyDataType
-                || signatureType instanceof FollowToAnyDataType
+        if (signatureType instanceof AnyDataType) {
+            return signatureType.acceptsType(realType);
+        }
+        if (signatureType instanceof FollowToAnyDataType
                 || signatureType.isAssignableFrom(realType)) {
             return true;
         }

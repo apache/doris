@@ -250,8 +250,11 @@ public class TypeCoercionUtils {
      * NS-literal admission is handled separately; CAST legality is checked by CheckCast.
      */
     private static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        if (input.equals(expected) || expected instanceof AnyDataType) {
+        if (input.equals(expected)) {
             return Optional.of(input);
+        }
+        if (expected instanceof AnyDataType) {
+            return expected.acceptsType(input) ? Optional.of(input) : Optional.empty();
         }
         if (input instanceof NullType) {
             return Optional.of(expected.defaultConcreteType());

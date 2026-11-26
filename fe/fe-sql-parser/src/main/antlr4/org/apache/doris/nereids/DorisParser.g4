@@ -2227,6 +2227,7 @@ primitiveColType
     | type=IPV6
     | type=UUID
     | type=VARBINARY
+    | type=FILE
     | type=VARIANT
     | type=ALL
     ;

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -80,6 +82,9 @@ public class CountAtMin extends NotNullableAggregateFunction
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
+        if (!AnyDataType.ORDERING_WITHOUT_INDEX.acceptsType(dataType)) {
+            SearchSignature.throwCanNotFoundFunctionException(getName(), getArguments());
+        }
         if (dataType instanceof DecimalV2Type) {
             dataType = DecimalV3Type.forType(dataType);
         }
