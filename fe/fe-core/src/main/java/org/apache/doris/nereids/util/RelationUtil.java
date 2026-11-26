@@ -74,13 +74,14 @@ public class RelationUtil {
                 String tableName = nameParts.get(0);
                 CatalogIf catalogIf = context.getCurrentCatalog();
                 if (catalogIf == null) {
-                    throw new IllegalStateException(
-                            "Current catalog is not set. default catalog is: " + context.getDefaultCatalog());
+                    throw new AnalysisException("No default catalog is available for '" + String.join(".", nameParts)
+                            + "'. Qualify the table with its catalog and database.");
                 }
                 String catalogName = catalogIf.getName();
                 String dbName = context.getDatabase();
                 if (Strings.isNullOrEmpty(dbName)) {
-                    throw new IllegalStateException("Current database is not set.");
+                    throw new AnalysisException("No default database is available for '" + tableName
+                            + "' in catalog '" + catalogName + "'. Qualify the table with its database.");
                 }
                 return ImmutableList.of(catalogName, dbName, tableName);
             }
@@ -88,7 +89,8 @@ public class RelationUtil {
                 // Use database name from table name parts.
                 CatalogIf catalogIf = context.getCurrentCatalog();
                 if (catalogIf == null) {
-                    throw new IllegalStateException("Current catalog is not set.");
+                    throw new AnalysisException("No default catalog is available for '" + String.join(".", nameParts)
+                            + "'. Qualify the table with its catalog and database.");
                 }
                 String catalogName = catalogIf.getName();
                 // if the relation is view, nameParts.get(0) is dbName.

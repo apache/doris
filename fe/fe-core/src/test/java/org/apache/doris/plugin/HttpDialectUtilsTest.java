@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
+import java.util.Arrays;
 
 public class HttpDialectUtilsTest {
 
@@ -86,6 +87,15 @@ public class HttpDialectUtilsTest {
             server.setResponse("{\"version\":\"v1\",\"code\":400}");
             Assert.assertNull(plugin.tryConvertSql(sql, session));
             Assert.assertEquals(sql, plugin.convertSql(sql, session));
+            for (String code : Arrays.asList("", "\"code\":null,", "\"code\":\"0\",", "\"code\":0.1,")) {
+                server.setResponse("{\"version\":\"v1\"," + code + "\"data\":\"SELECT 1\"}");
+                Assert.assertNull(plugin.tryConvertSql(sql, session));
+            }
+            server.setResponse("{\"version\":\"v1\",\"data\":\"SELECT 2\"}");
+            Assert.assertEquals("SELECT 2", plugin.convertSql(sql, session));
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":17}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
             server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 1\"}");
             Assert.assertEquals(sql, plugin.tryConvertSql(sql, session));
         } finally {

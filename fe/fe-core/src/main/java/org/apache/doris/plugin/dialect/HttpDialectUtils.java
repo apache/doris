@@ -17,6 +17,10 @@
 
 package org.apache.doris.plugin.dialect;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.Data;
@@ -38,6 +42,10 @@ import javax.annotation.Nullable;
  */
 public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
+
+    private static final ObjectReader CONFIRMED_RESPONSE = new ObjectMapper().readerFor(JsonNode.class)
+            .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY, DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                    DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
 
     public static String convertSql(String targetURL, String originStmt, String dialect,
             String[] features, String config) {
@@ -79,6 +87,17 @@ public class HttpDialectUtils {
                         response.append(inputLine);
                     }
 
+                    if (onFailure == null) {
+                        // The legacy DTO defaults a missing/null primitive code to zero and coerces
+                        // other JSON primitives to strings. Neither can confirm conversion of stored SQL.
+                        JsonNode result = CONFIRMED_RESPONSE.readTree(response.toString());
+                        JsonNode code = result.path("code");
+                        if ("v1".equals(result.path("version").textValue()) && code.isNumber()
+                                && code.decimalValue().signum() == 0) {
+                            return result.path("data").textValue();
+                        }
+                        return null;
+                    }
                     Type type = new TypeToken<ConvertResponse>() {
                     }.getType();
                     ConvertResponse result = new Gson().fromJson(response.toString(), type);

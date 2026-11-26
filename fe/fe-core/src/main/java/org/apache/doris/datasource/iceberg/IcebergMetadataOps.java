@@ -43,7 +43,6 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -2222,19 +2221,30 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return TableIdentifier.of(ns, tblName);
     }
 
-    /** Resolve the remote view namespace through the same database names Doris lists and loads. */
-    String getViewDatabase(Namespace namespace, String viewName) {
+    /** Return the listed local database for this physical namespace, or no default if it cannot be addressed. */
+    String getViewDatabase(Namespace namespace) {
         if (namespace.isEmpty()) {
             return "";
         }
-        String remoteName = nestedNamespaceEnabled ? namespace.toString() : namespace.level(namespace.length() - 1);
-        ExternalDatabase<?> database = dorisCatalog.getDbNullable(dorisCatalog.fromRemoteDatabaseName(remoteName));
-        if (database == null || !getNamespace(database.getRemoteName()).equals(namespace)) {
-            throw new AnalysisException("Cannot map default namespace '"
-                    + namespace + "' of Iceberg view '" + viewName + "' to a database in catalog '"
-                    + dorisCatalog.getName() + "'");
+        // Forward lookup splits the listed database name on dots and appends external_catalog.name.
+        // Only remove that exact trailing component. A dot inside a saved level is not a separator.
+        int databaseLevels = namespace.length();
+        if (externalCatalogName.isPresent() && externalCatalogName.get().equals(namespace.level(databaseLevels - 1))) {
+            databaseLevels--;
         }
-        return database.getFullName();
+        if (databaseLevels > 0) {
+            String remoteName = String.join(".", Arrays.copyOf(namespace.levels(), databaseLevels));
+            if (getNamespace(remoteName).equals(namespace)) {
+                String localName = dorisCatalog.fromRemoteDatabaseName(remoteName);
+                ExternalDatabase<?> database = dorisCatalog.getDbNullable(localName);
+                // Reserved names can resolve to Doris system databases even when their remote names match.
+                if (database instanceof IcebergExternalDatabase && database.getCatalog() == dorisCatalog
+                        && getNamespace(database.getRemoteName()).equals(namespace)) {
+                    return database.getFullName();
+                }
+            }
+        }
+        return "";
     }
 
     private Namespace getNamespace(String dbName) {

@@ -124,6 +124,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Rule to bind relations in query plan.
@@ -508,7 +509,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String convertedSql = SqlDialectHelper.convertSqlByDialect(
                                 ddlSql, cascadesContext.getConnectContext().getSessionVariable());
                         Plan hiveViewPlan = parseAndAnalyzeExternalView(
-                                hmsTable, hiveCatalog, hiveDb, ddlSql, convertedSql, cascadesContext);
+                                hmsTable, hiveCatalog, () -> hiveDb, ddlSql, convertedSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
@@ -700,31 +701,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             + " SQL for Iceberg view '" + table.getName()
                             + "'. Configure a dialect converter or add a Doris SQL representation."));
         }
-        return parseAndAnalyzeExternalView(table,
-                table.getCatalog().getName(), definition.getBindingDatabase(),
-                sql, convertedSql, cascadesContext);
+        return parseAndAnalyzeExternalView(table, definition.getBindingCatalog(),
+                definition::getBindingDatabase, sql, convertedSql, cascadesContext);
     }
 
     private Plan parseAndAnalyzeExternalView(
-            ExternalTable table, String externalCatalog, String externalDb,
+            ExternalTable table, String externalCatalog, Supplier<String> externalDb,
             String ddlSql, String convertedSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
-        String previousCatalog = ctx.getCurrentCatalog().getName();
-        String previousDb = ctx.getDatabase();
-        // change catalog and db to external catalog and db,
-        // so that we can parse and analyze the view sql in external context.
-        try {
-            ctx.changeDefaultCatalog(externalCatalog);
-            if (!externalDb.isEmpty()) {
-                ctx.setDatabase(externalDb);
-            }
-            return new LogicalView<>(new ExternalView(table, ddlSql),
-                    parseAndAnalyzeView(table, convertedSql, cascadesContext));
-        } finally {
-            // restore catalog and db in connect context
-            ctx.changeDefaultCatalog(previousCatalog);
-            ctx.setDatabase(previousDb);
-        }
+        return ctx.withViewNamespace(externalCatalog, externalDb, () ->
+                new LogicalView<>(new ExternalView(table, ddlSql),
+                        parseAndAnalyzeView(table, convertedSql, cascadesContext)));
     }
 
     private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {

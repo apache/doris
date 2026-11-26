@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -85,22 +86,37 @@ public class IcebergViewBindingTest extends TestWithFeService {
         Plan plan = query(null, "doris", "SELECT name AS person FROM " + SOURCE_DB + ".people",
                 null, Namespace.empty()).analyze().getPlan();
         Assertions.assertEquals(SOURCE_DB, scanDatabase(plan));
-        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class, () ->
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () ->
                 query(null, "doris", "SELECT name AS person FROM people", null, Namespace.empty()).analyze());
-        Assertions.assertTrue(error.getMessage().contains("Current database is not set"));
+        Assertions.assertTrue(error.getMessage().contains("No default database is available for 'people'"));
         Assertions.assertEquals(VIEW_DB, connectContext.getDatabase());
     }
 
     @Test
     public void rejectUnmappedNamespaceAndCatalog() {
-        for (Namespace namespace : Arrays.asList(Namespace.of("missing"), Namespace.of("nested", SOURCE_DB))) {
+        for (Namespace namespace : Arrays.asList(Namespace.of("missing"), Namespace.of("nested", SOURCE_DB),
+                Namespace.of("information_schema"))) {
             AnalysisException error = Assertions.assertThrows(AnalysisException.class, () ->
                     query(null, "doris", "SELECT name AS person FROM people", null, namespace).analyze());
-            Assertions.assertTrue(error.getMessage().contains("Cannot map default namespace '" + namespace + "'"));
+            Assertions.assertTrue(error.getMessage().contains("No default database is available for 'people'"));
         }
         AnalysisException error = Assertions.assertThrows(AnalysisException.class, () ->
                 query("", "doris", "SELECT name AS person FROM people", "remote", Namespace.of(SOURCE_DB)).analyze());
-        Assertions.assertTrue(error.getMessage().contains("Cannot map default catalog 'remote'"));
+        Assertions.assertTrue(error.getMessage().contains("No default catalog is available for 'people'"));
+        Assertions.assertEquals(VIEW_DB, connectContext.getDatabase());
+    }
+
+    @Test
+    public void unusedDefaultsDoNotBlockQualifiedRelationsOrConstants() {
+        Namespace missing = Namespace.of("not", "visible");
+        Plan plan = query(null, "doris", "SELECT name AS person FROM " + SOURCE_DB + ".people",
+                null, missing).analyze().getPlan();
+        Assertions.assertEquals(SOURCE_DB, scanDatabase(plan));
+        Plan qualified = query(null, "doris", "SELECT name AS person FROM internal." + SOURCE_DB + ".people",
+                "unregistered", missing).analyze().getPlan();
+        Assertions.assertEquals(SOURCE_DB, scanDatabase(qualified));
+        query(null, "doris", "SELECT 'constant' AS person", "unregistered", missing).analyze();
+        Assertions.assertEquals("internal", connectContext.getDefaultCatalog());
         Assertions.assertEquals(VIEW_DB, connectContext.getDatabase());
     }
 
@@ -142,6 +158,8 @@ public class IcebergViewBindingTest extends TestWithFeService {
         IcebergExternalDatabase viewDb = new IcebergExternalDatabase(catalog, 101L, VIEW_DB, VIEW_DB);
         IcebergExternalDatabase sourceDb = new IcebergExternalDatabase(catalog, 102L, SOURCE_DB, SOURCE_DB);
         Mockito.doReturn(sourceDb).when(catalog).getDbNullable(SOURCE_DB);
+        Mockito.doReturn(new ExternalInfoSchemaDatabase(catalog, 104L)).when(catalog)
+                .getDbNullable("information_schema");
         IcebergMetadataOps ops = new IcebergMetadataOps(catalog, new InMemoryCatalog());
         Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
         IcebergExternalTable table = Mockito.spy(new IcebergExternalTable(103L, "v", "v", catalog, viewDb));

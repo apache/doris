@@ -26,6 +26,8 @@ import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
@@ -122,16 +124,76 @@ public class IcebergMetadataOpTest {
         }
     }
 
+    @Test
+    public void testSavedViewNamespaceRoundTripsListedDatabaseNames() {
+        for (boolean rooted : Arrays.asList(false, true)) {
+            for (boolean nested : Arrays.asList(false, true)) {
+                IcebergRestExternalCatalog doris = Mockito.mock(IcebergRestExternalCatalog.class);
+                Mockito.when(doris.isNestedNamespaceEnabled()).thenReturn(nested);
+                Optional<String> root = rooted ? Optional.of("root") : Optional.empty();
+                Mockito.when(doris.getProperties()).thenReturn(rooted
+                        ? Collections.singletonMap(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME, "root")
+                        : Collections.emptyMap());
+                Catalog iceberg = Mockito.mock(Catalog.class,
+                        Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+                Namespace listedNamespace = rooted ? Namespace.of("root", "db") : Namespace.of("db");
+                Namespace listingRoot = rooted ? Namespace.of("root") : Namespace.empty();
+                Mockito.when(((SupportsNamespaces) iceberg).listNamespaces(listingRoot))
+                        .thenReturn(Collections.singletonList(listedNamespace));
+                IcebergMetadataOps ops = namespaceOps(iceberg, doris);
+                String listed = rooted && nested ? "root.db" : "db";
+                Assert.assertEquals(Collections.singletonList(listed), ops.listDatabaseNames());
+                IcebergExternalDatabase physical = new IcebergExternalDatabase(doris, 10L, "local_db", listed);
+                Mockito.when(doris.fromRemoteDatabaseName(listed)).thenReturn("local_db");
+                Mockito.doReturn(physical).when(doris).getDbNullable("local_db");
+                Namespace saved = IcebergMetadataOps.getNamespace(root, listed);
+                Assert.assertEquals("local_db", ops.getViewDatabase(saved));
+                if (rooted && nested) {
+                    Assert.assertEquals(Namespace.of("root", "db", "root"), saved);
+                    Assert.assertEquals("", ops.getViewDatabase(Namespace.of("root.db", "root")));
+                }
+                if (rooted) {
+                    Assert.assertEquals("", ops.getViewDatabase(Namespace.of("db", "different_root")));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSavedNamespaceRequiresTheSamePhysicalDatabase() {
+        IcebergRestExternalCatalog doris = Mockito.mock(IcebergRestExternalCatalog.class);
+        Mockito.when(doris.fromRemoteDatabaseName(Mockito.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        Catalog iceberg = Mockito.mock(Catalog.class, Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
+        IcebergMetadataOps ops = namespaceOps(iceberg, doris);
+        Mockito.doReturn(new ExternalInfoSchemaDatabase(doris, 21L)).when(doris).getDbNullable("information_schema");
+        Mockito.doReturn(new ExternalMysqlDatabase(doris, 22L)).when(doris).getDbNullable("mysql");
+        Mockito.doReturn(new IcebergExternalDatabase(doris, 23L, "alias", "other"))
+                .when(doris).getDbNullable("alias");
+        IcebergRestExternalCatalog otherCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        Mockito.doReturn(new IcebergExternalDatabase(otherCatalog, 24L, "same_name", "same_name"))
+                .when(doris).getDbNullable("same_name");
+        for (String unavailable : Arrays.asList("information_schema", "mysql", "alias", "same_name")) {
+            Assert.assertEquals("", ops.getViewDatabase(Namespace.of(unavailable)));
+        }
+        Mockito.doReturn(new IcebergExternalDatabase(doris, 25L, "alpha.beta", "alpha.beta"))
+                .when(doris).getDbNullable("alpha.beta");
+        Assert.assertEquals("alpha.beta", ops.getViewDatabase(Namespace.of("alpha", "beta")));
+        Assert.assertEquals("", ops.getViewDatabase(Namespace.of("alpha.beta")));
+    }
+
     private IcebergMetadataOps nestedNamespaceOps(Catalog icebergCatalog) {
         IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
-
         Mockito.when(dorisCatalog.isNestedNamespaceEnabled()).thenReturn(true);
+        return namespaceOps(icebergCatalog, dorisCatalog);
+    }
+
+    private IcebergMetadataOps namespaceOps(Catalog icebergCatalog, IcebergRestExternalCatalog dorisCatalog) {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getDelegatedTokenMode())
                 .thenReturn(IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN);
-        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
         Mockito.when(dorisCatalog.beginCatalogOperation(Mockito.any()))
                 .thenAnswer(invocation -> tracker.beginOperation());
         return new IcebergMetadataOps(dorisCatalog, icebergCatalog);

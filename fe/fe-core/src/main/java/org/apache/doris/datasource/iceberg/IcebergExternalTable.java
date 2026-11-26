@@ -42,7 +42,6 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.cache.SqlCacheVersion;
@@ -459,16 +458,20 @@ public class IcebergExternalTable extends ExternalTable
             return !StringUtils.isEmpty(version.summary().get(ENGINE_PROP_NAME));
         }
 
+        public String getBindingCatalog() {
+            // A foreign engine's catalog alias need not identify the same catalog in Doris.
+            String saved = version.defaultCatalog();
+            return hasEngineName() || saved == null || saved.equals(catalog.getName()) ? catalog.getName() : "";
+        }
+
         public String getBindingDatabase() {
             if (hasEngineName()) {
                 return db.getFullName();
             }
-            String savedCatalog = version.defaultCatalog();
-            if (savedCatalog != null && !savedCatalog.equals(catalog.getName())) {
-                throw new AnalysisException("Cannot map default catalog '" + savedCatalog + "' of Iceberg view '"
-                        + name + "' to its Doris catalog '" + catalog.getName() + "'");
+            if (getBindingCatalog().isEmpty()) {
+                return "";
             }
-            return ((IcebergMetadataOps) catalog.getMetadataOps()).getViewDatabase(version.defaultNamespace(), name);
+            return ((IcebergMetadataOps) catalog.getMetadataOps()).getViewDatabase(version.defaultNamespace());
         }
     }
 
