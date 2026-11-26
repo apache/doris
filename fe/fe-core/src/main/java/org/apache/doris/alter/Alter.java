@@ -50,7 +50,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVHookService;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
@@ -1375,8 +1377,15 @@ public class Alter {
         // lock is released, like the other journaled MTMV changes.
         EditLogItem editLogItem = null;
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
-            mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+            MTMVTask task = alterMTMV.getTask();
+            if (alterMTMV.getOpType() == MTMVAlterOpType.ADD_TASK && (!isReplay || task.getIvmSummarySeq() != 0)) {
+                // An ADD_TASK can enter the log after a rename even though its name was captured before it.
+                // The owning MV's IDs survive the rename. Older records retain their name-based lookup.
+                mtmv = MTMVUtil.getMTMV(task.getDbId(), task.getMtmvId());
+            } else {
+                Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
+                mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+            }
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     editLogItem = mtmv.alterRefreshInfo(alterMTMV, isReplay);

@@ -85,14 +85,10 @@ public class IvmRefreshSummary {
             seq = lastAppliedSummarySeq + 1;
             task.setIvmSummarySeq(seq);
         }
-        if (seq != 0) {
-            if (seq <= lastAppliedSummarySeq) {
-                return;
-            }
-            Preconditions.checkState(seq == lastAppliedSummarySeq + 1,
-                    "Unexpected IVM summary sequence %s after %s, taskId=%s",
-                    seq, lastAppliedSummarySeq, task.getTaskId());
+        if (seq != 0 && seq <= lastAppliedSummarySeq) {
+            return;
         }
+        // A result with an unavailable target may have been skipped. A later sequence can still advance.
         // Old journal records still restore the existing summary fields.
         applyResult(task, seq != 0);
         if (seq != 0) {

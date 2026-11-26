@@ -17,12 +17,15 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -48,15 +51,15 @@ public class MTMVConcurrentTest extends TestWithFeService {
 
 
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
-        Table table = Env.getCurrentInternalCatalog().getDb("mtmv_concurrent_test").get()
-                .getTableOrMetaException("stu");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("mtmv_concurrent_test");
+        Table table = db.getTableOrMetaException("stu");
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog().getDb("mtmv_concurrent_test").get()
-                .getTableOrMetaException("mv_a");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("mv_a");
         MTMVRelation relation = mtmv.getRelation();
         Set<BaseTableInfo> mtmvsByBaseTable = relationManager.getMtmvsByBaseTable(baseTableInfo);
         Assertions.assertEquals(1, mtmvsByBaseTable.size());
-        MTMVTask mtmvTask = new MTMVTask(mtmv, relation, null);
+        MTMVTask mtmvTask = new MTMVTask(db.getId(), mtmv.getId(),
+                MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM));
         mtmvTask.setStatus(TaskStatus.SUCCESS);
 
         // Create threads for concurrent operations

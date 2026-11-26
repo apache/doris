@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.ivm.IvmRefreshSummary;
 
@@ -29,7 +30,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
 
 class ChangelogMonitorTest {
     @Test
@@ -98,6 +101,44 @@ class ChangelogMonitorTest {
         } finally {
             Config.enable_changelog_monitor = enabled;
             Config.changelog_monitor_interval_seconds = interval;
+        }
+    }
+
+    @Test
+    void disablingThroughExperimentalConfigAliasClearsSnapshot() throws Exception {
+        Env env = new Env(false) {
+            @Override
+            public boolean isMaster() {
+                return true;
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+        };
+        ChangelogMonitor monitor = env.getChangelogMonitor();
+
+        Field configField = Config.class.getField("enable_changelog_monitor");
+        String alias = "experimental_enable_changelog_monitor";
+        Map<String, Field> oldFields = ConfigBase.confFields;
+        boolean enabled = Config.enable_changelog_monitor;
+        try {
+            ConfigBase.confFields = Map.of(alias, configField);
+            Config.enable_changelog_monitor = true;
+            monitor.sample(0);
+            Assertions.assertNotNull(monitor.getSnapshot());
+
+            env.setMutableConfigWithCallback(alias, "false");
+            Assertions.assertNull(monitor.getSnapshot());
+            env.setMutableConfigWithCallback(alias, "true");
+            Assertions.assertNull(monitor.getSnapshot());
+
+            monitor.sample(0);
+            Assertions.assertNotNull(monitor.getSnapshot());
+        } finally {
+            Config.enable_changelog_monitor = enabled;
+            ConfigBase.confFields = oldFields;
         }
     }
 }

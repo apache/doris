@@ -337,6 +337,7 @@ import org.apache.thrift.TException;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
@@ -7006,7 +7007,9 @@ public class Env {
         if ("ldap_default_roles".equals(key)) {
             getAuth().getLdapManager().refresh(true, null);
         }
-        if ("enable_changelog_monitor".equals(key) && !Config.enable_changelog_monitor) {
+        Field field = ConfigBase.getField(key);
+        if (field != null && "enable_changelog_monitor".equals(field.getName())
+                && "false".equalsIgnoreCase(value.trim())) {
             changelogMonitor.reset();
         }
         if (configtoThreads.get(key) != null) {

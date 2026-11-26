@@ -129,12 +129,17 @@ public class IvmRefreshSummaryTest {
     }
 
     @Test
-    public void testMissingSummarySequenceFailsReplay() {
+    public void testReplayContinuesAfterMissingSummarySequence() {
         IvmRefreshSummary summary = new IvmRefreshSummary();
-        MTMVTask failed = failed(1000, 2000, IvmRefreshFailureStage.OTHER.name(), "failed");
-        failed.setIvmSummarySeq(2L);
-        Assertions.assertThrows(IllegalStateException.class, () -> summary.update(failed, true));
-        Assertions.assertEquals(0L, summary.metricValues().failedTaskCount());
+        MTMVTask later = failed(1000, 2000, IvmRefreshFailureStage.OTHER.name(), "later");
+        later.setIvmSummarySeq(2L);
+        summary.update(later, true);
+
+        MTMVTask older = failed(1000, 1100, IvmRefreshFailureStage.OTHER.name(), "older");
+        older.setIvmSummarySeq(1L);
+        summary.update(older, true);
+        Assertions.assertEquals(new IvmRefreshSummary.MetricValues(1, 1, 0, true, 1000),
+                summary.metricValues());
     }
 
     private static MTMVTask succeeded(long startTimeMs, long finishTimeMs, IvmRefreshMethod method) {
