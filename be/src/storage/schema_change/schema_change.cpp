@@ -744,6 +744,9 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     RETURN_IF_ERROR(create_rowset());
 
+    DBUG_EXECUTE_IF("VBaseSchemaChangeWithSorting._inner_process.before_external_sorting",
+                    { return Status::InternalError("debug point: fail before external sorting"); });
+
     if (_src_rowsets.empty()) {
         RETURN_IF_ERROR(rowset_writer->flush());
     } else {
