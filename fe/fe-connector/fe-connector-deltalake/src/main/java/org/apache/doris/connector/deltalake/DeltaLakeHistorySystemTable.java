@@ -129,12 +129,13 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
         }
         try {
             OptionalLong first = DeltaKernelCompat.earliestHistoryVersion(engine, snapshot);
-            if (first.isEmpty()) {
+            // Log cleanup can advance past a snapshot that this statement already pinned.
+            if (first.isEmpty() || first.getAsLong() > handle.getVersion()) {
                 return snapshot.getTimestamp(engine);
             }
             List<FileStatus> files = commitRange(runtime, handle, engine, first.getAsLong(),
                     handle.getVersion()).getDeltaFiles();
-            return normalizedMtimes(files, files.size() - 1)[0];
+            return files.isEmpty() ? snapshot.getTimestamp(engine) : normalizedMtimes(files, files.size() - 1)[0];
         } catch (IOException e) {
             throw new DorisConnectorException("Cannot read Delta commit timestamp for " + handle.getPath(), e);
         }

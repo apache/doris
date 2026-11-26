@@ -159,6 +159,39 @@ class DeltaLakeSystemTablesTest {
     }
 
     @Test
+    void detailUsesPinnedTimestampAfterCommitJsonCleanup() throws Exception {
+        Path source = Path.of(getClass().getResource("/deltalake/dv-partitioned-with-checkpoint/_delta_log").toURI());
+        Path log = Files.createDirectories(warehouse.resolve("db/table/_delta_log"));
+        Path v10 = log.resolve("00000000000000000010.json");
+        Path v11 = log.resolve("00000000000000000011.json");
+        for (Path file : List.of(v10, v11, log.resolve("00000000000000000010.checkpoint.parquet"),
+                log.resolve("_last_checkpoint"))) {
+            Files.copy(source.resolve(file.getFileName()), file);
+        }
+        long commitTime = System.currentTimeMillis() - 60000;
+        Files.setLastModifiedTime(v10, FileTime.fromMillis(commitTime));
+
+        try (Connector connector = new DeltaLakeConnectorProvider().create(Map.of("warehouse", warehouse.toString()),
+                new RecordingConnectorContext()); ConnectorMetadata meta = connector.getMetadata(null)) {
+            var session = new TestingConnectorSession("truncated-detail");
+            var base = meta.getTableHandle(session, "db", "table").orElseThrow();
+            var detail = meta.getSysTableHandle(session, base, "detail").orElseThrow();
+            var pin = meta.resolveTimeTravel(session, detail, ConnectorTimeTravelSpec.snapshotId("10")).orElseThrow();
+            var pinned = (DeltaLakeTableHandle) meta.applySnapshot(session, detail, pin);
+            var provider = connector.getScanPlanProvider(pinned);
+            var projection = request(pinned, "lastModified").build();
+
+            // First only a newer JSON remains. Then the checkpoint is the only retained version file.
+            for (Path file : List.of(v10, v11)) {
+                Files.delete(file);
+                var ranges = provider.planScan(session, projection);
+                Assertions.assertEquals(commitTime, batch(ranges.get(0)).getRows().get(0).getCells().get(0)
+                        .getTimestampMillis(), file.getFileName().toString());
+            }
+        }
+    }
+
+    @Test
     void checksumServesBothFileTotalsWithoutReplay() throws Exception {
         Path log = commit(0, Map.of(), List.of("p"));
         Files.writeString(log, add("first.parquet", "x", 200, null) + add("second.parquet", "x", 220, null),
