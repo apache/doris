@@ -31,6 +31,7 @@
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -41,9 +42,11 @@ namespace ErrorCode = doris::ErrorCode;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir(
+            "snii_segment_reader_logical_indexes_test");
     static int counter = 0;
-    return "/tmp/snii_logical_indexes_test_" + std::to_string(getpid()) + "_" +
-           std::to_string(counter++) + ".idx";
+    return (temp_dir.path() / "snii_logical_indexes_test_").string() + std::to_string(getpid()) +
+           "_" + std::to_string(counter++) + ".idx";
 }
 
 SniiIndexInput MakeInput(uint64_t index_id, const std::string& suffix, IndexConfig config) {

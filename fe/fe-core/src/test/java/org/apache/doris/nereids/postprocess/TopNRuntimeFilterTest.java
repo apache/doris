@@ -86,9 +86,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
         connectContext.getSessionVariable().topnFilterRatio = 1000000;
         try {
-            for (String expression : List.of("weeks_add(d, 1)", "from_microsecond(ts)",
-                    "cast(ts AS TINYINT)", "assert_true(k < 3, 'out of range')")) {
-                // A row excluded by the leading key need not evaluate its secondary expression.
+            for (String expression : List.of("weeks_add(d, 1)", "from_microsecond(ts)", "cast(ts AS TINYINT)")) {
                 PlanChecker checker = PlanChecker.from(connectContext)
                         .analyze("SELECT k, " + expression + " AS v FROM topn_safety "
                                 + "ORDER BY k, v LIMIT 3")
@@ -98,6 +96,24 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext()
                         .getTopnFilters().isEmpty(), plan.treeString());
             }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
+    }
+
+    @Test
+    public void testTopNFilterStopsAtNonMovableSecondaryExpression() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT k, assert_true(k < 3, 'out of range') AS v FROM topn_safety "
+                            + "ORDER BY k, v LIMIT 3")
+                    .rewrite().implement();
+            PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                    .process(checker.getPhysicalPlan());
+            Assertions.assertTrue(checker.getCascadesContext().getTopnFilterContext()
+                    .getTopnFilters().isEmpty(), plan.treeString());
         } finally {
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
         }
@@ -208,10 +224,10 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                         TopnFilterContext filters = new TopnFilterContext();
                         TopnFilterPushDownVisitor visitor = new TopnFilterPushDownVisitor(filters);
                         // Visit Assert directly so the test does not depend on the scalar join's probe side.
-                        Assertions.assertFalse(assertion.accept(visitor, context), sql);
+                        Assertions.assertFalse(visitor.pushDown(assertion, context), sql);
                         Assertions.assertTrue(filters.getTopnFilters().isEmpty(), sql);
                         // The child accepts this filter; Assert must protect its row count and empty-row behavior.
-                        Assertions.assertTrue(assertion.child().accept(visitor, context), sql);
+                        Assertions.assertTrue(visitor.pushDown(assertion.child(), context), sql);
                         Assertions.assertFalse(filters.getTopnFilters().isEmpty(), sql);
                     }
                 }

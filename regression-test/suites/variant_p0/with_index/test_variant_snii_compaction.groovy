@@ -18,8 +18,8 @@
 suite("regression_test_variant_snii_compaction", "p0, nonConcurrent"){
     def variantV2Function = "parse_to_variant"
     def table_name = "var_snii_compaction"
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

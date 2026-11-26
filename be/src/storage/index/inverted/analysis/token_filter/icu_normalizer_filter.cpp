@@ -28,24 +28,35 @@ namespace doris::segment_v2::inverted_index {
 
 ICUNormalizerFilter::ICUNormalizerFilter(std::unique_ptr<TextTokenStream> in,
                                          std::shared_ptr<const icu::Normalizer2> normalizer)
-        : PerTokenFilter(std::move(in)), _normalizer(std::move(normalizer)) {
+        : TextTokenFilter(std::move(in)), _normalizer(std::move(normalizer)) {
     if (_normalizer == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "ICUNormalizerFilter: normalizer cannot be null");
     }
 }
 
-bool ICUNormalizerFilter::next_token(TokenRef& token) {
-    if (!input_token(token)) {
+void ICUNormalizerFilter::reset(std::string_view text) {
+    TextTokenFilter::reset(text);
+    release_oversized_scratch(_output_buffer);
+}
+
+bool ICUNormalizerFilter::next_batch(TokenBatch& batch) {
+    if (!_in->next_batch(batch)) {
         return false;
     }
+    for (TokenRef& token : batch.tokens()) {
+        normalize(token, batch);
+    }
+    return true;
+}
 
+void ICUNormalizerFilter::normalize(TokenRef& token, TokenBatch& batch) {
     UErrorCode status = U_ZERO_ERROR;
     icu::UnicodeString src16 = icu::UnicodeString::fromUTF8(
             icu::StringPiece(token.data, static_cast<int32_t>(token.size)));
     UNormalizationCheckResult quick_result = _normalizer->quickCheck(src16, status);
     if (U_SUCCESS(status) && quick_result == UNORM_YES) {
-        return true;
+        return;
     }
 
     icu::UnicodeString result16;
@@ -53,18 +64,15 @@ bool ICUNormalizerFilter::next_token(TokenRef& token) {
     _normalizer->normalize(src16, result16, status);
     if (U_FAILURE(status)) {
         LOG(WARNING) << "Normalize failed: " << u_errorName(status);
-        return true;
+        return;
     }
 
     _output_buffer.clear();
     result16.toUTF8String(_output_buffer);
-    token.data = _output_buffer.data();
+    char* term = batch.allocate_term(_output_buffer.size());
+    _output_buffer.copy(term, _output_buffer.size());
+    token.data = term;
     token.size = static_cast<uint32_t>(_output_buffer.size());
-    return true;
-}
-
-void ICUNormalizerFilter::on_reset() {
-    release_oversized_scratch(_output_buffer);
 }
 
 } // namespace doris::segment_v2::inverted_index

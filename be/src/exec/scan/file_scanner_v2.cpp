@@ -642,6 +642,10 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             }
         }
     }
+    // A mixed scan can start with a plaintext file. The shared PME marker keeps COUNT on the
+    // physical path for the whole reader, so later data/delete keys cannot be bypassed by metadata.
+    const bool native_encryption = _params->format_type == TFileFormatType::FORMAT_PARQUET_PME ||
+                                   format_type == TFileFormatType::FORMAT_PARQUET_PME;
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
@@ -652,8 +656,9 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .scanner_profile = _local_state != nullptr ? _local_state->scanner_profile() : _profile,
             .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = &_file_slot_descs,
-            .push_down_agg_type = _local_state != nullptr ? _local_state->get_push_down_agg_type()
-                                                          : TPushAggOp::type::NONE,
+            .push_down_agg_type = _local_state != nullptr && !native_encryption
+                                          ? _local_state->get_push_down_agg_type()
+                                          : TPushAggOp::type::NONE,
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest =
                     _local_state != nullptr ? _local_state->get_condition_cache_digest() : 0,
@@ -681,6 +686,7 @@ Status FileScannerV2::_read_by_rows_wrapped(const TFileRangeDesc& range,
     RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
     const auto format_type = get_range_format_type(*_params, range);
     if (format_type != TFileFormatType::FORMAT_PARQUET &&
+        format_type != TFileFormatType::FORMAT_PARQUET_PME &&
         format_type != TFileFormatType::FORMAT_ORC) {
         return Status::NotSupported(
                 "FileScannerV2 row-id fetch supports only Parquet and ORC, file format={}",
@@ -1106,6 +1112,7 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
     DORIS_CHECK(file_format != nullptr);
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_PARQUET_PME:
         *file_format = format::FileFormat::PARQUET;
         return Status::OK();
     case TFileFormatType::FORMAT_ORC:
@@ -1191,6 +1198,7 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
     }
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_PARQUET_PME:
     case TFileFormatType::FORMAT_ORC:
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_GZ:

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/jvm_launcher.h"
 
 namespace doris::Jni {
@@ -122,9 +123,11 @@ TEST(PluginRegistryTest, CleanUdfCacheIsSilentWhenNoPluginWasEverLoaded) {
 // is something to warm when there isn't.
 class WarmupTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"jni_plugin_registry_test"};
+
     void SetUp() override {
         _saved_dir = config::jni_plugin_dir;
-        _root = std::filesystem::temp_directory_path() / "doris_jni_plugin_registry_test";
+        _root = scoped_temp_dir_.path() / "doris_jni_plugin_registry_test";
         std::filesystem::remove_all(_root);
         std::filesystem::create_directories(_root);
         config::jni_plugin_dir = _root.string();

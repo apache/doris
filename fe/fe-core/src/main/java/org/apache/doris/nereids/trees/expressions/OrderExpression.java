@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -73,6 +74,15 @@ public class OrderExpression extends Expression implements UnaryExpression, Prop
     @Override
     public DataType getDataType() {
         return child().getDataType();
+    }
+
+    @Override
+    protected TypeCheckResult checkInputDataTypesInternal() {
+        DataType type = child().getDataType();
+        if (!type.allowsKeyUse(DataType.KeyUse.ORDERING)) {
+            return new TypeCheckResult(false, "ORDER BY does not support type " + type.toSql());
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     @Override

@@ -601,15 +601,9 @@ public class CreateTableInfo {
                         && !isEffectiveChangelogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
-                    List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
-                        DataType type = c.getType();
-                        return !(type.isFloatLikeType() || type.isStringType() || type.isArrayType()
-                                || type.isBitmapType() || type.isHllType() || type.isQuantileStateType()
-                                || type.isJsonType()
-                                || type.isVariantType()
-                                || type.isMapType()
-                                || type.isStructType());
-                    }).collect(Collectors.toList());
+                    List<ColumnDefinition> orderKeysCandidates = columns.stream()
+                            .filter(c -> ColumnDefinition.isEligibleKeyType(c.getType()))
+                            .collect(Collectors.toList());
                     if (orderKeysCandidates.size() > 0) {
                         sortOrderFields = new ArrayList<>();
                         Random random = new Random();
@@ -1448,6 +1442,10 @@ public class CreateTableInfo {
 
                 // check inverted index
                 if (column.getType().isVariantType()) {
+                    if (indexDefs.stream().filter(IndexDefinition::isVariantValuesIndex).count() > 1) {
+                        throw new AnalysisException("VARIANT column supports only one values index");
+                    }
+
                     Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
                     Map<String, DataType> fieldPatternToDataType = new HashMap<>();
                     for (IndexDefinition indexDef : indexDefs) {

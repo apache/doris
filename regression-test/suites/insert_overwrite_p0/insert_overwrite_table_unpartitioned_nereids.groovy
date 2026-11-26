@@ -96,13 +96,13 @@ suite("test_iot_unpartitioned_nereids") {
         sql """INSERT OVERWRITE TABLE test_iot select 1,'aaa','aaa' """
         order_qt_select """select * from test_iot"""
        
-        // overwrite with another table
+        // Auto-detect overwrite must also support unpartitioned temporary partitions.
         sql """ INSERT INTO test_iot1(test_int, test_varchar, test_text) VALUES (1,'aaa','aaa'),(4,'ccc','ccc') """
-        sql """INSERT OVERWRITE TABLE test_iot select * from test_iot1"""
+        sql """INSERT OVERWRITE TABLE test_iot PARTITION(*) select * from test_iot1"""
         order_qt_select """select * from test_iot"""
        
-        // overwrite table with some cols
-        sql """INSERT OVERWRITE TABLE test_iot (test_int, test_varchar) select test_int, test_varchar from test_iot1"""
+        // Repeat auto-detect overwrite with partial columns, including default NULLs.
+        sql """INSERT OVERWRITE TABLE test_iot PARTITION(*) (test_int, test_varchar) select test_int, test_varchar from test_iot1"""
         order_qt_select """select * from test_iot"""
 
        // overwrite with label

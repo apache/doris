@@ -225,12 +225,18 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.arena.clear();
-        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_parent->_probe_columns.size() == 1 && null_map) {
-            if (simd::contain_one(null_map, probe_rows)) {
-                const_cast<IColumn*>(_parent->_probe_columns[0])
-                        ->replace_column_null_data(null_map);
-            }
+        // A retained NULL bucket compares key payloads. Keep the normalized probe key alive
+        // across pulls, since the input may also be an output column (e.g. NULLIF(a, 1)).
+        // String keys already produce an empty StringRef for NULL during serialization.
+        if (_parent->_probe_columns.size() == 1 && null_map &&
+            hash_table_ctx.hash_table->keep_null_key() &&
+            !_parent->_probe_columns[0]->is_column_string() &&
+            simd::contain_one(null_map, probe_rows)) {
+            const auto* key = _parent->_probe_columns[0];
+            auto normalized = IColumn::mutate(key->get_ptr());
+            normalized->replace_column_null_data(null_map);
+            _parent->_key_columns_holder.emplace_back(std::move(normalized));
+            _parent->_probe_columns[0] = _parent->_key_columns_holder.back().get();
         }
 
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
@@ -1137,5 +1143,8 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt128>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt256>));          \
-    INSTANTIATION(JoinOpType, (MethodOneString));
+    INSTANTIATION(JoinOpType, (MethodOneString));                            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt32>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt64>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt128>));
 } // namespace doris

@@ -46,15 +46,13 @@
 #include "common/metrics/doris_metrics.h"
 #include "service/backend_options.h"
 
-namespace apache {
-namespace thrift {
+namespace apache::thrift {
 class TProcessor;
 
 namespace transport {
 class TServerTransport;
 } // namespace transport
-} // namespace thrift
-} // namespace apache
+} // namespace apache::thrift
 
 namespace doris {
 
@@ -188,8 +186,7 @@ private:
 class ThriftServer::ThriftServerEventProcessor
         : public apache::thrift::server::TServerEventHandler {
 public:
-    ThriftServerEventProcessor(ThriftServer* thrift_server)
-            : _thrift_server(thrift_server), _signal_fired(false) {}
+    ThriftServerEventProcessor(ThriftServer* thrift_server) : _thrift_server(thrift_server) {}
 
     // friendly to code style
     ~ThriftServerEventProcessor() override = default;
@@ -232,7 +229,7 @@ private:
     ThriftServer* _thrift_server;
 
     // Guards against spurious condition variable wakeups
-    bool _signal_fired;
+    bool _signal_fired = false;
 
     // The time, in milliseconds, to wait for a server to come up
     const static int TIMEOUT_MS;
@@ -415,8 +412,7 @@ ThriftServer::ThriftServer(const std::string& name,
           _name(name),
           _server_thread(nullptr),
           _server(nullptr),
-          _processor(processor),
-          _session_handler(nullptr) {
+          _processor(processor) {
     _thrift_server_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_server.") + name, {{"name", name}});
     INT_GAUGE_METRIC_REGISTER(_thrift_server_metric_entity, thrift_current_connections);
@@ -428,8 +424,25 @@ ThriftServer::~ThriftServer() {
     join();
 }
 
+void ThriftServer::set_server_socket(
+        std::shared_ptr<apache::thrift::transport::TServerSocket> socket) {
+    DCHECK(!_started);
+    _server_socket = std::move(socket);
+}
+
+std::shared_ptr<apache::thrift::transport::TServerSocket> ThriftServer::create_server_socket() {
+    if (_server_socket) {
+        return _server_socket;
+    }
+    return std::make_shared<ImprovedServerSocket>(
+            BackendOptions::get_service_bind_address_without_bracket(), _port);
+}
+
 Status ThriftServer::start() {
     DCHECK(!_started);
+    if (_server_socket && _server_type == NON_BLOCKING) {
+        return Status::NotSupported("Provider listeners require blocking Thrift servers");
+    }
     std::shared_ptr<apache::thrift::protocol::TProtocolFactory> protocol_factory(
             new apache::thrift::protocol::TBinaryProtocolFactory());
     std::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
@@ -447,13 +460,13 @@ Status ThriftServer::start() {
 
     // Note - if you change the transport types here, you must check that the
     // logic in createContext is still accurate.
-    apache::thrift::transport::TServerSocket* server_socket = nullptr;
+    std::shared_ptr<apache::thrift::transport::TServerSocket> server_socket;
 
     switch (_server_type) {
     case NON_BLOCKING:
         socket = std::make_shared<ImprovedNonblockingServerSocket>(_port);
         if (transport_factory == nullptr) {
-            transport_factory.reset(new apache::thrift::transport::TTransportFactory());
+            transport_factory = std::make_shared<apache::thrift::transport::TTransportFactory>();
         }
 
         _server = std::make_unique<apache::thrift::server::TNonblockingServer>(
@@ -462,8 +475,7 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new ImprovedServerSocket(
-                BackendOptions::get_service_bind_address_without_bracket(), _port));
+        fe_server_transport = create_server_socket();
 
         if (transport_factory == nullptr) {
             transport_factory = std::make_shared<ImprovedBufferedTransportFactory>();
@@ -474,9 +486,8 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new ImprovedServerSocket(
-                BackendOptions::get_service_bind_address_without_bracket(), _port);
-        fe_server_transport.reset(server_socket);
+        server_socket = create_server_socket();
+        fe_server_transport = server_socket;
         server_socket->setKeepAlive(true);
 
         if (transport_factory == nullptr) {
@@ -508,12 +519,17 @@ Status ThriftServer::start() {
 }
 
 void ThriftServer::stop() {
-    _server->stop();
+    // TLS validation can fail before start() creates the underlying server.
+    if (_server) {
+        _server->stop();
+    }
 }
 
 void ThriftServer::join() {
-    DCHECK(_server_thread != nullptr);
-    _server_thread->join();
+    // Explicit shutdown may already have joined the thread before RAII cleanup.
+    if (_server_thread && _server_thread->joinable()) {
+        _server_thread->join();
+    }
 }
 
 void ThriftServer::stop_for_testing() {

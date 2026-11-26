@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
-    sql "set default_variant_enable_doc_mode=false"
+    sql "set debug_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     [1, 2].each { width ->
         sql "drop table if exists dotted_key_escape_switch"

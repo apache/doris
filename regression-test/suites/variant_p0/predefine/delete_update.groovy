@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     def variantV2Function = "parse_to_variant"
-    sql "set default_variant_enable_doc_mode=false;"
+    sql "set debug_variant_enable_doc_mode=false;"
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"

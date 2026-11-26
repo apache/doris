@@ -62,7 +62,8 @@ class BatchRangeFetcher;
 
 namespace doris::snii::format {
 class NormsPodReader;
-}
+class NullBitmapReader;
+} // namespace doris::snii::format
 
 namespace doris::snii::reader {
 
@@ -244,8 +245,11 @@ public:
     const format::HighDfTerms& high_df_terms() const { return core_.high_df_terms; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
-    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.
-    bool has_norms() const { return core_.section_refs.norms.length != 0; }
+    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions,
+    // either one byte per row or, as sparse norms, one byte per non-NULL row.
+    bool has_norms() const {
+        return core_.section_refs.norms.length != 0 || core_.section_refs.sparse_norms.length != 0;
+    }
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
     // The chunking scheme of a gram-family index, read back from the core metadata this segment
     // carries. It is what the query side compiles a LIKE / REGEXP pattern against, so a pattern
@@ -256,11 +260,12 @@ public:
     }
     io::FileReader* reader() const { return reader_; }
 
-    // Returns a reader over the validated norms section. The first call reads
-    // and validates the section; later calls share the immutable reader-owned
-    // bytes. The full on-disk section is reserved in memory_usage() before this
-    // LogicalIndexReader enters the searcher cache, so lazy loading cannot make
-    // the cache under-report its eventual resident size.
+    // Returns a reader with one norm byte per row. The first call reads and
+    // validates the section, expanding sparse norms with kNullRowNorm on the NULL
+    // rows; later calls share the immutable reader-owned bytes. Those loaded
+    // bytes are reserved in memory_usage() before this LogicalIndexReader enters
+    // the searcher cache, so lazy loading cannot make the cache under-report its
+    // eventual resident size.
     Status open_norms(format::NormsPodReader* out) const;
     // Compaction scans one source norm vector at a time. This charge matches the
     // reader's full cache accounting; release_compaction_norms() drops the loaded
@@ -288,6 +293,13 @@ public:
 private:
     struct NormsCacheState;
     struct TermLookupCache;
+
+    Status read_dense_norms(std::vector<uint8_t>* bytes, format::NormsPodReader* out) const;
+    Status read_sparse_norms(std::vector<uint8_t>* dense, format::NormsPodReader* out) const;
+    // Reads and validates the null bitmap. *present is false when the index has
+    // no section, which is valid only when it counts no NULL row.
+    Status open_null_bitmap(const NullDocidsDecodeReservation& reserve_decode,
+                            format::NullBitmapReader* out, bool* present) const;
     io::FileReader* reader_ = nullptr;
     format::IndexTier tier_ = format::IndexTier::kT1;
     bool has_positions_ = false;

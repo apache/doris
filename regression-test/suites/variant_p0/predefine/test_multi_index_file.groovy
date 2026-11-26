@@ -20,8 +20,8 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
-    sql "set default_variant_max_subcolumns_count = 100"
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql "set debug_variant_max_subcolumns_count = 100"
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
 
     def tableName = "test_variant_multi_index_nonCurrent"
     sql "DROP TABLE IF EXISTS ${tableName}"

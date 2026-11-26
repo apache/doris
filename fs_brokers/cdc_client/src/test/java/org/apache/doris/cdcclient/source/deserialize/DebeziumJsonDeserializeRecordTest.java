@@ -21,8 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.apache.doris.cdcclient.common.Constants;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.debezium.data.Envelope;
+
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.kafka.connect.data.Decimal;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
@@ -33,10 +37,6 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.debezium.data.Envelope;
 
 /**
  * Unit tests for the full {@link DebeziumJsonDeserializer#deserialize} path: operation handling
@@ -128,6 +128,45 @@ class DebeziumJsonDeserializeRecordTest {
         JsonNode row = MAPPER.readTree(result.getRecords().get(0));
         assertFalse(row.has("name"));
         assertTrue(row.has("id"));
+    }
+
+    @Test
+    void floatVector_emitsNumericArray() throws Exception {
+        Schema vector =
+                SchemaBuilder.array(Schema.FLOAT32_SCHEMA)
+                        .name("io.debezium.data.FloatVector")
+                        .optional()
+                        .build();
+        Schema vectorRow =
+                SchemaBuilder.struct()
+                        .name("vector.Value")
+                        .field("id", Schema.INT32_SCHEMA)
+                        .field("v1", vector)
+                        .field("tail", Schema.STRING_SCHEMA)
+                        .build();
+        Envelope vectorEnvelope =
+                Envelope.defineSchema()
+                        .withName("vector.Envelope")
+                        .withRecord(vectorRow)
+                        .withSource(sourceSchema)
+                        .build();
+        Struct after =
+                new Struct(vectorRow)
+                        .put("id", 1)
+                        .put("v1", java.util.Arrays.asList(1.25f, -2.5f, 0f, 4f))
+                        .put("tail", "tail");
+        Struct value =
+                new Struct(vectorEnvelope.schema())
+                        .put(Envelope.FieldName.OPERATION, "c")
+                        .put(Envelope.FieldName.AFTER, after)
+                        .put(Envelope.FieldName.SOURCE, source("t1"));
+        SourceRecord record = new SourceRecord(null, null, "t1", vectorEnvelope.schema(), value);
+        DeserializeResult result =
+                newDeserializer(new HashMap<>()).deserialize(new HashMap<>(), record);
+        JsonNode row = MAPPER.readTree(result.getRecords().get(0));
+        assertTrue(row.get("v1").isArray());
+        assertEquals(MAPPER.readTree("[1.25,-2.5,0.0,4.0]"), row.get("v1"));
+        assertEquals("tail", row.get("tail").asText());
     }
 
     @Test

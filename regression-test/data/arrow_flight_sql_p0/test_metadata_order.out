@@ -14,6 +14,12 @@ internal:flight_order_a_db:a_table:BASE TABLE:a;internal:flight_order_a_db:z_tab
 -- !admin_empty --
 
 
+-- !admin_empty_catalog_schemas --
+
+
+-- !admin_empty_catalog_tables --
+
+
 -- !restricted_catalogs --
 flight_order_a;internal
 
@@ -27,5 +33,11 @@ internal:flight_order_a_db:a_table:BASE TABLE
 internal:flight_order_a_db:a_table:BASE TABLE:a
 
 -- !restricted_empty --
+
+
+-- !restricted_empty_catalog_schemas --
+
+
+-- !restricted_empty_catalog_tables --
 
 

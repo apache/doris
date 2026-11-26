@@ -31,10 +31,16 @@ import java.util.Objects;
 final class LanceTableAccess {
     private final String datasetUri;
     private final Map<String, String> storageOptions;
+    private final boolean vendedOptions;
 
-    LanceTableAccess(String datasetUri, Map<String, String> storageOptions) {
+    /**
+     * @param vendedOptions whether the namespace described the table with storage options of its own, such as
+     *         credentials it vends
+     */
+    LanceTableAccess(String datasetUri, Map<String, String> storageOptions, boolean vendedOptions) {
         this.datasetUri = Objects.requireNonNull(datasetUri, "datasetUri");
         this.storageOptions = Collections.unmodifiableMap(new HashMap<>(storageOptions));
+        this.vendedOptions = vendedOptions;
     }
 
     String getDatasetUri() {
@@ -44,5 +50,13 @@ final class LanceTableAccess {
     /** The options both the FE and the BE open the dataset with. */
     Map<String, String> getStorageOptions() {
         return storageOptions;
+    }
+
+    /**
+     * Whether the namespace described the table with storage options of its own. A namespace may vend new
+     * credentials on every describe, so such an access is neither reused nor opened with a shared Session.
+     */
+    boolean hasVendedOptions() {
+        return vendedOptions;
     }
 }

@@ -201,7 +201,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
     public void testFullContextWithoutStreamScansDoesNotRewrite() throws Exception {
         OlapTable baseTable = baseTable();
         LogicalOlapScan scan = newOlapScan(baseTable, baseTable.getPartitionIds());
-        Plan result = rewrite(scan, IvmRewriteContext.full(mtmv()));
+        Plan result = rewrite(scan, IvmRewriteContext.complete(mtmv()));
 
         Assertions.assertSame(scan, result);
     }
@@ -211,7 +211,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         OlapTable baseTable = baseTable();
         LogicalOlapScan scan = newOlapScan(baseTable, baseTable.getPartitionIds());
 
-        Plan result = rewrite(scan, IvmRewriteContext.fullExplain(mtmv()));
+        Plan result = rewrite(scan, IvmRewriteContext.completeExplain(mtmv()));
 
         Assertions.assertTrue(result instanceof LogicalProject);
         Plan child = ((LogicalProject<?>) result).child();
@@ -234,7 +234,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         partitionInfo.setPctInfos(ImmutableList.of(new BaseColInfo("k1", new BaseTableInfo(baseTable))));
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
 
-        Plan result = rewrite(scan, IvmRewriteContext.fullExplain(mtmv));
+        Plan result = rewrite(scan, IvmRewriteContext.completeExplain(mtmv));
 
         Assertions.assertTrue(result instanceof LogicalProject);
         Plan child = ((LogicalProject<?>) result).child();
@@ -253,7 +253,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         // No stream exists for this MV id: a full refresh reads through one, and EXPLAIN plans the
         // same read, so it fails the same way instead of falling back to an ordinary base scan.
         Assertions.assertThrows(IvmException.class,
-                () -> rewrite(scan, IvmRewriteContext.fullExplain(mtmv(MV_ID + 1, "missing_mv"))));
+                () -> rewrite(scan, IvmRewriteContext.completeExplain(mtmv(MV_ID + 1, "missing_mv"))));
     }
 
     @Test
@@ -326,7 +326,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
                 .orElseGet(ImmutableMap::of);
         StreamReadMode nonPctReadMode = resetPartitionIds.isPresent()
                 ? StreamReadMode.RESET : StreamReadMode.SNAPSHOT;
-        return IvmRewriteContext.full(mtmv, resetScopes, nonPctReadMode);
+        return IvmRewriteContext.complete(mtmv, resetScopes, nonPctReadMode);
     }
 
     private Plan normalizeStreamScan(Plan plan) throws Exception {

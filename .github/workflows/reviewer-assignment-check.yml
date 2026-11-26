@@ -8,6 +8,21 @@ on:
       - '.github/scripts/test_reviewer_assignment*.py'
       - '.github/scripts/review_github_api.py'
       - '.github/scripts/test_review_github_api.py'
+      - '.github/scripts/pr_workflow_event.py'
+      - '.github/scripts/test_pr_workflow_event.py'
+      - '.github/scripts/test_review_checkout_workflow.py'
+      - '.github/scripts/resolve_code_review_status.py'
+      - '.github/scripts/test_resolve_code_review_status.py'
+      - '.github/scripts/debug_review.py'
+      - '.github/scripts/test_debug_review.py'
+      - '.github/scripts/submit_review.py'
+      - '.github/scripts/test_submit_review.py'
+      - '.github/workflows/code-review-runner.yml'
+      - '.github/workflows/code-review-cloud-receipt.yml'
+      - '.github/workflows/pull-request-events.yml'
+      - '.github/workflows/resolve-pr-event.yml'
+      - '.github/workflows/lfs-warning.yml'
+      - '.github/workflows/code-review-sync-result.yml'
       - '.github/workflows/reviewer-assignment*.yml'
       - 'tools/reviewer-routing/**'
   push:
@@ -17,6 +32,21 @@ on:
       - '.github/scripts/test_reviewer_assignment*.py'
       - '.github/scripts/review_github_api.py'
       - '.github/scripts/test_review_github_api.py'
+      - '.github/scripts/pr_workflow_event.py'
+      - '.github/scripts/test_pr_workflow_event.py'
+      - '.github/scripts/test_review_checkout_workflow.py'
+      - '.github/scripts/resolve_code_review_status.py'
+      - '.github/scripts/test_resolve_code_review_status.py'
+      - '.github/scripts/debug_review.py'
+      - '.github/scripts/test_debug_review.py'
+      - '.github/scripts/submit_review.py'
+      - '.github/scripts/test_submit_review.py'
+      - '.github/workflows/code-review-runner.yml'
+      - '.github/workflows/code-review-cloud-receipt.yml'
+      - '.github/workflows/pull-request-events.yml'
+      - '.github/workflows/resolve-pr-event.yml'
+      - '.github/workflows/lfs-warning.yml'
+      - '.github/workflows/code-review-sync-result.yml'
       - '.github/workflows/reviewer-assignment*.yml'
       - 'tools/reviewer-routing/**'
   workflow_dispatch:
@@ -43,3 +73,10 @@ jobs:
             -s .github/scripts -p 'test_reviewer_assignment*.py'
           RUN_GH_HTTP_TESTS=1 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
             -s .github/scripts -p test_review_github_api.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p test_pr_workflow_event.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p test_review_checkout_workflow.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s .github/scripts -p test_resolve_code_review_status.py
+          (cd .github/scripts && python3 -B -m unittest test_debug_review test_submit_review)

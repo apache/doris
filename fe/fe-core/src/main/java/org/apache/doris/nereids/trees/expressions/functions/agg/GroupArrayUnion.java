@@ -40,7 +40,7 @@ public class GroupArrayUnion extends NotNullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0)
-                    .args(ArrayType.of(new AnyDataType(0))));
+                    .args(ArrayType.of(AnyDataType.groupEquality(0))));
 
     /**
      * constructor with 1 argument.

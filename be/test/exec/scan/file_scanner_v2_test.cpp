@@ -105,6 +105,15 @@ TEST(FileScannerV2Test, EncryptionNeverFallsThroughToPlainReadersOrCounts) {
     }
 }
 
+TEST(FileScannerV2Test, EncryptionWireFormatUsesNativeParquetReader) {
+    format::FileFormat file_format = format::FileFormat::ORC;
+    // A distinct wire value makes an older reader reject encryption instead of ignoring optional keys.
+    auto status = FileScannerV2::TEST_to_file_format(static_cast<TFileFormatType::type>(22),
+                                                     &file_format);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(format::FileFormat::PARQUET, file_format);
+}
+
 TEST(FileScannerV2Test, CountStarPlaceholderIsNotASemanticProjection) {
     EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
                                                            std::vector<int32_t> {}));
@@ -179,6 +188,55 @@ public:
     size_t conjunct_count = 0;
     size_t partition_prune_conjunct_count = 0;
 };
+
+class CapturingEncryptionInitReader final : public format::TableReader {
+public:
+    Status init(format::TableReadOptions&& options) override {
+        aggregate = options.push_down_agg_type;
+        return Status::OK();
+    }
+
+    TPushAggOp::type aggregate = TPushAggOp::type::NONE;
+};
+
+TEST(FileScannerV2Test, EncryptionCountDisablesMetadataAggregationForTheWholeScan) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("encryption_count_admission");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    parent._push_down_agg_type = TPushAggOp::type::COUNT;
+    FileScanLocalState local_state(&state, &parent);
+    for (int marker : {0, 1, 2}) {
+        TFileScanRangeParams params;
+        params.__set_format_type(marker == 1 ? TFileFormatType::FORMAT_PARQUET_PME
+                                             : TFileFormatType::FORMAT_PARQUET);
+        auto reader = std::make_unique<CapturingEncryptionInitReader>();
+        auto* captured = reader.get();
+        FileScannerV2 scanner(&state, &profile, std::move(reader));
+        scanner._params = &params;
+        scanner._local_state = &local_state;
+        const auto range =
+                range_with_format("iceberg", marker == 2 ? TFileFormatType::FORMAT_PARQUET_PME
+                                                         : TFileFormatType::FORMAT_PARQUET);
+        ASSERT_TRUE(scanner._init_table_reader(range).ok());
+        EXPECT_EQ(marker == 0 ? TPushAggOp::type::COUNT : TPushAggOp::type::NONE,
+                  captured->aggregate);
+    }
+}
 
 class ErrorContextTableReader final : public format::TableReader {
 public:
@@ -1542,6 +1600,43 @@ TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
     EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
     range.table_format_params.iceberg_params.__set_delete_files({delete_file});
     EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+}
+
+TEST(FileScannerV2Test, EncryptedParquetCoarseRangeKeepsRefinementParallelism) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+    TFileRangeDesc range;
+    range.__set_path("encrypted.parquet");
+    range.__set_start_offset(0);
+    range.__set_size(256L << 20);
+    range.__set_target_split_size(64L << 20);
+    TFileEncryptionInfo encryption;
+    encryption.__set_version(1);
+    encryption.__set_key(std::string(16, 'k'));
+    encryption.__set_aad_prefix("fixture");
+    TIcebergFileDesc iceberg;
+    iceberg.__set_encryption_info(encryption);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+    const bool can_refine =
+            FileScanLocalState::TEST_can_generate_physical_splits(false, params, range);
+    ASSERT_TRUE(can_refine);
+    const int scanners = FileScanLocalState::TEST_adjust_scanner_count(16, 1, can_refine);
+    EXPECT_EQ(scanners, 16);
+    EXPECT_TRUE(FileScannerV2::TEST_should_refine_source_split(range, scanners));
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 1));
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(true, params, range));
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_path("delete.parquet");
+    range.table_format_params.iceberg_params.__set_delete_files({delete_file});
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, scanners));
 }
 
 TEST(FileScannerV2Test, NativePaimonOrcCanGeneratePhysicalSplits) {

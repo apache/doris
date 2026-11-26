@@ -96,6 +96,7 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
                     "-u", "${authUser}:${pwd}",
                     "-H", "txn_id:${txnId}",
                     "-H", "txn_operation:${txnOperation}",
+                    "-H", "auth_code:0",
                     "http://${beHttpAddress}/api/${dbName}/${table}/_stream_load_2pc"
             ]
             logger.info("stream load 2pc target: ${beHttpAddress}, table: ${table}, "
@@ -150,16 +151,16 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
             """
 
             assertLoadFailed(streamLoad(tableUser, beHttpAddress, tableName, "off_denied_before_grant",
-                    false, []))
+                    false, ["auth_code:0"]))
 
             sql """GRANT LOAD_PRIV ON ${dbName}.${tableName} TO ${tableUser}"""
 
             assertLoadSuccess(streamLoad(tableUser, beHttpAddress, tableName, "off_table_grant_be",
-                    false, []))
+                    false, ["auth_code:0"]))
             assertLoadSuccess(streamLoad(tableUser, feHttpAddress, tableName, "off_table_grant_fe",
                     true, []))
             def prepared = assertLoadSuccess(streamLoad(tableUser, beHttpAddress, tableName,
-                    "off_table_grant_2pc", false, ["two_phase_commit:true"]))
+                    "off_table_grant_2pc", false, ["two_phase_commit:true", "auth_code:0"]))
             def committed = streamLoad2pc(tableUser, tableName, prepared.TxnId, "commit")
             assertEquals(200, committed[0])
             assertEquals("Success", parseJson(committed[1]).status)
@@ -242,6 +243,7 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
                     "-u", "${authUser}:${pwd}",
                     "-H", "txn_id:${txnId}",
                     "-H", "txn_operation:${txnOperation}",
+                    "-H", "auth_code:0",
                     "http://${beHttpAddress}/api/${dbName}/${table}/_stream_load_2pc"
             ]
             logger.info("stream load 2pc target: ${beHttpAddress}, table: ${table}, "
@@ -296,16 +298,16 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
             """
 
             assertLoadFailed(streamLoad(tableUser, beHttpAddress, tableName, "on_denied_before_grant",
-                    false, []))
+                    false, ["auth_code:0"]))
 
             sql """GRANT LOAD_PRIV ON ${dbName}.${tableName} TO ${tableUser}"""
 
             assertLoadSuccess(streamLoad(tableUser, beHttpAddress, tableName, "on_table_grant_be",
-                    false, []))
+                    false, ["auth_code:0"]))
             assertLoadSuccess(streamLoad(tableUser, feHttpAddress, tableName, "on_table_grant_fe",
                     true, []))
             def prepared = assertLoadSuccess(streamLoad(tableUser, beHttpAddress, tableName,
-                    "on_table_grant_2pc", false, ["two_phase_commit:true"]))
+                    "on_table_grant_2pc", false, ["two_phase_commit:true", "auth_code:0"]))
             def committed = streamLoad2pc(tableUser, tableName, prepared.TxnId, "commit")
             assertEquals(200, committed[0])
             assertEquals("Success", parseJson(committed[1]).status)

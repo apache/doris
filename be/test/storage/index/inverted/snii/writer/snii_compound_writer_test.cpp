@@ -60,6 +60,7 @@
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 
 using namespace doris::snii;
@@ -71,9 +72,10 @@ namespace {
 
 // Temp file path helper (process-unique).
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_compound_writer_test");
     static int counter = 0;
-    return "/tmp/snii_cw_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_cw_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 // Reads the whole file into a buffer.

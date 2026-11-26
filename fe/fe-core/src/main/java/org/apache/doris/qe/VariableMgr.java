@@ -294,7 +294,7 @@ public class VariableMgr {
                 field.setInt(obj, SessionVariable.normalizeIntValue(name, value));
                 break;
             case "long":
-                field.setLong(obj, Long.parseLong(value));
+                field.setLong(obj, SessionVariable.normalizeLongValue(name, Long.parseLong(value)));
                 break;
             case "float":
                 field.setFloat(obj, Float.parseFloat(value));

@@ -226,7 +226,7 @@ public class TypeTest {
     @Test
     public void testVariantTakesBuiltInDefaults() {
         // Without debug points, and without a session, the properties a DDL leaves out take the built-in values
-        // of the default_variant_* session variables.
+        // of the debug_variant_* session variables.
         org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
                 new NereidsParser().parseDataType("variant");
         SessionVariable builtIn = new SessionVariable();

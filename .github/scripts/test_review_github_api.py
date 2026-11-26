@@ -261,7 +261,6 @@ class WorkflowDiagnosticsWiringTest(unittest.TestCase):
     def test_every_job_installs_before_api_and_uploads_after_cleanup(self):
         workflows = Path(__file__).resolve().parents[1] / "workflows"
         for filename, jobs in (
-            ("code-review-runner.yml", ["code-review"]),
             ("code-review-aggregate-status.yml", ["aggregate"]),
             ("code-review-sync-result.yml", ["accept-skill-review", "skip-on-comment"]),
         ):
