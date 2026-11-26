@@ -54,6 +54,7 @@ import org.apache.commons.collections4.MapUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,9 +112,14 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         // Populate default slot/pub into sourceProperties so cleanMeta -> /api/close
         // carries the resolved names for cdcclient ownership-based cleanup.
         Map<String, String> effective = new HashMap<>(originTvfProps);
+        effective.putIfAbsent(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL, "true");
         effective.put(DataSourceConfigKeys.JDBC_URL, StreamingJdbcUrlNormalizer.normalize(
                 resolvedType, effective.get(DataSourceConfigKeys.JDBC_URL)));
         StreamingJobUtils.populateDefaultSourceProperties(resolvedType, effective, String.valueOf(jobId));
+        if (getCompactSnapshotProgress(chunkHighWatermarkMap) != null
+                && !Boolean.parseBoolean(effective.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL))) {
+            throw new JobException("Cannot enable snapshot backfill after compact snapshot progress was committed");
+        }
         // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
         this.sourceProperties = effective;
         this.snapshotParallelism = Integer.parseInt(
@@ -143,7 +149,9 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             if (plan instanceof UnboundTVFRelation) {
                 UnboundTVFRelation originTvfRel = (UnboundTVFRelation) plan;
                 props.putAll(originTvfRel.getProperties().getMap());
-                props.put(CdcStreamTableValuedFunction.META_KEY, new Gson().toJson(offset.generateMeta()));
+                props.put(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL,
+                        sourceProperties.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL));
+                props.put(CdcStreamTableValuedFunction.META_KEY, new Gson().toJson(buildTaskMeta(offset)));
                 props.put(CdcStreamTableValuedFunction.JOB_ID_KEY, String.valueOf(jobId));
                 props.put(CdcStreamTableValuedFunction.TASK_ID_KEY, String.valueOf(taskId));
                 return new UnboundTVFRelation(
@@ -157,15 +165,29 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         return cmd;
     }
 
+    Map<String, Object> buildTaskMeta(JdbcOffset offset) {
+        Map<String, Object> meta = offset.generateMeta();
+        if (offset.snapshotSplit()
+                && Boolean.parseBoolean(sourceProperties.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL))) {
+            synchronized (splitsLock) {
+                // Only the first committed snapshot batch needs the client to find the minimum watermark.
+                if (chunkHighWatermarkMap.isEmpty()) {
+                    meta.put(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET, "1");
+                }
+            }
+        }
+        return meta;
+    }
+
     /**
      * Returns the serialized JSON offset to store in txn commit attachment.
      *
      * <p>Calls BE /api/getTaskOffset/{taskId} to get the actual end offset recorded after
      * fetchRecordStream completes (stored in PipelineCoordinator.taskOffsetCache).
      *
-     * <p>For cloud + snapshot: returns cumulative list (all previously completed chunks +
-     * current task's new splits) so that replayOnCloudMode can recover full state from latest attachment.
-     * For non-cloud snapshot / binlog: returns only current task's splits.
+     * <p>Snapshots skipping backfill use one marked entry containing the fixed starting watermark and
+     * the last contiguous committed split. Jobs with legacy progress retain per-split offsets.
+     * Cloud attachments include all progress because MS retains only the latest attachment.
      */
     @Override
     public String getCommitOffsetJson(Offset runningOffset, long taskId, List<Long> scanBackendIds) {
@@ -174,11 +196,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             return "";
         }
 
-        // Cloud + snapshot: prepend all previously completed chunks so the attachment is
-        // self-contained for replayOnCloudMode (MS only keeps the latest attachment)
-        if (Config.isCloudMode() && ((JdbcOffset) runningOffset).snapshotSplit()) {
-            List<Map<String, String>> cumulative = buildCumulativeSnapshotOffset(currentTaskEndOffset);
-            return new Gson().toJson(cumulative);
+        if (((JdbcOffset) runningOffset).snapshotSplit()) {
+            synchronized (splitsLock) {
+                return new Gson().toJson(buildCumulativeSnapshotOffset(currentTaskEndOffset));
+            }
         }
         return new Gson().toJson(currentTaskEndOffset);
     }
@@ -187,7 +208,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * Queries each scan backend in order until one returns a non-empty offset for this taskId.
      * Only the BE that ran the cdc_stream TVF scan node will have the entry in taskOffsetCache.
      */
-    private List<Map<String, String>> fetchTaskEndOffset(long taskId, List<Long> scanBackendIds) {
+    protected List<Map<String, String>> fetchTaskEndOffset(long taskId, List<Long> scanBackendIds) {
         InternalService.PRequestCdcClientRequest request =
                 InternalService.PRequestCdcClientRequest.newBuilder()
                         .setApi("/api/getTaskOffset/" + taskId).build();
@@ -233,11 +254,34 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     }
 
     /**
-     * Merges existing chunkHighWatermarkMap (all previously completed chunks) with
-     * current task's new splits, deduplicating by splitId.
+     * Returns one compact progress entry, or preserves the original per-split format for legacy jobs.
      */
     private List<Map<String, String>> buildCumulativeSnapshotOffset(
             List<Map<String, String>> currentTaskSplits) {
+        SnapshotSplit progress = getCompactSnapshotProgress(chunkHighWatermarkMap);
+        Map<String, String> first = currentTaskSplits.get(0);
+        Map<String, String> watermark = progress == null ? null : sourceWatermark(progress.getHighWatermark());
+        if (watermark == null && chunkHighWatermarkMap.isEmpty()
+                && Boolean.parseBoolean(sourceProperties.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL))) {
+            // The client puts the first batch's minimum watermark first; keep it fixed for later batches.
+            Preconditions.checkState("1".equals(first.get(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET)),
+                    "CDC client does not support compact snapshot offsets; "
+                            + "upgrade the CDC client before starting the job");
+            watermark = sourceWatermark(first);
+        }
+        if (watermark != null) {
+            // Tasks commit batches in split order; the client may reorder the response.
+            // E.g. [(split 1, HW 100), (split 0, HW 120), (split 2, HW 150)] is stored as (split 2, HW 100).
+            String endSplitId = currentTaskSplits.stream().map(split -> split.get(SPLIT_ID))
+                    .max(Comparator.comparingInt(JdbcSourceOffsetProvider::splitIdOf)).get();
+            watermark.put(SPLIT_ID, endSplitId);
+            watermark.put(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET, "1");
+            return Collections.singletonList(watermark);
+        }
+        if (!Config.isCloudMode()) {
+            return currentTaskSplits;
+        }
+        // Per-split offsets in cloud mode must include all progress because MS keeps only the latest attachment.
         Set<String> currentSplitIds = currentTaskSplits.stream()
                 .map(m -> m.get(SPLIT_ID)).collect(Collectors.toSet());
 
@@ -260,6 +304,57 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         return result;
     }
 
+    @Override
+    protected List<SnapshotSplit> recalculateRemainingSplits(
+            Map<String, Map<String, Map<String, String>>> watermarks,
+            Map<String, List<SnapshotSplit>> snapshotSplits) {
+        synchronized (splitsLock) {
+            Map<String, Map<String, String>> committed = new HashMap<>();
+            watermarks.values().forEach(committed::putAll);
+            SnapshotSplit progress = getCompactSnapshotProgress(watermarks);
+            int end = progress == null ? -1 : splitIdOf(progress.getSplitId());
+            remainingSplits = new ArrayList<>();
+            finishedSplits = new ArrayList<>();
+            for (List<SnapshotSplit> splits : snapshotSplits.values()) {
+                for (SnapshotSplit split : splits) {
+                    Map<String, String> watermark = committed.get(split.getSplitId());
+                    if (progress != null && splitIdOf(split.getSplitId()) <= end) {
+                        watermark = progress.getHighWatermark();
+                    }
+                    if (watermark != null) {
+                        split.setHighWatermark(sourceWatermark(watermark));
+                        finishedSplits.add(split);
+                    } else {
+                        remainingSplits.add(split);
+                    }
+                }
+            }
+            if (progress != null) {
+                long covered = finishedSplits.stream().filter(split -> splitIdOf(split.getSplitId()) <= end).count();
+                Preconditions.checkState(covered == end + 1L,
+                        "Persisted split definitions do not cover compact snapshot progress");
+            }
+            return new ArrayList<>(remainingSplits.subList(0, Math.min(remainingSplits.size(), snapshotParallelism)));
+        }
+    }
+
+    /** Returns the committed prefix's last split ID and fixed starting watermark, or null if not compacted. */
+    private SnapshotSplit getCompactSnapshotProgress(Map<String, Map<String, Map<String, String>>> watermarks) {
+        synchronized (splitsLock) {
+            return watermarks.values().stream().flatMap(table -> table.entrySet().stream())
+                    .filter(entry -> "1".equals(entry.getValue().get(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET)))
+                    .max(Comparator.comparingInt(entry -> splitIdOf(entry.getKey())))
+                    .map(entry -> new SnapshotSplit(entry.getKey(), null, null, null, null, entry.getValue()))
+                    .orElse(null);
+        }
+    }
+
+    private static Map<String, String> sourceWatermark(Map<String, String> watermark) {
+        Map<String, String> source = new HashMap<>(watermark);
+        source.remove(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET);
+        return source;
+    }
+
     /**
      * TVF path updateOffset.
      *
@@ -276,14 +371,42 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         JdbcOffset newOffset = (JdbcOffset) offset;
         if (newOffset.snapshotSplit()) {
             synchronized (splitsLock) {
+                SnapshotSplit compactSnapshotProgress = getCompactSnapshotProgress(chunkHighWatermarkMap);
+                SnapshotSplit compact = newOffset.getSplits().stream().map(split -> (SnapshotSplit) split)
+                        .filter(split -> "1".equals(split.getHighWatermark()
+                                .get(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET)))
+                        .max(Comparator.comparingInt(split -> splitIdOf(split.getSplitId()))).orElse(null);
+                if (compact != null) {
+                    compactSnapshotProgress = compact;
+                    int end = splitIdOf(compact.getSplitId());
+                    Map<String, String> watermark = sourceWatermark(compact.getHighWatermark());
+                    remainingSplits.removeIf(split -> {
+                        if (splitIdOf(split.getSplitId()) > end) {
+                            return false;
+                        }
+                        split.setHighWatermark(watermark);
+                        finishedSplits.add(split);
+                        return true;
+                    });
+                    // Replace covered entries with the latest compact progress.
+                    chunkHighWatermarkMap.values().forEach(table ->
+                            table.keySet().removeIf(id -> splitIdOf(id) <= end));
+                    chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
+                            .put(compact.getSplitId(), compact.getHighWatermark());
+                }
                 for (AbstractSourceSplit split : newOffset.getSplits()) {
                     SnapshotSplit ss = (SnapshotSplit) split;
+                    if (compactSnapshotProgress != null
+                            && splitIdOf(ss.getSplitId()) <= splitIdOf(compactSnapshotProgress.getSplitId())) {
+                        continue;
+                    }
                     boolean removed = remainingSplits.removeIf(v -> {
                         if (v.getSplitId().equals(ss.getSplitId())) {
                             ss.setTableId(v.getTableId());
                             ss.setSplitKey(v.getSplitKey());
                             ss.setSplitStart(v.getSplitStart());
                             ss.setSplitEnd(v.getSplitEnd());
+                            v.setHighWatermark(ss.getHighWatermark());
                             return true;
                         }
                         return false;
@@ -347,6 +470,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                                 ? remapChunkHighWatermarkMap(snapshotSplits)
                                 : new HashMap<>();
                 recalculateRemainingSplits(effective, snapshotSplits);
+                if (!finishedSplits.isEmpty()) {
+                    SnapshotSplit lastFinished = finishedSplits.get(finishedSplits.size() - 1);
+                    currentOffset = new JdbcOffset(Collections.singletonList(lastFinished));
+                }
                 resumeCdcSplitProgressFromSplits();
                 log.info("Replaying TVF offset provider for job {}: no current offset,"
                         + " restored {} remaining splits from meta (chw size={})",
@@ -475,13 +602,8 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         }
         JdbcOffset running = (JdbcOffset) runningOffset;
         JdbcOffset end = (JdbcOffset) endOffset;
-        if (running.snapshotSplit()) {
-            for (int i = 0; i < running.getSplits().size() && i < end.getSplits().size(); i++) {
-                SnapshotSplit rSplit = (SnapshotSplit) running.getSplits().get(i);
-                SnapshotSplit eSplit = (SnapshotSplit) end.getSplits().get(i);
-                rSplit.setHighWatermark(eSplit.getHighWatermark());
-            }
-        } else {
+        // Snapshot tasks share their split objects with remainingSplits; updateOffset already fills them.
+        if (!running.snapshotSplit()) {
             BinlogSplit rSplit = (BinlogSplit) running.getSplits().get(0);
             BinlogSplit eSplit = (BinlogSplit) end.getSplits().get(0);
             // deserializeOffset stores binlog position in startingOffset

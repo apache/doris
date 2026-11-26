@@ -30,6 +30,7 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.StreamingTaskStatus;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -48,6 +49,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -269,6 +271,20 @@ public class PipelineCoordinator {
         }
 
         List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
+        if (isSnapshotSplit
+                && "1"
+                        .equals(
+                                fetchRecord
+                                        .getMeta()
+                                        .get(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET))) {
+            Preconditions.checkState(
+                    Boolean.parseBoolean(
+                            fetchRecord
+                                    .getConfig()
+                                    .get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)),
+                    "Compact progress requires skipped snapshot backfill");
+            putMinimumWatermarkFirst(sourceReader, offsetMeta);
+        }
         checkTvfReaderOwner(fetchRecord);
         if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
             taskOffsetCache.put(fetchRecord.getTaskId(), offsetMeta);
@@ -987,6 +1003,23 @@ public class PipelineCoordinator {
             throw new RuntimeException("Unknown split type: " + split.getClass().getName());
         }
         return commitOffsets;
+    }
+
+    static void putMinimumWatermarkFirst(SourceReader reader, List<Map<String, String>> offsets) {
+        int minimumIndex = 0;
+        for (int i = 1; i < offsets.size(); i++) {
+            if (reader.compareOffset(
+                            new CompareOffsetRequest(
+                                    new HashMap<>(offsets.get(i)),
+                                    new HashMap<>(offsets.get(minimumIndex))))
+                    < 0) {
+                minimumIndex = i;
+            }
+        }
+        Collections.swap(offsets, 0, minimumIndex);
+        Map<String, String> minimum = new HashMap<>(offsets.get(0));
+        minimum.put(DataSourceConfigKeys.COMPACT_SNAPSHOT_OFFSET, "1");
+        offsets.set(0, minimum);
     }
 
     public List<Map<String, String>> getOffsetWithTaskId(String taskId) {
