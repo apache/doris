@@ -204,6 +204,10 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     RETURN_IF_ERROR(
             _fill_box(range_index, merge_start, best_merged_size, &merge_read_size, io_ctx));
     if (cached_data.start_offset != merge_start) {
+        VLOG(1) << "Mismatched start offset in merged IO: path=" << _reader->path().native()
+                << ", expected_start=" << merge_start
+                << ", cached_start=" << cached_data.start_offset
+                << ", requested=" << best_merged_size << ", actual=" << merge_read_size;
         return Status::IOError("Wrong start offset in merged IO");
     }
 

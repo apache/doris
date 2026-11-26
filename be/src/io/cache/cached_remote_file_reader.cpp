@@ -105,6 +105,8 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         // Use path and modification time to build cache key
         std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
         _cache_hash = BlockFileCache::hash(unique_path);
+        VLOG(2) << "File cache key for external file: path=" << path().native()
+                << ", mtime=" << opts.mtime << ", hash=" << _cache_hash.to_string();
         if (opts.cache_base_path.empty()) {
             // if cache path is not specified by session variable, chose randomly.
             _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
@@ -539,21 +541,28 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     if (!empty_blocks.empty()) {
         empty_start = empty_blocks.front()->range().left;
         empty_end = empty_blocks.back()->range().right;
-        size_t size = empty_end - empty_start + 1;
-        std::unique_ptr<char[]> buffer(new char[size]);
+        const size_t requested_size = empty_end - empty_start + 1;
+        std::unique_ptr<char[]> buffer(new char[requested_size]);
 
         // Apply rate limiting for warmup download tasks (node level)
         // Rate limiting is applied before remote read to limit both S3 read and local cache write
         if (io_ctx->is_warmup) {
             auto* rate_limiter = ExecEnv::GetInstance()->warmup_download_rate_limiter();
             if (rate_limiter != nullptr) {
-                rate_limiter->add(size);
+                rate_limiter->add(requested_size);
             }
         }
 
         // Determine read type and execute remote read
-        RETURN_IF_ERROR(
-                _execute_remote_read(empty_blocks, empty_start, size, buffer, stats, io_ctx));
+        size_t source_bytes_read = requested_size;
+        RETURN_IF_ERROR(_execute_remote_read(empty_blocks, empty_start, source_bytes_read, buffer,
+                                             stats, io_ctx));
+        if (source_bytes_read < requested_size) {
+            VLOG(1) << "Short read during file cache fill: path=" << path().native()
+                    << ", hash=" << _cache_hash.to_string() << ", offset=" << empty_start
+                    << ", requested=" << requested_size << ", actual=" << source_bytes_read
+                    << ", from_peer=" << stats.from_peer_cache;
+        }
         bool empty_blocks_from_peer_cache = stats.from_peer_cache;
 
         {
@@ -564,7 +573,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     continue;
                 }
                 SCOPED_RAW_TIMER(&stats.local_write_timer);
-                char* cur_ptr = buffer.get() + block->range().left - empty_start;
+                const size_t block_offset = block->offset();
+                char* cur_ptr = buffer.get() + (block_offset - empty_start);
                 size_t block_size = block->range().size();
                 Status st = block->append(Slice(cur_ptr, block_size));
                 if (st.ok()) {
@@ -574,6 +584,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     LOG_EVERY_N(WARNING, 100)
                             << "Write data to file cache failed. err=" << st.msg();
                 } else {
+                    if (block_offset - empty_start + block_size > source_bytes_read) {
+                        VLOG(1) << "Finalized file cache block beyond source data: hash="
+                                << _cache_hash.to_string() << ", block_offset=" << block_offset
+                                << ", block_size=" << block_size
+                                << ", source_offset=" << empty_start
+                                << ", source_bytes_read=" << source_bytes_read;
+                    }
                     _insert_file_reader(block);
                 }
                 stats.bytes_write_into_file_cache += block_size;
@@ -686,6 +703,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                             current_offset,
                             Slice(result.data + (current_offset - offset), read_size),
                             &bytes_read));
+                    if (bytes_read < read_size) {
+                        VLOG(1) << "Short read during file cache fallback: path=" << path().native()
+                                << ", hash=" << _cache_hash.to_string()
+                                << ", offset=" << current_offset << ", requested=" << read_size
+                                << ", actual=" << bytes_read;
+                    }
                     indirect_read_bytes += read_size;
                     DCHECK(bytes_read == read_size);
                     stats.bytes_read_from_remote += bytes_read;
