@@ -43,6 +43,7 @@
 #include "storage/index/inverted/snii/stats/snii_stats_provider.h"
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "testutil/scoped_temp_dir.h"
 
 // PHASE A read-back self-validation (design 2026-06-18-snii-read-byte-optimizations
 // sections 1 + 3 + 4). Builds a scoring index with a high-df term that spans
@@ -61,8 +62,9 @@ using doris::snii::snii_test::ScoredDoc;
 using doris::snii::stats::SniiStatsProvider;
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("phase_a_readback_test");
     static int counter = 0;
-    return "/tmp/snii_phaseA_readback_" + std::to_string(getpid()) + "_" +
+    return (temp_dir.path() / "snii_phaseA_readback_").string() + std::to_string(getpid()) + "_" +
            std::to_string(counter++) + ".idx";
 }
 

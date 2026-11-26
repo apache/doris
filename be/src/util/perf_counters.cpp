@@ -44,11 +44,10 @@ namespace doris {
 
 static std::unordered_map<std::string, std::string> _process_state;
 
-int64_t PerfCounters::_vm_rss = 0;
-std::string PerfCounters::_vm_rss_str = "";
-int64_t PerfCounters::_vm_hwm = 0;
-int64_t PerfCounters::_vm_size = 0;
-int64_t PerfCounters::_vm_peak = 0;
+std::atomic<int64_t> PerfCounters::_vm_rss = 0;
+std::atomic<int64_t> PerfCounters::_vm_hwm = 0;
+std::atomic<int64_t> PerfCounters::_vm_size = 0;
+std::atomic<int64_t> PerfCounters::_vm_peak = 0;
 
 // This is the order of the counters in /proc/self/io
 enum PERF_IO_IDX {
@@ -580,15 +579,18 @@ void PerfCounters::refresh_proc_status() {
 
     if (statusinfo.is_open()) statusinfo.close();
 
-    _vm_size = parse_bytes("status/VmSize");
-    _vm_peak = parse_bytes("status/VmPeak");
-    _vm_rss = parse_bytes("status/VmRSS");
+    _vm_size.store(parse_bytes("status/VmSize"), std::memory_order_relaxed);
+    _vm_peak.store(parse_bytes("status/VmPeak"), std::memory_order_relaxed);
+    _vm_rss.store(parse_bytes("status/VmRSS"), std::memory_order_relaxed);
+    _vm_hwm.store(parse_bytes("status/VmHWM"), std::memory_order_relaxed);
+}
+
+std::string PerfCounters::get_vm_rss_str() {
 #ifdef ADDRESS_SANITIZER
-    _vm_rss_str = "[ASAN]" + PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+    return "[ASAN]" + PrettyPrinter::print(get_vm_rss(), TUnit::BYTES);
 #else
-    _vm_rss_str = PrettyPrinter::print(_vm_rss, TUnit::BYTES);
+    return PrettyPrinter::print(get_vm_rss(), TUnit::BYTES);
 #endif
-    _vm_hwm = parse_bytes("status/VmHWM");
 }
 
 void PerfCounters::get_proc_status(ProcStatus* out) {

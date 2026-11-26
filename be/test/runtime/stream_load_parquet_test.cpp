@@ -23,16 +23,18 @@
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
 #include "storage/storage_engine.h"
+#include "testutil/scoped_temp_dir.h"
 namespace doris {
 
 class LoadPathMgrTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"stream_load_parquet_test"};
+
     void SetUp() override {
         _exec_env = ExecEnv::GetInstance();
 
         _load_path_mgr = std::make_unique<LoadPathMgr>(_exec_env);
-        auto test_root = std::filesystem::temp_directory_path() /
-                         ("doris_load_path_mgr_test_" + std::to_string(::getpid()));
+        auto test_root = scoped_temp_dir_.path() / "load";
         _test_dir = test_root.string();
         _test_dir1 = _test_dir + "/mini_download";
         _test_dir2 = _test_dir1 + "/test.parquet";

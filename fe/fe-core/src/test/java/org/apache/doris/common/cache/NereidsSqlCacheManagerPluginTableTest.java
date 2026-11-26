@@ -232,6 +232,33 @@ public class NereidsSqlCacheManagerPluginTableTest {
         Assertions.assertTrue(((ConnectorStatementScopeImpl) validationScope[0]).isClosed());
     }
 
+    @Test
+    public void connectorCacheRefusalInvalidatesWarmEntryBeforeReplay() {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty()))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:80:schema1:metadata1", 800L)));
+        SqlCacheContext candidate = new SqlCacheContext(UserIdentity.ROOT);
+        candidate.addUsedTable(table);
+        NereidsSqlCacheManager manager = new NereidsSqlCacheManager();
+        manager.getSqlCaches().put("warm", candidate);
+        ConnectContext connection = new ConnectContext();
+        connection.setEnv(mockEnvResolvingTo(table));
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.when(statement.getTables()).thenReturn(new java.util.HashMap<>());
+        connection.setStatementContext(statement);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty()))
+                .thenThrow(new UnsupportedOperationException("File key authorization cannot be cached"));
+        Mockito.clearInvocations(table);
+
+        Optional<?> replay = Deencapsulation.invoke(manager, "tryParseSql",
+                connection, "warm", candidate, UserIdentity.ROOT, false);
+
+        Assertions.assertFalse(replay.isPresent());
+        Assertions.assertNull(manager.getSqlCaches().getIfPresent("warm"));
+        Mockito.verify(table).getSqlCacheVersion(Optional.empty());
+        Mockito.verify(table, Mockito.never()).getNewestUpdateVersionOrTime();
+    }
+
     private PluginDrivenMvccExternalTable mockTable(long liveToken) {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         DatabaseIf db = Mockito.mock(DatabaseIf.class);

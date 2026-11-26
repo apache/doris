@@ -440,22 +440,40 @@ def _verify_completion(context, run, remaining, *, submit=False, submission=None
         ))
     review = matching[0]
     expected_state = "CHANGES_REQUESTED" if payload["event"] == "REQUEST_CHANGES" else "COMMENTED"
+    # A maintainer can dismiss between submission and the runner's readback.
+    # Verify the original disposition. This still delivers a blocking result.
+    state = review.get("state")
+    if state == "DISMISSED" and expected_state == "CHANGES_REQUESTED":
+        timeline = api(f"repos/{run['repository']}/issues/{run['pr_number']}/timeline",
+                       remaining, paginated=True)
+        if any(e.get("event") == "review_dismissed"
+               and str(e["dismissed_review"]["review_id"]) == str(review["id"])
+               and e["dismissed_review"]["state"] == "changes_requested" for e in timeline):
+            state = expected_state
     if (review.get("user", {}).get("login") != "github-actions[bot]"
             or review.get("commit_id") != run["head_sha"]
             or (review.get("submitted_at") or "") < run["started_at"]
-            or review.get("state") != expected_state
+            or state != expected_state
             or review.get("body") != payload["body"]):
         raise ValueError("Final review author, head, timestamp, state or summary did not match")
     verify_inline_comments(root, review, payload, run, remaining)
     # Recheck after the API reads so a moving PR cannot pass an obsolete review.
     check_target(run, remaining)
-    return {
+    result = {
         "state": "failure" if counts[0] + counts[1] or not submission["converged"] else "success",
         "converged": submission["converged"], "rounds": submission["rounds"],
         "incomplete_reason": submission["incomplete_reason"],
         "p0": counts[0], "p1": counts[1], "review_id": review["id"],
         "review_url": review["html_url"],
     }
+    # Only the cloud controller supplies this run ID. Receipt recovery is allowed to
+    # repair the status after a lost response, including on review-only readback.
+    if "cloud_receipt_run_id" in run:
+        from debug_review import publish_receipt
+        publish_receipt(run["repository"], run["cloud_receipt_run_id"], run["pr_number"],
+                        run["head_sha"], run["base_sha"], result, review["user"]["login"])
+        return dict(result, gate_receipt=True)
+    return result
 
 
 def main():

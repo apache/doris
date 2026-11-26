@@ -23,6 +23,9 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.thrift.TQueryOptions;
 
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,6 +34,48 @@ import org.junit.jupiter.params.provider.ValueSource;
 class SessionVariableParquetWriterTest {
     private static final String WRITE_INDEX = "enable_parquet_write_page_index";
     private static final String PAGE_SIZE = "parquet_write_data_page_size";
+    private static final String WRITE_BLOOM = "enable_parquet_write_bloom_filter";
+
+    @Test
+    void testBloomFilterDefaultIsForwarded() {
+        SessionVariable session = new SessionVariable();
+        Assertions.assertEquals("false", session.getForwardVariables().get(WRITE_BLOOM));
+        Assertions.assertTrue(session.toThrift().isSetEnableParquetWriteBloomFilter());
+        Assertions.assertFalse(session.toThrift().isEnableParquetWriteBloomFilter());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"true", "false"})
+    void testBloomFilterForwarding(String value) throws Exception {
+        SessionVariable session = new SessionVariable();
+        VariableMgr.setVar(session, new SetVar(SetType.SESSION, WRITE_BLOOM, new StringLiteral(value)));
+        SessionVariable forwarded = new SessionVariable();
+        forwarded.setForwardedSessionVariables(session.getForwardVariables());
+        Assertions.assertEquals(value, forwarded.getForwardVariables().get(WRITE_BLOOM));
+        TQueryOptions decoded = new TQueryOptions();
+        TCompactProtocol.Factory protocol = new TCompactProtocol.Factory();
+        new TDeserializer(protocol).deserialize(decoded, new TSerializer(protocol).serialize(forwarded.toThrift()));
+        Assertions.assertTrue(decoded.isSetEnableParquetWriteBloomFilter());
+        Assertions.assertEquals(Boolean.parseBoolean(value), decoded.isEnableParquetWriteBloomFilter());
+    }
+
+    @Test
+    void testOldQueryOptionsOmitBloomFilter() throws Exception {
+        TQueryOptions decoded = new TQueryOptions();
+        TCompactProtocol.Factory protocol = new TCompactProtocol.Factory();
+        new TDeserializer(protocol).deserialize(decoded, new TSerializer(protocol).serialize(new TQueryOptions()));
+        Assertions.assertFalse(decoded.isSetEnableParquetWriteBloomFilter());
+        Assertions.assertFalse(decoded.isEnableParquetWriteBloomFilter());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"invalid", "2", ""})
+    void testInvalidBloomFilterSwitch(String value) {
+        SessionVariable session = new SessionVariable();
+        Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(session,
+                new SetVar(SetType.SESSION, WRITE_BLOOM, new StringLiteral(value))));
+        Assertions.assertFalse(session.toThrift().isEnableParquetWriteBloomFilter());
+    }
 
     @Test
     void testDefaults() {

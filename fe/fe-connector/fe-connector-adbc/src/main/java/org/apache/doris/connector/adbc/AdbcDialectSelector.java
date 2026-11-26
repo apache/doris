@@ -17,11 +17,6 @@
 
 package org.apache.doris.connector.adbc;
 
-import org.apache.arrow.adbc.core.AdbcConnection;
-import org.apache.arrow.adbc.core.AdbcInfoCode;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,11 +31,9 @@ import java.util.function.Supplier;
  * comes first because it is the user's escape hatch for a source whose vendor string is unhelpful or shared,
  * and a probe that could override it would make the property advisory.
  *
- * <p><b>The probe runs at most once per catalog.</b> It is a remote call on a query's planning path, and the
- * answer is a property of the driver rather than of the query. It also has to be allowed to fail: the
- * metadata phase measured drivers implementing these context calls one at a time -- the SQLite driver
- * answers {@code getCurrentCatalog} but rejects {@code getCurrentDbSchema} -- so a failed probe means
- * "unknown vendor", never a failed query.
+ * <p>The catalog's client shares completed vendor lookups with metadata discovery. A driver that does
+ * not implement {@code getInfo} supplies an unknown vendor and uses ANSI. A temporary connection or probe
+ * failure leaves the dialect unresolved, so a later operation can retry after the source recovers.
  */
 public final class AdbcDialectSelector {
 
@@ -79,6 +72,8 @@ public final class AdbcDialectSelector {
         if (known != null) {
             return known;
         }
+        // Cache only a completed lookup. Treating a transient failure as unknown would permanently
+        // lock a Doris source onto ANSI even after its connection recovers.
         AdbcDialect selected = resolve(connectionSource);
         // A racing probe would have reached the same answer, so whichever lands first wins.
         resolved.compareAndSet(null, selected);
@@ -89,7 +84,7 @@ public final class AdbcDialectSelector {
         if (configuredName != null) {
             return AdbcDialectRegistry.require(configuredName);
         }
-        Optional<String> vendor = probeVendorName(connectionSource);
+        Optional<String> vendor = connectionSource.get().vendorName();
         if (vendor.isPresent()) {
             Optional<AdbcDialect> byVendor = AdbcDialectRegistry.forVendor(vendor.get());
             if (byVendor.isPresent()) {
@@ -103,52 +98,4 @@ public final class AdbcDialectSelector {
         return AdbcDialectRegistry.defaultDialect();
     }
 
-    private Optional<String> probeVendorName(Supplier<AdbcClient> connectionSource) {
-        try {
-            return connectionSource.get().withConnection(AdbcDialectSelector::readVendorName);
-        } catch (Exception e) {
-            // Includes the driver refusing getInfo outright. Not knowing the vendor is the normal case for
-            // an arbitrary ADBC source, and ANSI is exactly the answer for it.
-            LOG.info("ADBC driver did not report its vendor, so the default SQL dialect is used: {}",
-                    e.toString());
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Reads {@code VENDOR_NAME} out of the {@code getInfo} result.
-     *
-     * <p>The result is a two-column table -- an integer info code and a dense union holding the value in
-     * whichever of six types that code uses. Both columns are read through the generic
-     * {@code ValueVector.getObject} rather than by casting to a concrete vector class: the union's child
-     * layout is the driver's to choose, and a cast that assumed one would fail on a driver that laid it out
-     * differently, for a probe whose whole purpose is to tolerate not being answered.
-     *
-     * <p>The requested code is re-checked per row because a driver may answer with more rows than were
-     * asked for.
-     */
-    private static Optional<String> readVendorName(AdbcConnection connection) throws Exception {
-        try (ArrowReader reader = connection.getInfo(new AdbcInfoCode[] {AdbcInfoCode.VENDOR_NAME})) {
-            VectorSchemaRoot root = reader.getVectorSchemaRoot();
-            while (reader.loadNextBatch()) {
-                FieldVector codes = root.getVector("info_name");
-                FieldVector values = root.getVector("info_value");
-                if (codes == null || values == null) {
-                    return Optional.empty();
-                }
-                for (int row = 0; row < root.getRowCount(); row++) {
-                    Object code = codes.getObject(row);
-                    if (!(code instanceof Number)
-                            || ((Number) code).intValue() != AdbcInfoCode.VENDOR_NAME.getValue()) {
-                        continue;
-                    }
-                    Object value = values.getObject(row);
-                    if (value != null) {
-                        return Optional.of(String.valueOf(value));
-                    }
-                }
-            }
-        }
-        return Optional.empty();
-    }
 }

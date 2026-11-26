@@ -168,8 +168,8 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
 
     @Override
     public PhysicalTopN<Plan> resetLogicalProperties() {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this, new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
+                null, physicalProperties, statistics, child()));
     }
 
     @Override

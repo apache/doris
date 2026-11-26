@@ -48,6 +48,7 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "common/bvars.h"
@@ -130,10 +131,31 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                         << id;
                 return "";
             }
+            if (code != TxnErrorCode::TXN_OK) {
+                // Reject rather than accept a cloud_unique_id whose node membership is unchecked.
+                LOG(WARNING) << "use degraded format cloud_unique_id, but failed to get instance, "
+                                "instance_id="
+                             << id << " err=" << msg;
+                return "";
+            }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
                 msg = "instance status has been set delete, plz check it, recycle_state=" +
                       InstanceRecycleState_Name(instance.recycle_state());
                 LOG(WARNING) << msg << ", instance_id=" << id;
+                return "";
+            }
+            // Anyone knowing the instance_id can build a degraded format cloud_unique_id, so it
+            // is only trusted when it is a registered node of that instance.
+            bool registered = false;
+            for (const auto& cluster : instance.clusters()) {
+                for (const auto& node : cluster.nodes()) {
+                    registered |= node.cloud_unique_id() == cloud_unique_id;
+                }
+            }
+            if (!registered) {
+                LOG(WARNING) << "use degraded format cloud_unique_id, but node is not registered, "
+                                "instance_id="
+                             << id;
                 return "";
             }
         }
@@ -211,6 +233,31 @@ bool MetaServiceProxy::check_strict_instance_auth(const ::google::protobuf::Mess
     }
     status->set_code(MetaServiceCode::INVALID_ARGUMENT);
     status->set_msg("cloud_unique_id is required with instance_id");
+    LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
+                 << " instance_id=" << instance_id;
+    return false;
+}
+
+bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Message& req,
+                                                 MetaServiceResponseStatus* status) {
+    const auto* descriptor = req.GetDescriptor();
+    const auto* reflection = req.GetReflection();
+    // call_impl only checks requests with an instance_id field.
+    const auto* instance_id_field = descriptor->FindFieldByName("instance_id");
+    CHECK(instance_id_field != nullptr) << descriptor->name();
+    std::string instance_id = reflection->GetString(req, instance_id_field);
+    const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
+    std::string cloud_unique_id = cloud_unique_id_field == nullptr
+                                          ? ""
+                                          : reflection->GetString(req, cloud_unique_id_field);
+    // Nothing to cross check without both fields. Requests naming an instance by instance_id only
+    // are still accepted for compatibility, e.g. FE alter_cluster and create_instance.
+    if (instance_id.empty() || cloud_unique_id.empty() ||
+        get_instance_id(resource_mgr(), cloud_unique_id) == instance_id) {
+        return true;
+    }
+    status->set_code(MetaServiceCode::INVALID_ARGUMENT);
+    status->set_msg("instance_id does not belong to cloud_unique_id");
     LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
                  << " instance_id=" << instance_id;
     return false;
@@ -3426,6 +3473,30 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
 
+        if (request->need_alter_job_info()) {
+            // The requester caches this tablet in NOT_READY state. Report whether the
+            // tablet still has an active schema change job, so that BE can tell an
+            // in-progress schema change new tablet from an abandoned shadow tablet
+            // whose job has been cancelled or removed. The schema change job is
+            // registered under the new tablet's own job key when the job starts and
+            // cleared from it when the job is committed or aborted.
+            auto job_key = job_tablet_key(
+                    {instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), tablet_id});
+            std::string job_val;
+            TxnErrorCode job_err = txn->get(job_key, &job_val);
+            if (job_err != TxnErrorCode::TXN_OK && job_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(job_err);
+                msg = fmt::format("failed to get tablet job, tablet_id={}, err={}", tablet_id,
+                                  job_err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            TabletJobInfoPB job_pb;
+            response->set_has_alter_job(job_err == TxnErrorCode::TXN_OK &&
+                                        job_pb.ParseFromString(job_val) &&
+                                        job_pb.has_schema_change());
+        }
+
         int64_t bc_cnt = tablet_stat.base_compaction_cnt();
         int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
         int64_t fc_cnt =
@@ -3552,6 +3623,9 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
     CloneChainReader reader(instance_id, txn_kv_.get(), resource_mgr_.get());
+    const std::unordered_set<int64_t> versioned_row_counts(
+            request->tablet_ids_with_row_count_version().begin(),
+            request->tablet_ids_with_row_count_version().end());
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -3591,6 +3665,33 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                 response->clear_tablet_stats();
                 return;
             }
+        }
+        if (versioned_row_counts.contains(idx.tablet_id())) {
+            // Read coverage from the same KV transaction as tablet_stats.
+            VersionPB version;
+            if (is_versioned_read) {
+                err = reader.get_partition_version(txn.get(), idx.partition_id(), &version,
+                                                   nullptr);
+            } else {
+                auto key = partition_version_key(
+                        {instance_id, idx.db_id(), idx.table_id(), idx.partition_id()});
+                std::string value;
+                err = txn->get(key, &value);
+                if (err == TxnErrorCode::TXN_OK && !version.ParseFromString(value)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = fmt::format("malformed partition version, tablet_id={}", idx.tablet_id());
+                    return;
+                }
+            }
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get row-count version, err={}, tablet_id={}", err,
+                                  idx.tablet_id());
+                return;
+            }
+            // A new partition starts at version 1. Do not count pending lazy versions here.
+            tablet_stats->set_row_count_partition_version(version.has_version() ? version.version()
+                                                                                : 1);
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs

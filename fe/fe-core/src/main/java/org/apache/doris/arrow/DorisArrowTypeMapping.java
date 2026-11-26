@@ -136,6 +136,8 @@ public final class DorisArrowTypeMapping {
                 return new ArrowType.List();
             case STRUCT:
                 return new ArrowType.Struct();
+            case FILE:
+                throw new UnsupportedOperationException("FILE Arrow output is not supported");
             default:
                 return new ArrowType.Null();
         }

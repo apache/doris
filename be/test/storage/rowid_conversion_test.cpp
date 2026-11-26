@@ -608,8 +608,9 @@ TEST_F(TestRowIdConversion, CompressionSelectionPreservesConsumerAndOrderingCons
         ctx.snii_indexes_to_do_compaction.emplace(2, 1);
         select(ctx, true, Mode::COMPRESSED); // Duplicate Key postings also consume the mapping.
         ctx.columns_to_do_index_compaction.insert(2);
-        select(ctx, true, Mode::DENSE); // Any CLucene consumer requires the entire dense matrix.
-        ctx.columns_to_do_index_compaction.clear();
+        select(ctx, true, Mode::COMPRESSED); // CLucene borrows the same source mapping.
+        ctx.snii_indexes_to_do_compaction.clear();
+        select(ctx, true, Mode::COMPRESSED); // CLucene-only Duplicate Key compaction.
         config::debug_inverted_index_compaction = true;
         select(ctx, true, Mode::DENSE);
         config::debug_inverted_index_compaction = false;

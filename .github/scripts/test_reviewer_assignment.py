@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Exercise label-event routing and recoverable GitHub mutations without a network."""
+"""Exercise comment-command routing and recoverable GitHub mutations without a network."""
 
 import copy
 import datetime as dt
@@ -30,7 +30,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import reviewer_assignment as assignment
 import reviewer_assignment_model as model
@@ -49,6 +49,85 @@ PULL = PREFIX + "/pulls/42"
 
 def user(login):
     return {"login": login, "type": "User"}
+
+
+def comment_event(body="/assign-reviewers"):
+    return {"action": "created", "issue": {"number": 42, "pull_request": {}},
+            "comment": {"body": body, "user": {"id": 123, "login": "Writer"}},
+            "sender": {"id": 123, "login": "Writer"}}
+
+
+class RequestAuthorizationTest(unittest.TestCase):
+    def test_new_comment_normalizes_to_the_existing_assignment_request(self):
+        request = assignment.request_event(comment_event(), "issue_comment")
+        self.assertEqual(request["pull_request"]["number"], 42)
+        self.assertEqual(request["requester"], "Writer")
+        self.assertEqual(request["label"]["name"], "need-reviewers")
+
+    def test_rejects_edits_issues_arguments_and_spoofed_authors(self):
+        invalid = []
+        edited = comment_event()
+        edited["action"] = "edited"
+        invalid.append(edited)
+        issue = comment_event()
+        del issue["issue"]["pull_request"]
+        invalid.append(issue)
+        spoofed = comment_event()
+        spoofed["sender"]["id"] = 456
+        invalid.append(spoofed)
+        invalid.extend(comment_event(body) for body in (
+            "/assign-reviewers extra", "/assign-reviewers-other", "please /assign-reviewers"))
+        for event in invalid:
+            with self.subTest(event=event), self.assertRaises(ValueError):
+                assignment.request_event(event, "issue_comment")
+
+    def test_permission_is_read_from_github_instead_of_author_association(self):
+        for permission in ("read", "triage", "none", "write", "maintain", "admin"):
+            with self.subTest(permission=permission):
+                api = Mock()
+                api.request.return_value = {"permission": permission}
+                request = assignment.request_event(comment_event(), "issue_comment")
+                if permission in {"write", "maintain", "admin"}:
+                    assignment.authorize_request(api, request, "apache/doris")
+                else:
+                    with self.assertRaisesRegex(ValueError, "repository writers"):
+                        assignment.authorize_request(api, request, "apache/doris")
+                api.request.assert_called_once_with("GET", PREFIX + "/collaborators/Writer/permission")
+
+    def test_manual_preview_still_has_no_requester(self):
+        request = assignment.request_event({"inputs": {"pr_number": "42"}}, "workflow_dispatch")
+        self.assertNotIn("requester", request)
+        self.assertEqual(request["pull_request"]["number"], 42)
+
+    def test_unauthorized_cli_cannot_prepare_inputs_or_apply_an_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps(comment_event()))
+            for mode in ("prepare", "apply"):
+                with self.subTest(mode=mode), patch.dict(os.environ, {
+                    "GITHUB_EVENT_NAME": "issue_comment", "GITHUB_EVENT_PATH": str(event),
+                    "GITHUB_REPOSITORY": "apache/doris"}), patch.object(sys, "argv", [
+                        "reviewer_assignment.py", mode, "--workspace", directory]), \
+                        patch.object(assignment, "GitHub") as github, \
+                        patch.object(assignment, "prepare") as prepare, \
+                        patch.object(assignment, "apply") as apply:
+                    github.return_value.request.return_value = {"permission": "read"}
+                    with self.assertRaisesRegex(ValueError, "repository writers"):
+                        assignment.main()
+                    prepare.assert_not_called()
+                    apply.assert_not_called()
+
+    def test_manual_cli_cannot_apply_even_with_a_supplied_plan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"inputs": {"pr_number": "42"}}))
+            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch",
+                 "GITHUB_EVENT_PATH": str(event)}), patch.object(sys, "argv", [
+                     "reviewer_assignment.py", "apply", "--workspace", directory]), \
+                    patch.object(assignment, "GitHub") as github:
+                with self.assertRaisesRegex(ValueError, "Manual runs"):
+                    assignment.main()
+                github.assert_not_called()
 
 
 def fixture_config():
@@ -323,9 +402,9 @@ class AssignmentTest(unittest.TestCase):
         (repository / "tools/reviewer-routing/reviewer-routing.json").write_text(json.dumps(self.config))
         assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         event = self.root / "event.json"
-        assignment.write_json(event, self.event)
+        assignment.write_json(event, comment_event())
         env = {**os.environ, "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "apache/doris",
-               "GITHUB_RUN_ID": "100", "GITHUB_EVENT_NAME": "pull_request_target", "PYTHONDONTWRITEBYTECODE": "1"}
+               "GITHUB_RUN_ID": "100", "GITHUB_EVENT_NAME": "issue_comment", "PYTHONDONTWRITEBYTECODE": "1"}
         command = [sys.executable, str(scripts / "reviewer_assignment.py"), "validate", "--workspace", str(self.workspace)]
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -461,7 +540,7 @@ class AssignmentTest(unittest.TestCase):
             assignment.validate_selection({"reviewers": ["Bob"]}, "Author", allowed)
         self.assertTrue(self.apply(("Alice",))["assigned"])
 
-    def test_queued_labeled_event_runs_even_if_prior_run_removed_the_label(self):
+    def test_queued_command_runs_even_if_prior_run_removed_the_label(self):
         self.api.labels = {"bug", "reviewers-assigned"}
         self.assertFalse(self.prepare(run="102"))
         self.apply(("Alice",))
@@ -1244,12 +1323,46 @@ sys.exit(code)
                 self.assertNotIn("secret-context", saved + result.stdout)
 
 
+FAKE_OSS = r'''
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(os.environ["FAKE_OSS_ROOT"])
+args = sys.argv[1:]
+op = next(arg for arg in args if arg in ("ls", "cp"))
+args = [arg for arg in args[args.index(op) + 1:] if not arg.startswith("-")]
+with (root / "calls.jsonl").open("a") as log:
+    log.write(json.dumps([op, *args]) + "\n")
+prefix = "oss://doris-community-ci/codex/"
+if os.environ.get("FAKE_OSS_FAIL") == f"{op}:{args[-1] if op == 'cp' else args[0]}":
+    sys.exit(1)
+if op == "ls":
+    for path in sorted((root / "objects").iterdir()):
+        name = prefix + path.name
+        if name.startswith(args[0]):
+            print(name)
+    sys.exit(0)
+source, destination = args
+if source.startswith(prefix):
+    source = root / "objects" / source.removeprefix(prefix)
+if destination.startswith(prefix):
+    destination = root / "objects" / destination.removeprefix(prefix)
+if not Path(source).exists():
+    sys.exit(1)
+shutil.copyfile(source, destination)
+# Simulate a concurrent replacement immediately after a candidate is downloaded.
+if os.environ.get("FAKE_OSS_REPLACE_AFTER_DOWNLOAD") == Path(source).name:
+    source.write_text(os.environ["FAKE_OSS_REPLACEMENT"])
+'''
+
+
 class AuthPoolShellTest(unittest.TestCase):
     PREFIX = "oss://doris-community-ci/codex/"
 
     def setUp(self):
-        # Reuse the reference workflow's fake OSS protocol and snapshot-race fixture.
-        from test_review_auth_quarantine import FAKE_OSS
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -1428,11 +1541,11 @@ class WorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.workflow = (assignment.ROOT / ".github/workflows/reviewer-assignment.yml").read_text()
-        cls.runner = (assignment.ROOT / ".github/workflows/code-review-runner.yml").read_text()
 
     def test_reapplication_is_an_event_not_a_one_time_flag(self):
-        self.assertIn("pull_request_target:\n    types: [labeled]", self.workflow)
-        self.assertIn("github.event.label.name == 'need-reviewers'", self.workflow)
+        self.assertIn("issue_comment:\n    types: [created]", self.workflow)
+        self.assertIn("github.event.comment.body == '/assign-reviewers'", self.workflow)
+        self.assertNotIn("pull_request_target", self.workflow)
         self.assertNotIn("contains(github.event.pull_request.labels", self.workflow)
         self.assertIn("queue: max", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
@@ -1455,7 +1568,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("issues: write", assign)
         self.assertNotIn("secrets.OSS_", assign)
         self.assertIn("needs: select", assign)
-        self.assertIn("if: github.event_name == 'pull_request_target'", assign)
+        self.assertIn("if: github.event_name == 'issue_comment'", assign)
 
     def test_auth_reuses_reference_pool_and_optimistic_write_guard(self):
         self.assertIn("auth_prefix='oss://doris-community-ci/codex/auth.json.'", self.workflow)
@@ -1476,21 +1589,18 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("            .github/workflows", checkout)
         self.assertIn("            tools/reviewer-routing", checkout)
 
-    def test_github_token_and_write_permissions_are_a_subset_of_reference(self):
+    def test_github_token_and_job_permissions(self):
         self.assertIn("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", self.workflow)
         for permission in ("contents: read", "pull-requests: read", "issues: write"):
             self.assertIn(permission, self.workflow)
-        for permission in ("contents: read", "pull-requests: write", "issues: write"):
-            self.assertIn(permission, self.runner)
         self.assertNotIn("secrets.REVIEWER_ASSIGNMENT", self.workflow)
 
-    def test_runtime_and_checksums_match_the_existing_runner(self):
-        archive = re.search(r"oss://[^\s]+codex-exec-goal-[^\s]+\.tar\.gz", self.workflow)[0]
-        self.assertIn(archive, self.runner)
-        hashes = re.findall(r'echo "([0-9a-f]{64}) ', self.workflow)
-        self.assertEqual(len(hashes), 2)
-        for checksum in hashes:
-            self.assertIn(checksum, self.runner)
+    def test_archive_and_binary_are_verified_before_use(self):
+        checks = re.findall(r'echo "[0-9a-f]{64}  ([^"]+)" \| sha256sum --check', self.workflow)
+        self.assertEqual(["$archive", "$package/bin/codex"], checks)
+        self.assertLess(self.workflow.index('$archive" | sha256sum --check'), self.workflow.index('tar -xzf "$archive"'))
+        self.assertLess(self.workflow.index('$package/bin/codex" | sha256sum --check'),
+                        self.workflow.index('"$package/bin/codex" exec --help'))
 
     def test_no_auth_prompt_or_session_artifacts_are_uploaded(self):
         upload = self.workflow.split("      - name: Publish the validated assignment plan\n")[1]

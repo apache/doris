@@ -378,6 +378,25 @@ be/src/storage/index/inverted/analysis/analyzer/kuromoji/dict/darts.h : 2-Clause
 
 --------------------------------------------------------------------------------
 
+be/src/storage/index/inverted/analysis/tokenizer/jieba/dict_trie.h
+be/src/storage/index/inverted/analysis/tokenizer/jieba/hmm_model.h
+be/src/storage/index/inverted/analysis/tokenizer/jieba/segmenter.h
+be/src/storage/index/inverted/analysis/tokenizer/jieba/unicode.h : MIT license (cppjieba)
+
+  Copyright (c) 2013
+  Derived from https://github.com/yanyiwu/cppjieba
+  Full text: dist/licenses/LICENSE-cppjieba.txt
+
+--------------------------------------------------------------------------------
+
+be/src/storage/index/inverted/analysis/tokenizer/jieba/string_util.h : MIT license (limonp)
+
+  Copyright (c) 2013
+  Derived from https://github.com/yanyiwu/limonp
+  Full text: dist/licenses/LICENSE-limonp.txt
+
+--------------------------------------------------------------------------------
+
 be/src/util/murmur_hash3.h
 be/src/util/murmur_hash3.cpp
 

@@ -88,6 +88,10 @@ public final class AdbcCatalogProperties {
      * is absent the connector asks the driver for its vendor and falls back to ANSI, which is what an
      * unrecognized source gets. Set it when the source's vendor string is unhelpful or when its SQL differs
      * from what the vendor name implies.
+     * When vendor information is unavailable (including the native Flight SQL default), {@code doris}
+     * also opts into discovery scoped to the current remote catalog. Set it for older Doris Flight
+     * servers that lack SQL info to avoid recursive metadata loading. A known vendor takes precedence
+     * for metadata routing even when SQL rendering is overridden.
      */
     public static final String SQL_DIALECT = "sql_dialect";
 

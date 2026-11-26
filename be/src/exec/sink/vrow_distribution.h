@@ -81,6 +81,7 @@ public:
         VOlapTablePartitionParam* vpartition = nullptr;
         RuntimeProfile::Counter* add_partition_request_timer = nullptr;
         int64_t txn_id = -1;
+        bool remote_endpoint = false;
         ObjectPool* pool = nullptr;
         OlapTableLocationParam* location = nullptr;
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
@@ -102,6 +103,7 @@ public:
         _vpartition = ctx.vpartition;
         _add_partition_request_timer = ctx.add_partition_request_timer;
         _txn_id = ctx.txn_id;
+        _remote_endpoint = ctx.remote_endpoint;
         _pool = ctx.pool;
         _location = ctx.location;
         _vec_output_expr_ctxs = ctx.vec_output_expr_ctxs;
@@ -232,6 +234,7 @@ private:
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
     VOlapTablePartitionParam* _vpartition = nullptr;
+    bool _remote_endpoint = false;
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     int64_t _txn_id = -1;
     ObjectPool* _pool = nullptr;

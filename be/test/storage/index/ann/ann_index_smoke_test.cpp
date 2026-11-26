@@ -28,6 +28,7 @@
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/olap_common.h"
 
 using namespace doris::vector_search_utils;
@@ -116,7 +117,7 @@ TEST_F(AnnIndexTest, SmokeTest) {
     // Read the index file
     auto index2 = std::make_unique<segment_v2::FaissVectorIndex>();
     // Step 6: Load the index
-    auto load_status = index2->load(_ram_dir.get());
+    auto load_status = load_from_directory(index2.get(), _ram_dir);
     ASSERT_TRUE(load_status.ok()) << load_status.to_string();
     // [0,1,2,3,4,5,6,7,8,9]
     std::unique_ptr<float[]> query_vec(new float[10]);

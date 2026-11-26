@@ -54,6 +54,13 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
+        def waitForScannedRows = { long expected ->
+            Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+                def rows = sql """SELECT LoadStatistic, Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+                rows.size() == 1 && rows[0][1] == "RUNNING" && parseJson(rows[0][0]).scannedRows >= expected
+            }
+        }
+
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
@@ -168,7 +175,7 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(60000); // wait for cdc incremental data
+        waitForScannedRows(7)
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -189,10 +196,29 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             log.info("xminResult1: " + xminResult1)
         }
 
-        sleep(60000); // wait for cdc incremental data
+        waitForScannedRows(8)
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
+
+        // Keep the rollback and its committed marker on the same source connection.
+        def expectedAfterRollback = connect("${pgUser}", "${pgPassword}",
+                "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql "BEGIN"
+            try {
+                sql """INSERT INTO ${pgSchema}.${table1} VALUES ('rolled_back', 99)"""
+                sql """UPDATE ${pgSchema}.${table1} SET age=99 WHERE name='B1'"""
+                sql """DELETE FROM ${pgSchema}.${table1} WHERE name='Doris'"""
+            } finally {
+                sql "ROLLBACK"
+            }
+            sql """INSERT INTO ${pgSchema}.${table1} VALUES ('AfterRollback', 50)"""
+            sql """SELECT name, age FROM ${pgSchema}.${table1} ORDER BY name"""
+        }
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT name, age FROM ${currentDb}.${table1} ORDER BY name") == expectedAfterRollback
+        }
+        order_qt_after_rollback "SELECT name, age FROM ${currentDb}.${table1} ORDER BY name"
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'

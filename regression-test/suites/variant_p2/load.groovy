@@ -54,7 +54,7 @@ suite("load_p2", "variant_type,p2"){
     }
 
     def create_table = {table_name, buckets="auto" ->
-        sql "set default_variant_max_subcolumns_count = 0"
+        sql "set debug_variant_max_subcolumns_count = 0"
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (

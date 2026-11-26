@@ -62,24 +62,23 @@ suite("test_iceberg_encryption_delete_reader", "p0,external,nonConcurrent") {
                 for (int version : [2, 3]) {
                     for (int mode = 0; mode < 8; mode++) {
                         String table = "encryption_delete_regression.iceberg_encryption_delete_db.native_deletes_${mode}_v${version}"
-                        if (mode == 0) {
+                        if (version == 2 && mode == 0) {
                             quickTest("plain_rows_v${version}", "SELECT id FROM ${table} ORDER BY id")
                             quickTest("plain_count_v${version}", "SELECT COUNT(*) FROM ${table}")
                         } else {
-                            // The physical reader is tested with real independent keys in UT. SQL
-                            // must still stop before sending any key until the transport stage is ready.
+                            // The deployment switch remains off in this guard suite. Even undeclared
+                            // per-file keys must be denied before native descriptors are published.
                             test {
                                 sql "SELECT id FROM ${table} ORDER BY id"
-                                exception "File encryption [READ_UNAVAILABLE]"
+                                exception "Iceberg encryption [READ_DISABLED]"
                             }
-                            // Equality deletes prevent metadata-only COUNT here; the query still
-                            // reaches the dispatch fence when aggregate pushdown is requested.
+                            // COUNT must observe the same default-off contract instead of trusting metadata.
                             test {
                                 sql "SELECT COUNT(*) FROM ${table}"
-                                exception "File encryption [READ_UNAVAILABLE]"
+                                exception "Iceberg encryption [READ_DISABLED]"
                             }
                         }
-                        if ((mode & 2) == 0) {
+                        if (version == 2 && (mode & 2) == 0) {
                             // Encrypted data or equality deletes do not encrypt the separate plaintext
                             // position-delete file exposed by this metadata table.
                             quickTest("plain_positions_${mode}_v${version}",
@@ -89,11 +88,11 @@ suite("test_iceberg_encryption_delete_reader", "p0,external,nonConcurrent") {
                         } else {
                             test {
                                 sql "SELECT pos FROM ${table}\$position_deletes ORDER BY pos"
-                                exception "File encryption [READ_UNAVAILABLE]"
+                                exception "Iceberg encryption [READ_DISABLED]"
                             }
                             test {
                                 sql "SELECT COUNT(*) FROM ${table}\$position_deletes"
-                                exception "File encryption [READ_UNAVAILABLE]"
+                                exception "Iceberg encryption [READ_DISABLED]"
                             }
                         }
                     }

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_derived_format", "p0,nonConcurrent") {
-    sql "set default_variant_enable_nested_group=false"
+    sql "set debug_variant_enable_nested_group=false"
     sql "DROP TABLE IF EXISTS dotted_key_escape_derived_source"
     sql """CREATE TABLE dotted_key_escape_derived_source(k INT, v VARIANT)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1

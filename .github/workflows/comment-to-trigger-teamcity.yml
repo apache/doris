@@ -51,12 +51,16 @@ jobs:
         )
       }}
 
+    outputs:
+      lanes: ${{ steps.fc_lanes.outputs.lanes }}
+      pr: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
+      head: ${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}
+      base: ${{ steps.parse.outputs.TARGET_BRANCH }}
+      repeat: ${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}
     runs-on: ubuntu-latest
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
       COMMENT_USER_ID: ${{ github.event.comment.user.id }}
-      TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
-      TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -65,8 +69,10 @@ jobs:
       run: |
         COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
         PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
-        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
-        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
+        pr_json=$(curl --fail --silent --show-error -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}")
+        COMMIT_ID_FROM_TRIGGER=$(jq -er '.head.sha' <<< "$pr_json")
+        TARGET_BRANCH=$(jq -er '.base.ref' <<< "$pr_json")
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
@@ -136,6 +142,11 @@ jobs:
         if [[ "${COMMENT_BODY}" =~ $reg ]]; then
           COMMENT_TRIGGER_TYPE=${BASH_REMATCH[1]}
           COMMENT_REPEAT_TIMES=${BASH_REMATCH[3]:-1}
+          [[ "$COMMENT_REPEAT_TIMES" =~ ^([1-9]|1[0-9]|20)$ ]] || { echo 'Repeat must be between 1 and 20'; exit 1; }
+          base_sha=$(jq -er '.base.sha' <<< "$pr_json")
+          file_count=$(jq -er '.changed_files' <<< "$pr_json")
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "file_count=$file_count" >> "$GITHUB_OUTPUT"
         elif [[ "${COMMENT_BODY}" != 'skip buildall' ]]; then
           echo 'Unsupported command; use run <TeamCity check suffix> [count] or run buildall'; exit 1
         fi
@@ -149,7 +160,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) }}
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.repository.default_branch }}
+        ref: ${{ github.sha }}
         persist-credentials: false
 
     - name: "Check if pr need run build"
@@ -248,6 +259,24 @@ jobs:
           exit 1
         fi
 
+    - name: Prepare FC lane selection
+      if: steps.parse.outputs.comment_trigger == 'true'
+      env:
+        PR: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
+        HEAD_SHA: ${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}
+        BASE_SHA: ${{ steps.parse.outputs.base_sha }}
+        FILE_COUNT: ${{ steps.parse.outputs.file_count }}
+      run: |
+        # The file filters and the approval record must describe the same PR revision.
+        [[ "$FILE_COUNT" =~ ^[0-9]+$ && $(wc -l < all_files) -eq "$FILE_COUNT" ]]
+        pr_json=$(curl --fail --silent --show-error -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/$PR")
+        jq -se --arg head "$HEAD_SHA" --arg base "$BASE_SHA" --arg branch "$TARGET_BRANCH" \
+          'length == 1 and (.[0] | .state == "open" and .head.sha == $head and .base.sha == $base and .base.ref == $branch)' \
+          <<< "$pr_json" >/dev/null
+        : > "$RUNNER_TEMP/teamcity-fc-lanes"
+        echo "TEAMCITY_FC_PLAN=$RUNNER_TEMP/teamcity-fc-lanes" >> "$GITHUB_ENV"
+
     - name: "Trigger feut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
@@ -258,8 +287,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "feut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "feut"
 
 
     - name: "Trigger beut"
@@ -272,8 +300,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "beut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "beut"
 
     - name: "Trigger cloudut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloudut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
@@ -285,8 +312,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "cloudut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "cloudut"
 
     - name: "Trigger compile"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["compile", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
@@ -303,8 +329,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "compile" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "compile"
 
     - name: "Trigger p0"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'p0' }}
@@ -316,8 +341,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "p0" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "p0"
 
     - name: "Trigger external"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'external' }}
@@ -329,8 +353,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "external" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "external"
 
     - name: "Trigger cloud_p0"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'cloud_p0' }}
@@ -342,8 +365,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "cloud_p0" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "cloud_p0"
 
 
     - name: "Trigger vault_p0"
@@ -356,8 +378,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "vault_p0" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "vault_p0"
 
     - name: "Trigger nonconcurrent"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'nonconcurrent' }}
@@ -369,8 +390,7 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "nonconcurrent" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "nonconcurrent"
   
     - name: "Trigger performance"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) && steps.parse.outputs.TARGET_BRANCH == 'master' }}
@@ -382,8 +402,14 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "performance" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+          "performance"
+
+    - name: Collect selected FC lanes
+      id: fc_lanes
+      if: steps.parse.outputs.comment_trigger == 'true'
+      run: |
+        lanes=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$TEAMCITY_FC_PLAN")
+        echo "lanes=$lanes" >> "$GITHUB_OUTPUT"
 
     - name: "Skip buildall"
       if: ${{ fromJSON(steps.parse.outputs.comment_skip) }}
@@ -401,3 +427,42 @@ jobs:
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloudut
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" vault_p0
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" nonconcurrent
+
+  approve-fc:
+    needs: check-comment-if-need-to-trigger-teamcity
+    if: needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes != '' && needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes != '[]'
+    strategy:
+      matrix:
+        lane: ${{ fromJSON(needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes) }}
+    name: fc-approve/v1/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.pr }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.head }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.base }}/${{ matrix.lane }}/${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.repeat }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: 'true'
+
+  submit-fc:
+    needs: [check-comment-if-need-to-trigger-teamcity, approve-fc]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: regression-test/pipeline/common
+      - name: Queue approved TeamCity builds
+        env:
+          TEAMCITY_FC_TRIGGER_URL: ${{ vars.TEAMCITY_FC_TRIGGER_URL }}
+          LANES: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.lanes }}
+          PR: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.pr }}
+          HEAD_SHA: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.head }}
+          BASE_BRANCH: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.base }}
+          REPEAT: ${{ needs.check-comment-if-need-to-trigger-teamcity.outputs.repeat }}
+        run: |
+          source regression-test/pipeline/common/teamcity-utils.sh
+          lanes=$(jq -er '.[]' <<< "$LANES")
+          while IFS= read -r lane; do
+            teamcity_fc_submit "$lane" "$PR" "$HEAD_SHA" "$BASE_BRANCH" "$REPEAT"
+          done <<< "$lanes"

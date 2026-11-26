@@ -21,19 +21,44 @@ Each table starts with values 1 through 8; position deletes remove offsets 1 and
 6, and the equality delete removes value 5. The remaining values are
 `1, 3, 4, 6, 8`.
 
-Fixtures exist as V2 tables and V2 snapshots upgraded to V3, which retains their
-older Parquet position deletes. Table metadata stays plaintext and carries
-synthetic StandardKeyMetadata V1 descriptors directly. This isolates native-file
-planning and the last dispatch guard from the separate KMS/metadata-encryption
-fixture. It is a controlled test arrangement using public keys, not a production
-catalog setup.
+V2 fixtures keep plaintext metadata with public synthetic StandardKeyMetadata V1
+file descriptors. Their V3 counterparts retain the legacy Parquet position deletes
+and register a V3 snapshot with the configured test KMS, then rewrite data and
+delete manifests through the SDK. The current V3 manifest lists and manifests are
+encrypted, and verification checks their table key chain before reading the files.
+This fixture arrangement is not a production table-encryption migration workflow.
 
-`test_iceberg_encryption_delete_reader` compares plaintext SQL delete results and
-position-delete metadata output, and asserts that encrypted descriptors still
-stop at the SQL dispatch guard. Metadata-only COUNT rejection is covered separately
-by FE and BE unit tests. The SQL suite covers eager/lazy planning,
-COUNT pushdown on/off, all file combinations and both format versions. The
-physical reader UTs exercise successful decryption, key/AAD failures, repeated
-splits, converted equality keys and unsupported encrypted ORC/Puffin descriptors.
-Encrypted SQL admission remains closed until transport and cache integration are
-complete.
+`test_iceberg_encryption_delete_reader` runs with the deployment read switch off.
+It checks ordinary V2 results and rejects encrypted V3 metadata or undeclared
+per-file keys before publishing native descriptors. Plain V2 position-delete
+metadata remains readable independently of encrypted data/equality files.
+
+`test_iceberg_encryption_native_read_integration` additionally requires
+`enableIcebergEncryptionNativeRead=true`, the plugin's deployment-level
+`enable_encryption_read=true`, and authenticated private RPC on capable FE/BE
+nodes. It compares SQL against SDK/Spark history and the eight delete-key modes,
+with cache, COUNT pushdown, batch planning and pruning toggles. Encrypted JNI
+metadata tables remain explicitly unsupported; native position-deletes use the
+protected reader path.
+
+For warm-cache authorization checks, `/kms/runtime` proxies requests only to the
+disposable Moto service configured at startup. `POST /kms/access/deny` revokes
+mock decrypt permission without changing the Doris catalog or endpoint;
+`POST /kms/access/allow` restores it. `GET /kms/access` reports the state and the
+number of decrypt requests. Moto uses signing scopes for routing but does not
+validate AWS signatures: this is test fault injection, not AWS IAM acceptance or
+a production KMS gateway. Private RPC identities are generated separately at test
+time by `generate-tls-fixture.sh`.
+
+`POST /benchmark/reset` creates a matched pair of plaintext/encrypted V3 tables,
+each with 1,048,576 integer rows in four files, Zstandard compression, 64 KiB row
+groups and Bloom filters. `GET /benchmark/verify` checks their row count, sum,
+physical file count and independent encrypted file keys with the SDK. These
+larger samples exercise row-group boundaries and provide identical writer
+settings for cost measurements; timing comparisons still require matching
+release builds, explicit cache conditions and a declared regression threshold.
+
+V3 planning currently remains synchronous, including with the external batch
+setting enabled. The integration matrix checks both setting values without
+claiming encrypted V3 lazy execution; protocol and transport tests cover lazy
+caller rejection and binary payload round trips separately.

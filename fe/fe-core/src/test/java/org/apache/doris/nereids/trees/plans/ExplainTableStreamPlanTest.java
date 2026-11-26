@@ -34,7 +34,9 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -462,6 +464,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
+            Assertions.assertTrue(((OlapChangelogTableWrapper) scanNode.getOlapTable()).isStreamScan());
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
             Assertions.assertFalse(locations.isEmpty());
             for (TScanRangeLocations loc : locations) {
@@ -506,21 +509,15 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         Assertions.assertNotNull(incrementalScan1);
-        Map<Long, Long> prevOffsets = new java.util.HashMap<>();
-        Map<Long, Long> nextOffsets = new java.util.HashMap<>();
+        Map<Long, PartitionUpdate> updates = new java.util.HashMap<>();
         for (Long pid : incrementalScan1.getSelectedPartitionIds()) {
-            // Use the raw (un-shifted) stream offsets, mirroring what the production
-            // StreamConsumptionInfoExtractor commits. Reading them back from the scan node's
-            // OlapChangelogTableWrapper would return the already +1-shifted scan-range bounds and
-            // introduce a spurious double shift into this closed-loop check.
+            // Keep the raw, unshifted TSO points used by consumption, not the scan bounds.
             Pair<Long, Long> off = stream.getStreamUpdate(pid);
-            if (off.first != null) {
-                prevOffsets.put(pid, off.first);
-            }
-            nextOffsets.put(pid, off.second != null ? off.second : baseTable.getPartition(pid).getTso());
+            Long nextOffset = off.second != null ? off.second : baseTable.getPartition(pid).getTso();
+            updates.put(pid, new PartitionUpdate(off.first, PartitionStreamState.initial().atOffset(nextOffset)));
         }
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prevOffsets, nextOffsets);
-        Assertions.assertFalse(nextOffsets.isEmpty());
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(updates);
+        Assertions.assertFalse(updates.isEmpty());
 
         // Commit the offsets.
         baseTable.writeLock();
@@ -529,8 +526,9 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         } finally {
             baseTable.writeUnlock();
         }
-        for (Map.Entry<Long, Long> entry : nextOffsets.entrySet()) {
-            Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(entry.getKey()).first,
+        for (Map.Entry<Long, PartitionUpdate> entry : updates.entrySet()) {
+            Assertions.assertEquals(entry.getValue().getNextState().getOffset(),
+                    stream.getStreamUpdate(entry.getKey()).first,
                     "partitionOffset should be advanced to committed next TSO");
         }
 
@@ -554,7 +552,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
                 // BE reads [startTso, endTso), so the stream wrapper shifts the recorded offset by +1.
-                Assertions.assertEquals(TSOTimestamp.nextTso(nextOffsets.get(pid)), range.getStartTso(),
+                Assertions.assertEquals(TSOTimestamp.nextTso(updates.get(pid).getNextState().getOffset()), range.getStartTso(),
                         "after offset commit, new startTSO must equal the previously committed next TSO + 1");
                 assertedAtLeastOne = true;
             }
@@ -747,6 +745,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
+            Assertions.assertFalse(((OlapChangelogTableWrapper) scanNode.getOlapTable()).isStreamScan());
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
             Assertions.assertFalse(locations.isEmpty());
             for (TScanRangeLocations loc : locations) {
@@ -920,6 +919,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertEquals(mow ? 1 : 0, changelogScans.size());
         for (LogicalOlapScan scan : changelogScans) {
             OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scan.getTable();
+            Assertions.assertFalse(wrapper.isStreamScan());
             Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
             for (Long partitionId : wrapper.getPartitionIds()) {
                 Assertions.assertEquals(Pair.of(exclusiveBound, null), wrapper.getPartitionOffset(partitionId));

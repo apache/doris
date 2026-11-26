@@ -17,7 +17,7 @@
 
 suite("variant_decimal256_storage_error", "p0,nonConcurrent") {
     sql "SET enable_decimal256 = true"
-    sql "SET default_variant_enable_doc_mode = false"
+    sql "SET debug_variant_enable_doc_mode = false"
 
     sql "DROP TABLE IF EXISTS variant_decimal256_materialized"
     sql """

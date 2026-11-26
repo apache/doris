@@ -47,6 +47,7 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
+    case PrimitiveType::TYPE_FILE:
         return std::make_unique<MaxMinValue<SingleValueDataColumn>>();
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

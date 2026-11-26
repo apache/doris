@@ -21,8 +21,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <barrier>
 #include <chrono>
 #include <memory>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,11 +35,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/binary_column_reader.h"
+#include "storage/segment/variant/nested_group_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
@@ -81,6 +86,15 @@ public:
 private:
     int32_t _col_uid;
     FieldType _type;
+};
+
+class HealthCheckingColumnReader : public MockColumnReader {
+public:
+    HealthCheckingColumnReader() : MockColumnReader(1) {}
+    Status healthy_status() const override {
+        return check ? check() : ColumnReader::healthy_status();
+    }
+    std::function<Status()> check;
 };
 
 class ColumnReaderCacheTest : public ::testing::Test {
@@ -227,6 +241,291 @@ TEST_F(ColumnReaderCacheTest, BasicCacheOperations) {
     readers = _cache->get_available_readers(false);
     EXPECT_EQ(readers.size(), 1);
     EXPECT_EQ(readers[1], reader);
+}
+
+// A first lazy-load failure must not be returned by all subsequent cache hits.
+TEST_F(ColumnReaderCacheTest, RebuildAfterOrdinalLoadFailure) {
+    setup_column_uid_mapping(1, 0);
+    ColumnMetaPB meta;
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    meta.set_unique_id(1);
+    meta.set_encoding(get_v2_default_encoding(FieldType::OLAP_FIELD_TYPE_INT));
+    auto* index = meta.add_indexes();
+    index->set_type(ORDINAL_INDEX);
+    index->mutable_ordinal_index()->mutable_root_page()->set_is_root_data_page(true);
+    setup_segment_footer({meta});
+
+    std::shared_ptr<ColumnReader> failed;
+    ASSERT_TRUE(_cache->get_column_reader(1, &failed, &_stats).ok());
+    // Seed the retained result of a failed index read, then exercise the actual
+    // ColumnReader loading entry point used by point reads and prefetch.
+    ASSERT_FALSE(failed->_ordinal_index->_load_once
+                         .call([] { return Status::IOError("injected ordinal read failure"); })
+                         .ok());
+    OrdinalIndexReader* ordinal = nullptr;
+    EXPECT_FALSE(failed->get_ordinal_index_reader(ordinal, &_stats).ok());
+    EXPECT_FALSE(failed->healthy_status().ok());
+
+    std::shared_ptr<ColumnReader> replacement;
+    ASSERT_TRUE(_cache->get_column_reader(1, &replacement, &_stats).ok());
+    ASSERT_NE(failed, replacement);
+    EXPECT_TRUE(replacement->healthy_status().ok());
+    EXPECT_TRUE(replacement->get_ordinal_index_reader(ordinal, &_stats).ok());
+    EXPECT_NE(ordinal, nullptr);
+
+    // Late use of an old shared_ptr must not poison or remove its replacement.
+    EXPECT_FALSE(failed->get_ordinal_index_reader(ordinal, &_stats).ok());
+    std::shared_ptr<ColumnReader> cached;
+    ASSERT_TRUE(_cache->get_column_reader(1, &cached, &_stats).ok());
+    EXPECT_EQ(cached, replacement);
+    EXPECT_EQ(_cache->_lru_list.size(), 1);
+    EXPECT_EQ(_cache->_cache_map.size(), 1);
+}
+
+TEST_F(ColumnReaderCacheTest, IndexExceptionsInvalidateReader) {
+    setup_column_uid_mapping(1, 0);
+    ColumnMetaPB meta;
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    meta.set_unique_id(1);
+    meta.set_encoding(get_v2_default_encoding(FieldType::OLAP_FIELD_TYPE_INT));
+    meta.add_indexes()->set_type(ORDINAL_INDEX);
+    setup_segment_footer({meta});
+
+    for (bool doris_exception : {true, false}) {
+        std::shared_ptr<ColumnReader> failed;
+        ASSERT_TRUE(_cache->get_column_reader(1, &failed, &_stats).ok());
+        auto throw_failure = [&]() -> Status {
+            if (doris_exception) {
+                throw doris::Exception(ErrorCode::MEM_LIMIT_EXCEEDED,
+                                       "injected allocation failure");
+            }
+            throw std::bad_alloc();
+        };
+        EXPECT_ANY_THROW(static_cast<void>(failed->_ordinal_index->_load_once.call(throw_failure)));
+        ColumnIteratorOptions options;
+        options.stats = &_stats;
+        if (doris_exception) {
+            EXPECT_THROW(static_cast<void>(failed->_load_ordinal_index(false, false, options)),
+                         doris::Exception);
+            EXPECT_TRUE(failed->healthy_status().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+        } else {
+            EXPECT_THROW(static_cast<void>(failed->_load_ordinal_index(false, false, options)),
+                         std::bad_alloc);
+            EXPECT_TRUE(failed->healthy_status().is<ErrorCode::INTERNAL_ERROR>());
+        }
+        EXPECT_TRUE(_cache->get_available_readers(false).empty());
+        EXPECT_TRUE(_cache->_lru_list.empty());
+        EXPECT_TRUE(_cache->_cache_map.empty());
+    }
+}
+
+TEST_F(ColumnReaderCacheTest, ZoneMapAndBloomFilterFailuresInvalidateReader) {
+    setup_column_uid_mapping(1, 0);
+    ColumnMetaPB meta;
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    meta.set_unique_id(1);
+    meta.set_encoding(get_v2_default_encoding(FieldType::OLAP_FIELD_TYPE_INT));
+    meta.add_indexes()->set_type(ORDINAL_INDEX);
+    meta.add_indexes()->set_type(ZONE_MAP_INDEX);
+    meta.add_indexes()->set_type(BLOOM_FILTER_INDEX);
+    setup_segment_footer({meta});
+    ColumnIteratorOptions options;
+    options.stats = &_stats;
+
+    std::shared_ptr<ColumnReader> zone_reader;
+    ASSERT_TRUE(_cache->get_column_reader(1, &zone_reader, &_stats).ok());
+    ASSERT_FALSE(zone_reader->_zone_map_index->_load_once
+                         .call([] { return Status::IOError("injected zone map failure"); })
+                         .ok());
+    EXPECT_FALSE(zone_reader->_load_zone_map_index(false, false, options).ok());
+    EXPECT_FALSE(zone_reader->healthy_status().ok());
+
+    std::shared_ptr<ColumnReader> bloom_reader;
+    ASSERT_TRUE(_cache->get_column_reader(1, &bloom_reader, &_stats).ok());
+    EXPECT_NE(zone_reader, bloom_reader);
+    ASSERT_FALSE(bloom_reader->_bloom_filter_index->_load_once
+                         .call([] {
+                             return Status::MemoryLimitExceeded("injected bloom filter failure");
+                         })
+                         .ok());
+    EXPECT_FALSE(bloom_reader->_load_bloom_filter_index(false, false, options).ok());
+    EXPECT_FALSE(bloom_reader->healthy_status().ok());
+    EXPECT_TRUE(_cache->get_available_readers(false).empty());
+}
+
+TEST_F(ColumnReaderCacheTest, ChildFailureInvalidatesCachedParentAndPath) {
+    ColumnMetaPB meta;
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    for (auto type : {FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT}) {
+        auto* child = meta.add_children_columns();
+        child->set_type(static_cast<int32_t>(type));
+        child->set_num_rows(10);
+        child->set_encoding(get_v2_default_encoding(type));
+        child->add_indexes()->set_type(ORDINAL_INDEX);
+    }
+    ColumnReaderOptions options;
+    std::shared_ptr<ColumnReader> parent;
+    ASSERT_TRUE(ColumnReader::create(options, meta, 10, nullptr, &parent).ok());
+    auto child = parent->_sub_readers[0];
+    auto ancestor = std::make_shared<MockColumnReader>(1);
+    ancestor->_sub_readers.push_back(parent);
+    // Reusing the same options must not couple independent reader trees.
+    std::shared_ptr<ColumnReader> same_options_reader;
+    ASSERT_TRUE(ColumnReader::create(options, meta, 10, nullptr, &same_options_reader).ok());
+    _cache->_insert_direct({1, {}}, ancestor);
+    _cache->_insert_direct({1, PathInData("element")}, child);
+    auto independent = std::make_shared<MockColumnReader>(2);
+    _cache->_insert_direct({2, {}}, independent);
+
+    ASSERT_FALSE(child->_ordinal_index->_load_once
+                         .call([] { return Status::IOError("injected child index failure"); })
+                         .ok());
+    OrdinalIndexReader* ordinal = nullptr;
+    EXPECT_FALSE(child->get_ordinal_index_reader(ordinal, &_stats).ok());
+    EXPECT_FALSE(parent->healthy_status().ok());
+    EXPECT_FALSE(ancestor->healthy_status().ok());
+    EXPECT_TRUE(parent->_healthy_status.status().ok());
+    EXPECT_TRUE(ancestor->_healthy_status.status().ok());
+    EXPECT_TRUE(parent->_sub_readers[1]->healthy_status().ok());
+    EXPECT_TRUE(same_options_reader->healthy_status().ok());
+    EXPECT_EQ(_cache->_lookup({1, PathInData("element")}), nullptr);
+    EXPECT_EQ(_cache->_lookup({1, {}}), nullptr);
+    EXPECT_EQ(_cache->_lookup({2, {}}), independent);
+    EXPECT_TRUE(independent->healthy_status().ok());
+    EXPECT_EQ(_cache->_lru_list.size(), 1);
+}
+
+TEST_F(ColumnReaderCacheTest, ParentFailureDoesNotPoisonChildren) {
+    auto parent = std::make_shared<MockColumnReader>(1);
+    auto child = std::make_shared<MockColumnReader>(2);
+    parent->_sub_readers.push_back(child);
+    parent->_healthy_status.update(Status::IOError("parent initialization failed"));
+    EXPECT_FALSE(parent->healthy_status().ok());
+    EXPECT_TRUE(child->healthy_status().ok());
+}
+
+TEST_F(ColumnReaderCacheTest, VariantHealthChecksAllOwnedReaderTrees) {
+    auto make_variant = [] {
+        auto reader = std::make_shared<VariantColumnReader>();
+        reader->_root_column_reader = std::make_shared<MockColumnReader>(1);
+        reader->_binary_column_reader = std::make_shared<DummyBinaryColumnReader>();
+        reader->_nested_group_readers.emplace("absent", nullptr);
+        reader->_nested_group_readers.emplace("invalid", std::make_unique<NestedGroupReader>());
+        return reader;
+    };
+    auto variant = make_variant();
+    EXPECT_TRUE(variant->healthy_status().ok());
+    variant->_root_column_reader->_healthy_status.update(Status::IOError("root failed"));
+    EXPECT_FALSE(variant->healthy_status().ok());
+    EXPECT_TRUE(variant->_healthy_status.status().ok());
+
+    for (bool bucketed : {false, true}) {
+        variant = make_variant();
+        auto binary = std::make_shared<MockColumnReader>(2);
+        if (bucketed) {
+            variant->_binary_column_reader = std::make_shared<MultipleDocColumnReader>();
+        } else {
+            variant->_binary_column_reader = std::make_shared<SingleSparseColumnReader>();
+        }
+        ASSERT_TRUE(variant->_binary_column_reader->add_binary_column_reader(binary, 0).ok());
+        EXPECT_TRUE(variant->healthy_status().ok());
+        binary->_healthy_status.update(Status::IOError("binary reader failed"));
+        EXPECT_FALSE(variant->healthy_status().ok());
+        EXPECT_TRUE(variant->_healthy_status.status().ok());
+        EXPECT_TRUE(variant->_root_column_reader->healthy_status().ok());
+    }
+
+    for (bool offsets_failure : {false, true}) {
+        variant = make_variant();
+        auto group = std::make_unique<NestedGroupReader>();
+        group->offsets_reader = std::make_shared<MockColumnReader>(3);
+        auto nested = std::make_unique<NestedGroupReader>();
+        auto offsets = std::make_shared<MockColumnReader>(4);
+        auto child = std::make_shared<MockColumnReader>(5);
+        nested->offsets_reader = offsets;
+        nested->child_readers.emplace("value", child);
+        nested->child_readers.emplace("absent", nullptr);
+        group->nested_group_readers.emplace("nested", std::move(nested));
+        variant->_nested_group_readers.emplace("array", std::move(group));
+        EXPECT_TRUE(variant->healthy_status().ok());
+        (offsets_failure ? offsets : child)
+                ->_healthy_status.update(Status::IOError("nested-group descendant failed"));
+        EXPECT_FALSE(variant->healthy_status().ok());
+        EXPECT_TRUE(variant->_healthy_status.status().ok());
+        EXPECT_TRUE(variant->_root_column_reader->healthy_status().ok());
+    }
+}
+
+TEST_F(ColumnReaderCacheTest, RecursiveChecksReleaseCacheLockAndPreserveReplacement) {
+    for (bool enumerate : {false, true}) {
+        auto old = std::make_shared<HealthCheckingColumnReader>();
+        _cache->_insert_direct({1, {}}, old);
+        auto replacement = std::make_shared<MockColumnReader>(1);
+        bool replaced = false;
+        old->check = [&]() -> Status {
+            bool unlocked = false;
+            std::thread probe([&] {
+                std::unique_lock lock(_cache->_cache_mutex, std::try_to_lock);
+                unlocked = lock.owns_lock();
+            });
+            probe.join();
+            EXPECT_TRUE(unlocked);
+            if (!unlocked) {
+                return Status::IOError("health checked under cache lock");
+            }
+            // Simulate another caller replacing the old instance while the
+            // outer lookup/enumeration is checking its health without the lock.
+            if (!std::exchange(replaced, true)) {
+                EXPECT_EQ(_cache->_insert_direct({1, {}}, replacement), replacement);
+            }
+            return Status::IOError("old reader failed");
+        };
+        if (enumerate) {
+            EXPECT_TRUE(_cache->get_available_readers(false).empty());
+        } else {
+            EXPECT_EQ(_cache->_lookup({1, {}}), nullptr);
+        }
+        EXPECT_TRUE(replaced);
+        EXPECT_EQ(_cache->_lookup({1, {}}), replacement);
+        EXPECT_EQ(_cache->_cache_map.size(), 1);
+        EXPECT_EQ(_cache->_lru_list.size(), 1);
+        // Each iteration starts from an empty cache.
+        _cache->_erase_if_same({1, {}}, replacement);
+    }
+}
+
+TEST_F(ColumnReaderCacheTest, ConcurrentReplacementsKeepOneCacheEntry) {
+    auto failed = std::make_shared<MockColumnReader>(1);
+    _cache->_insert_direct({1, {}}, failed);
+    failed->_healthy_status.update(Status::IOError("injected failure"));
+    constexpr int threads_count = 8;
+    std::barrier ready(threads_count);
+    std::vector<std::shared_ptr<ColumnReader>> readers(threads_count);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < threads_count; ++i) {
+        threads.emplace_back([&, i] {
+            EXPECT_EQ(_cache->_lookup({1, {}}), nullptr);
+            auto candidate = std::make_shared<MockColumnReader>(1);
+            // All callers have missed before any publishes a replacement.
+            ready.arrive_and_wait();
+            readers[i] = _cache->_insert_direct({1, {}}, candidate);
+            EXPECT_EQ(readers[i], candidate);
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    auto cached = _cache->_lookup({1, {}});
+    ASSERT_NE(cached, nullptr);
+    bool cached_is_candidate = false;
+    for (const auto& reader : readers) {
+        EXPECT_NE(reader, failed);
+        EXPECT_TRUE(reader->healthy_status().ok());
+        cached_is_candidate |= (cached == reader);
+    }
+    EXPECT_TRUE(cached_is_candidate);
+    EXPECT_EQ(_cache->_lru_list.size(), 1);
+    EXPECT_EQ(_cache->_cache_map.size(), 1);
 }
 
 // Test LRU eviction

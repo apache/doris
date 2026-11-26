@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -30,8 +31,10 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -53,6 +56,7 @@ import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
@@ -60,6 +64,7 @@ import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeType;
@@ -86,6 +91,8 @@ import org.apache.logging.log4j.Level;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -94,10 +101,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -816,6 +825,94 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
+    public void testReplacePartitionSnapshotAllowsUnpartitionedTempPartition() throws Exception {
+        createTable("CREATE TABLE test.replace_snapshot_unpartitioned (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("replace_snapshot_unpartitioned");
+        InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList(table.getName()),
+                Collections.singletonList("replace_snapshot_temp"));
+        Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+        Assertions.assertNotNull(tempPartition);
+        Assertions.assertNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+
+        TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+        Assertions.assertEquals(tempPartition.getId(), result.getId());
+        Assertions.assertEquals(1, result.getIndexesSize());
+        Assertions.assertEquals(1, result.getNumBuckets());
+        Assertions.assertFalse(result.isSetStartKeys());
+        Assertions.assertFalse(result.isSetEndKeys());
+        Assertions.assertFalse(result.isSetInKeys());
+    }
+
+    @Test
+    public void testReplacePartitionSnapshotPreservesPartitionItemChecks() throws Exception {
+        for (String partitionType : Arrays.asList("RANGE", "LIST")) {
+            String tableName = "replace_snapshot_" + partitionType.toLowerCase(Locale.ROOT);
+            String partitionClause = partitionType.equals("RANGE")
+                    ? "PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (10)) "
+                    : "PARTITION BY LIST(k) (PARTITION p1 VALUES IN (1)) ";
+            createTable("CREATE TABLE test." + tableName + " (k INT) " + partitionClause
+                    + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
+            InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList("p1"),
+                    Collections.singletonList("replace_snapshot_temp"));
+            Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+            Assertions.assertNotNull(tempPartition);
+            Assertions.assertNotNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+            TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+            Assertions.assertEquals(tempPartition.getId(), result.getId());
+            if (partitionType.equals("RANGE")) {
+                Assertions.assertEquals(10, result.getEndKeys().get(0).getIntLiteral().getValue());
+            } else {
+                Assertions.assertEquals(1, result.getInKeys().get(0).get(0).getIntLiteral().getValue());
+            }
+
+            // Model a missing item without removing the temporary Partition object.
+            PartitionItem item = table.getPartitionInfo().getItem(tempPartition.getId());
+            table.writeLock();
+            try {
+                table.getPartitionInfo().setItem(tempPartition.getId(), true, null);
+            } finally {
+                table.writeUnlock();
+            }
+            try {
+                InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> snapshotReplacePartition(table, tempPartition.getId()));
+                UserException cause = Assertions.assertInstanceOf(UserException.class, exception.getCause());
+                Assertions.assertEquals("partition item of " + tempPartition.getId()
+                        + " was dropped concurrently while building replace partition result, please retry",
+                        cause.getDetailMessage());
+            } finally {
+                table.writeLock();
+                try {
+                    table.getPartitionInfo().setItem(tempPartition.getId(), true, item);
+                } finally {
+                    table.writeUnlock();
+                }
+            }
+        }
+    }
+
+    private static TOlapTablePartition snapshotReplacePartition(OlapTable table, long partitionId) throws Exception {
+        Method method = FrontendServiceImpl.class.getDeclaredMethod("snapshotPartitionResultsById",
+                OlapTable.class, Collection.class, boolean.class, boolean.class, String.class);
+        method.setAccessible(true);
+        table.readLock();
+        try {
+            List<?> snapshots = (List<?>) method.invoke(null, table, Collections.singletonList(partitionId),
+                    false, false, "replace partition");
+            Assertions.assertEquals(1, snapshots.size());
+            Field field = snapshots.get(0).getClass().getDeclaredField("tPartition");
+            field.setAccessible(true);
+            return (TOlapTablePartition) field.get(snapshots.get(0));
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    @Test
     public void testCreatePartitionList() throws Exception {
         String createOlapTblStmt = new String("CREATE TABLE test.partition_list(\n"
                 + "    event_day DATETIME,\n"
@@ -1160,28 +1257,77 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadPlanningAndPreCommitRejectInvalidToken(boolean legacyAuthCode) {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+        TLoadTxnBeginRequest begin = new TLoadTxnBeginRequest().setToken("bad-token");
+        TLoadTxnCommitRequest preCommit = new TLoadTxnCommitRequest().setToken("bad-token");
+        TStreamLoadPutRequest plan = new TStreamLoadPutRequest().setToken("bad-token");
+        if (legacyAuthCode) {
+            begin.setAuthCode(0);
+            preCommit.setAuthCode(0);
+            plan.setAuthCode(0);
+        }
+        assertInvalidToken(impl, "loadTxnBeginImpl", begin, "127.0.0.1");
+        assertInvalidToken(impl, "loadTxnPreCommitImpl", preCommit);
+        assertInvalidToken(impl, "httpStreamPutImpl", plan, new TStreamLoadPutResult());
+    }
+
     @Test
-    public void testLoadTxnCommitRejectsInvalidToken() {
+    public void testLegacyAuthCodeStillRequiresPassword() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setUser("root").setPasswd("wrong_password").setUserIp("127.0.0.1")
+                .setDb("test").setTbl("missing_table").setLabel("legacy_auth_code").setAuthCode(0);
+        Assertions.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("Access denied"));
+    }
+
+    @Test
+    public void testInternalTokenWithLegacyAuthCodePassesAuthentication() throws TException {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(true).when(impl).checkToken("internal-token");
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setToken("internal-token").setAuthCode(0);
+        // An empty label is rejected only after successful authentication.
+        Assertions.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("empty label"));
+        Mockito.verify(impl).checkToken("internal-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadTxnCommitRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
         assertInvalidToken(impl, "loadTxnCommitImpl", request);
     }
 
-    @Test
-    public void testLoadTxnRollbackRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadTxnRollbackRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
         assertInvalidToken(impl, "loadTxnRollbackImpl", request);
     }
 
-    @Test
-    public void testCommitTxnRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCommitTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TCommitTxnRequest request = new TCommitTxnRequest();
         request.setUser("root");
@@ -1189,6 +1335,9 @@ public class FrontendServiceImplTest extends TestWithFeService {
         request.setDb("test");
         request.setTxnId(100L);
         request.setCommitInfos(Collections.emptyList());
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -1200,14 +1349,18 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
-    @Test
-    public void testRollbackTxnRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testRollbackTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TRollbackTxnRequest request = new TRollbackTxnRequest();
         request.setUser("root");
         request.setPasswd("");
         request.setDb("test");
         request.setTxnId(100L);
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -1269,7 +1422,8 @@ public class FrontendServiceImplTest extends TestWithFeService {
                 .setTbl(table)
                 .setUserIp("127.0.0.1")
                 .setLoadId(new TUniqueId(1L, 1L))
-                .setGroupCommitMode("async_mode");
+                .setGroupCommitMode("async_mode")
+                .setAuthCode(0);
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;
@@ -1305,11 +1459,12 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
-    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object... args) {
         try {
-            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            Class<?>[] types = Arrays.stream(args).map(Object::getClass).toArray(Class<?>[]::new);
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, types);
             method.setAccessible(true);
-            method.invoke(impl, request);
+            method.invoke(impl, args);
             Assertions.fail("expected invalid token");
         } catch (InvocationTargetException e) {
             Assertions.assertTrue(e.getCause() instanceof AuthenticationException);

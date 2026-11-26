@@ -234,7 +234,7 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {
-                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
+                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.completeExplain(mtmv)));
                 }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return UpdateMvByPartitionCommand.from(

@@ -29,9 +29,11 @@
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -153,6 +155,87 @@ static double get_float64_value(const ColumnPtr& column, size_t row, bool* is_nu
 }
 
 class VConditionExprCoalesceTest : public ::testing::Test {};
+
+TEST_F(VConditionExprCoalesceTest, FilePreservesSixFieldsAndNulls) {
+    auto type = std::make_shared<DataTypeFile>();
+    auto nullable_type = make_nullable(type);
+    auto node = make_coalesce_node(TPrimitiveType::STRING, true);
+    node.type.types.clear();
+    type->to_thrift(node.type);
+    auto expression = VectorizedCoalesceExpr::create_shared(node);
+    expression->data_type() = nullable_type;
+    const std::string bytes("\0\xff\x80\n", 4);
+    File fields {Field::create_field<TYPE_STRING>("urn:first"),
+                 Field::create_field<TYPE_BIGINT>(3),
+                 Field::create_field<TYPE_BIGINT>(4),
+                 Field::create_field<TYPE_STRING>("application/octet-stream"),
+                 Field::create_field<TYPE_STRING>("ETAG:opaque-2"),
+                 Field::create_field<TYPE_VARBINARY>(StringView(bytes))};
+    auto first = Field::create_field<TYPE_FILE>(fields);
+    fields[0] = Field::create_field<TYPE_STRING>("urn:empty");
+    fields[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    auto empty = Field::create_field<TYPE_FILE>(fields);
+    fields[0] = Field::create_field<TYPE_STRING>("urn:no-inline");
+    fields[5] = Field();
+    auto no_inline = Field::create_field<TYPE_FILE>(fields);
+    const std::vector<Field> expected {first, empty, no_inline, Field()};
+    for (size_t source = 0; source < 3; ++source) {
+        auto column = nullable_type->create_column();
+        for (size_t row = 0; row < expected.size(); ++row) {
+            column->insert(row == source ? expected[row] : Field());
+        }
+        expression->add_child(std::make_shared<MockChildVExpr>(std::move(column), nullable_type));
+    }
+    VExprContext context(expression);
+    ColumnPtr result;
+    auto status =
+            expression->execute_column_impl(&context, nullptr, nullptr, expected.size(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(expected.size(), result->size());
+    EXPECT_TRUE(result->is_null_at(3));
+    for (size_t row = 0; row < 3; ++row) {
+        const auto value = (*result)[row];
+        const auto& actual_fields = value.get<TYPE_FILE>();
+        const auto& expected_fields = expected[row].get<TYPE_FILE>();
+        for (size_t child = 0; child < 5; ++child) {
+            EXPECT_EQ(expected_fields[child], actual_fields[child]);
+        }
+        EXPECT_EQ(expected_fields[5].is_null(), actual_fields[5].is_null());
+        if (!expected_fields[5].is_null()) {
+            EXPECT_EQ(expected_fields[5].get<TYPE_VARBINARY>().to_string_ref().to_string(),
+                      actual_fields[5].get<TYPE_VARBINARY>().to_string_ref().to_string());
+        }
+    }
+}
+
+TEST_F(VConditionExprCoalesceTest, FileNonNullableResultUsesConstantFallback) {
+    auto type = std::make_shared<DataTypeFile>();
+    auto nullable_type = make_nullable(type);
+    auto node = make_coalesce_node(TPrimitiveType::STRING, false);
+    node.type.types.clear();
+    type->to_thrift(node.type);
+    auto expression = VectorizedCoalesceExpr::create_shared(node);
+    expression->data_type() = type;
+    File fields(6);
+    fields[0] = Field::create_field<TYPE_STRING>("urn:present");
+    auto first = nullable_type->create_column();
+    first->insert(Field::create_field<TYPE_FILE>(fields));
+    first->insert_default();
+    fields[0] = Field::create_field<TYPE_STRING>("urn:fallback");
+    auto fallback = type->create_column();
+    fallback->insert(Field::create_field<TYPE_FILE>(fields));
+    expression->add_child(std::make_shared<MockChildVExpr>(std::move(first), nullable_type));
+    expression->add_child(
+            std::make_shared<MockChildVExpr>(ColumnConst::create(std::move(fallback), 2), type));
+    VExprContext context(expression);
+    ColumnPtr result;
+    auto status = expression->execute_column_impl(&context, nullptr, nullptr, 2, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(result->is_nullable());
+    ASSERT_EQ(2, result->size());
+    EXPECT_EQ("urn:present", (*result)[0].get<TYPE_FILE>()[0].get<TYPE_STRING>());
+    EXPECT_EQ("urn:fallback", (*result)[1].get<TYPE_FILE>()[0].get<TYPE_STRING>());
+}
 
 // Targets the fix: after some rows of col0 are filled, NaN/Inf values in the
 // same rows of later columns must not pollute the already-filled result via
