@@ -50,7 +50,7 @@ final class DeltaLakeHistorySchema {
 
     // These are the DESCRIBE HISTORY fields stored in commitInfo. Kernel's own projection
     // omits several of them, including the user, job, and notebook fields.
-    private static final StructType DETAIL_FIELDS = new StructType()
+    static final StructType DETAIL_FIELDS = new StructType()
             .add("userId", StringType.STRING)
             .add("userName", StringType.STRING)
             .add("operation", StringType.STRING)
@@ -64,10 +64,6 @@ final class DeltaLakeHistorySchema {
             .add("operationMetrics", STRING_MAP)
             .add("userMetadata", StringType.STRING)
             .add("engineInfo", StringType.STRING);
-
-    static final StructType DETAIL_JSON = new StructType().add(COMMIT_INFO, DETAIL_FIELDS.add(ICT, LongType.LONG));
-    static final StructType TIMESTAMP_JSON = new StructType()
-            .add(COMMIT_INFO, new StructType().add(ICT, LongType.LONG));
 
     private static final List<ConnectorColumn> COLUMNS = columns();
 

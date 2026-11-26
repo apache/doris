@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <memory>
-#include <span>
 #include <vector>
 
 #include "format_v2/file_reader.h"
@@ -27,12 +26,13 @@
 namespace doris::format::deltalake {
 
 // The scan range owns the rows for the lifetime of the reader. No file is opened.
-class DeltaHistoryFileReader final : public FileReader {
+class DeltaSysTableReader final : public FileReader {
 public:
-    DeltaHistoryFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
-                           std::unique_ptr<io::FileDescription>& file_description,
-                           std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
-                           std::span<const TDeltaLakeHistoryRow> rows);
+    DeltaSysTableReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
+                        std::unique_ptr<io::FileDescription>& file_description,
+                        std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
+                        const TDeltaLakeSysTableBatch& batch,
+                        const std::vector<ColumnDefinition>& projected_columns);
 
     Status init(RuntimeState* state) override;
     Status get_schema(std::vector<ColumnDefinition>* schema) const override;
@@ -42,7 +42,8 @@ public:
     Status get_block(Block* block, size_t* rows, bool* eof) override;
 
 private:
-    const std::span<const TDeltaLakeHistoryRow> _rows;
+    const TDeltaLakeSysTableBatch& _batch;
+    const std::vector<ColumnDefinition>& _projected_columns;
     size_t _offset = 0;
     size_t _batch_size = 1024;
 };

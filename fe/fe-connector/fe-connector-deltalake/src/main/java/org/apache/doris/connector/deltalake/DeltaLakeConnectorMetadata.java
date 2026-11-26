@@ -103,21 +103,21 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listSupportedSysTables(ConnectorSession session, ConnectorTableHandle baseTableHandle) {
-        return List.of(DeltaLakeHistorySchema.NAME);
+        return DeltaLakeTableKind.systemTableNames();
     }
 
     @Override
     public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
             ConnectorTableHandle baseTableHandle, String sysName) {
-        return DeltaLakeHistorySchema.NAME.equalsIgnoreCase(sysName)
-                ? Optional.of(((DeltaLakeTableHandle) baseTableHandle).asHistory()) : Optional.empty();
+        return DeltaLakeTableKind.systemTableNamed(sysName)
+                .map(((DeltaLakeTableHandle) baseTableHandle)::asSystemTable);
     }
 
     @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-        if (delta.isHistory()) {
-            return DeltaLakeHistorySchema.tableSchema(delta.getTable());
+        if (delta.kind().systemTable != null) {
+            return delta.kind().systemTable.schema(delta);
         }
         return runtime.execute(() -> DeltaLakeSchemaBuilder.build(delta.getTable(),
                 delta.snapshot(runtime), properties));
@@ -133,7 +133,8 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-        return delta.isHistory() ? Optional.empty() : runtime.execute(() -> statistics.get(session, delta, runtime));
+        return delta.kind() != DeltaLakeTableKind.DATA ? Optional.empty()
+                : runtime.execute(() -> statistics.get(session, delta, runtime));
     }
 
     @Override
@@ -172,7 +173,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-        if (delta.isHistory()) {
+        if (delta.kind() != DeltaLakeTableKind.DATA) {
             return List.of();
         }
         return runtime.execute(() -> {
@@ -215,7 +216,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
         // Each AddFile carries its partition values, so ordinary scans can filter while enumerating files.
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-        return !delta.isHistory()
+        return delta.kind() == DeltaLakeTableKind.DATA
                 && runtime.execute(() -> !delta.snapshot(runtime).getPartitionColumnNames().isEmpty());
     }
 
@@ -223,7 +224,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-        if (delta.isHistory()) {
+        if (delta.kind() != DeltaLakeTableKind.DATA) {
             return Optional.of(ConnectorMvccPartitionView.unpartitioned());
         }
         return runtime.execute(() -> {

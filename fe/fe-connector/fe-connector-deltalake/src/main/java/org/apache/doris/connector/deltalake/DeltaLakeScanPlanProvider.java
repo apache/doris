@@ -66,15 +66,23 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeStatisticsCache statistics;
     private final boolean mapVarbinary;
+    private final DeltaLakeTableKind kind;
     // The connector creates a provider per scan node. The gate runs before that node opens its source.
     private boolean streamingCount;
     private volatile DeltaLakeScanMetrics.Result scanMetrics;
     private boolean planningReuseHit;
 
-    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics, boolean mapVarbinary) {
+    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics, boolean mapVarbinary,
+            DeltaLakeTableKind kind) {
         this.runtime = runtime;
         this.statistics = statistics;
         this.mapVarbinary = mapVarbinary;
+        this.kind = kind;
+    }
+
+    @Override
+    public boolean supportsSystemTableTimeTravel() {
+        return kind.systemTable != null && kind.systemTable.supportsTimeTravel();
     }
 
     private record ScanFilter(Optional<Predicate> kernelPredicate,
@@ -114,7 +122,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         streamingCount = false;
-        if (((DeltaLakeTableHandle) handle).isHistory()) {
+        if (((DeltaLakeTableHandle) handle).kind() != DeltaLakeTableKind.DATA) {
             return -1;
         }
         String enabled = session.getProperty("enable_external_table_batch_mode", String.class);
@@ -141,6 +149,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
         planningReuseHit = false;
         request.getScanContext().checkCancelled();
+        if (((DeltaLakeTableHandle) request.getTableHandle()).kind() != DeltaLakeTableKind.DATA) {
+            return ConnectorScanPlanProvider.super.streamSplits(session, request);
+        }
         return runtime.execute(() -> new StreamingSource(session, request));
     }
 
@@ -291,8 +302,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         return runtime.execute(() -> {
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
-            if (handle.isHistory()) {
-                return DeltaLakeHistoryReader.plan(runtime, handle, request);
+            if (handle.kind().systemTable != null) {
+                return handle.kind().systemTable.planScan(runtime, handle, request);
             }
             Snapshot snapshot = handle.snapshot(runtime);
             if (session == null || !session.isExternalScanTaskReuseEnabled()) {
@@ -462,10 +473,11 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         return runtime.execute(() -> {
             DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-            if (delta.isHistory()) {
+            if (delta.kind().systemTable != null) {
+                String name = delta.kind().systemTable.name();
                 return Map.of(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet",
-                        ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake history reads",
-                        "deltalake.history_version", String.valueOf(delta.getVersion()));
+                        ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake " + name + " reads",
+                        "deltalake." + name + "_version", String.valueOf(delta.getVersion()));
             }
             Snapshot snapshot = delta.snapshot(runtime);
             Map<String, String> properties = new HashMap<>();

@@ -22,7 +22,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "format_v2/table/delta_history_reader.h"
+#include "format_v2/table/delta_sys_table_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -63,7 +63,7 @@ Status DeltaReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned() ||
-        options.current_range.table_format_params.deltalake_params.__isset.history_rows) {
+        options.current_range.table_format_params.deltalake_params.__isset.sys_table_batch) {
         return Status::OK();
     }
     // Delta commits replace data files instead of mutating them. A file may acquire a new DV,
@@ -86,8 +86,8 @@ TableColumnMappingMode DeltaReader::mapping_mode() const {
 }
 
 bool DeltaReader::_should_enable_condition_cache(const FileScanRequest& file_request) const {
-    // History splits have virtual paths and no persistent file row offsets.
-    return !_current_file_range_desc.table_format_params.deltalake_params.__isset.history_rows &&
+    // System table splits have virtual paths and no persistent file row offsets.
+    return !_current_file_range_desc.table_format_params.deltalake_params.__isset.sys_table_batch &&
            TableReader::_should_enable_condition_cache(file_request);
 }
 
@@ -96,10 +96,10 @@ Status DeltaReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(_format == FileFormat::PARQUET);
     DORIS_CHECK(_runtime_state != nullptr);
     const auto& delta = _current_file_range_desc.table_format_params.deltalake_params;
-    if (delta.__isset.history_rows) {
-        *reader = std::make_unique<DeltaHistoryFileReader>(_system_properties,
-                                                           _current_task->data_file, _io_ctx,
-                                                           _scanner_profile, delta.history_rows);
+    if (delta.__isset.sys_table_batch) {
+        *reader = std::make_unique<DeltaSysTableReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                delta.sys_table_batch, _projected_columns);
         return Status::OK();
     }
     const bool mapping_timestamp_tz = _scan_params != nullptr &&

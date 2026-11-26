@@ -516,48 +516,42 @@ enum TDeltaLakeColumnMappingMode {
     ID = 2
 }
 
-struct TDeltaLakeHistoryJob {
-    1: optional string job_id
-    2: optional string job_name
-    3: optional string job_run_id
-    4: optional string run_id
-    5: optional string job_owner_id
-    6: optional string trigger_type
+// Inline data for a native Delta system table split. An unset value is SQL NULL.
+struct TDeltaLakeSysTableField {
+    1: optional bool bool_val
+    2: optional i64 int64_val
+    3: optional double double_val
+    4: optional string string_val
+    5: optional i64 timestamp_millis
+    6: optional list<TDeltaLakeSysTableField> array_val
+    7: optional list<TDeltaLakeSysTableMapEntry> map_val
+    8: optional list<TDeltaLakeSysTableField> struct_val
 }
 
-struct TDeltaLakeHistoryNotebook {
-    1: optional string notebook_id
-}
-
-// A present key with an absent value represents a SQL NULL map value.
-struct TDeltaLakeHistoryMapEntry {
+struct TDeltaLakeSysTableMapEntry {
     1: optional string key
-    2: optional string value
+    2: optional TDeltaLakeSysTableField value
 }
 
-struct TDeltaLakeHistoryRow {
-    1: optional i64 version
-    2: optional i64 timestamp_millis
-    3: optional string user_id
-    4: optional string user_name
-    5: optional string operation
-    6: optional list<TDeltaLakeHistoryMapEntry> operation_parameters
-    7: optional TDeltaLakeHistoryJob job
-    8: optional TDeltaLakeHistoryNotebook notebook
-    9: optional string cluster_id
-    10: optional i64 read_version
-    11: optional string isolation_level
-    12: optional bool is_blind_append
-    13: optional list<TDeltaLakeHistoryMapEntry> operation_metrics
-    14: optional string user_metadata
-    15: optional string engine_info
+struct TDeltaLakeSysTableColumn {
+    1: optional i32 schema_ordinal
+    2: optional string name
+}
+
+struct TDeltaLakeSysTableRow {
+    1: optional list<TDeltaLakeSysTableField> cells
+}
+
+struct TDeltaLakeSysTableBatch {
+    // cells[i] is columns[i]. A count-only scan sends one empty row per result.
+    1: optional list<TDeltaLakeSysTableColumn> columns
+    2: optional list<TDeltaLakeSysTableRow> rows
 }
 
 struct TDeltaLakeFileDesc {
     1: optional i64 schema_id
     2: optional TDeltaLakeDeletionVectorDesc deletion_vector
-    // Inline rows for a native Delta $history split.
-    3: optional list<TDeltaLakeHistoryRow> history_rows
+    3: optional TDeltaLakeSysTableBatch sys_table_batch
 }
 
 // Deprecated: the associated external table read support has been removed.

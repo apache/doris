@@ -28,7 +28,10 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
-import org.apache.doris.thrift.TDeltaLakeHistoryRow;
+import org.apache.doris.thrift.TDeltaLakeSysTableBatch;
+import org.apache.doris.thrift.TDeltaLakeSysTableColumn;
+import org.apache.doris.thrift.TDeltaLakeSysTableField;
+import org.apache.doris.thrift.TDeltaLakeSysTableRow;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -77,40 +80,55 @@ class DeltaLakeHistoryTest {
                     List.copyOf(metadata.getColumnHandles(null, history).keySet()));
             Assertions.assertTrue(metadata.listPartitions(null, history, Optional.empty()).isEmpty());
             Assertions.assertTrue(metadata.getTableStatistics(null, history).isEmpty());
-            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider(history);
             Assertions.assertFalse(provider.supportsSystemTableTimeTravel());
             Assertions.assertEquals(-1, provider.streamingSplitEstimate(null, history, Optional.empty(), false));
 
             ConnectorScanRequest.Builder all = ConnectorScanRequest.builder(history,
                     List.copyOf(metadata.getColumnHandles(null, history).values()));
-            List<TDeltaLakeHistoryRow> rows = rows(provider.planScan(null, all.build()));
-            Assertions.assertEquals(List.of(1L, 0L), rows.stream().map(TDeltaLakeHistoryRow::getVersion).toList());
-            TDeltaLakeHistoryRow absent = rows.get(0);
-            Assertions.assertEquals(FIRST_MTIME + 1, absent.getTimestampMillis());
-            Assertions.assertFalse(absent.isSetOperation());
-            Assertions.assertFalse(absent.isSetIsBlindAppend());
-            Assertions.assertFalse(absent.isSetJob());
-            TDeltaLakeHistoryRow present = rows.get(1);
-            Assertions.assertEquals(FIRST_MTIME, present.getTimestampMillis());
-            Assertions.assertEquals("u1", present.getUserId());
-            Assertions.assertEquals("reader", present.getUserName());
-            Assertions.assertEquals("CREATE TABLE", present.getOperation());
-            Assertions.assertEquals("j1", present.getJob().getJobId());
-            Assertions.assertEquals("r1", present.getJob().getRunId());
-            Assertions.assertFalse(present.getJob().isSetJobOwnerId());
-            Assertions.assertEquals("n1", present.getNotebook().getNotebookId());
-            Assertions.assertEquals("c1", present.getClusterId());
-            Assertions.assertEquals(0, present.getReadVersion());
-            Assertions.assertEquals("Serializable", present.getIsolationLevel());
-            Assertions.assertTrue(present.isSetIsBlindAppend());
-            Assertions.assertFalse(present.isIsBlindAppend());
-            Assertions.assertEquals("0", present.getOperationMetrics().get(0).getValue());
-            Assertions.assertEquals("meta", present.getUserMetadata());
-            Assertions.assertEquals("spark", present.getEngineInfo());
-            Assertions.assertEquals("Append", present.getOperationParameters().stream()
-                    .filter(entry -> entry.getKey().equals("mode")).findFirst().orElseThrow().getValue());
-            Assertions.assertFalse(present.getOperationParameters().stream()
-                    .filter(entry -> entry.getKey().equals("missing")).findFirst().orElseThrow().isSetValue());
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> provider.streamSplits(null, all.build()));
+            List<TDeltaLakeSysTableRow> rows = rows(provider.planScan(null, all.build()));
+            Assertions.assertEquals(List.of(1L, 0L),
+                    rows.stream().map(row -> row.getCells().get(0).getInt64Val()).toList());
+            TDeltaLakeSysTableRow absent = rows.get(0);
+            Assertions.assertEquals(FIRST_MTIME + 1, absent.getCells().get(1).getTimestampMillis());
+            Assertions.assertTrue(absent.getCells().subList(2, 15).stream()
+                    .allMatch(new TDeltaLakeSysTableField()::equals));
+            List<TDeltaLakeSysTableField> cells = rows.get(1).getCells();
+            Assertions.assertEquals(15, cells.size());
+            Assertions.assertEquals(FIRST_MTIME, cells.get(1).getTimestampMillis());
+            Assertions.assertEquals("u1", cells.get(2).getStringVal());
+            Assertions.assertEquals("reader", cells.get(3).getStringVal());
+            Assertions.assertEquals("CREATE TABLE", cells.get(4).getStringVal());
+            Assertions.assertEquals("j1", cells.get(6).getStructVal().get(0).getStringVal());
+            Assertions.assertEquals("r1", cells.get(6).getStructVal().get(3).getStringVal());
+            Assertions.assertEquals(new TDeltaLakeSysTableField(), cells.get(6).getStructVal().get(4));
+            Assertions.assertEquals("n1", cells.get(7).getStructVal().get(0).getStringVal());
+            Assertions.assertEquals("c1", cells.get(8).getStringVal());
+            Assertions.assertEquals(0, cells.get(9).getInt64Val());
+            Assertions.assertEquals("Serializable", cells.get(10).getStringVal());
+            Assertions.assertTrue(cells.get(11).isSetBoolVal());
+            Assertions.assertFalse(cells.get(11).isBoolVal());
+            Assertions.assertEquals("0", cells.get(12).getMapVal().get(0).getValue().getStringVal());
+            Assertions.assertEquals("meta", cells.get(13).getStringVal());
+            Assertions.assertEquals("spark", cells.get(14).getStringVal());
+            Assertions.assertEquals("Append", cells.get(5).getMapVal().stream()
+                    .filter(entry -> entry.getKey().equals("mode")).findFirst().orElseThrow()
+                    .getValue().getStringVal());
+            Assertions.assertEquals(new TDeltaLakeSysTableField(), cells.get(5).getMapVal().stream()
+                    .filter(entry -> entry.getKey().equals("missing")).findFirst().orElseThrow().getValue());
+
+            ConnectorScanRequest subset = ConnectorScanRequest.builder(history, List.of(
+                    new NamedColumnHandle("OPERATION"), new NamedColumnHandle("operation")))
+                    .filter(Optional.of(versionFilter(ConnectorComparison.Operator.EQ, 0))).build();
+            TDeltaLakeSysTableBatch batch = batch(provider.planScan(null, subset).get(0));
+            Assertions.assertEquals(List.of("version", "operation"),
+                    batch.getColumns().stream().map(TDeltaLakeSysTableColumn::getName).toList());
+            Assertions.assertEquals(List.of(0, 4),
+                    batch.getColumns().stream().map(TDeltaLakeSysTableColumn::getSchemaOrdinal).toList());
+            Assertions.assertEquals(List.of(new TDeltaLakeSysTableField().setInt64Val(0),
+                    new TDeltaLakeSysTableField().setStringVal("CREATE TABLE")), batch.getRows().get(0).getCells());
 
             Assertions.assertEquals(List.of(absent), rows(provider.planScan(null, all.filter(
                     Optional.of(versionFilter(ConnectorComparison.Operator.GE, 1))).build())));
@@ -119,10 +137,10 @@ class DeltaLakeHistoryTest {
 
             // With the already pinned snapshot, a version-only request must not open the JSON.
             Files.writeString(log(1), "not a JSON commit body");
-            List<TDeltaLakeHistoryRow> versions = rows(provider.planScan(null, ConnectorScanRequest.builder(history,
+            List<TDeltaLakeSysTableRow> versions = rows(provider.planScan(null, ConnectorScanRequest.builder(history,
                     List.of(new NamedColumnHandle("version"))).build()));
             Assertions.assertEquals(List.of(1L, 0L),
-                    versions.stream().map(TDeltaLakeHistoryRow::getVersion).toList());
+                    versions.stream().map(row -> row.getCells().get(0).getInt64Val()).toList());
         }
     }
 
@@ -145,10 +163,10 @@ class DeltaLakeHistoryTest {
         try (Connector connector = connector(); ConnectorMetadata meta = connector.getMetadata(null)) {
             ConnectorTableHandle base = meta.getTableHandle(null, "db", "table").orElseThrow();
             ConnectorTableHandle history = meta.getSysTableHandle(null, base, "history").orElseThrow();
-            List<TDeltaLakeHistoryRow> result = rows(connector.getScanPlanProvider().planScan(null,
+            List<TDeltaLakeSysTableRow> result = rows(connector.getScanPlanProvider().planScan(null,
                     ConnectorScanRequest.builder(history, List.of(new NamedColumnHandle("timestamp"))).build()));
             Assertions.assertEquals(List.of(FIRST_MTIME + 1000, FIRST_MTIME),
-                    result.stream().map(TDeltaLakeHistoryRow::getTimestampMillis).toList());
+                    result.stream().map(row -> row.getCells().get(0).getTimestampMillis()).toList());
         }
     }
 
@@ -167,10 +185,34 @@ class DeltaLakeHistoryTest {
         try (Connector connector = connector(); ConnectorMetadata meta = connector.getMetadata(null)) {
             ConnectorTableHandle base = meta.getTableHandle(null, "db", "table").orElseThrow();
             ConnectorTableHandle history = meta.getSysTableHandle(null, base, "history").orElseThrow();
-            List<TDeltaLakeHistoryRow> result = rows(connector.getScanPlanProvider().planScan(null,
+            List<TDeltaLakeSysTableRow> result = rows(connector.getScanPlanProvider().planScan(null,
                     ConnectorScanRequest.builder(history, List.of(new NamedColumnHandle("version"))).build()));
             Assertions.assertEquals(List.of(15L, 14L, 13L, 12L, 11L, 10L),
-                    result.stream().map(TDeltaLakeHistoryRow::getVersion).toList());
+                    result.stream().map(row -> row.getCells().get(0).getInt64Val()).toList());
+        }
+    }
+
+    @Test
+    void batchesCountOnlyRowsWithoutCommitDetails() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        DeltaLakeTestTables.commit(table, 0, "table-history", new StructType().add("id", LongType.LONG));
+        for (int i = 1; i <= 1000; i++) {
+            Files.writeString(log(i), "{}");
+        }
+        try (Connector connector = connector(); ConnectorMetadata meta = connector.getMetadata(null)) {
+            ConnectorTableHandle base = meta.getTableHandle(null, "db", "table").orElseThrow();
+            ConnectorTableHandle history = meta.getSysTableHandle(null, base, "history").orElseThrow();
+            List<TDeltaLakeSysTableBatch> batches = connector.getScanPlanProvider(history).planScan(null,
+                    ConnectorScanRequest.builder(history, List.of(new NamedColumnHandle("version")))
+                            .countPushdown(true).build()).stream().map(DeltaLakeHistoryTest::batch).toList();
+            Assertions.assertEquals(List.of(1000, 1),
+                    batches.stream().map(TDeltaLakeSysTableBatch::getRowsSize).toList());
+            for (TDeltaLakeSysTableBatch batch : batches) {
+                Assertions.assertEquals(List.of(), batch.getColumns());
+                for (TDeltaLakeSysTableRow row : batch.getRows()) {
+                    Assertions.assertEquals(List.of(), row.getCells());
+                }
+            }
         }
     }
 
@@ -188,11 +230,13 @@ class DeltaLakeHistoryTest {
                 ConnectorLiteral.ofLong(version));
     }
 
-    private static List<TDeltaLakeHistoryRow> rows(List<ConnectorScanRange> ranges) {
-        return ranges.stream().flatMap(range -> {
-            TTableFormatFileDesc format = new TTableFormatFileDesc();
-            range.populateRangeParams(format, new TFileRangeDesc());
-            return format.getDeltalakeParams().getHistoryRows().stream();
-        }).toList();
+    private static List<TDeltaLakeSysTableRow> rows(List<ConnectorScanRange> ranges) {
+        return ranges.stream().map(DeltaLakeHistoryTest::batch).flatMap(batch -> batch.getRows().stream()).toList();
+    }
+
+    private static TDeltaLakeSysTableBatch batch(ConnectorScanRange range) {
+        TTableFormatFileDesc format = new TTableFormatFileDesc();
+        range.populateRangeParams(format, new TFileRangeDesc());
+        return format.getDeltalakeParams().getSysTableBatch();
     }
 }

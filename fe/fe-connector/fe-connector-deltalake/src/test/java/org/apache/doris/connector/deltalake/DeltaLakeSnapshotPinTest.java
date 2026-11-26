@@ -80,6 +80,9 @@ class DeltaLakeSnapshotPinTest {
         Assertions.assertSame(first, handle.snapshot(engine, null));
 
         DeltaLakeTableHandle restored = roundTrip(handle);
+        DeltaLakeTableHandle view = roundTrip(handle.asSystemTable(DeltaLakeTableKind.HISTORY).withoutSnapshot());
+        Assertions.assertEquals(DeltaLakeTableKind.HISTORY, view.kind());
+        Assertions.assertEquals(handle.getVersion(), view.snapshot(engine, null).getVersion());
         Assertions.assertEquals(0, restored.snapshot(engine, null).getVersion());
         Assertions.assertEquals(1, restored.snapshot(engine, null).getSchema().length());
         DeltaLakeCatalogProperties properties =

@@ -36,7 +36,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     private final DeltaLakeTableReference reference;
     private final String tableId;
     private final long version;
-    private final boolean history;
+    private final DeltaLakeTableKind kind;
     private final transient Snapshot snapshot;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
@@ -44,33 +44,35 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     }
 
     DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, Snapshot snapshot) {
-        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot, false);
+        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot,
+                DeltaLakeTableKind.DATA);
     }
 
     private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
-            long version, Snapshot snapshot, boolean history) {
+            long version, Snapshot snapshot, DeltaLakeTableKind kind) {
         this.database = database;
         this.table = table;
         this.reference = reference;
         this.tableId = tableId;
         this.version = version;
         this.snapshot = snapshot;
-        this.history = history;
+        this.kind = kind;
     }
 
     // Queued statistics work retains coordinates, not a potentially large cached snapshot.
     DeltaLakeTableHandle withoutSnapshot() {
         DeltaLakeTableReference coordinates =
                 new DeltaLakeTableReference(reference.path, reference.registrationId, reference.managed);
-        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, history);
+        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, kind);
     }
 
-    DeltaLakeTableHandle asHistory() {
-        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, true);
+    DeltaLakeTableHandle asSystemTable(DeltaLakeTableKind systemTableKind) {
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, systemTableKind);
     }
 
-    boolean isHistory() {
-        return history;
+    DeltaLakeTableKind kind() {
+        // Handles serialized by the original base-table connector have no kind field.
+        return kind == null ? DeltaLakeTableKind.DATA : kind;
     }
 
     String getDatabase() {
@@ -139,7 +141,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     private DeltaLakeTableHandle wrap(Snapshot pinned) {
         DeltaKernelCompat.prepareForConcurrentReads(pinned);
-        return new DeltaLakeTableHandle(database, table, reference, tableId, pinned.getVersion(), pinned, history);
+        return new DeltaLakeTableHandle(database, table, reference, tableId, pinned.getVersion(), pinned, kind);
     }
 
     Snapshot snapshot(DeltaLakeRuntime runtime) {

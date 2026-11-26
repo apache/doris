@@ -127,7 +127,10 @@ class DeltaLakeConnectorTest {
             // Reusing the source pin on its history view must retain the history schema.
             ConnectorTableHandle history = metadata.getSysTableHandle(next, latest, "history").orElseThrow();
             DeltaLakeTableHandle pinnedHistory = (DeltaLakeTableHandle) metadata.applySnapshot(next, history, pin);
-            Assertions.assertTrue(pinnedHistory.isHistory());
+            Assertions.assertEquals(DeltaLakeTableKind.HISTORY, pinnedHistory.kind());
+            Assertions.assertEquals(DeltaLakeTableKind.DATA, ((DeltaLakeTableHandle) pinned).kind());
+            Assertions.assertSame(pinnedHistory, metadata.applySnapshot(next, history, pin));
+            Assertions.assertSame(pinned, metadata.applySnapshot(next, latest, pin));
             Assertions.assertEquals(0, pinnedHistory.getVersion());
             Assertions.assertTrue(metadata.getColumnHandles(next, history, pin).containsKey("operation"));
             DeltaLakeTestTables.commit(warehouse.resolve("db/other"), 0, "other", original);

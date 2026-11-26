@@ -35,3 +35,12 @@ engineInfo	text	Yes	false	\N	NONE
 1
 2
 
+-- !projected_filter --
+WRITE	3	WRITE
+
+-- !count_only --
+4
+
+-- !count_filtered --
+2
+

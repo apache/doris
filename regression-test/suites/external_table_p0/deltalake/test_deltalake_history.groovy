@@ -74,6 +74,10 @@ suite("test_deltalake_history", "p0,external,deltalake,external_docker") {
     qt_count "select count(*), count(userMetadata) from ${history}"
     qt_empty "select count(*) from ${history} where version < 0"
     order_qt_data "select id from test_deltalake_history.delta_m1.history_fixture"
+    qt_projected_filter """select operation, version, operation from ${history}
+                           where userMetadata is not null order by version"""
+    qt_count_only "select count(*) from ${history}"
+    qt_count_filtered "select count(*) from ${history} where length(operation) = 5"
     test {
         sql "select * from ${history} for version as of 1"
         exception "system tables do not support time travel"
