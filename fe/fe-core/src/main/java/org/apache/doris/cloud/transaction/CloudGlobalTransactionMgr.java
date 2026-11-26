@@ -1275,6 +1275,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return backendToPartitionInfos;
     }
 
+    // Set the ID and version together so acquisition and release use the same table lock protocol.
+    // An absent table version selects the instance allowlist.
+    private static void setDeleteBitmapLockFields(OlapTable table, long lockId,
+            GetDeleteBitmapUpdateLockRequest.Builder builder) {
+        builder.setLockId(lockId);
+        table.getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
+    }
+
+    private static void setDeleteBitmapLockFields(OlapTable table, long lockId,
+            RemoveDeleteBitmapUpdateLockRequest.Builder builder) {
+        builder.setLockId(lockId);
+        table.getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
+    }
+
     private void getDeleteBitmapUpdateLock(long transactionId, List<OlapTable> mowTableList,
             List<TabletCommitInfo> tabletCommitInfos, DeleteBitmapUpdateLockContext lockContext)
             throws UserException {
@@ -1324,9 +1338,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder()
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 long tableId = entry.getKey();
-                builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
+                builder.setTableId(tableId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-                tableMap.get(tableId).getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
+                setDeleteBitmapLockFields(tableMap.get(tableId), transactionId, builder);
                 List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
@@ -1493,10 +1507,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder =
                     RemoveDeleteBitmapUpdateLockRequest.newBuilder()
                             .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-            builder.setTableId(table.getId())
-                    .setLockId(transactionId)
-                    .setInitiator(-1);
-            table.getDeleteBitmapLockVersionProto().ifPresent(builder::setDeleteBitmapLockVersion);
+            builder.setTableId(table.getId()).setInitiator(-1);
+            setDeleteBitmapLockFields(table, transactionId, builder);
             final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
             RemoveDeleteBitmapUpdateLockResponse response = null;
             try {
