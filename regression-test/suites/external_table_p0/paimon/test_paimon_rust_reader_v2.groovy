@@ -46,7 +46,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         def profileTextOf = { String query ->
             sql(query)
             def queryId = sql("select last_query_id()")[0][0]
-            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+            profileAction.getProfile(queryId.toString(), ["FileScannerV2", "Profile Completion State: COMPLETE"])
         }
 
         sql """drop catalog if exists ${catalogName}"""
@@ -102,17 +102,32 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         sql """set force_jni_scanner=true"""
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
-        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
+        String forcedProfile = profileTextOf(testQueries[0])
+        assertFalse(forcedProfile.contains("PaimonRustReader"))
+        assertTrue(forcedProfile.contains("RustRejected.FORCED_JNI"))
 
         // Enabling Rust must preserve Native raw-file scans.
         sql """set force_jni_scanner=false"""
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.
-        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
+        String nativeProfile = profileTextOf(testQueries[0])
+        assertFalse(nativeProfile.contains("PaimonRustReader"),
                 "enabling Rust must retain Native for raw-convertible files")
-        assertTrue(profileTextOf(testQueries[0]).contains("ParquetReader"),
+        assertTrue(nativeProfile.contains("ParquetReader"),
                 "the enabled leg must reach the Native Parquet reader")
+        assertTrue(nativeProfile.contains("RustNotConsidered.Native"))
+        assertFalse(nativeProfile.contains("RustRejected."))
+        explain {
+            sql(testQueries[0])
+            contains "paimonReadRanges: Native="
+            contains "RustNotConsidered.Native="
+        }
+        explain {
+            sql("select count(*) from ${fixtureDatabase}.rust_scan")
+            contains "MetadataCount=1"
+            contains "RustNotConsidered.MetadataCount=1"
+        }
 
         assertFalse(profileTextOf("select c1 from complex_all order by c1").contains("PaimonRustReader"),
                 "legacy schemas without a format version must use JNI")

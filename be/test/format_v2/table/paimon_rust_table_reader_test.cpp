@@ -25,6 +25,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -40,8 +41,12 @@
 #include "exprs/vliteral.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/io_common.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/url_coding.h"
 
 namespace doris::format::paimon {
@@ -83,6 +88,33 @@ TFileRangeDesc make_rust_range_with_table_path(const std::string& table_path) {
     return range;
 }
 
+void load_wide_fixture(SplitReadOptions* options) {
+    const auto fixture = std::filesystem::path("be/test/exec/test_data/paimon_rust_batch_size");
+    const auto read_file = [](const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    auto split = read_file(fixture / "split.bin");
+    const auto placeholder = split.find("__BUCKET__");
+    ASSERT_NE(placeholder, std::string::npos);
+    ASSERT_GE(placeholder, 2);
+    const auto bucket = std::filesystem::canonical(fixture / "bucket-0").string();
+    ASSERT_LT(bucket.size(), 65536);
+    // The Java DataSplit fixture uses a neutral bucket path, encoded with writeUTF.
+    const std::string length = {static_cast<char>(bucket.size() >> 8),
+                                static_cast<char>(bucket.size() & 0xff)};
+    split.replace(placeholder - 2, 2 + std::string("__BUCKET__").size(), length + bucket);
+    std::string encoded;
+    base64_encode(split, &encoded);
+    options->current_range = make_rust_range();
+    options->current_split_format = FileFormat::JNI;
+    options->all_runtime_filters_applied = true;
+    auto& params = options->current_range.table_format_params.paimon_params;
+    params.__set_paimon_table(std::filesystem::canonical(fixture).string());
+    params.__set_paimon_table_schema_json(read_file(fixture / "schema/schema-0"));
+    params.__set_paimon_split(encoded);
+}
+
 } // namespace
 
 class PaimonRustTableReaderTest : public testing::Test {
@@ -90,6 +122,8 @@ protected:
     void SetUp() override {
         _query_options.__set_batch_size(3);
         _runtime_state = RuntimeState::create_unique(_query_options, _query_globals);
+        _runtime_state->set_query_mem_tracker(MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::QUERY, "paimon-rust-reader-test"));
     }
 
     Status init_reader_with_count(PaimonRustTableReader* reader,
@@ -103,6 +137,26 @@ protected:
                              .scanner_profile = nullptr,
                              .push_down_agg_type = TPushAggOp::type::COUNT,
                              .push_down_count_columns = std::move(count_columns)});
+    }
+
+    Status init_wide_reader(PaimonRustTableReader* reader, RuntimeProfile* profile,
+                            std::shared_ptr<io::IOContext> io_ctx = nullptr) {
+        return reader->init(
+                {.projected_columns = {_projected_column,
+                                       make_column("v", std::make_shared<DataTypeString>())},
+                 .conjuncts = {},
+                 .format = FileFormat::JNI,
+                 .scan_params = nullptr,
+                 .io_ctx = std::move(io_ctx),
+                 .runtime_state = _runtime_state.get(),
+                 .scanner_profile = profile});
+    }
+
+    Block wide_block() {
+        auto value_type = make_nullable(std::make_shared<DataTypeString>());
+        return Block({ColumnWithTypeAndName(_projected_column.type->create_column(),
+                                            _projected_column.type, "k"),
+                      ColumnWithTypeAndName(value_type->create_column(), value_type, "v")});
     }
 
     TQueryOptions _query_options;
@@ -162,31 +216,8 @@ TEST_F(PaimonRustTableReaderTest, ValidatesRustSplit) {
 }
 
 TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
-    const auto fixture = std::filesystem::path("be/test/exec/test_data/paimon_rust_batch_size");
-    const auto read_file = [](const std::filesystem::path& path) {
-        std::ifstream input(path, std::ios::binary);
-        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-    };
-    auto split = read_file(fixture / "split.bin");
-    const auto placeholder = split.find("__BUCKET__");
-    ASSERT_NE(placeholder, std::string::npos);
-    ASSERT_GE(placeholder, 2);
-    const auto bucket = std::filesystem::canonical(fixture / "bucket-0").string();
-    ASSERT_LT(bucket.size(), 65536);
-    // The Java DataSplit fixture uses a neutral bucket path, encoded with writeUTF.
-    const std::string length = {static_cast<char>(bucket.size() >> 8),
-                                static_cast<char>(bucket.size() & 0xff)};
-    split.replace(placeholder - 2, 2 + std::string("__BUCKET__").size(), length + bucket);
-    std::string encoded;
-    base64_encode(split, &encoded);
     SplitReadOptions options;
-    options.current_range = make_rust_range();
-    options.current_split_format = FileFormat::JNI;
-    options.all_runtime_filters_applied = true;
-    auto& params = options.current_range.table_format_params.paimon_params;
-    params.__set_paimon_table(std::filesystem::canonical(fixture).string());
-    params.__set_paimon_table_schema_json(read_file(fixture / "schema/schema-0"));
-    params.__set_paimon_split(encoded);
+    ASSERT_NO_FATAL_FAILURE(load_wide_fixture(&options));
 
     const auto value_column = make_column("v", std::make_shared<DataTypeString>());
     PaimonRustTableReader reader;
@@ -241,6 +272,181 @@ TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
         ASSERT_TRUE(reader.abort_split().ok());
     }
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(PaimonRustTableReaderTest, PendingBatchCreditSurvivesPartialBlocksAndBalancesEverySplit) {
+    SplitReadOptions options;
+    ASSERT_NO_FATAL_FAILURE(load_wide_fixture(&options));
+    RuntimeProfile profile("rust-credit-lifecycle");
+    PaimonRustTableReader reader;
+    ASSERT_TRUE(init_wide_reader(&reader, &profile).ok());
+    reader.set_batch_size(32);
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    reader.set_batch_size(7);
+    auto block = wide_block();
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_EQ(block.rows(), 7);
+    auto tracker = _runtime_state->query_mem_tracker();
+    EXPECT_GT(tracker->reserved_consumption(), 0);
+    const auto pending = profile.get_counter("PendingArrowEstimatedBytes")->value();
+    EXPECT_GT(pending, 7 * 128 * 1024);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), pending);
+    ASSERT_TRUE(reader.abort_split().ok());
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderCreditBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
+
+    reader.set_batch_size(32);
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    reader.set_batch_size(7);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    const auto credit = profile.get_counter("ReaderCreditBytes")->value();
+    // Advancing while a previous imported batch is only partly consumed must release it.
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    EXPECT_EQ(tracker->reserved_consumption(), credit);
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+    size_t total = 0;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        total += block.rows();
+    }
+    EXPECT_EQ(total, 65);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
+
+    tracker->set_limit(1024);
+    auto status = reader.prepare_split(options);
+    if (status.ok()) {
+        status = reader.get_block(&block, &eos);
+    }
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
+    EXPECT_NE(status.to_string().find("code=6"), std::string::npos) << status;
+    EXPECT_GT(profile.get_counter("MemoryBudgetRejections")->value(), 0);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderCreditBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(PaimonRustTableReaderTest, ImportAndConversionBoundaryFailuresReleaseForeignMemory) {
+    SplitReadOptions options;
+    ASSERT_NO_FATAL_FAILURE(load_wide_fixture(&options));
+    const bool previous_debug = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer restore_debug {[&] { config::enable_debug_points = previous_debug; }};
+    for (const auto* point : {"PaimonRustTableReader.before_arrow_import",
+                              "PaimonRustTableReader.before_arrow_conversion"}) {
+        for (bool throws : {false, true}) {
+            RuntimeProfile profile("rust-failure-cleanup");
+            PaimonRustTableReader reader;
+            ASSERT_TRUE(init_wide_reader(&reader, &profile).ok());
+            reader.set_batch_size(32);
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            reader.set_batch_size(7);
+            auto block = wide_block();
+            bool eos = false;
+            DebugPoints::instance()->add_with_callback(
+                    point, std::function<void(Status*)>([&](Status* injected) {
+                        if (throws) {
+                            throw std::runtime_error("injected foreign batch boundary failure");
+                        }
+                        *injected =
+                                Status::InternalError("injected foreign batch boundary failure");
+                    }));
+            Defer remove_point {[&] { DebugPoints::instance()->remove(point); }};
+            if (throws) {
+                EXPECT_THROW(
+                        {
+                            auto status = reader.get_block(&block, &eos);
+                            EXPECT_TRUE(status.ok()) << status;
+                        },
+                        std::runtime_error);
+            } else {
+                EXPECT_FALSE(reader.get_block(&block, &eos).ok());
+            }
+            EXPECT_EQ(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+            EXPECT_EQ(profile.get_counter("ReaderCreditBytes")->value(), 0);
+            EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+            EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST_F(PaimonRustTableReaderTest, CancellationAndDestructionReleasePendingCredit) {
+    SplitReadOptions options;
+    ASSERT_NO_FATAL_FAILURE(load_wide_fixture(&options));
+    RuntimeProfile profile("rust-cancel-cleanup");
+    auto io_ctx = std::make_shared<io::IOContext>();
+    {
+        PaimonRustTableReader reader;
+        ASSERT_TRUE(init_wide_reader(&reader, &profile, io_ctx).ok());
+        reader.set_batch_size(32);
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        reader.set_batch_size(7);
+        auto block = wide_block();
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_GT(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+        io_ctx->should_stop = true;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+        EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+
+        io_ctx->should_stop = false;
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        const bool previous_debug = config::enable_debug_points;
+        config::enable_debug_points = true;
+        const std::string point = "PaimonRustTableReader.before_arrow_import";
+        DebugPoints::instance()->add_with_callback(
+                point, std::function<void(Status*)>([&](Status*) { io_ctx->should_stop = true; }));
+        Defer restore {[&] {
+            DebugPoints::instance()->remove(point);
+            config::enable_debug_points = previous_debug;
+        }};
+        // Cancellation observed immediately after synchronous next discards its C Arrow batch.
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+    }
+    io_ctx->should_stop = false;
+    {
+        PaimonRustTableReader reader;
+        ASSERT_TRUE(init_wide_reader(&reader, &profile, io_ctx).ok());
+        reader.set_batch_size(32);
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        reader.set_batch_size(7);
+        auto block = wide_block();
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        // Early LIMIT/consumer stop can destroy a reader without draining another block.
+        EXPECT_GT(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+    }
+    EXPECT_EQ(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderCreditBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
+
+    PaimonRustTableReader cancelled_reader;
+    ASSERT_TRUE(init_wide_reader(&cancelled_reader, &profile).ok());
+    cancelled_reader.set_batch_size(32);
+    ASSERT_TRUE(cancelled_reader.prepare_split(options).ok());
+    cancelled_reader.set_batch_size(7);
+    auto cancelled_block = wide_block();
+    bool cancelled_eos = false;
+    ASSERT_TRUE(cancelled_reader.get_block(&cancelled_block, &cancelled_eos).ok());
+    _runtime_state->cancel(Status::Cancelled("cancel retained Rust batch"));
+    auto cancelled = cancelled_reader.get_block(&cancelled_block, &cancelled_eos);
+    EXPECT_TRUE(cancelled.is<ErrorCode::CANCELLED>()) << cancelled;
+    EXPECT_EQ(_runtime_state->query_mem_tracker()->reserved_consumption(), 0);
+    EXPECT_EQ(profile.get_counter("ReaderCreditBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("PendingArrowEstimatedBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SdkReservedBytes")->value(), 0);
 }
 
 TEST_F(PaimonRustTableReaderTest, TableLevelCountEmitsSyntheticRows) {

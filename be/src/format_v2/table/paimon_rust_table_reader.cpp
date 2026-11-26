@@ -34,10 +34,13 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/table/paimon_rust_memory.h"
 #include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/string_util.h"
 #include "util/timezone_utils.h"
 #include "util/url_coding.h"
@@ -69,7 +72,6 @@ PAIMON_OWNED(read_builder, paimon_read_builder_free);
 PAIMON_OWNED(plan, paimon_plan_free);
 PAIMON_OWNED(table_read, paimon_table_read_free);
 PAIMON_OWNED(record_batch_reader, paimon_record_batch_reader_free);
-PAIMON_OWNED(error, paimon_error_free);
 
 #undef PAIMON_OWNED
 
@@ -107,20 +109,6 @@ private:
     paimon_arrow_batch batch_;
 };
 
-// Render a paimon_error into a string. Takes ownership of `err` via RAII so it
-// is freed on every return path. Safe to call with nullptr.
-std::string consume_error(paimon_error* err) {
-    rust_handles::error_ptr owned(err);
-    if (!owned) {
-        return "unknown error";
-    }
-    std::string msg;
-    if (owned->message.data != nullptr && owned->message.len > 0) {
-        msg.assign(reinterpret_cast<const char*>(owned->message.data), owned->message.len);
-    }
-    return "code=" + std::to_string(owned->code) + ", msg=" + msg;
-}
-
 // Render storage option KEYS for diagnostics. Values are never rendered:
 // credential keys arrive under many spellings and cases (AWS_SECRET_KEY,
 // AWS_TOKEN, fs.oss.accessKeySecret, s3.secret-key, ...), and a key-name
@@ -153,7 +141,10 @@ struct PaimonRustTableReader::PaimonHandles {
 
 PaimonRustTableReader::PaimonRustTableReader() = default;
 
-PaimonRustTableReader::~PaimonRustTableReader() = default;
+PaimonRustTableReader::~PaimonRustTableReader() {
+    _close_split_reader();
+    _close_table();
+}
 
 Status PaimonRustTableReader::init(format::TableReadOptions&& options) {
     RETURN_IF_ERROR(format::TableReader::init(std::move(options)));
@@ -203,6 +194,18 @@ Status PaimonRustTableReader::init(format::TableReadOptions&& options) {
 }
 
 Status PaimonRustTableReader::prepare_split(const format::SplitReadOptions& options) {
+    bool prepared = false;
+    Defer cleanup {[&] {
+        if (!prepared) {
+            _close_split_reader();
+        }
+    }};
+    auto status = _prepare_split_impl(options);
+    prepared = status.ok();
+    return status;
+}
+
+Status PaimonRustTableReader::_prepare_split_impl(const format::SplitReadOptions& options) {
     // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
     // are idempotent, and clear it only when a new split is explicitly prepared.
     _close_split_reader();
@@ -216,6 +219,7 @@ Status PaimonRustTableReader::prepare_split(const format::SplitReadOptions& opti
         // No rust pipeline is opened; get_block emits the synthetic count rows.
         return Status::OK();
     }
+    RETURN_IF_CANCELLED(_runtime_state);
     RETURN_IF_ERROR(_validate_rust_split(options.current_range));
     {
         SCOPED_TIMER(_profile.total_timer);
@@ -232,6 +236,20 @@ Status PaimonRustTableReader::get_block(Block* block, bool* eos) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);
     SCOPED_TIMER(_rust_total_time);
+    bool keep_split = false;
+    // A Status or a thrown Arrow/SerDe allocation/conversion failure must release the imported
+    // batch before the pipeline and its admission credit, in this same call.
+    Defer cleanup {[&] {
+        if (!keep_split) {
+            _close_split_reader();
+        }
+    }};
+    auto status = _get_block_impl(block, eos);
+    keep_split = status.ok() && !*eos;
+    return status;
+}
+
+Status PaimonRustTableReader::_get_block_impl(Block* block, bool* eos) {
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -252,6 +270,7 @@ Status PaimonRustTableReader::get_block(Block* block, bool* eos) {
     }
 
     while (true) {
+        RETURN_IF_CANCELLED(_runtime_state);
         // Mirror the base TableReader cancellation contract so a cancelled query does not
         // drain the whole split.
         if (_io_ctx != nullptr && _io_ctx->should_stop) {
@@ -262,57 +281,89 @@ Status PaimonRustTableReader::get_block(Block* block, bool* eos) {
         }
 
         if (!_pending_record_batch) {
-            paimon_result_next_batch next;
-            {
-                SCOPED_TIMER(_rust_read_batch_time);
-                next = paimon_record_batch_reader_next(_handles->reader.get());
-            }
-            if (next.error != nullptr) {
-                return Status::InternalError("paimon-rust read batch failed: {}",
-                                             consume_error(next.error));
-            }
-            // End of stream: both pointers are null.
-            if (next.batch.array == nullptr && next.batch.schema == nullptr) {
-                _split_eof = true;
-                _close_split_reader();
+            RETURN_IF_ERROR(_read_next_batch());
+            if (_split_eof) {
                 *eos = true;
                 return Status::OK();
             }
-
-            // RAII: the batch's Arrow release callbacks + container free run when
-            // `batch` leaves this scope, including on any early return.
-            ArrowBatch batch(next.batch);
-            arrow::Result<std::shared_ptr<arrow::RecordBatch>> import_result =
-                    arrow::ImportRecordBatch(batch.array(), batch.schema());
-            if (!import_result.ok()) {
-                return Status::InternalError("failed to import paimon-rust arrow batch: {}",
-                                             import_result.status().message());
-            }
-            _pending_record_batch = std::move(import_result).ValueUnsafe();
-            _pending_record_batch_offset = 0;
             if (_pending_record_batch->num_rows() == 0) {
-                _pending_record_batch.reset();
+                _release_pending_batch();
                 continue;
             }
         }
 
-        const size_t batch_size = static_cast<size_t>(
-                _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
-        const size_t remaining = static_cast<size_t>(_pending_record_batch->num_rows()) -
-                                 _pending_record_batch_offset;
-        const size_t rows = std::min(batch_size, remaining);
-        RETURN_IF_ERROR(_fill_block_from_record_batch(_pending_record_batch, block,
-                                                      _pending_record_batch_offset, rows));
-        _pending_record_batch_offset += rows;
-        if (_pending_record_batch_offset ==
-            static_cast<size_t>(_pending_record_batch->num_rows())) {
-            _pending_record_batch.reset();
-            _pending_record_batch_offset = 0;
-        }
-        _record_scan_rows(rows);
+        RETURN_IF_ERROR(_convert_pending_batch(block));
         *eos = false;
         return Status::OK();
     }
+}
+
+Status PaimonRustTableReader::_read_next_batch() {
+    paimon_result_next_batch next;
+    {
+        SCOPED_TIMER(_rust_read_batch_time);
+        next = paimon_record_batch_reader_next(_handles->reader.get());
+    }
+    _memory_budget->sample_sdk();
+    if (next.error != nullptr) {
+        return _memory_budget->sdk_error(next.error, "read batch");
+    }
+    // End of stream: both pointers are null.
+    if (next.batch.array == nullptr && next.batch.schema == nullptr) {
+        _split_eof = true;
+        return Status::OK();
+    }
+
+    // RAII: the batch's Arrow release callbacks + container free run when
+    // `batch` leaves this scope, including on any early return.
+    ArrowBatch batch(next.batch);
+    // Fault-injection boundaries exercise real foreign-buffer ownership before import
+    // and after retention, including a thrown conversion/allocation failure.
+    DBUG_EXECUTE_IF("PaimonRustTableReader.before_arrow_import", {
+        Status injected;
+        DBUG_RUN_CALLBACK(&injected);
+        RETURN_IF_ERROR(injected);
+    });
+    // next is synchronous and has no cancellation handle. Observe cancellation before
+    // importing/converting its output; local Arrow RAII runs before the outer cleanup.
+    RETURN_IF_CANCELLED(_runtime_state);
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        _split_eof = true;
+        return Status::OK();
+    }
+    arrow::Result<std::shared_ptr<arrow::RecordBatch>> import_result =
+            arrow::ImportRecordBatch(batch.array(), batch.schema());
+    if (!import_result.ok()) {
+        return Status::InternalError("failed to import paimon-rust arrow batch: {}",
+                                     import_result.status().message());
+    }
+    auto imported = std::move(import_result).ValueUnsafe();
+    RETURN_IF_ERROR(_memory_budget->retain_pending(*imported));
+    _pending_record_batch = std::move(imported);
+    _pending_record_batch_offset = 0;
+    return Status::OK();
+}
+
+Status PaimonRustTableReader::_convert_pending_batch(Block* block) {
+    const size_t batch_size =
+            _batch_size > 0 ? _batch_size
+                            : static_cast<size_t>(std::max(1, _runtime_state->batch_size()));
+    const size_t remaining =
+            static_cast<size_t>(_pending_record_batch->num_rows()) - _pending_record_batch_offset;
+    const size_t rows = std::min(batch_size, remaining);
+    DBUG_EXECUTE_IF("PaimonRustTableReader.before_arrow_conversion", {
+        Status injected;
+        DBUG_RUN_CALLBACK(&injected);
+        RETURN_IF_ERROR(injected);
+    });
+    RETURN_IF_ERROR(_fill_block_from_record_batch(_pending_record_batch, block,
+                                                  _pending_record_batch_offset, rows));
+    _pending_record_batch_offset += rows;
+    if (std::cmp_equal(_pending_record_batch_offset, _pending_record_batch->num_rows())) {
+        _release_pending_batch();
+    }
+    _record_scan_rows(rows);
+    return Status::OK();
 }
 
 Status PaimonRustTableReader::abort_split() {
@@ -418,7 +469,11 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
         // table reuse it and only rebuild the read pipeline below.
         _close_table();
         _handles = std::make_unique<PaimonHandles>();
-
+    }
+    _memory_budget = std::make_unique<PaimonRustMemoryBudget>(_runtime_state->query_mem_tracker(),
+                                                              _scanner_profile);
+    RETURN_IF_ERROR(_memory_budget->acquire());
+    if (!_handles->table) {
         std::vector<paimon_option> c_options;
         c_options.reserve(options.size());
         for (const auto& kv : options) {
@@ -440,34 +495,34 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
                 branch_str.c_str(), c_options.empty() ? nullptr : c_options.data(),
                 c_options.size());
         if (tbl_res.error != nullptr) {
-            return Status::InternalError(
-                    "paimon-rust table_from_schema_json failed: db={} table={} err={}", db_name,
-                    table_name, consume_error(tbl_res.error));
+            return _memory_budget->sdk_error(tbl_res.error, "table_from_schema_json");
         }
         _handles->table.reset(tbl_res.table);
         _opened_table_key = std::move(opened_table_key);
     }
 
     // 4. Build the read pipeline: read_builder -> case-insensitive -> projection.
-    // Bound the Rust Arrow allocation itself: wide rows must respect the scanner's
-    // adaptive probe size before they are materialized into a Doris block.
+    // This bounds row granularity, not bytes. The SDK reservation budget and the separate
+    // imported-output estimate below enforce the supported parts of memory admission.
     const auto batch_size = std::to_string(
             _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
     const paimon_option batch_option {"read.batch-size", batch_size.c_str()};
     paimon_result_read_builder rb_res =
             paimon_table_new_read_builder_with_options(_handles->table.get(), &batch_option, 1);
     if (rb_res.error != nullptr) {
-        return Status::InternalError("paimon-rust new read builder failed: {}",
-                                     consume_error(rb_res.error));
+        return _memory_budget->sdk_error(rb_res.error, "new read builder");
     }
     _handles->read_builder.reset(rb_res.read_builder);
+    if (auto* error = paimon_read_builder_with_resources(_handles->read_builder.get(),
+                                                         _memory_budget->sdk_context())) {
+        return _memory_budget->sdk_error(error, "bind resource context");
+    }
 
     // Fold column casing on the Rust side so FE-normalized lowercase names
     // resolve against tables with mixed-case column definitions.
     if (paimon_error* case_err =
                 paimon_read_builder_with_case_sensitive(_handles->read_builder.get(), false)) {
-        return Status::InternalError("paimon-rust set case_sensitive failed: {}",
-                                     consume_error(case_err));
+        return _memory_budget->sdk_error(case_err, "set case_sensitive");
     }
 
     // Partition keys are excluded: they are materialized from split metadata
@@ -481,8 +536,7 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     projection.push_back(nullptr);
     if (paimon_error* proj_err = paimon_read_builder_with_projection(_handles->read_builder.get(),
                                                                      projection.data())) {
-        return Status::InternalError("paimon-rust set projection failed: {}",
-                                     consume_error(proj_err));
+        return _memory_budget->sdk_error(proj_err, "set projection");
     }
 
     // Convert the scanner conjuncts into a paimon-rust filter and apply it.
@@ -495,8 +549,7 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     paimon_result_plan plan_res = paimon_plan_from_split_bytes(
             reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
     if (plan_res.error != nullptr) {
-        return Status::InternalError("paimon-rust build plan failed: {}",
-                                     consume_error(plan_res.error));
+        return _memory_budget->sdk_error(plan_res.error, "build plan");
     }
     _handles->plan.reset(plan_res.plan);
 
@@ -508,25 +561,36 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
 
     // 6. Open the arrow stream over the plan.
     paimon_result_new_read read_res = paimon_read_builder_new_read(_handles->read_builder.get());
+    _memory_budget->sample_sdk();
     if (read_res.error != nullptr) {
-        return Status::InternalError("paimon-rust new read failed: {}",
-                                     consume_error(read_res.error));
+        return _memory_budget->sdk_error(read_res.error, "new read");
     }
     _handles->table_read.reset(read_res.read);
 
     paimon_result_record_batch_reader rdr_res = paimon_table_read_to_arrow(
             _handles->table_read.get(), _handles->plan.get(), /*offset=*/0, /*length=*/num_splits);
+    _memory_budget->sample_sdk();
     if (rdr_res.error != nullptr) {
-        return Status::InternalError("paimon-rust open arrow reader failed: {}",
-                                     consume_error(rdr_res.error));
+        return _memory_budget->sdk_error(rdr_res.error, "open arrow reader");
     }
     _handles->reader.reset(rdr_res.reader);
     return Status::OK();
 }
 
-void PaimonRustTableReader::_close_split_reader() {
+void PaimonRustTableReader::_release_pending_batch() {
     _pending_record_batch.reset();
     _pending_record_batch_offset = 0;
+    if (_memory_budget) {
+        _memory_budget->release_pending();
+        // Credit admission or context creation can fail before a SDK handle exists.
+        if (_memory_budget->sdk_context() != nullptr) {
+            _memory_budget->sample_sdk();
+        }
+    }
+}
+
+void PaimonRustTableReader::_close_split_reader() {
+    _release_pending_batch();
     if (!_handles) {
         return;
     }
@@ -535,6 +599,7 @@ void PaimonRustTableReader::_close_split_reader() {
     _handles->table_read.reset();
     _handles->plan.reset();
     _handles->read_builder.reset();
+    _memory_budget.reset();
 }
 
 void PaimonRustTableReader::_close_table() {
@@ -586,7 +651,7 @@ Status PaimonRustTableReader::_apply_predicate() {
     // the builder) on every path, so we must not free it here.
     if (paimon_error* err =
                 paimon_read_builder_with_filter(_handles->read_builder.get(), predicate)) {
-        return Status::InternalError("paimon-rust apply filter failed: {}", consume_error(err));
+        return _memory_budget->sdk_error(err, "apply filter");
     }
     // Count application only after the C API accepts the filter; reader timers
     // alone cannot distinguish pushdown from Doris residual-only execution.

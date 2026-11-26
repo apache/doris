@@ -51,40 +51,64 @@ final class PaimonRustReaderCapabilities {
             "first_non_null_value", "first_not_null_value", "bool_and", "bool_or", "listagg", "collect");
     private final FileStoreTable table;
     private final TableSchema schema;
-    private final boolean tableCompatible;
+    private final PaimonRustReaderReason tableReason;
     private final Map<Long, Boolean> compatibleFileSchemas = new ConcurrentHashMap<>();
 
     PaimonRustReaderCapabilities(FileStoreTable table, List<ConnectorColumnHandle> columns) {
         this.table = table;
         this.schema = table.schema();
-        this.tableCompatible = schema != null && hasCompatibleSchemaVersion(schema)
-                && hasRustCompatibleTimestamps(schema.fields())
-                && hasFullNestedProjection(columns) && hasCompatibleMergeEngine(schema)
-                && hasCompatibleAggregates(schema);
+        this.tableReason = tableReason(schema, columns);
+    }
+
+    private static PaimonRustReaderReason tableReason(TableSchema schema, List<ConnectorColumnHandle> columns) {
+        if (schema == null) {
+            return PaimonRustReaderReason.SCHEMA_METADATA;
+        }
+        if (!hasCompatibleSchemaVersion(schema)) {
+            return PaimonRustReaderReason.SCHEMA_VERSION;
+        }
+        if (!hasRustCompatibleTimestamps(schema.fields())) {
+            return PaimonRustReaderReason.TIMESTAMP_PRECISION;
+        }
+        if (!hasFullNestedProjection(columns)) {
+            return PaimonRustReaderReason.NESTED_PROJECTION;
+        }
+        if (!hasCompatibleMergeEngine(schema)) {
+            return PaimonRustReaderReason.MERGE_ENGINE_RESOURCE_GUARD;
+        }
+        return hasCompatibleAggregates(schema)
+                ? PaimonRustReaderReason.SUPPORTED : PaimonRustReaderReason.AGGREGATE_SEMANTICS;
     }
 
     boolean canRead(DataSplit split) {
-        if (!tableCompatible) {
-            return false;
+        return rejectionReason(split) == PaimonRustReaderReason.SUPPORTED;
+    }
+
+    PaimonRustReaderReason rejectionReason(DataSplit split) {
+        if (tableReason != PaimonRustReaderReason.SUPPORTED) {
+            return tableReason;
         }
-        // Pending output can keep losing input batches alive until an output batch fills.
-        // Same-key versions and these retained batches are not covered by the SDK resource budget.
+        // SDK reservation still excludes retained sort-merge/same-key state. Local budgeting
+        // does not make a multi-file PK split safe, even with zero recorded deletes.
         if (!schema.primaryKeys().isEmpty() && split.dataFiles().size() > 1) {
-            return false;
+            return PaimonRustReaderReason.MULTI_FILE_RESOURCE_GUARD;
         }
         for (DataFileMeta file : split.dataFiles()) {
-            // With pending surviving rows, a long retract-only tail can retain consumed batches.
-            // Old files can also contain repeated keys. These merge states need a shared budget
-            // before admitting deletes or files without the deletion statistic to Rust.
-            if (!schema.primaryKeys().isEmpty() && file.deleteRowCount().orElse(-1L) != 0L) {
-                return false;
+            if (!schema.primaryKeys().isEmpty()) {
+                if (!file.deleteRowCount().isPresent()) {
+                    return PaimonRustReaderReason.DELETE_STATISTICS_UNAVAILABLE;
+                }
+                if (file.deleteRowCount().get() != 0L) {
+                    // A surviving output row plus a long retract tail can retain input batches.
+                    return PaimonRustReaderReason.DELETES_RESOURCE_GUARD;
+                }
             }
             if (file.schemaId() != schema.id() && !compatibleFileSchemas.computeIfAbsent(
                     file.schemaId(), this::hasCompatibleFileSchema)) {
-                return false;
+                return PaimonRustReaderReason.SCHEMA_EVOLUTION;
             }
         }
-        return true;
+        return PaimonRustReaderReason.SUPPORTED;
     }
 
     private static boolean hasFullNestedProjection(List<ConnectorColumnHandle> columns) {

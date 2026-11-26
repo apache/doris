@@ -576,6 +576,16 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Appends EXPLAIN with the diagnostics collected for this scan node. The existing profile
+     * bundle carries mixed-reader counts without interpreting connector-private range properties
+     * in the engine. Older implementations retain their existing EXPLAIN through the default.
+     */
+    default void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties,
+            List<ConnectorScanProfile> profiles) {
+        appendExplainInfo(output, prefix, nodeProperties);
+    }
+
+    /**
      * Returns the delete-file paths carried by one scan range's table-format descriptor, for the
      * VERBOSE per-backend EXPLAIN block ({@code deleteFileNum}/{@code deleteSplitNum}).
      *

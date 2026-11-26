@@ -201,6 +201,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
+    private final List<ConnectorScanProfile> connectorScanProfiles =
+            Collections.synchronizedList(new ArrayList<>());
     // Maps filtered conjunct indices (after CAST removal) back to original conjunct indices
     private List<Integer> filteredToOriginalIndex;
 
@@ -546,6 +548,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (profiles == null || profiles.isEmpty()) {
             return;
         }
+        connectorScanProfiles.addAll(profiles);
         SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
         if (summaryProfile == null) {
             return;
@@ -776,7 +779,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     explainProps.put(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE, "true");
                 }
                 onPluginClassLoader(scanProvider, () -> {
-                    scanProvider.appendExplainInfo(output, prefix, explainProps);
+                    scanProvider.appendExplainInfo(output, prefix, explainProps,
+                            new ArrayList<>(connectorScanProfiles));
                     return null;
                 });
             }
