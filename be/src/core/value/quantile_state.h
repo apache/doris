@@ -60,8 +60,6 @@ public:
     bool deserialize(const Slice& slice);
     size_t serialize(uint8_t* dst) const;
     void merge(const QuantileState& other);
-    // Physical compaction must not persist a state below the legacy reader floor.
-    void promote_compression_for_compaction();
     void add_value(const double& value);
     // Clear samples while retaining explicit capacity for the next aggregate frame.
     void reset();

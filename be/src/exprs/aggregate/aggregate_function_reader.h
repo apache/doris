@@ -17,20 +17,14 @@
 
 #pragma once
 
-#include <cstdint>
-
 namespace doris {
 class AggregateFunctionSimpleFactory;
-enum class ReaderType : uint8_t;
 } // namespace doris
 
 namespace doris {
 
 static auto constexpr AGG_READER_SUFFIX = "_reader";
 static auto constexpr AGG_LOAD_SUFFIX = "_load";
-static auto constexpr AGG_COMPACTION_SUFFIX = "_compaction";
-
-bool is_compaction_reader_type(ReaderType reader_type);
 
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory);
 

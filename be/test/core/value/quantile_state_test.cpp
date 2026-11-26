@@ -318,21 +318,23 @@ TEST(QuantileStateTest, MinimumCompressionRoundtripAndValidation) {
 }
 
 TEST(QuantileStateTest, LowCompression1440SamplesRetainLessBuffer) {
-    QuantileState low(128);
-    QuantileState normal;
-    for (int i = 0; i < 1440; ++i) {
-        low.add_value(i);
-        normal.add_value(i);
+    for (float compression : {32.0F, 128.0F}) {
+        QuantileState low(compression);
+        QuantileState normal;
+        for (int i = 0; i < 1440; ++i) {
+            low.add_value(i);
+            normal.add_value(i);
+        }
+        ASSERT_EQ(TDIGEST, low._type);
+        ASSERT_EQ(EXPLICIT, normal._type);
+        const auto& digest = low._mutable_tdigest();
+        const size_t retained_bytes =
+                (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+                digest._cumulative.capacity() * sizeof(Weight);
+        EXPECT_LT(retained_bytes, normal._explicit_data.capacity() * sizeof(double));
+        EXPECT_EQ(0, low._explicit_data.capacity());
+        expect_digest_samples(low, 1440, 0, 1439);
     }
-    ASSERT_EQ(TDIGEST, low._type);
-    ASSERT_EQ(EXPLICIT, normal._type);
-    const auto& digest = low._mutable_tdigest();
-    const size_t retained_bytes =
-            (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
-            digest._cumulative.capacity() * sizeof(Weight);
-    EXPECT_LT(retained_bytes, normal._explicit_data.capacity() * sizeof(double));
-    EXPECT_EQ(0, low._explicit_data.capacity());
-    expect_digest_samples(low, 1440, 0, 1439);
 }
 
 static void expect_mixed_result_roundtrip(QuantileState result) {
@@ -398,6 +400,48 @@ TEST(QuantileStateTest, LowCompressionMergePreservesWeightedSourceExtrema) {
         ASSERT_TRUE(
                 restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
         expect_digest_samples(restored, 100260, source_min, source_max);
+    }
+}
+
+static void expect_digest_compression(QuantileState& state, float compression, int count,
+                                      double sign) {
+    EXPECT_EQ(compression, state._compression);
+    EXPECT_EQ(compression, state._mutable_tdigest().compression());
+    EXPECT_EQ(std::ceil(compression), state._mutable_tdigest().max_unprocessed());
+    expect_digest_samples(state, count, std::min(0.0, sign * 100), std::max(0.0, sign * 100));
+}
+
+static void expect_raised_compression_rebuild(double sign) {
+    QuantileState low(32);
+    low.add_value(0);
+    for (int i = 0; i < 32; ++i) {
+        low.add_value(sign * 100);
+    }
+    auto& digest = low._mutable_tdigest();
+    digest.add(static_cast<float>(sign), 1);
+    digest.add(static_cast<float>(sign * 100), 100000);
+    EXPECT_EQ(0, low.get_value_by_percentile(sign > 0 ? 0 : 1));
+    // The endpoint must come from recorded extrema, not a weighted centroid's mean.
+    if (sign > 0) {
+        EXPECT_GT(digest.processed().front().mean(), 0);
+    } else {
+        EXPECT_LT(digest.processed().back().mean(), 0);
+    }
+    auto retained = low;
+    QuantileState higher(128);
+    higher.add_value(sign * 100);
+    low.merge(higher);
+    expect_digest_compression(low, 128, 100035, sign);
+    expect_digest_compression(retained, 32, 100034, sign);
+    std::vector<uint8_t> bytes(low.get_serialized_size());
+    ASSERT_EQ(bytes.size(), low.serialize(bytes.data()));
+    QuantileState restored(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size()));
+    expect_digest_compression(restored, 128, 100035, sign);
+}
+
+TEST(QuantileStateTest, RaisedCompressionRebuildPreservesWeightsAndExtrema) {
+    for (double sign : {1.0, -1.0}) {
+        expect_raised_compression_rebuild(sign);
     }
 }
 

@@ -260,16 +260,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
     _stored_has_variable_length_tag.resize(_stored_data_columns.size());
 
     for (size_t idx = 0; idx < _read_schema->num_block_columns(); ++idx) {
-        // Vertical compaction writes persisted rows; query readers retain low-C states.
-        const auto* suffix =
-                _read_schema->column(idx)->aggregation() ==
-                                        FieldAggregationMethod::
-                                                OLAP_FIELD_AGGREGATION_QUANTILE_UNION &&
-                                is_compaction_reader_type(read_params.reader_type)
-                        ? AGG_COMPACTION_SUFFIX
-                        : AGG_READER_SUFFIX;
         AggregateFunctionPtr function = _read_schema->column(idx)->get_aggregate_function(
-                suffix, read_params.get_be_exec_version(), _read_schema->data_type(idx));
+                AGG_READER_SUFFIX, read_params.get_be_exec_version(), _read_schema->data_type(idx));
         DCHECK(function != nullptr);
         const auto* column_ptr = _stored_data_columns[idx].get();
         const IColumn* columns[] = {column_ptr};

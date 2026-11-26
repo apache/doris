@@ -364,12 +364,6 @@ void QuantileState::_normalize_digest() {
     _tdigest_ptr = std::move(rebuilt);
 }
 
-void QuantileState::promote_compression_for_compaction() {
-    // A compacted row may have only one low-C input, so the floor applies before any merge too.
-    _compression = std::max<float>(_compression, QUANTILE_STATE_COMPRESSION_DEFAULT);
-    _normalize_digest();
-}
-
 void QuantileState::_merge_explicit(const QuantileState& other) {
     DCHECK(other._type == EXPLICIT);
     if (_type == SINGLE && _compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {

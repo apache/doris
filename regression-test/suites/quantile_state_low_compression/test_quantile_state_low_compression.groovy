@@ -71,9 +71,10 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
                   FROM numbers("number" = "129")) x
         """
         qt_1440_digest """
-            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 1, 8),
+                   substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),
                    quantile_percent(s, 0), quantile_percent(s, 1)
-            FROM (SELECT quantile_union(to_quantile_state(number, 128)) AS s
+            FROM (SELECT quantile_union(to_quantile_state(number, 32)) AS s
                   FROM numbers("number" = "1440")) x
         """
         qt_2048_explicit """
@@ -171,31 +172,41 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
             ) x ORDER BY part
         """
 
-        sql "DROP TABLE IF EXISTS test_quantile_state_compaction_floor"
+        sql "DROP TABLE IF EXISTS test_quantile_state_compaction_merge"
         sql """
-            CREATE TABLE test_quantile_state_compaction_floor (
+            CREATE TABLE test_quantile_state_compaction_merge (
                 k INT NOT NULL,
                 s QUANTILE_STATE QUANTILE_UNION NOT NULL
             ) AGGREGATE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 1
             PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true")
         """
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(1.0, 32))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (1, to_quantile_state(2.0, 256))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (2, to_quantile_state(3.0, 32))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(4.0, 32))"
-        sql "INSERT INTO test_quantile_state_compaction_floor VALUES (3, to_quantile_state(5.0, 10000))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (1, to_quantile_state(1.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (1, to_quantile_state(2.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (2, to_quantile_state(3.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (3, to_quantile_state(4.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (3, to_quantile_state(5.0, 128))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (4, to_quantile_state(6.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (4, to_quantile_state(7.0, 2048))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (5, to_quantile_state(8.0, 32))"
+        sql "INSERT INTO test_quantile_state_compaction_merge VALUES (5, to_quantile_state(9.0, 10000))"
+        // A digest-only group must also retain C=32 when compaction rewrites its row.
+        sql """
+            INSERT INTO test_quantile_state_compaction_merge
+            SELECT 6, quantile_union(to_quantile_state(number, 32))
+            FROM numbers("number" = "1440")
+        """
         // The first four bytes of the state are the little-endian FLOAT compression.
         order_qt_before_compaction """
             SELECT k, substr(hex(from_base64(quantile_state_to_base64(s))), 1, 8),
                    quantile_percent(s, 0), quantile_percent(s, 1)
-            FROM test_quantile_state_compaction_floor ORDER BY k
+            FROM test_quantile_state_compaction_merge ORDER BY k
         """
-        trigger_and_wait_compaction("test_quantile_state_compaction_floor", "full")
+        trigger_and_wait_compaction("test_quantile_state_compaction_merge", "full")
         order_qt_after_compaction """
             SELECT k, substr(hex(from_base64(quantile_state_to_base64(s))), 1, 8),
                    quantile_percent(s, 0), quantile_percent(s, 1)
-            FROM test_quantile_state_compaction_floor ORDER BY k
+            FROM test_quantile_state_compaction_merge ORDER BY k
         """
     }
 }
