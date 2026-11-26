@@ -356,7 +356,7 @@ suite("fold_literal_arguments") {
     }
     test {
         sql "select width_bucket(v, 0, 10, crc32('')) from fold_literal_arguments_t"
-        exception "must be a positive integer value"
+        exception "The number of buckets must be between 1 and 9223372036854775806"
     }
     test {
         sql "select array_apply([1, 2, 3], lpad('>', 2, '>'), 2)"
