@@ -55,6 +55,7 @@ import java.util.stream.Collectors;
 class IvmDeltaRewriteState {
     private final Map<OlapTable, OlapTableStream> streams;
     private final boolean includeExhaustedStreams;
+    private final boolean keepJoinOrder;
     /** Null for an append-only detail MV, whose delta allocates no sequence. */
     private final IvmSequenceCalculator sequenceCalculator;
     /**
@@ -116,15 +117,17 @@ class IvmDeltaRewriteState {
             }
         }
         applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), sequenceCalculator,
+        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(),
+                ctx.getConnectContext().getStatementContext().hasOrderedHint(), sequenceCalculator,
                 windowPartitionIdsByTable);
     }
 
     private IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams,
-            boolean includeExhaustedStreams, IvmSequenceCalculator sequenceCalculator,
+            boolean includeExhaustedStreams, boolean keepJoinOrder, IvmSequenceCalculator sequenceCalculator,
             Map<OlapTable, List<Long>> windowPartitionIdsByTable) {
         this.streams = new HashMap<>(streams);
         this.includeExhaustedStreams = includeExhaustedStreams;
+        this.keepJoinOrder = keepJoinOrder;
         this.sequenceCalculator = sequenceCalculator;
         this.windowPartitionIdsByTable = windowPartitionIdsByTable;
     }
@@ -134,8 +137,12 @@ class IvmDeltaRewriteState {
      */
     IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams, boolean includeExhaustedStreams,
             long sequencePrefix, DataType sequenceType, Map<OlapTable, List<Long>> windowPartitionIdsByTable) {
-        this(streams, includeExhaustedStreams, IvmSequenceCalculator.create(sequencePrefix, sequenceType),
+        this(streams, includeExhaustedStreams, false, IvmSequenceCalculator.create(sequencePrefix, sequenceType),
                 windowPartitionIdsByTable);
+    }
+
+    boolean keepJoinOrder() {
+        return keepJoinOrder;
     }
 
     /**

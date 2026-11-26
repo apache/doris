@@ -209,7 +209,7 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
         LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft);
+                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft, rewriteState);
         ImmutableList.Builder<NamedExpression> projects =
                 ImmutableList.builderWithExpectedSize(join.getOutput().size());
         for (Slot output : join.getOutput()) {

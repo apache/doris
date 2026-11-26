@@ -160,12 +160,12 @@ class IvmJoinDeltaHandler {
             Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = helper.preSnapshot(join.right(), rewriteState);
             return rewriteInnerJoinContribution(join, true, delta.plan,
                     helper.mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
-                    rightPreSnapshot.first, rightPreSnapshot.second, delta);
+                    rightPreSnapshot.first, rightPreSnapshot.second, delta, rewriteState);
         } else {
             Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = helper.postSnapshot(join.left(), rewriteState);
             return rewriteInnerJoinContribution(join, false, leftPostSnapshot.first,
                     helper.mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
-                    helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
+                    helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta, rewriteState);
         }
     }
 
@@ -184,14 +184,15 @@ class IvmJoinDeltaHandler {
 
     private IvmDeltaRewriteResult rewriteInnerJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
             boolean deltaOnLeft, Plan leftPlan, Map<Slot, Slot> leftMapping,
-            Plan rightPlan, Map<Slot, Slot> rightMapping, IvmDeltaRewriteResult delta) {
+            Plan rightPlan, Map<Slot, Slot> rightMapping, IvmDeltaRewriteResult delta,
+            IvmDeltaRewriteState rewriteState) {
         Map<Slot, Slot> slotMapping = new HashMap<>(leftMapping);
         slotMapping.putAll(rightMapping);
         helper.mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
         LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft);
+                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft, rewriteState);
         Slot dmlFactorSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
@@ -299,7 +300,7 @@ class IvmJoinDeltaHandler {
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
                 deltaContext.leftInput.plan, deltaContext.rightInput.plan, JoinReorderContext.EMPTY),
-                deltaContext.isDeltaOnLeft);
+                deltaContext.isDeltaOnLeft, deltaContext.rewriteState);
         // The joined-row branch changes the join type, so its output slots/schema are not the same as the
         // original outer join output. Project it back before unioning with the repair branches.
         return projectJoinContribution(join,
