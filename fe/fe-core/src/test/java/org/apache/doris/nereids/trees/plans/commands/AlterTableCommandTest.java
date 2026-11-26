@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -433,6 +435,38 @@ public class AlterTableCommandTest {
                 .translateToCatalogStyleForSchemaChange().isNullableSpecified());
         Assertions.assertTrue(notNullable.getColumnDef()
                 .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+    }
+
+    @Test
+    void addColumnDefaultRepresentationFollowsTheTargetTable() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalogOrDdlException("warehouse")).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrDdlException("db")).thenReturn(database);
+        Mockito.when(database.getTableOrDdlException("t")).thenReturn(table);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<SqlModeHelper> sqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            sqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            for (boolean iceberg : Arrays.asList(false, true)) {
+                Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(iceberg);
+                for (String clause : Arrays.asList("v STRING DEFAULT 'a\\\\b'",
+                        "(v STRING DEFAULT 'a\\\\b', n INT)")) {
+                    AlterTableCommand command = parseAlter("ALTER TABLE t ADD COLUMN " + clause);
+                    AlterTableCommand.checkColumnOperationsSupported(table, command.getOps());
+                    AlterTableOp op = command.getOps().get(0);
+                    op.setTableName(new TableNameInfo("warehouse", "db", "t"));
+                    op.validate(null);
+                    Column column = op instanceof AddColumnOp ? ((AddColumnOp) op).getColumn()
+                            : ((AddColumnsOp) op).getColumns().get(0);
+                    Assertions.assertEquals(iceberg ? "a\\b" : "a\\\\b", column.getDefaultValue());
+                }
+            }
+        }
     }
 
     @Test

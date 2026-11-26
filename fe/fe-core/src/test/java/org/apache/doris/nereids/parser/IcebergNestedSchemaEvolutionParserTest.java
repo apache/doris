@@ -136,7 +136,7 @@ public class IcebergNestedSchemaEvolutionParserTest {
 
     private String externalAddDefault(AddColumnOp add) {
         add.getColumnDef().validateForAddColumn(false, Collections.emptySet(), Collections.emptySet(),
-                false, KeysType.DUP_KEYS, add.getColumnPath().isNested());
+                false, KeysType.DUP_KEYS, add.getColumnPath().isNested(), true);
         return add.getColumnDef().getDefaultValueString();
     }
 

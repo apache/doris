@@ -63,7 +63,7 @@ public class DefaultValue {
 
     public static DefaultValue E_NUM_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.E), E_NUM);
     private final String value;
-    // Native catalog columns persist the SQL source between the delimiters. Connectors consume the decoded value.
+    // Preserve the SQL source for catalogs that reparse defaults. Iceberg ADD consumes the decoded value.
     private String stringLiteralSql;
     // used for column which defaultValue is an expression.
     private final DefaultValueExprDef defaultValueExprDef;
@@ -94,7 +94,7 @@ public class DefaultValue {
         return literal;
     }
 
-    DefaultValue forExternalColumn() {
+    DefaultValue decodedLiteral() {
         return stringLiteralSql == null ? this : new DefaultValue(value);
     }
 

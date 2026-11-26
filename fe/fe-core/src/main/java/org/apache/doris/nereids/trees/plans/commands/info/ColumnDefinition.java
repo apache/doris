@@ -424,10 +424,11 @@ public class ColumnDefinition {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false, false);
     }
 
-    /** ADD hands temporal defaults to the connector for final precision and range checks. */
+    /** Iceberg ADD stores typed constants. Other tables retain the catalog's SQL-source defaults. */
     public void validateForAddColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn, false, true);
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean icebergAddDefault) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn, false,
+                icebergAddDefault);
     }
 
     private static String normalizeCompactDateTimeFraction(String value) {
@@ -441,7 +442,7 @@ public class ColumnDefinition {
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable,
-            boolean isAddColumn) {
+            boolean icebergAddDefault) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -559,8 +560,8 @@ public class ColumnDefinition {
             }
         }
 
-        if (!isOlap) {
-            defaultValue = defaultValue.map(DefaultValue::forExternalColumn);
+        if (icebergAddDefault) {
+            defaultValue = defaultValue.map(DefaultValue::decodedLiteral);
         }
         // check default value
         if (type.isHllType()) {
@@ -597,22 +598,23 @@ public class ColumnDefinition {
                 DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
                 String value = defaultValue.get().getValue();
                 String validationValue = value;
-                if (isAddColumn && !isOlap && type.isTimeStampTzType() && exprDef == null) {
+                if (icebergAddDefault && type.isTimeStampTzType() && exprDef == null) {
                     // The catalog validator reads microseconds. Keep the guard digit in the original
                     // value until the ADD path binds the zone and rounds to the declared scale.
                     validationValue = DateUtils.truncateFractionalSecond(normalizeCompactDateTimeFraction(value),
                             TimeStampTzType.MAX_SCALE);
                 }
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(), validationValue, exprDef);
-                if (!isOlap && type.isDateLikeType() && exprDef == null) {
+                if (!isOlap && type.isTimeStampNsType() && exprDef == null) {
+                    // All connectors receive civil SQL defaults for nanosecond timestamps.
+                    defaultValue = Optional.of(new DefaultValue(new TimeStampNsLiteral(value).getStringValue()));
+                } else if (icebergAddDefault && type.isDateLikeType() && exprDef == null) {
                     // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
                     if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
                         value = normalizeCompactDateTimeFraction(value);
                     }
                     if (type.isTimeStampTzType()) {
-                        value = TimestampTzLiteral.normalizeExternalDefault((TimeStampTzType) type, value, isAddColumn);
-                    } else if (type.isTimeStampNsType()) {
-                        value = new TimeStampNsLiteral(value).getStringValue();
+                        value = TimestampTzLiteral.normalizeAddColumnDefault((TimeStampTzType) type, value);
                     } else if (type.isDateTimeV2Type()) {
                         value = new DateTimeV2Literal((DateTimeV2Type) type, value).getStringValue();
                     } else {
@@ -621,10 +623,8 @@ public class ColumnDefinition {
                                 type.toCatalogDataType()).getStringValue();
                     }
                     defaultValue = Optional.of(new DefaultValue(value));
-                }
-                if (!isOlap && type.isUuidType() && defaultValue.get().getDefaultValueExprDef() == null) {
-                    defaultValue = Optional.of(new DefaultValue(
-                            new UuidLiteral(defaultValue.get().getValue()).getStringValue()));
+                } else if (icebergAddDefault && type.isUuidType() && exprDef == null) {
+                    defaultValue = Optional.of(new DefaultValue(new UuidLiteral(value).getStringValue()));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

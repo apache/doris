@@ -82,11 +82,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     /** Canonicalize explicit ADD defaults in UTC and preserve unqualified fractions until the session zone is bound. */
-    public static String normalizeExternalDefault(TimeStampTzType type, String value, boolean isAddColumn) {
-        if (!isAddColumn) {
-            return DateTimeChecker.hasTimeZone(value) ? new TimestampTzLiteral(type, value).getStringValue()
-                    : new DateTimeV2Literal(DateTimeV2Type.MAX, value).getStringValue();
-        }
+    public static String normalizeAddColumnDefault(TimeStampTzType type, String value) {
         TemporalAccessor parsed = parseDateTime(value, TimeStampTzType.MAX_SCALE + 1,
                 TimeZoneParser.Usage.TIMESTAMPTZ).get();
         LocalTime time = parsed.query(TemporalQueries.localTime());

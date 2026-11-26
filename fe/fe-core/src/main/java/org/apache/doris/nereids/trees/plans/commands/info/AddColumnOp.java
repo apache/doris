@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
@@ -188,6 +189,7 @@ public class AddColumnOp extends AlterTableOp {
             throw new AnalysisException("ADD COLUMN does not support UUID dynamic default values");
         }
         boolean isOlap = false;
+        boolean icebergAddDefault = false;
         OlapTable olapTable = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         boolean isEnableMergeOnWrite = false;
@@ -231,10 +233,14 @@ public class AddColumnOp extends AlterTableOp {
                 clusterKeySet
                         .addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
                         .collect(Collectors.toList()));
+            } else if (columnDef.hasDefaultValue() && table instanceof PluginDrivenExternalTable) {
+                // Uses the same per-table gate as the Iceberg ALTER clauses, including Iceberg tables on HMS.
+                icebergAddDefault = ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange();
             }
         }
 
-        columnDef.validateForAddColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn);
+        columnDef.validateForAddColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn,
+                icebergAddDefault);
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }

@@ -65,7 +65,7 @@ public class ColumnDefinitionTest {
     }
 
     @Test
-    public void testCivilTemporalDefaultsAreNormalizedForExternalDdl() {
+    public void testCivilTemporalDefaultsAreNormalizedForIcebergAdd() {
         DataType[] types = {DateV2Type.INSTANCE, DateTimeV2Type.of(6), DateTimeV2Type.of(6), DateTimeV2Type.of(3)};
         String[] inputs = {"20240102", "20240102030405", "2024-01-02 03:04:05.123456",
                 "2024-01-02 03:04:05.123999"};
@@ -74,14 +74,14 @@ public class ColumnDefinitionTest {
         for (int i = 0; i < types.length; i++) {
             ColumnDefinition column = new ColumnDefinition("added", types[i],
                     false, null, false, Optional.of(new DefaultValue(inputs[i])), "");
-            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            validateIcebergAdd(column);
             Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
     }
 
     @Test
-    public void testZonedExternalDefaultsRetainConnectorInput() {
+    public void testIcebergAddRetainsUnqualifiedZonedDefaults() {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
@@ -92,7 +92,7 @@ public class ColumnDefinitionTest {
                 context.getSessionVariable().setTimeZone(zones[i]);
                 ColumnDefinition column = new ColumnDefinition("added", TimeStampTzType.of(6),
                         false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123456")), "");
-                column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+                validateIcebergAdd(column);
                 Assertions.assertEquals(expected, column.translateToCatalogStyle().getDefaultValue());
                 Assertions.assertEquals(expected,
                         column.translateToCatalogStyleForSchemaChange().getDefaultValue());
@@ -106,7 +106,7 @@ public class ColumnDefinitionTest {
     }
 
     @Test
-    public void testZonedExternalDefaultsRetainCivilPrecisionUntilZoneBinding() {
+    public void testIcebergAddRetainsCivilPrecisionUntilZoneBinding() {
         String[] values = {"20240102030405", "20240102030405.123456", "2024-01-02 03:04:05.123999",
                 "2024-01-02 03:04:05.123999+08:00", "2021-10-31 02:59:59.9994999CET",
                 "2021-10-31 02:59:59.9994999", "2021-10-31 02:59:59.9996CET"};
@@ -117,7 +117,7 @@ public class ColumnDefinitionTest {
         for (int i = 0; i < values.length; i++) {
             ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
                     false, null, false, Optional.of(new DefaultValue(values[i])), "");
-            column.validateForAddColumn(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false);
+            validateIcebergAdd(column);
             Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
     }
@@ -128,8 +128,7 @@ public class ColumnDefinitionTest {
                 "2021-10-31 02:59:59.9994999Invalid/Zone"}) {
             ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
                     false, null, false, Optional.of(new DefaultValue(value)), "");
-            Assertions.assertThrows(AnalysisException.class, () -> column.validateForAddColumn(
-                    false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false));
+            Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column));
         }
     }
 
@@ -158,8 +157,8 @@ public class ColumnDefinitionTest {
                             false, null, false, Optional.of(new DefaultValue(spelling[0])), "");
                     ColumnDefinition dotted = new ColumnDefinition("ts", type,
                             false, null, false, Optional.of(new DefaultValue(spelling[1])), "");
-                    compact.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
-                    dotted.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+                    validateIcebergAdd(compact);
+                    validateIcebergAdd(dotted);
                     Column actual = compact.translateToCatalogStyleForSchemaChange();
                     Assertions.assertEquals(dotted.translateToCatalogStyleForSchemaChange().getDefaultValue(),
                             actual.getDefaultValue(), type + ": " + spelling[0]);
@@ -219,10 +218,14 @@ public class ColumnDefinitionTest {
                 "00112233-4455-6677-8899-aabbccddeeff"}) {
             ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE,
                     false, null, false, Optional.of(new DefaultValue(value)), "");
-            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            validateIcebergAdd(column);
             Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
                     column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
+    }
+
+    private static void validateIcebergAdd(ColumnDefinition column) {
+        column.validateForAddColumn(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false, true);
     }
 
     @Test
