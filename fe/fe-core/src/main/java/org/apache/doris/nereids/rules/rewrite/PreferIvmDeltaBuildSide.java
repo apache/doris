@@ -20,41 +20,47 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.stats.StatsCalculator;
-import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /** Prefer the IVM delta as the build input when statistics cannot guide join reordering. */
 public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
     private final StatementContext statementContext;
+    private final SessionVariable sessionVariable;
     private final StatsCalculator statsCalculator;
-    private final Map<CTEId, LogicalCTEProducer<?>> producers = new HashMap<>();
-    private final Map<RelationId, Boolean> hasUnreliableStats = new HashMap<>();
+    private final Map<Plan, Boolean> hasDelta = new IdentityHashMap<>();
+    private final Map<Plan, InputEstimate> estimates = new IdentityHashMap<>();
 
-    private PreferIvmDeltaBuildSide(Plan plan, CascadesContext context) {
+    private PreferIvmDeltaBuildSide(CascadesContext context) {
         statementContext = context.getStatementContext();
+        sessionVariable = context.getConnectContext().getSessionVariable();
         statsCalculator = new StatsCalculator(context);
-        for (LogicalCTEProducer<?> producer : plan.<LogicalCTEProducer<?>>collectToList(
-                LogicalCTEProducer.class::isInstance)) {
-            producers.put(producer.getCteId(), producer);
-        }
     }
 
     /** Run on the final logical plan, after the statement's join reorder decision. */
@@ -64,21 +70,21 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
                 || context.isLeadingDisableJoinReorder()
                 || context.getAndCacheDisableRules().get(RuleType.PREFER_IVM_DELTA_BUILD_SIDE.type())
                 || !statementContext.getIvmRewriteContext().filter(IvmRewriteContext::isIncrementalRefresh).isPresent()
-                || statementContext.getHints().stream().anyMatch(hint -> hint instanceof OrderedHint
-                        && hint.isSuccess())) {
+                || statementContext.hasOrderedHint()) {
             return plan;
         }
-        return plan.accept(new PreferIvmDeltaBuildSide(plan, context), null);
+        return plan.accept(new PreferIvmDeltaBuildSide(context), null);
     }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void unused) {
         LogicalJoin<?, ?> rewritten = (LogicalJoin<?, ?>) visitChildren(this, join, unused);
+        // Leave joins reading a materialized CTE in their current direction.
         if ((!rewritten.getJoinType().isLeftOuterJoin() && !rewritten.getJoinType().isLeftAntiJoin())
                 || shouldKeepJoinDirection(rewritten)
-                || !anyInputScanMatches(rewritten.left(), scan -> statementContext.isIvmDeltaScan(scan.getRelationId()))
-                || anyInputScanMatches(rewritten.right(), scan -> statementContext.isIvmDeltaScan(scan.getRelationId()))
-                || !anyInputScanMatches(rewritten, this::hasUnreliableStats)) {
+                || rewritten.containsType(LogicalCTEConsumer.class)
+                || !hasDelta(rewritten.left()) || hasDelta(rewritten.right())
+                || !shouldUseFallback(rewritten)) {
             return rewritten;
         }
 
@@ -94,22 +100,104 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
                 || join.isLeadingJoin() || join.getJoinReorderContext().isSaltJoinGenerated();
     }
 
-    private boolean hasUnreliableStats(CatalogRelation scan) {
-        return hasUnreliableStats.computeIfAbsent(scan.getRelationId(),
-                id -> statsCalculator.hasUnreliableScanStats(scan));
+    private boolean hasDelta(Plan plan) {
+        Boolean cached = hasDelta.get(plan);
+        if (cached != null) {
+            return cached;
+        }
+        boolean found = plan instanceof CatalogRelation
+                ? statementContext.isIvmDeltaScan(((CatalogRelation) plan).getRelationId())
+                : plan.children().stream().anyMatch(this::hasDelta);
+        hasDelta.put(plan, found);
+        return found;
     }
 
-    private boolean anyInputScanMatches(Plan plan, Predicate<CatalogRelation> test) {
-        if (plan instanceof CatalogRelation) {
-            return test.test((CatalogRelation) plan);
+    private boolean shouldUseFallback(LogicalJoin<?, ?> join) {
+        InputEstimate probe = estimate(join.left());
+        InputEstimate build = estimate(join.right());
+        if (probe == InputEstimate.UNSUPPORTED || build == InputEstimate.UNSUPPORTED) {
+            return false;
         }
-        if (plan instanceof LogicalCTEConsumer) {
-            LogicalCTEProducer<?> producer = producers.get(((LogicalCTEConsumer) plan).getCteId());
-            return producer != null && anyInputScanMatches(producer.child(), test);
+        // A bad NDV in this join's ON clause affects its output, not either input's cardinality.
+        if (build.stats == null) {
+            return true;
         }
-        if (plan instanceof LogicalCTEAnchor) {
-            return anyInputScanMatches(plan.child(1), test);
+        return probe.stats == null && !JoinUtils.checkBroadcastJoinStats(sessionVariable, build.stats.getRowCount(),
+                build.stats.computeSize(join.right().getOutput()));
+    }
+
+    private InputEstimate estimate(Plan plan) {
+        InputEstimate cached = estimates.get(plan);
+        if (cached != null) {
+            return cached;
         }
-        return plan.children().stream().anyMatch(child -> anyInputScanMatches(child, test));
+        InputEstimate estimate = estimateInput(plan);
+        estimates.put(plan, estimate);
+        return estimate;
+    }
+
+    private InputEstimate estimateInput(Plan plan) {
+        if (plan instanceof LogicalOlapScan) {
+            return statsCalculator.estimateIvmInputScan((LogicalOlapScan) plan)
+                    .map(InputEstimate::new).orElse(InputEstimate.UNKNOWN);
+        }
+        if (plan instanceof LogicalEmptyRelation) {
+            return new InputEstimate(statsCalculator.computeEmptyRelation((LogicalEmptyRelation) plan));
+        }
+        boolean unionAll = plan instanceof LogicalUnion && ((LogicalUnion) plan).getQualifier() == Qualifier.ALL;
+        if (!(plan instanceof LogicalProject || plan instanceof LogicalFilter || plan instanceof LogicalAggregate
+                || plan instanceof LogicalJoin || plan instanceof LogicalLimit || unionAll)) {
+            return InputEstimate.UNSUPPORTED;
+        }
+
+        List<InputEstimate> children = plan.children().stream().map(this::estimate).collect(Collectors.toList());
+        if (children.contains(InputEstimate.UNSUPPORTED)) {
+            return InputEstimate.UNSUPPORTED;
+        }
+        if (children.contains(InputEstimate.UNKNOWN)) {
+            return InputEstimate.UNKNOWN;
+        }
+        if (unionAll) {
+            return new InputEstimate(statsCalculator.computeUnion((LogicalUnion) plan,
+                    children.stream().map(child -> child.stats).collect(Collectors.toList())));
+        }
+        Statistics first = children.get(0).stats;
+        if (plan instanceof LogicalProject) {
+            return new InputEstimate(statsCalculator.computeProject((LogicalProject<?>) plan, first));
+        }
+        if (plan instanceof LogicalLimit) {
+            return new InputEstimate(statsCalculator.computeLimit((LogicalLimit<?>) plan, first));
+        }
+        if (plan instanceof LogicalAggregate) {
+            LogicalAggregate<?> aggregate = (LogicalAggregate<?>) plan;
+            return PlanUtils.fastGetInputSlots(aggregate.getGroupByExpressions()).stream()
+                    .allMatch(slot -> isKnown(slot, first))
+                    ? new InputEstimate(statsCalculator.computeAggregate(aggregate, first)) : InputEstimate.UNKNOWN;
+        }
+        if (plan instanceof LogicalFilter) {
+            return plan.getInputSlots().stream().allMatch(slot -> isKnown(slot, first))
+                    ? new InputEstimate(statsCalculator.computeFilter((LogicalFilter<?>) plan, first))
+                    : InputEstimate.UNKNOWN;
+        }
+        Statistics second = children.get(1).stats;
+        return plan.getInputSlots().stream().allMatch(slot -> isKnown(slot, first) || isKnown(slot, second))
+                ? new InputEstimate(statsCalculator.computeJoin((LogicalJoin<?, ?>) plan, first, second))
+                : InputEstimate.UNKNOWN;
+    }
+
+    private static boolean isKnown(Slot slot, Statistics stats) {
+        ColumnStatistic column = stats.findColumnStatistics(slot);
+        return column != null && !column.isUnKnown;
+    }
+
+    private static class InputEstimate {
+        private static final InputEstimate UNKNOWN = new InputEstimate(null);
+        private static final InputEstimate UNSUPPORTED = new InputEstimate(null);
+
+        private final Statistics stats;
+
+        private InputEstimate(Statistics stats) {
+            this.stats = stats;
+        }
     }
 }

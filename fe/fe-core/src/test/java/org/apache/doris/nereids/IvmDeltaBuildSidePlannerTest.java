@@ -34,9 +34,11 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -58,30 +60,67 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
         createDatabaseAndUse("ivm_build_side");
         for (String table : ImmutableList.of("delta_input", "snapshot_input", "unrelated_input")) {
             createTable("CREATE TABLE " + table
-                    + " (k INT NOT NULL) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                    + " (p INT NOT NULL, k INT NOT NULL) DUPLICATE KEY(p) DISTRIBUTED BY HASH(p) BUCKETS 3"
                     + " PROPERTIES ('replication_num' = '1')");
         }
     }
 
     @Test
     void testLateInvalidNdvPutsDeltaOnBuildSide() throws Exception {
-        String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN snapshot_input s ON d.k = s.k";
-        checkFinalPlan(sql, "delta_input", false, JoinType.RIGHT_OUTER_JOIN, "delta_input");
-        checkFinalPlan(sql, "delta_input", true, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+        String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
+                + " LEFT JOIN snapshot_input s ON d.k = s.k";
+        checkFinalPlan(sql, "delta_input", 100_000, false, JoinType.RIGHT_OUTER_JOIN, "delta_input");
+        checkFinalPlan(sql, "delta_input", 100_000, true, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
     }
 
     @Test
     void testLateInvalidNdvPutsAntiJoinDeltaOnBuildSide() throws Exception {
-        String sql = "SELECT d.k FROM delta_input d LEFT ANTI JOIN snapshot_input s ON d.k = s.k";
-        checkFinalPlan(sql, "delta_input", false, JoinType.RIGHT_ANTI_JOIN, "delta_input");
-        checkFinalPlan(sql, "delta_input", true, JoinType.LEFT_ANTI_JOIN, "snapshot_input");
+        String sql = "SELECT d.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
+                + " LEFT ANTI JOIN snapshot_input s ON d.k = s.k";
+        checkFinalPlan(sql, "delta_input", 100_000, false, JoinType.RIGHT_ANTI_JOIN, "delta_input");
+        checkFinalPlan(sql, "delta_input", 100_000, true, JoinType.LEFT_ANTI_JOIN, "snapshot_input");
+    }
+
+    @Test
+    void testInvalidJoinKeyKeepsAutomaticSnapshotBroadcast() throws Exception {
+        assertAutomaticSnapshotBroadcast("SELECT d.k, s.k FROM delta_input d LEFT JOIN snapshot_input s ON d.k = s.k",
+                JoinType.LEFT_OUTER_JOIN);
+        assertAutomaticSnapshotBroadcast("SELECT d.k FROM delta_input d LEFT ANTI JOIN snapshot_input s ON d.k = s.k",
+                JoinType.LEFT_ANTI_JOIN);
+    }
+
+    @Test
+    void testUnreliableProbeKeepsAutomaticSnapshotBroadcast() throws Exception {
+        assertAutomaticSnapshotBroadcast("SELECT d.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
+                + " LEFT ANTI JOIN snapshot_input s ON d.k = s.k", JoinType.LEFT_ANTI_JOIN);
+    }
+
+    @Test
+    void testReliableInputsKeepOrderAboveBroadcastLimit() throws Exception {
+        String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN snapshot_input s ON d.k = s.k";
+        checkFinalPlan(sql, "delta_input", 10_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+    }
+
+    @Test
+    void testMaterializedOrExpansionInputKeepsOrder() throws Exception {
+        String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
+                + " LEFT JOIN (SELECT s.k FROM snapshot_input s JOIN unrelated_input u"
+                + " ON s.k = u.k OR s.p = u.p) s ON d.k = s.k";
+        checkFinalPlan(sql, "delta_input", 100_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input", true);
+    }
+
+    private void assertAutomaticSnapshotBroadcast(String sql, JoinType joinType) throws Exception {
+        for (boolean disableFallback : ImmutableList.of(true, false)) {
+            Assertions.assertEquals(DistributionSpecReplicated.class,
+                    checkFinalPlan(sql, "delta_input", 10, disableFallback, joinType, "snapshot_input"));
+        }
     }
 
     @Test
     void testBroadcastDecisionTakesPrecedence() throws Exception {
         String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN [BROADCAST] snapshot_input s ON d.k = s.k";
         Class<? extends DistributionSpec> buildDistribution =
-                checkFinalPlan(sql, "delta_input", false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+                checkFinalPlan(sql, "delta_input", 10, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
         Assertions.assertEquals(DistributionSpecReplicated.class, buildDistribution);
     }
 
@@ -90,16 +129,27 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
         String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN snapshot_input s ON d.k = s.k"
                 + " UNION ALL SELECT k, k FROM unrelated_input";
         Class<? extends DistributionSpec> withFallback =
-                checkFinalPlan(sql, "unrelated_input", false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+                checkFinalPlan(sql, "unrelated_input", 10, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
         Class<? extends DistributionSpec> withoutFallback =
-                checkFinalPlan(sql, "unrelated_input", true, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+                checkFinalPlan(sql, "unrelated_input", 10, true, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
         Assertions.assertEquals(withoutFallback, withFallback);
     }
 
     private Class<? extends DistributionSpec> checkFinalPlan(String sql, String invalidTable,
-            boolean disableFallback,
+            long snapshotRows, boolean disableFallback,
             JoinType expectedType, String expectedBuildTable) throws Exception {
+        return checkFinalPlan(sql, invalidTable, snapshotRows, disableFallback,
+                expectedType, expectedBuildTable, false);
+    }
+
+    private Class<? extends DistributionSpec> checkFinalPlan(String sql, String invalidTable,
+            long snapshotRows, boolean disableFallback,
+            JoinType expectedType, String expectedBuildTable, boolean materializeOrExpansion) throws Exception {
         connectContext.getSessionVariable().setDisableJoinReorder(false);
+        connectContext.getSessionVariable().setBroadcastRowCountLimit(100);
+        if (materializeOrExpansion) {
+            connectContext.getSessionVariable().cteInlineMode = -1;
+        }
         connectContext.getSessionVariable().setDisableNereidsRules(
                 disableFallback ? RuleType.PREFER_IVM_DELTA_BUILD_SIDE.name() : "");
         try (StatementContext statement = createStatementCtx(sql)) {
@@ -110,12 +160,16 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
                     Rewriter.topDown(new LogicalSubQueryAliasToLogicalProject(), new FindHashConditionForJoin()),
                     Rewriter.custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                     Rewriter.custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new))).execute();
+            if (materializeOrExpansion) {
+                Rewriter.getCteChildrenRewriter(context,
+                        ImmutableList.of(Rewriter.custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))).execute();
+            }
             // Inject stats into the already rewritten plan to exercise the planner's final check.
             List<LogicalOlapScan> scans = context.getRewritePlan().collectToList(LogicalOlapScan.class::isInstance);
             for (LogicalOlapScan scan : scans) {
                 String tableName = scan.getTable().getName();
                 boolean delta = tableName.equals("delta_input");
-                installStats(scan.getTable(), delta ? 1000L : 10L, tableName.equals(invalidTable));
+                installStats(scan.getTable(), delta ? 1000L : snapshotRows, tableName.equals(invalidTable));
                 if (delta) {
                     statement.markIvmDeltaScan(scan.getRelationId());
                 }
@@ -140,13 +194,19 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
             }
 
             Plan physical = NereidsPlanner.chooseBestPlan(context.getMemo().getRoot(), PhysicalProperties.ANY, context);
-            List<PhysicalHashJoin<?, ?>> joins = physical.collectToList(PhysicalHashJoin.class::isInstance);
+            List<PhysicalHashJoin<?, ?>> joins = physical.collectToList(plan -> plan instanceof PhysicalHashJoin
+                    && (((PhysicalHashJoin<?, ?>) plan).getJoinType().isOuterJoin()
+                            || ((PhysicalHashJoin<?, ?>) plan).getJoinType().isAntiJoin()));
             Assertions.assertEquals(1, joins.size());
             PhysicalHashJoin<?, ?> join = joins.get(0);
             Assertions.assertEquals(expectedType, join.getJoinType());
-            List<PhysicalOlapScan> buildScans = join.right().collectToList(PhysicalOlapScan.class::isInstance);
-            Assertions.assertEquals(1, buildScans.size());
-            Assertions.assertEquals(expectedBuildTable, buildScans.get(0).getTable().getName());
+            if (materializeOrExpansion) {
+                Assertions.assertTrue(join.right().containsType(PhysicalCTEConsumer.class));
+            } else {
+                List<PhysicalOlapScan> buildScans = join.right().collectToList(PhysicalOlapScan.class::isInstance);
+                Assertions.assertEquals(1, buildScans.size());
+                Assertions.assertEquals(expectedBuildTable, buildScans.get(0).getTable().getName());
+            }
             return ((PhysicalPlan) join.right()).getPhysicalProperties().getDistributionSpec().getClass();
         }
     }
