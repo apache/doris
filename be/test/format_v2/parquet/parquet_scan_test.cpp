@@ -573,6 +573,63 @@ VExprContextSPtr create_string_function_conjunct(int column_id, const std::strin
     return VExprContext::create_shared(std::move(root));
 }
 
+// split_by_string(slot, delimiter)[index] = literal built from the real builtin functions: the
+// expensive string expression a cheap comparison should run ahead of.
+VExprContextSPtr create_string_split_part_equals_conjunct(int column_id,
+                                                          const std::string& delimiter,
+                                                          int32_t index, const std::string& value) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    // The FE types split_by_string over a nullable column as a nullable array, and the BE
+    // function's default null handling produces exactly that column type.
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(nullable_string_type));
+    auto function_node = [](const std::string& name, TExprNodeType::type node_type,
+                            TExprOpcode::type opcode, const DataTypePtr& return_type,
+                            const std::vector<DataTypePtr>& argument_types) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> thrift_argument_types;
+        for (const auto& argument_type : argument_types) {
+            thrift_argument_types.push_back(argument_type->to_thrift());
+        }
+        function.__set_arg_types(thrift_argument_types);
+        function.__set_ret_type(return_type->to_thrift());
+        function.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(node_type);
+        node.__set_opcode(opcode);
+        node.__set_type(return_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(static_cast<int16_t>(argument_types.size()));
+        node.__set_is_nullable(return_type->is_nullable());
+        return node;
+    };
+
+    auto split = VectorizedFnCall::create_shared(function_node(
+            "split_by_string", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+            array_type, {nullable_string_type, string_type}));
+    split->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_string_type, "text"));
+    split->add_child(
+            VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(delimiter)));
+    auto element = VectorizedFnCall::create_shared(
+            function_node("element_at", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+                          nullable_string_type, {array_type, int_type}));
+    element->add_child(std::move(split));
+    element->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(index)));
+    auto root = VectorizedFnCall::create_shared(function_node("eq", TExprNodeType::BINARY_PRED,
+                                                              TExprOpcode::EQ, nullable_bool_type,
+                                                              {nullable_string_type, string_type}));
+    root->add_child(std::move(element));
+    root->add_child(VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value)));
+    return VExprContext::create_shared(std::move(root));
+}
+
 VExprContextSPtr create_string_in_conjunct(int column_id, const std::vector<std::string>& values,
                                            bool is_not_in) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
@@ -1716,6 +1773,28 @@ void write_nullable_dictionary_string_pair_parquet_file(const std::string& file_
     write_table(file_path, table, 4, true, false, false);
 }
 
+// Plain-encoded "region|city" strings over 64 rows (16 rows per value) so a same-column pair
+// such as text = 'cn|beijing' AND split_by_string(text, '|')[1] = 'cn' exercises the row-level
+// conjunct execution rather than the dictionary path.
+void write_region_pair_parquet_file(const std::string& file_path, bool nullable) {
+    auto schema = arrow::schema({
+            arrow::field("text", arrow::utf8(), nullable),
+            arrow::field("score", arrow::int32(), false),
+    });
+    const std::array<std::string, 4> values {"cn|beijing", "us|new york", "cn|shanghai",
+                                             "uk|london"};
+    std::vector<std::optional<std::string>> texts;
+    std::vector<int32_t> scores;
+    for (int32_t row = 0; row < 64; ++row) {
+        texts.push_back(nullable && row % 4 == 1 ? std::nullopt
+                                                 : std::optional<std::string>(values[row % 4]));
+        scores.push_back(row);
+    }
+    auto table = arrow::Table::Make(
+            schema, {build_nullable_string_array(texts), build_int32_array(scores)});
+    write_table(file_path, table, 64, false, false, false);
+}
+
 void write_int_triple_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("left", arrow::int32(), false),
@@ -1973,6 +2052,10 @@ void use_schema_order_positions(format::FileScanRequest* request,
     }
 }
 
+VExprContextSPtr create_string_split_part_equals_conjunct(int column_id,
+                                                          const std::string& delimiter,
+                                                          int32_t index, const std::string& value);
+
 class ParquetScanTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -2001,6 +2084,54 @@ protected:
         return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
                                                                 std::move(io_ctx), profile,
                                                                 global_rowid_context);
+    }
+
+    // Scans the 64-row "region|city" file under two conjuncts pushed in `request_order` and returns
+    // {surviving scores, input rows seen by the first conjunct, input rows seen by the second}.
+    // `reorder`/`selective` mirror enable_scan_conjunct_reorder / enable_scan_selective_filter.
+    std::tuple<std::vector<int32_t>, int64_t, int64_t> scan_region_pair(
+            bool nullable_file, std::vector<VExprContextSPtr> request_order, bool reorder,
+            bool selective) {
+        write_region_pair_parquet_file(_file_path, nullable_file);
+        RuntimeProfile profile("profile");
+        auto reader = create_reader(0, -1, &profile);
+        TQueryOptions options;
+        options.__set_enable_scan_conjunct_reorder(reorder);
+        options.__set_enable_scan_selective_filter(selective);
+        RuntimeState state {options, TQueryGlobals()};
+        EXPECT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        EXPECT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder request_builder(request.get());
+        EXPECT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        EXPECT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+        for (auto& conjunct : request_order) {
+            EXPECT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+            EXPECT_TRUE(conjunct->open(&state).ok());
+            request->conjuncts.push_back(conjunct);
+        }
+        EXPECT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> scores;
+        size_t null_rows = 0;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            EXPECT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+            for (size_t row = 0; row < rows; ++row) {
+                null_rows += block.get_by_position(0).column->is_null_at(row);
+                scores.push_back(score_column.get_element(row));
+            }
+        }
+        EXPECT_EQ(null_rows, 0);
+        const auto first_inputs = request_order[0]->filter_runtime_stats().input_rows;
+        const auto second_inputs = request_order[1]->filter_runtime_stats().input_rows;
+        for (auto& conjunct : request_order) {
+            conjunct->close();
+        }
+        return {scores, first_inputs, second_inputs};
     }
 
     std::shared_ptr<format::FileScanRequest> open_all_row_groups(
@@ -3392,6 +3523,154 @@ TEST_F(ParquetScanTest, LocalizedStrictCastPreservesRejectedRowError) {
     const auto status = reader->get_block(&block, &rows, &eof);
     EXPECT_FALSE(status.ok());
     context->close();
+}
+
+VExprContextSPtr text_equals_conjunct(const std::string& value) {
+    return create_string_function_conjunct(0, "eq", TExprOpcode::EQ, value);
+}
+
+VExprContextSPtr split_part_equals_cn_conjunct() {
+    return create_string_split_part_equals_conjunct(0, "|", 1, "cn");
+}
+
+// 16 rows carry 'cn|beijing'; both conjuncts are true for exactly those rows.
+const std::vector<int32_t> kCnBeijingRows = {0,  4,  8,  12, 16, 20, 24, 28,
+                                             32, 36, 40, 44, 48, 52, 56, 60};
+
+TEST_F(ParquetScanTest, SameColumnConjunctsRunCheapPredicateFirstAndGatherSurvivors) {
+    // Request order puts the expensive expression first; the cheap-first order still runs the
+    // comparison over all 64 rows and the split expression over its 16 survivors only.
+    const auto [scores, first_inputs, second_inputs] = scan_region_pair(
+            false, {split_part_equals_cn_conjunct(), text_equals_conjunct("cn|beijing")}, true,
+            true);
+    EXPECT_EQ(scores, kCnBeijingRows);
+    EXPECT_EQ(second_inputs, 64);
+    EXPECT_EQ(first_inputs, 16);
+}
+
+TEST_F(ParquetScanTest, SameColumnConjunctsSelectiveKeepsRequestOrderWithoutReorder) {
+    // Reorder off: the expensive expression runs first over all rows and the comparison runs on
+    // the 32 'cn' rows it lets through. Same result set either way.
+    const auto [scores, first_inputs, second_inputs] = scan_region_pair(
+            false, {split_part_equals_cn_conjunct(), text_equals_conjunct("cn|beijing")}, false,
+            true);
+    EXPECT_EQ(scores, kCnBeijingRows);
+    EXPECT_EQ(first_inputs, 64);
+    EXPECT_EQ(second_inputs, 32);
+}
+
+TEST_F(ParquetScanTest, SameColumnConjunctsDefaultPathIgnoresBothSwitches) {
+    // Switches off: request-order full-width evaluation, nothing tracked.
+    const auto [scores, first_inputs, second_inputs] = scan_region_pair(
+            false, {split_part_equals_cn_conjunct(), text_equals_conjunct("cn|beijing")}, false,
+            false);
+    EXPECT_EQ(scores, kCnBeijingRows);
+    EXPECT_EQ(first_inputs, 0);
+    EXPECT_EQ(second_inputs, 0);
+}
+
+TEST_F(ParquetScanTest, SameColumnConjunctsSelectiveDropsNullRows) {
+    // NULL text (every 'us' row) fails both conjuncts; the gather path must not resurrect or
+    // duplicate it, so the same 16 rows survive and the row counts are unchanged.
+    const auto [scores, first_inputs, second_inputs] = scan_region_pair(
+            true, {split_part_equals_cn_conjunct(), text_equals_conjunct("cn|beijing")}, true,
+            true);
+    EXPECT_EQ(scores, kCnBeijingRows);
+    EXPECT_EQ(second_inputs, 64);
+    EXPECT_EQ(first_inputs, 16);
+}
+
+TEST_F(ParquetScanTest, CheapSelectiveColumnPredicatePrecedesExpensiveStringExpression) {
+    // Different columns keep the round-by-round schedule: score = 10 is read first, and the text
+    // column is selected down to that single row before the split expression runs on it.
+    write_region_pair_parquet_file(_file_path, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    // Slot ids are block positions: score was added first, so it sits at position 0.
+    auto score_equals = create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, 10, false);
+    auto expensive = create_string_split_part_equals_conjunct(1, "|", 1, "cn");
+    for (auto& conjunct : {&score_equals, &expensive}) {
+        ASSERT_TRUE((*conjunct)->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE((*conjunct)->open(&state).ok());
+        request->conjuncts.push_back(*conjunct);
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+    // The block follows the request layout (score, text), not the file schema order.
+    Block block;
+    block.insert({schema[1].type->create_column(), schema[1].type, schema[1].name});
+    block.insert({schema[0].type->create_column(), schema[0].type, schema[0].name});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    if (!status.ok()) {
+        FAIL() << status;
+    }
+    // Row 10 carries 'cn|shanghai', so the expensive expression accepts it.
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {10}));
+    EXPECT_EQ(assert_cast<const ColumnString&>(
+                      assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                              .get_nested_column())
+                      .get_data_at(0)
+                      .to_string(),
+              "cn|shanghai");
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 64);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 1);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 63);
+    score_equals->close();
+    expensive->close();
+}
+
+TEST_F(ParquetScanTest, ScanConjunctSwitchesPreserveUnsafeConjunctError) {
+    // An unsafe conjunct still disables selected-row execution for the whole batch, so the strict
+    // cast error it raises on a row the other conjunct rejects is not hidden.
+    write_int_pair_and_string_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    TQueryOptions query_options;
+    query_options.__set_enable_strict_cast(true);
+    query_options.__set_enable_scan_conjunct_reorder(true);
+    query_options.__set_enable_scan_selective_filter(true);
+    query_options.__set_enable_scan_adaptive_reorder(true);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    for (int column = 0; column < 3; ++column) {
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column)).ok());
+    }
+    auto cast = format::Cast::create_shared(make_nullable(std::make_shared<DataTypeInt32>()));
+    cast->add_child(VSlotRef::create_shared(2, 2, -1, schema[2].type, "text"));
+    auto cheap = VExprContext::create_shared(
+            create_int32_slot_comparison("lt", TExprOpcode::LT, 0, 1, schema[0].type));
+    auto unsafe = VExprContext::create_shared(
+            create_binary_predicate("eq", TExprOpcode::EQ, std::move(cast),
+                                    VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                                            Field::create_field<TYPE_INT>(2))));
+    EXPECT_FALSE(unsafe->root()->is_safe_to_execute_on_selected_rows());
+    for (auto& conjunct : {&cheap, &unsafe}) {
+        ASSERT_TRUE((*conjunct)->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE((*conjunct)->open(&state).ok());
+        request->conjuncts.push_back(*conjunct);
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    EXPECT_FALSE(reader->get_block(&block, &rows, &eof).ok());
+    cheap->close();
+    unsafe->close();
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyColumnDropsPayloadAfterFiltering) {

@@ -955,14 +955,36 @@ uint16_t apply_filter_to_selection(const IColumn::Filter& filter, SelectionVecto
     return cast_set<uint16_t>(selection->compact_with_row_filter(filter.data(), selected_rows));
 }
 
+// Session switches for how a same-column conjunct group is executed; see TQueryOptions.
+struct SameColumnConjunctOptions {
+    bool reorder_by_cost = false;
+    bool selective = false;
+};
+
 Status execute_compact_filter_conjuncts(const VExprContextSPtrs& conjuncts, size_t rows,
                                         Block* file_block, IColumn::Filter* compact_filter,
-                                        bool* can_filter_all) {
+                                        bool* can_filter_all,
+                                        const SameColumnConjunctOptions& options) {
     DORIS_CHECK(compact_filter != nullptr);
     DORIS_CHECK(can_filter_all != nullptr);
     compact_filter->resize_fill(rows, 1);
     *can_filter_all = false;
-    for (const auto& conjunct : conjuncts) {
+    // The request order is the planner's; a cheap-first order lets a selective comparison shrink
+    // the row set before an expensive string expression runs. Both orders are semantically equal
+    // because the schedule only admits conjuncts that are safe to execute on selected rows.
+    VExprContextSPtrs ordered;
+    if (options.reorder_by_cost && conjuncts.size() > 1) {
+        ordered = conjuncts;
+        VExpr::reorder_conjuncts_by_cost(ordered);
+    }
+    const VExprContextSPtrs& order = ordered.empty() ? conjuncts : ordered;
+    if (options.selective && order.size() > 1) {
+        // Thread the surviving row indices between conjuncts so a later expensive predicate runs
+        // on the survivors only; the output contract matches the full-width loop below.
+        return VExprContext::execute_conjuncts_selective(order, nullptr, file_block, compact_filter,
+                                                         can_filter_all);
+    }
+    for (const auto& conjunct : order) {
         DORIS_CHECK(conjunct != nullptr);
         IColumn::Filter filter(rows, 1);
         bool conjunct_can_filter_all = false;
@@ -2396,6 +2418,15 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     remember_residual_positions(request.delete_conjuncts);
     const size_t predicate_batch_sequence = _predicate_batch_sequence++;
     const bool can_read_predicate_columns_round_by_round = schedule.supports_lazy_materialization;
+    // Same-column groups are an opt-in addition to the cross-column round order, which already
+    // adapts to measured cost unconditionally.
+    SameColumnConjunctOptions same_column_options;
+    if (_runtime_state != nullptr) {
+        same_column_options.reorder_by_cost =
+                _runtime_state->query_options().enable_scan_conjunct_reorder;
+        same_column_options.selective =
+                _runtime_state->query_options().enable_scan_selective_filter;
+    }
     auto& read_column_positions = _read_column_positions_scratch;
     read_column_positions.clear();
     read_column_positions.reserve(request.predicate_columns.size());
@@ -2704,8 +2735,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         const uint16_t selected_rows_before = *selected_rows;
         IColumn::Filter compact_filter;
         bool can_filter_all = false;
-        RETURN_IF_ERROR(execute_compact_filter_conjuncts(
-                conjuncts, selected_rows_before, file_block, &compact_filter, &can_filter_all));
+        RETURN_IF_ERROR(execute_compact_filter_conjuncts(conjuncts, selected_rows_before,
+                                                         file_block, &compact_filter,
+                                                         &can_filter_all, same_column_options));
         if (can_filter_all) {
             compact_filter.resize_fill(selected_rows_before, 0);
         }

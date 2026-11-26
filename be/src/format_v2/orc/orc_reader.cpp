@@ -847,6 +847,9 @@ private:
 
 // Per-open mutable ORC state. close() publishes counters first, then resets this
 // object so the reader can be opened again without carrying stale scan state.
+// Batches between two measured-order rechecks of the scan conjuncts.
+constexpr int64_t kScanConjunctReorderIntervalBatches = 16;
+
 struct OrcReaderScanState {
     struct StripeRange {
         uint64_t first_stripe = 0;
@@ -885,6 +888,14 @@ struct OrcReaderScanState {
     size_t orc_lazy_input_rows = 0;
     bool enable_lazy_materialization = true;
     bool enable_filter_by_min_max = true;
+    // Scan-level execution of the residual conjuncts. The request order is left untouched because
+    // the metadata-pruning safe prefix and the dictionary filter read it as a fence.
+    bool reorder_scan_conjuncts_by_cost = false;
+    bool execute_scan_conjuncts_selective = false;
+    bool adaptively_reorder_scan_conjuncts = false;
+    bool scan_conjunct_order_initialized = false;
+    VExprContextSPtrs ordered_scan_conjuncts;
+    int64_t scan_conjunct_batches = 0;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
     OrcSargBuildOptions sarg_build_options;
@@ -1291,6 +1302,12 @@ Status OrcReader::init(RuntimeState* state) {
     if (state != nullptr) {
         _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
+        _state->reorder_scan_conjuncts_by_cost =
+                state->query_options().enable_scan_conjunct_reorder;
+        _state->execute_scan_conjuncts_selective =
+                state->query_options().enable_scan_selective_filter;
+        _state->adaptively_reorder_scan_conjuncts =
+                state->query_options().enable_scan_adaptive_reorder;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
         if (state->query_options().__isset.max_pushdown_conditions_per_column) {
@@ -3138,7 +3155,47 @@ Status OrcReader::_execute_conjuncts(Block* file_block, size_t rows,
                                      IColumn::Filter* keep_filter) const {
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(keep_filter != nullptr);
-    for (const auto& conjunct : _request->conjuncts) {
+    auto& state = *_state;
+    if (!state.scan_conjunct_order_initialized) {
+        state.scan_conjunct_order_initialized = true;
+        if (state.reorder_scan_conjuncts_by_cost || state.execute_scan_conjuncts_selective) {
+            state.ordered_scan_conjuncts = _request->conjuncts;
+            // Evaluating on surviving rows or in another order is only semantically neutral for
+            // conjuncts that are deterministic and total. One unsafe conjunct (random(), an
+            // error-preserving cast or function) keeps the whole list on the full-width
+            // request-order path so no error it would raise on a rejected row is hidden.
+            const bool all_safe =
+                    std::ranges::all_of(state.ordered_scan_conjuncts, [](const auto& conjunct) {
+                        return conjunct != nullptr && conjunct->root() != nullptr &&
+                               conjunct->root()->is_safe_to_execute_on_selected_rows();
+                    });
+            if (all_safe) {
+                if (state.reorder_scan_conjuncts_by_cost) {
+                    VExpr::reorder_conjuncts_by_cost(state.ordered_scan_conjuncts);
+                }
+            } else {
+                state.ordered_scan_conjuncts.clear();
+                state.reorder_scan_conjuncts_by_cost = false;
+                state.execute_scan_conjuncts_selective = false;
+            }
+        }
+    }
+    if (state.execute_scan_conjuncts_selective && state.ordered_scan_conjuncts.size() > 1) {
+        // The scan owns one VExprContext per conjunct, so FilterRuntimeStats accumulate across
+        // batches; recheck the measured order periodically once enough rows were timed.
+        if (state.adaptively_reorder_scan_conjuncts &&
+            ++state.scan_conjunct_batches % kScanConjunctReorderIntervalBatches == 0) {
+            VExprContext::adaptive_reorder_conjuncts(
+                    state.ordered_scan_conjuncts, VExprContext::FilterRuntimeStats::kTimingMinRows);
+        }
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts_selective(
+                state.ordered_scan_conjuncts, nullptr, file_block, keep_filter, &can_filter_all));
+        return Status::OK();
+    }
+    const auto& conjuncts = state.ordered_scan_conjuncts.empty() ? _request->conjuncts
+                                                                 : state.ordered_scan_conjuncts;
+    for (const auto& conjunct : conjuncts) {
         IColumn::Filter conjunct_filter(rows, 1);
         bool can_filter_all = false;
         RETURN_IF_ERROR(conjunct->execute_filter(file_block, conjunct_filter.data(), rows, false,

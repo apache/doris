@@ -569,6 +569,7 @@ public class SessionVariablesTest extends TestWithFeService {
         forwardVars.put(SessionVariable.ENABLE_SCAN_CONJUNCT_REORDER, "false");
         sv.setForwardedSessionVariables(forwardVars);
         Assertions.assertFalse(sv.isEnableScanConjunctReorder());
+    }
 
     @Test
     public void testCoordinatorThriftLimitPropagatesToBackends() {

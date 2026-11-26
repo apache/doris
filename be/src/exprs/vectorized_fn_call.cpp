@@ -722,7 +722,8 @@ bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
                                                                     "is_null_pred",
                                                                     "is_not_null_pred",
                                                                     "element_at",
-                                                                    "struct_element"};
+                                                                    "struct_element",
+                                                                    "split_by_string"};
     bool function_is_total = TOTAL_PREDICATE_FUNCTIONS.contains(_function_name);
     if (_function_name == "array_contains" && get_num_children() == 2) {
         const auto& left_child_type = get_child(0)->data_type();
@@ -750,7 +751,10 @@ bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
     // predicate. Keep function calls unsafe by default and opt in only operations that are total
     // for their input domain. Accessors return NULL for absent elements, and supported membership
     // signatures are total, so admitting them keeps nested metadata predicates reachable without
-    // crossing an error-producing child such as gt(mod(x, -1), 0).
+    // crossing an error-producing child such as gt(mod(x, -1), 0). split_by_string only slices its
+    // string input: empty inputs and empty delimiters produce a definite result, NULL propagates
+    // through the nullable wrapper, and an unsupported signature fails at open() for every row,
+    // so no scanned value can make it raise.
     return function_is_total && VExpr::is_safe_to_execute_on_selected_rows();
 }
 
