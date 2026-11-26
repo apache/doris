@@ -255,32 +255,30 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     LOG.debug("disable join reorder since row count not available: "
                             + scan.getTable().getNameWithFullQualifiers());
                 }
-                try {
-                    context.getConnectContext().getSessionVariable()
-                            .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
-                } catch (Exception e) {
-                    LOG.error("disable NereidsJoinReorderOnce failed", e);
-                }
+                disableJoinReorderForInvalidStats(context);
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
             if (scan instanceof OlapScan) {
                 // ndv abnormal
                 Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
                 if (reason.isPresent()) {
-                    try {
-                        context.getConnectContext().getSessionVariable()
-                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
-                        if (enableDebugLog) {
-                            LOG.debug("disable join reorder since col stats invalid: " + reason.get());
-                        }
-                    } catch (Exception e) {
-                        LOG.error("disable NereidsJoinReorderOnce failed", e);
+                    disableJoinReorderForInvalidStats(context);
+                    if (enableDebugLog) {
+                        LOG.debug("disable join reorder since col stats invalid: " + reason.get());
                     }
                     return reason;
                 }
             }
         }
         return Optional.empty();
+    }
+
+    private static void disableJoinReorderForInvalidStats(CascadesContext context) {
+        SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        if (!sessionVariable.isDisableJoinReorder()
+                && sessionVariable.setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
+            context.getStatementContext().markJoinReorderDisabledByStats();
+        }
     }
 
     /**

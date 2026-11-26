@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -103,6 +104,12 @@ public class OptimizeGroupExpressionJob extends Job {
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
+            CascadesContext cascadesContext = context.getCascadesContext();
+            if (cascadesContext.getStatementContext().isIvmMTMVRewrite()
+                    && cascadesContext.getStatementContext().isJoinReorderDisabledByStats()
+                    && !cascadesContext.isLeadingDisableJoinReorder()) {
+                return Collections.singletonList(JoinCommute.IVM_NULL_REPAIR);
+            }
             return Collections.emptyList();
         } else if (isDpHyp) {
             return getRuleSet().getDPHypReorderRules();

@@ -368,6 +368,7 @@ public class StatementContext implements Closeable {
     private Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
+    private boolean joinReorderDisabledByStats;
 
     private Backend groupCommitMergeBackend;
 
@@ -2284,6 +2285,14 @@ public class StatementContext implements Closeable {
         tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         return tableId;
+    }
+
+    public boolean isJoinReorderDisabledByStats() {
+        return joinReorderDisabledByStats;
+    }
+
+    public void markJoinReorderDisabledByStats() {
+        joinReorderDisabledByStats = true;
     }
 
     public Optional<String> getDisableJoinReorderReason() {

@@ -667,6 +667,7 @@ class IvmJoinDeltaHandler {
         LogicalJoin<Plan, Plan> antiJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
                 antiConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
                 affectedKeys, nullSideSnapshot.first, JoinReorderContext.EMPTY);
+        antiJoin.getJoinReorderContext().markIvmNullRepairAntiJoin();
 
         return projectNullSideRepairEvent(deltaContext, antiJoin, deltaKeys.keySlots, dmlFactor);
     }
