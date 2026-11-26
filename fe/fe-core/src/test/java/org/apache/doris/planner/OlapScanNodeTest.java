@@ -31,9 +31,11 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -55,9 +57,11 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionBoundary;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -361,6 +365,39 @@ public class OlapScanNodeTest {
     }
 
     @Test
+    public void testPinnedBaseScanSerializesVersionWithoutReadingChangelog() throws Exception {
+        long partitionId = 300L;
+        long indexId = 1L;
+        OlapScanNode scanNode = newBucketPruneScanNode(10L);
+        OlapTable table = scanNode.getOlapTable();
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(table.getPartition(partitionId)).thenReturn(partition);
+        Mockito.when(table.getPartitionIndex(partition, indexId)).thenReturn(index);
+        Mockito.when(index.getTablets()).thenReturn(Lists.newArrayList(new LocalTablet(10L)));
+        MaterializedIndexMeta indexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(indexMeta.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.getIndexMetaByIndexId(indexId)).thenReturn(indexMeta);
+        scanNode.setSelectedIndexInfo(indexId, true, "");
+        scanNode.setSelectedPartitionIds(Lists.newArrayList(partitionId));
+        scanNode.setScanParams(TableScanParams.forFixedPartitionVersions(Map.of(partitionId, 2L)));
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudPartition = Mockito.mockStatic(CloudPartition.class)) {
+            config.when(Config::isNotCloudMode).thenReturn(false);
+            ScanNode.setVisibleVersionForOlapScanNodes(Lists.newArrayList(scanNode));
+            cloudPartition.verifyNoInteractions();
+        }
+        Assertions.assertEquals("2", scanNode.scanRangeLocations.get(0).getScanRange().getPaloScanRange().getVersion());
+        TPlanNode thrift = new TPlanNode();
+        scanNode.toThrift(thrift);
+        Assertions.assertFalse(thrift.getOlapScanNode().isReadChangelog());
+        TableScanParams incremental = new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, Collections.emptyMap(), Collections.emptyList());
+        Assertions.assertEquals(TChangelogScanType.MIN_DELTA, OlapScanNode.parseChangelogScanType(incremental, table));
+    }
+
+    @Test
     public void testRuntimeFilterBucketMetadataAttachedOnceAcrossWorkers() throws Exception {
         OlapScanNode scanNode = newBucketPruneScanNode(10L);
         TPaloScanRange paloScanRange = scanNode.scanRangeLocations.get(0)
@@ -432,6 +469,15 @@ public class OlapScanNodeTest {
                     .getScanRange().getPaloScanRange().getBucketNum());
             Assertions.assertEquals(113, scanNode.scanRangeLocations.get(0)
                     .getScanRange().getPaloScanRange().getBucketSeq());
+
+            scanNode.setScanParams(TableScanParams.forFixedPartitionVersions(Map.of(1L, 2L)));
+            TOlapScanNode pinnedNode = new TOlapScanNode();
+            scanNode.setScanKeyBucketPruneParameters(pinnedNode);
+            Assertions.assertTrue(pinnedNode.isEnableScanKeyBucketPrune());
+            scanNode.setScanParams(new TableScanParams(
+                    TableScanParams.INCREMENTAL_READ, Collections.emptyMap(), Collections.emptyList()));
+            assertScanKeyBucketPruneDisabled(scanNode);
+            scanNode.setScanParams(null);
 
             session.enableScanKeyBucketPrune = false;
             assertScanKeyBucketPruneDisabled(scanNode);

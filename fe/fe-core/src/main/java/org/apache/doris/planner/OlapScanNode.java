@@ -191,7 +191,6 @@ public class OlapScanNode extends ScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     private final Map<Long, Long> sqlCachePartitionVersions = Maps.newHashMap();
-    private Map<Long, Long> fixedPartitionVersions = Collections.emptyMap();
     private Map<Long, String> selectedPartitionNames = Collections.emptyMap();
     // Partition boundaries must come from the same planning snapshot as runtime-filter
     // partition monotonicity. Thrift serialization can happen after query queueing, when
@@ -1604,7 +1603,7 @@ public class OlapScanNode extends ScanNode {
     synchronized void setScanKeyBucketPruneParameters(TOlapScanNode node) {
         ConnectContext context = ConnectContext.get();
         if (context == null || !context.getSessionVariable().enableScanKeyBucketPrune
-                || isPointQuery() || tableSample != null || scanParams != null
+                || isPointQuery() || tableSample != null || (scanParams != null && scanParams.incrementalRead())
                 || olapTable instanceof OlapTableWrapper
                 || selectedIndexId != olapTable.getBaseIndexId()
                 || olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
@@ -2011,12 +2010,8 @@ public class OlapScanNode extends ScanNode {
         return scanParams;
     }
 
-    public void setFixedPartitionVersions(Map<Long, Long> versions) {
-        fixedPartitionVersions = ImmutableMap.copyOf(versions);
-    }
-
     public Map<Long, Long> getFixedPartitionVersions() {
-        return fixedPartitionVersions;
+        return scanParams == null ? Collections.emptyMap() : scanParams.getFixedPartitionVersions();
     }
 
     public static long parseChangeTimestamp(String ts) {
@@ -2040,7 +2035,7 @@ public class OlapScanNode extends ScanNode {
 
     public static TChangelogScanType parseChangelogScanType(TableScanParams scanParams, OlapTable olapTable)
             throws ParseException {
-        if (scanParams == null) {
+        if (scanParams == null || !scanParams.incrementalRead()) {
             return TChangelogScanType.NONE;
         }
         TChangelogScanType scanType = TChangelogScanType.MIN_DELTA;

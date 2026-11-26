@@ -515,7 +515,11 @@ public class OlapTableStreamWrapper extends OlapTable {
         for (Long partitionId : partitionIds) {
             if (!consumedIds.contains(partitionId)) {
                 // Not read at all: rows it holds are missing from the answer.
-                if (getBaseTable().getPartition(partitionId).hasData()) {
+                // A stale FE cache can still report this partition as empty after its first write.
+                boolean hasData = hasCloudReadStates()
+                        ? getCloudReadState(partitionId).getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+                        : getBaseTable().getPartition(partitionId).hasData();
+                if (hasData) {
                     return false;
                 }
                 continue;

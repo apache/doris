@@ -1025,14 +1025,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
         }
 
-        olapScan.getScanParams().ifPresent(params -> {
-            Map<Long, Long> fixedVersions = params.getFixedPartitionVersions();
-            if (fixedVersions.isEmpty()) {
-                olapScanNode.setScanParams(params);
-            } else {
-                olapScanNode.setFixedPartitionVersions(fixedVersions);
-            }
-        });
+        olapScan.getScanParams().ifPresent(olapScanNode::setScanParams);
 
         // create scan range
         Utils.execWithUncheckedException(olapScanNode::init);

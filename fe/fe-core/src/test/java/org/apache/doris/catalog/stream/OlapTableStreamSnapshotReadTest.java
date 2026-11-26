@@ -98,6 +98,25 @@ public class OlapTableStreamSnapshotReadTest {
     }
 
     @Test
+    public void testCloudSnapshotUsesReadStateForPartitionsWithoutAConsumptionBaseline() {
+        Fixture fixture = fixture(KeysType.UNIQUE_KEYS, Map.of(),
+                partition(1L, -1L, false), partition(2L, -1L, true), partition(3L, -1L, false));
+        Cloud.TableStreamPartitionReadStatePB emptyAtCreation = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setOffsetTso(-1L).setEndTso(200L).setVisibleVersion(2L).setPartitionId(1L).build();
+        Cloud.TableStreamPartitionReadStatePB stillEmpty = emptyAtCreation.toBuilder()
+                .setEndTso(-1L).setVisibleVersion(Partition.PARTITION_INIT_VERSION).setPartitionId(2L).build();
+        Cloud.TableStreamPartitionReadStatePB noOffset = emptyAtCreation.toBuilder().clearOffsetTso()
+                .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                .setPartitionId(3L).build();
+        fixture.wrapper.installCloudReadStates(Map.of(1L, emptyAtCreation, 2L, stillEmpty, 3L, noOffset));
+
+        Assertions.assertFalse(fixture.wrapper.answersWithTheCurrentTable(List.of(1L)));
+        Assertions.assertTrue(fixture.wrapper.answersWithTheCurrentTable(List.of(2L)));
+        Assertions.assertFalse(fixture.wrapper.answersWithTheCurrentTable(List.of(3L)));
+    }
+
+    @Test
     public void testEmptyAndUnknownPartitionsKeepDistinctReadMembership() {
         Fixture fixture = fixture(KeysType.DUP_KEYS, Map.of(1L, 100L),
                 partition(1L, 100L, false), partition(2L, 200L, true));
