@@ -246,10 +246,15 @@ class IvmDeltaRewriteState {
             return window;
         }
         Set<Long> scope = scopePartitionIds.get(new BaseTableInfo(table));
-        if (scope == null || scope.containsAll(table.getPartitionIds())) {
+        if (scope == null) {
             return window;
         }
-        Collection<Long> candidates = window == null ? scope : window;
+        List<Long> livePartitions = table.getPartitionIds();
+        if (scope.containsAll(livePartitions)) {
+            return window;
+        }
+        // The refresh scope can still contain a partition dropped before planning.
+        Collection<Long> candidates = window == null ? livePartitions : window;
         // Sort the intersection so the order of applying the limits does not change the plan shape.
         return candidates.stream().filter(scope::contains).sorted().collect(Collectors.toList());
     }

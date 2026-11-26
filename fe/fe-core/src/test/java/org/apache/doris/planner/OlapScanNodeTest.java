@@ -36,6 +36,7 @@ import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -362,6 +363,43 @@ public class OlapScanNodeTest {
         }
 
         Mockito.verify(scanNode).updateScanRangeVersions(Collections.singletonMap(partitionId, visibleVersion));
+    }
+
+    @Test
+    public void testPinnedIncrementalScanStillRefreshesOtherScanVersionsFromMetaService() throws Exception {
+        long livePartitionId = 300L;
+        long pinnedPartitionId = 301L;
+        Map<Long, Long> pinnedVersions = Map.of(pinnedPartitionId, 2L);
+        CloudPartition livePartition = Mockito.mock(CloudPartition.class);
+        Mockito.when(livePartition.getId()).thenReturn(livePartitionId);
+        OlapTable liveTable = Mockito.mock(OlapTable.class);
+        Mockito.when(liveTable.getPartition(livePartitionId)).thenReturn(livePartition);
+
+        OlapScanNode liveScan = Mockito.mock(OlapScanNode.class);
+        Mockito.when(liveScan.getOlapTable()).thenReturn(liveTable);
+        Mockito.when(liveScan.getSelectedPartitionIds()).thenReturn(List.of(livePartitionId));
+
+        OlapScanNode pinnedScan = Mockito.mock(OlapScanNode.class);
+        TableScanParams params = new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, Map.of(), List.of()).withFixedPartitionVersions(pinnedVersions);
+        Mockito.when(pinnedScan.getOlapTable()).thenReturn(Mockito.mock(OlapChangelogTableWrapper.class));
+        Mockito.when(pinnedScan.getScanParams()).thenReturn(params);
+        Mockito.when(pinnedScan.getFixedPartitionVersions()).thenReturn(params.getFixedPartitionVersions());
+        Mockito.when(pinnedScan.getSelectedPartitionIds()).thenReturn(List.of(pinnedPartitionId));
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> cloudPartition = Mockito.mockStatic(CloudPartition.class)) {
+            config.when(Config::isNotCloudMode).thenReturn(false);
+            cloudPartition.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(List.of(livePartition), true))
+                    .thenReturn(List.of(3L));
+
+            ScanNode.setVisibleVersionForOlapScanNodes(List.of(pinnedScan, liveScan));
+
+            cloudPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(List.of(livePartition), true));
+            cloudPartition.verifyNoMoreInteractions();
+        }
+        Mockito.verify(liveScan).updateScanRangeVersions(Map.of(livePartitionId, 3L));
+        Mockito.verify(pinnedScan).updateScanRangeVersions(pinnedVersions);
     }
 
     @Test

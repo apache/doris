@@ -690,12 +690,15 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
             OlapScanNode scanNode = (OlapScanNode) node;
             OlapTable table = scanNode.getOlapTable();
-            if (!scanNode.getFixedPartitionVersions().isEmpty() || (table instanceof OlapTableWrapper
-                    && ((OlapTableWrapper) table).hasFixedVisibleVersions())) {
+            if (table instanceof OlapTableWrapper && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
                 continue;
             }
+            // A fixed @incr scan still requires fresh versions for other scans in the same statement.
             if (scanNode.getScanParams() != null && scanNode.getScanParams().incrementalRead()) {
                 hasIncrementalRead = true;
+            }
+            if (!scanNode.getFixedPartitionVersions().isEmpty()) {
+                continue;
             }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {

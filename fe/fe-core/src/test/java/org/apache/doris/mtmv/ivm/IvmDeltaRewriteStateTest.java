@@ -17,11 +17,13 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
@@ -144,6 +146,45 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                     (CloudOlapTableStreamUpdate) StreamConsumptionInfoExtractor.extract(rewritten).get(0).getUpdate();
             Assertions.assertEquals(Set.of(pending), update.getPartitionUpdates().keySet());
             Assertions.assertEquals(25, update.getPartitionUpdates().get(pending).getNextOffsetTso());
+        }
+    }
+
+    @Test
+    void testCloudReadStatePreloadSkipsPartitionDroppedFromRefreshScope() throws Exception {
+        OlapTable table = buildMultiPartitionTable(3);
+        OlapTableStream stream = registerTestStream(table, 1L);
+        long keptPartition = partitionId(table, 2);
+        long droppedPartition = partitionId(table, 3);
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, List.of("test_db"));
+        IvmIncrRefreshContext context = new IvmIncrRefreshContext(
+                buildDupMtmvFromPlan(scan.getOutput()), MemoTestUtils.createConnectContext(), null, false);
+        IvmRewriteContext rewriteContext = IvmRewriteContext.incremental(context.getMtmv(),
+                Map.of(new BaseTableInfo(table), Set.of(keptPartition, droppedPartition)));
+        table.writeLock();
+        try {
+            table.getPartitionInfo().addPartition(droppedPartition, new DataProperty(TStorageMedium.HDD),
+                    ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+            table.dropPartitionAndReserveTablet("p3");
+        } finally {
+            table.writeUnlock();
+        }
+
+        Cloud.TableStreamIdentityPB identity = stream.getCloudIdentity();
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> request = Map.of(identity, Set.of(keptPartition));
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<CloudTableStreamReadStateHelper> metaService =
+                        Mockito.mockStatic(CloudTableStreamReadStateHelper.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            metaService.when(() -> CloudTableStreamReadStateHelper.getReadStates(request))
+                    .thenReturn(Map.of(identity, Map.of(keptPartition, consumedState(keptPartition, 2, 10, 20))));
+            rewriteContext.preloadCloudReadStates(List.of(table));
+
+            LogicalOlapScan liveScan = scan.withSelectedPartitionIds(table.getPartitionIds());
+            IvmDeltaRewriteState state = IvmDeltaRewriteState.forAppendOnlyDup(liveScan, context, rewriteContext);
+            LogicalOlapTableStreamScan delta = state.createDeltaScan(liveScan).orElseThrow();
+            Assertions.assertEquals(List.of(keptPartition), delta.getSelectedPartitionIds());
+            metaService.verify(() -> CloudTableStreamReadStateHelper.getReadStates(request));
+            metaService.verifyNoMoreInteractions();
         }
     }
 
