@@ -48,7 +48,6 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
@@ -597,14 +596,11 @@ public class ColumnDefinition {
             try {
                 DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
                 String value = defaultValue.get().getValue();
-                String validationValue = value;
-                if (icebergAddDefault && type.isTimeStampTzType() && exprDef == null) {
-                    // The catalog validator reads microseconds. Keep the guard digit in the original
-                    // value until the ADD path binds the zone and rounds to the declared scale.
-                    validationValue = DateUtils.truncateFractionalSecond(normalizeCompactDateTimeFraction(value),
-                            TimeStampTzType.MAX_SCALE);
+                // The Iceberg TIMESTAMPTZ literal parser below validates named zones and the rounding guard.
+                // The legacy validator accepts neither the full zone syntax nor the guard digit.
+                if (!(icebergAddDefault && type.isTimeStampTzType() && exprDef == null)) {
+                    ColumnDef.validateDefaultValue(type.toCatalogDataType(), value, exprDef);
                 }
-                ColumnDef.validateDefaultValue(type.toCatalogDataType(), validationValue, exprDef);
                 if (!isOlap && type.isTimeStampNsType() && exprDef == null) {
                     // All connectors receive civil SQL defaults for nanosecond timestamps.
                     defaultValue = Optional.of(new DefaultValue(new TimeStampNsLiteral(value).getStringValue()));

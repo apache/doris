@@ -159,7 +159,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             undotted_ts DATETIME(6) NOT NULL DEFAULT '20240102030405123456',
             undotted_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102T030405123456',
             undotted_offset_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999+08:00',
-            undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999CET',
+            undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240101T210405123999America/New_York',
             rounded_zoned_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             amount DECIMAL(10,2) NOT NULL DEFAULT '1.5', label STRING NOT NULL DEFAULT 'owner''s')"""
@@ -171,17 +171,19 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.compact_ts DATETIME(6) NOT NULL DEFAULT '20240102030405'"""
         sql """ALTER TABLE typed_defaults_${format}
-            ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456'"""
+            ADD COLUMN s.zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '2024-01-02 03:04:05.123456 Asia/Shanghai'"""
         sql """ALTER TABLE typed_defaults_${format}
-            ADD COLUMN s.compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456'"""
+            ADD COLUMN s.compact_fraction_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405.123456CST'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN single_undotted_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405123456'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.undotted_ts DATETIME(6) NOT NULL DEFAULT '20240102T030405123456'"""
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.undotted_zoned_ts TIMESTAMPTZ(6) NOT NULL DEFAULT '20240102030405123456'"""
+        // The same local timestamp as the explicit New York default in the batch ADD above.
+        sql "SET time_zone = 'America/New_York'"
         sql """ALTER TABLE typed_defaults_${format}
-            ADD COLUMN s.undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240102T030405123999CET'"""
+            ADD COLUMN s.undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240101T210405123999'"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
@@ -292,7 +294,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
     }
     for (def boundary : [["-08:00", "9999-12-31 23:59:59", 6], ["+08:00", "0000-01-01 00:00:00", 6],
             ["+08:00", "0000-03-01 00:00:00", 6], ["UTC", "0000-02-28 23:59:59.6", 0],
-            ["UTC", "0000-12-31 23:59:59.999999", 6]]) {
+            ["UTC", "0000-12-31 23:59:59.999999", 6], ["UTC", "0001-01-01 00:00:00Asia/Shanghai", 6]]) {
         sql "SET time_zone = '${boundary[0]}'"
         test {
             sql """ALTER TABLE conversion_defaults ADD COLUMN bad_range TIMESTAMPTZ(${boundary[2]}) NOT NULL

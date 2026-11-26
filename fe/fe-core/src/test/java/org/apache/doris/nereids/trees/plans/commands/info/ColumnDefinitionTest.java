@@ -123,13 +123,36 @@ public class ColumnDefinitionTest {
     }
 
     @Test
-    public void testZonedAddGuardDigitStillValidatesDateAndZone() {
-        for (String value : new String[] {"2021-02-30 02:59:59.9994999CET",
-                "2021-10-31 02:59:59.9994999Invalid/Zone"}) {
+    public void testIcebergAddAcceptsNamedZonesAndDorisAliases() {
+        String[] zones = {"Asia/Shanghai", "America/New_York", "CST"};
+        String[] expected = {"2024-01-01 19:04:05.124+00:00", "2024-01-02 08:04:05.124+00:00",
+                "2024-01-01 19:04:05.124+00:00"};
+        for (int i = 0; i < zones.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123999 " + zones[i])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testZonedAddRejectsInvalidDatesTimesAndZones() {
+        for (String value : new String[] {"2021-02-30 02:59:59.9994999Asia/Shanghai",
+                "2021-10-31 02:59:59.9994999America/Unknown", "2024-01-02 03:04:05+18:01",
+                "2024-01-02 25:04:05CST", "2024-01-02 03:04:05.xCST"}) {
             ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
                     false, null, false, Optional.of(new DefaultValue(value)), "");
             Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column));
         }
+    }
+
+    @Test
+    public void testIcebergAddChecksCurrentTimestampPrecision() {
+        TimeStampTzType type = TimeStampTzType.of(3);
+        DefaultValue expression = DefaultValue.currentTimeStampDefaultValueWithPrecision(4L, type);
+        ColumnDefinition column = new ColumnDefinition("ts", type, false, null, false, Optional.of(expression), "");
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column));
+        Assertions.assertTrue(error.getMessage().contains("can not be greater than type precision"), error.getMessage());
     }
 
     @Test
