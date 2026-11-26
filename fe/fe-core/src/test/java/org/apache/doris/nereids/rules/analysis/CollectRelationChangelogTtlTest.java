@@ -100,10 +100,10 @@ class CollectRelationChangelogTtlTest extends TestWithFeService {
     @Test
     void testFullIvmSnapshotRegistersButResetDoesNot() {
         MTMV mv = Mockito.mock(MTMV.class);
-        Assertions.assertTrue(collect("select * from changelog_base", Optional.of(IvmRewriteContext.full(
+        Assertions.assertTrue(collect("select * from changelog_base", Optional.of(IvmRewriteContext.complete(
                 mv, Collections.emptyMap(), StreamReadMode.SNAPSHOT)))
                 .isChangelogReferenceTsoRequired());
-        Assertions.assertFalse(collect("select * from changelog_base", Optional.of(IvmRewriteContext.full(mv)))
+        Assertions.assertFalse(collect("select * from changelog_base", Optional.of(IvmRewriteContext.complete(mv)))
                 .isChangelogReferenceTsoRequired());
         Assertions.assertFalse(collect("select * from changelog_base", Optional.of(IvmRewriteContext.normalize(mv)))
                 .isChangelogReferenceTsoRequired());

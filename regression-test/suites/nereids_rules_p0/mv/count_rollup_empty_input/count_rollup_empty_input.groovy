@@ -45,6 +45,10 @@ suite("count_rollup_empty_input") {
     sql "REFRESH MATERIALIZED VIEW rollup_empty_mv COMPLETE"
     waitingMTMVTaskFinishedByMvName("rollup_empty_mv")
 
+    // Wait for asynchronous row count reporting before collecting optimizer statistics.
+    waitRowCountReady(db, "rollup_empty_base", 3)
+    waitRowCountReady(db, "rollup_empty_mv", 2)
+
     sql "ANALYZE TABLE rollup_empty_base WITH SYNC"
     sql "ANALYZE TABLE rollup_empty_mv WITH SYNC"
 

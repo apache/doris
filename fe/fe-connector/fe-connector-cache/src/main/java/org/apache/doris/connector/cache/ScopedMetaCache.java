@@ -57,6 +57,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -111,6 +112,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     private final MetaCacheBudgetManager.EntryBudget entryBudget;
     private final boolean weightBounded;
+    private final Predicate<V> retentionPredicate;
     private final ThreadLocal<RemovalDeferral<K, V>> removalDeferrals =
             ThreadLocal.withInitial(RemovalDeferral::new);
     private final ThreadLocal<Registration> budgetEvictionRegistration = new ThreadLocal<>();
@@ -130,6 +132,25 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             Runnable afterRefreshRegistration,
             MetaCacheSizeEstimator<K, V> sizeEstimator,
             MetaCacheBudgetManager.EntryBudget entryBudget) {
+        this(registry, name, cacheSpec, ticker, beforeRemoval, discardListener, refreshAfterWrite,
+                refreshExecutor, afterLoadElection, afterBulkStage, afterRefreshRegistration,
+                sizeEstimator, entryBudget, value -> true);
+    }
+
+    ScopedMetaCache(
+            ScopedMetaCacheRegistry registry,
+            String name,
+            CacheSpec cacheSpec,
+            Ticker ticker,
+            RemovalListener<K, V> beforeRemoval,
+            BiConsumer<K, V> discardListener,
+            Duration refreshAfterWrite,
+            Executor refreshExecutor,
+            Runnable afterLoadElection,
+            Runnable afterBulkStage,
+            Runnable afterRefreshRegistration,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget, Predicate<V> retentionPredicate) {
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
         this.name = Objects.requireNonNull(name, "name can not be null");
         Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
@@ -145,6 +166,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 afterRefreshRegistration, "afterRefreshRegistration can not be null");
         this.sizeEstimator = sizeEstimator;
         this.entryBudget = entryBudget;
+        this.retentionPredicate = Objects.requireNonNull(retentionPredicate, "retentionPredicate");
         if ((sizeEstimator == null) != (entryBudget == null)) {
             throw new IllegalArgumentException(
                     "Weighted metadata cache requires both estimator and budget: " + name);
@@ -203,6 +225,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
         return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
                 Function.identity(), this::awaitLoad, loadScope);
+    }
+
+    public CompletionStage<V> getOrLoadFutureForLoadScope(
+            K key, ScopePath path, Object loadScope, Function<K, V> loader) {
+        Objects.requireNonNull(loadScope, "loadScope can not be null");
+        if (refreshAfterWriteNanos != 0) {
+            throw new IllegalStateException("Request-owned loads require a cache without automatic refresh");
+        }
+        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
+                CompletableFuture::completedFuture, CompletableFuture::minimalCompletionStage, loadScope);
     }
 
     private <R> R getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
@@ -586,16 +618,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(actualScope, "actualScope can not be null");
         Objects.requireNonNull(value, "value can not be null");
-        checkOpen();
         handle.checkOwner(this);
         if (!handle.parentScope.contains(actualScope)) {
             throw new IllegalArgumentException(
                     "Actual scope " + actualScope + " is outside bulk-load parent " + handle.parentScope);
         }
-        if (!effectiveEnabled) {
+        if (!effectiveEnabled || closed.get()) {
             return false;
         }
-        try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
+        // Retirement can race scope acquisition as well as the final commit. Both decline retention;
+        // the caller already owns its successfully loaded value and need not fail with the cache.
+        try (PublicationLease<K, V> lease = acquirePublicationLease(
+                key, () -> registry.tryAcquire(actualScope), false)) {
+            if (lease == null) {
+                return false;
+            }
             VersionedValue<K, V> staged = prepareVersionedValue(lease, key, value);
             if (staged == null) {
                 return false;
@@ -734,8 +771,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private PublicationLease<K, V> acquirePublicationLease(
             K key, ScopePath path, boolean fenceAgainstDirectPublication) {
+        return acquirePublicationLease(key, () -> registry.acquire(path), fenceAgainstDirectPublication);
+    }
+
+    private PublicationLease<K, V> acquirePublicationLease(
+            K key, Supplier<ScopeLease> acquireScope, boolean fenceAgainstDirectPublication) {
         while (true) {
-            ScopeLease scopeLease = registry.acquire(path);
+            ScopeLease scopeLease = acquireScope.get();
+            if (scopeLease == null) {
+                return null;
+            }
             KeyNode<K, V> keyNode = keyNodes.computeIfAbsent(key, ignored -> new KeyNode<>());
             keyNode.activeLoads.incrementAndGet();
             KeyState keyState = keyNode.current.get();
@@ -783,6 +828,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private VersionedValue<K, V> prepareVersionedValue(
             PublicationLease<K, V> lease, K key, V value) {
+        // Sensitive values must never be published, including when no weight budget is configured.
+        if (!retentionPredicate.test(value)) {
+            return null;
+        }
         MetaCacheBudgetManager.AdmissionReservation reservation = reserve(key, value);
         if (weightBounded && reservation == null) {
             return null;
@@ -835,6 +884,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private ReplacementValue<K, V> prepareReplacementVersionedValue(
             PublicationLease<K, V> lease, K key, V value, VersionedValue<K, V> previous) {
+        if (!retentionPredicate.test(value)) {
+            return null;
+        }
         if (!weightBounded) {
             VersionedValue<K, V> versioned = prepareVersionedValue(lease, key, value);
             return versioned == null ? null : new ReplacementValue<>(versioned, previous, null);

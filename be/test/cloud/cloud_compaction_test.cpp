@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -37,8 +38,9 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/obj-storage/parser/obj_storage_config.h"
 #include "cpp/sync_point.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/changelog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -48,7 +50,6 @@
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -1280,20 +1281,16 @@ TEST_F(CloudCompactionTest, parallel_pick_does_not_advance_from_high_range_delet
 }
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket",
+            .prefix = "prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), resource_id);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), resource_id);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);
@@ -2098,5 +2095,59 @@ TEST_F(CloudCompactionTest, test_apply_txn_size_truncation_and_log_single_large_
     // Should keep at least 1 rowset even if it exceeds the limit
     ASSERT_EQ(truncated, 0);
     ASSERT_EQ(compaction.get_input_rowsets().size(), 1);
+}
+
+TEST_F(CloudCompactionTest, zombie_tablet_excluded_from_score_and_candidates) {
+    auto filter_out = [](CloudTablet* t) { return false; };
+    CloudTabletMgr mgr(_engine);
+
+    auto make_tablet = [&](int64_t tablet_id, TabletState state, bool has_alter_job,
+                           int64_t cumu_deltas) {
+        TabletMetaSharedPtr meta(new TabletMeta(
+                1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+        meta->_tablet_id = tablet_id;
+        meta->set_tablet_state(state);
+        auto tablet = std::make_shared<CloudTablet>(_engine, meta);
+        tablet->set_has_active_alter_job(has_alter_job);
+        tablet->_approximate_cumu_num_deltas = cumu_deltas;
+        tablet->tablet_meta()->set_disable_auto_compaction(false);
+        mgr.put_tablet_for_UT(tablet);
+        return tablet;
+    };
+
+    // A normal running tablet with a low score
+    auto running = make_tablet(20001, TABLET_RUNNING, true, 3);
+    // An in-progress schema change new tablet: NOT_READY with an active alter job
+    auto live_shadow = make_tablet(20002, TABLET_NOTREADY, true, 50);
+    // An abandoned shadow tablet: NOT_READY whose alter job has been cancelled
+    auto zombie = make_tablet(20003, TABLET_NOTREADY, false, 551);
+
+    ASSERT_FALSE(live_shadow->is_zombie_tablet());
+    ASSERT_TRUE(zombie->is_zombie_tablet());
+
+    CompactionScoreStats score_stats;
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    Status st = mgr.get_topn_tablets_to_compact(10, CompactionType::CUMULATIVE_COMPACTION,
+                                                filter_out, &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    // The zombie contributes to neither the max score nor the candidates, while
+    // the in-progress schema change new tablet still counts
+    ASSERT_EQ(score_stats.max_score, 50);
+    ASSERT_EQ(tablets.size(), 2);
+    ASSERT_EQ(tablets[0]->tablet_id(), 20002);
+    for (auto& t : tablets) {
+        ASSERT_NE(t->tablet_id(), 20003);
+    }
+
+    // Once the alter job of the live shadow is gone as well, it becomes a zombie
+    // too and the max score falls back to the running tablet
+    live_shadow->set_has_active_alter_job(false);
+    st = mgr.get_topn_tablets_to_compact(10, CompactionType::CUMULATIVE_COMPACTION, filter_out,
+                                         &tablets, &score_stats);
+    ASSERT_EQ(st, Status::OK());
+    ASSERT_EQ(score_stats.max_score, 3);
+    ASSERT_EQ(tablets.size(), 1);
+    ASSERT_EQ(tablets[0]->tablet_id(), 20001);
 }
 } // namespace doris

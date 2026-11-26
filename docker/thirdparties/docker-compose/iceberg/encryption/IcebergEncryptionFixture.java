@@ -17,7 +17,9 @@
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -34,10 +36,13 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
@@ -47,6 +52,7 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestListFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
@@ -69,6 +75,9 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.parquet.Parquet;
+import org.apache.iceberg.rest.RESTCatalog;
+import org.apache.iceberg.rest.responses.LoadTableResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ByteBuffers;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -79,12 +88,15 @@ import software.amazon.awssdk.services.kms.model.KmsException;
 /** Test-only reference reader and fixture generator. Never install this class in a Doris plugin. */
 public final class IcebergEncryptionFixture {
     private static final String DB = "iceberg_encryption_metadata_db";
+    private static final String REST_DB = "iceberg_encryption_rest_db";
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
     private static final String WAREHOUSE = "s3://iceberg-encryption/warehouse";
     private final String hms;
     private final String kms;
     private final String s3;
     private final String keyId;
+    private final AtomicBoolean decryptDenied = new AtomicBoolean();
+    private final AtomicLong decryptRequests = new AtomicLong();
 
     private IcebergEncryptionFixture(String[] args) throws IOException {
         hms = args[0];
@@ -125,6 +137,77 @@ public final class IcebergEncryptionFixture {
                 reply(request, 500, "{\"error\":\"Fixture verification failed\"}");
             }
         });
+        server.createContext("/native-deletes/reset", request -> {
+            try (HiveCatalog catalog = fixture.catalog(fixture.properties()); S3FileIO cleanup = new S3FileIO()) {
+                check("POST".equals(request.getRequestMethod()), "POST required");
+                cleanup.initialize(fixture.properties());
+                NativeDeleteFixture.reset(catalog, cleanup, fixture.keyId);
+                reply(request, 200, "{\"created\":true}");
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Native delete fixture creation failed\"}");
+            }
+        });
+        server.createContext("/native-deletes/verify", request -> {
+            try (HiveCatalog catalog = fixture.catalog(fixture.properties())) {
+                reply(request, 200, NativeDeleteFixture.verify(catalog));
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Native delete fixture verification failed\"}");
+            }
+        });
+        server.createContext("/rest/reset", request -> {
+            try {
+                check("POST".equals(request.getRequestMethod()), "POST required");
+                fixture.reset(REST_DB, WAREHOUSE + "/rest");
+                reply(request, 200, "{\"created\":true}");
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"REST encryption fixture creation failed\"}");
+            }
+        });
+        server.createContext("/rest/verify", request -> {
+            try {
+                reply(request, 200, fixture.verifyRest());
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"REST encryption fixture verification failed\"}");
+            }
+        });
+        server.createContext("/rest/v1/", fixture::restRequest);
+        server.createContext("/benchmark/reset", request -> {
+            try {
+                check("POST".equals(request.getRequestMethod()), "POST required");
+                fixture.resetBenchmark();
+                reply(request, 200, "{\"created\":true,\"rows\":1048576,\"files\":4}");
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Benchmark fixture creation failed\"}");
+            }
+        });
+        server.createContext("/benchmark/verify", request -> {
+            try {
+                reply(request, 200, fixture.verifyBenchmark());
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Benchmark fixture verification failed\"}");
+            }
+        });
+        // Keep the Doris catalog and endpoint unchanged while revoking access after cache warmup.
+        server.createContext("/kms/runtime", fixture::proxyKms);
+        server.createContext("/kms/access", request -> {
+            String path = request.getRequestURI().getPath();
+            if ("POST".equals(request.getRequestMethod()) && path.endsWith("/deny")) {
+                fixture.decryptDenied.set(true);
+            } else if ("POST".equals(request.getRequestMethod()) && path.endsWith("/allow")) {
+                fixture.decryptDenied.set(false);
+            } else if (!"GET".equals(request.getRequestMethod())) {
+                reply(request, 400, "{\"error\":\"Expected GET or an access-control POST\"}");
+                return;
+            }
+            reply(request, 200, "{\"denied\":" + fixture.decryptDenied.get()
+                    + ",\"decryptRequests\":" + fixture.decryptRequests.get() + "}");
+        });
         // These AWS protocol errors isolate credentials/authorization from storage access and KMS availability.
         server.createContext("/kms/credentials", request -> reply(request, 400,
                 "{\"__type\":\"UnrecognizedClientException\",\"message\":\"Invalid fixture credentials\"}"));
@@ -136,6 +219,50 @@ public final class IcebergEncryptionFixture {
         }));
         server.start();
         System.out.println("Iceberg 1.12.0 encrypted metadata fixture ready");
+    }
+
+    private void proxyKms(HttpExchange request) throws IOException {
+        String target = request.getRequestHeaders().getFirst("X-Amz-Target");
+        if (target != null && target.endsWith(".Decrypt")) {
+            decryptRequests.incrementAndGet();
+            if (decryptDenied.get()) {
+                reply(request, 403, "{\"__type\":\"AccessDeniedException\","
+                        + "\"message\":\"Fixture decrypt permission revoked\"}");
+                return;
+            }
+        }
+        HttpURLConnection upstream = (HttpURLConnection) new URL(kms).openConnection();
+        upstream.setRequestMethod("POST");
+        upstream.setConnectTimeout(5000);
+        upstream.setReadTimeout(15000);
+        upstream.setDoOutput(true);
+        upstream.setRequestProperty("Content-Type", "application/x-amz-json-1.1");
+        if (target != null) {
+            upstream.setRequestProperty("X-Amz-Target", target);
+        }
+        // Moto uses the signing scope to choose its service and region. It does not validate
+        // signatures; this test proxy is not an AWS forwarding or credential-provisioning service.
+        for (String name : List.of("Authorization", "X-Amz-Date", "X-Amz-Security-Token")) {
+            String value = request.getRequestHeaders().getFirst(name);
+            if (value != null) {
+                upstream.setRequestProperty(name, value);
+            }
+        }
+        try {
+            byte[] body = request.getRequestBody().readNBytes(1_048_577);
+            check(body.length <= 1_048_576, "Fixture KMS request is too large");
+            try (java.io.OutputStream output = upstream.getOutputStream()) {
+                output.write(body);
+            }
+            int status = upstream.getResponseCode();
+            try (InputStream response = status >= 400 ? upstream.getErrorStream() : upstream.getInputStream()) {
+                byte[] bytes = response.readNBytes(1_048_577);
+                check(bytes.length <= 1_048_576, "Fixture KMS response is too large");
+                reply(request, status, new String(bytes, StandardCharsets.UTF_8));
+            }
+        } finally {
+            upstream.disconnect();
+        }
     }
 
     private Map<String, String> properties() {
@@ -166,19 +293,23 @@ public final class IcebergEncryptionFixture {
     }
 
     private synchronized void reset() throws Exception {
+        reset(DB, WAREHOUSE);
+    }
+
+    private synchronized void reset(String db, String warehouse) throws Exception {
         try (HiveCatalog catalog = catalog(properties()); S3FileIO cleanup = new S3FileIO()) {
             cleanup.initialize(properties());
-            Namespace namespace = Namespace.of(DB);
+            Namespace namespace = Namespace.of(db);
             if (!catalog.namespaceExists(namespace)) {
-                catalog.createNamespace(namespace, Map.of("location", "file:/tmp/" + DB));
+                catalog.createNamespace(namespace, Map.of("location", "file:/tmp/" + db));
             }
             for (String name : List.of("encrypted_v3", "plain_v3")) {
-                TableIdentifier id = TableIdentifier.of(DB, name);
+                TableIdentifier id = TableIdentifier.of(db, name);
                 // HMS survives stop/up while Moto loses its keys. Purging via old encrypted
                 // manifests would fail after dropping the HMS entry, leaking the old objects.
                 // Only these dedicated fixture locations may be cleaned without reading manifests.
                 catalog.dropTable(id, false);
-                String location = WAREHOUSE + "/" + name;
+                String location = warehouse + "/" + name;
                 cleanup.deletePrefix(location + "/");
                 check(!cleanup.listPrefix(location + "/").iterator().hasNext(), "Fixture cleanup is incomplete");
                 Map<String, String> tableProperties = new HashMap<>();
@@ -209,6 +340,68 @@ public final class IcebergEncryptionFixture {
         table.newAppend().appendFile(writer.toDataFile()).commit();
     }
 
+    private synchronized void resetBenchmark() throws Exception {
+        try (HiveCatalog catalog = catalog(properties()); S3FileIO cleanup = new S3FileIO()) {
+            cleanup.initialize(properties());
+            Namespace namespace = Namespace.of(DB);
+            if (!catalog.namespaceExists(namespace)) {
+                catalog.createNamespace(namespace, Map.of("location", "file:/tmp/" + DB));
+            }
+            for (String name : List.of("benchmark_plain_v3", "benchmark_encrypted_v3")) {
+                TableIdentifier id = TableIdentifier.of(DB, name);
+                catalog.dropTable(id, false);
+                String location = WAREHOUSE + "/" + name;
+                cleanup.deletePrefix(location + "/");
+                Map<String, String> tableProperties = new HashMap<>();
+                tableProperties.put(TableProperties.FORMAT_VERSION, "3");
+                tableProperties.put(TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES, "65536");
+                tableProperties.put(TableProperties.PARQUET_COMPRESSION, "zstd");
+                tableProperties.put("write.parquet.bloom-filter-enabled.column.id", "true");
+                if (name.equals("benchmark_encrypted_v3")) {
+                    tableProperties.put(TableProperties.ENCRYPTION_TABLE_KEY, keyId);
+                }
+                Table table = catalog.buildTable(id, SCHEMA).withLocation(location)
+                        .withProperties(tableProperties).create();
+                // Identical row boundaries and writer settings keep the plaintext comparison meaningful.
+                for (int file = 0; file < 4; file++) {
+                    append(table, file * 262144 + 1, (file + 1) * 262144);
+                }
+            }
+        }
+    }
+
+    private synchronized String verifyBenchmark() throws Exception {
+        try (HiveCatalog catalog = catalog(properties())) {
+            for (String name : List.of("benchmark_plain_v3", "benchmark_encrypted_v3")) {
+                Table table = catalog.loadTable(TableIdentifier.of(DB, name));
+                long count = 0;
+                long sum = 0;
+                try (CloseableIterable<Record> rows = IcebergGenerics.read(table).build()) {
+                    for (Record row : rows) {
+                        count++;
+                        sum += (Integer) row.getField("id");
+                    }
+                }
+                check(count == 1048576 && sum == 549756338176L, "Benchmark reference rows differ");
+                int files = 0;
+                Set<String> keys = new HashSet<>();
+                try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+                    for (FileScanTask task : tasks) {
+                        files++;
+                        ByteBuffer key = task.file().keyMetadata();
+                        if (key != null) {
+                            keys.add(Base64.getEncoder().encodeToString(ByteBuffers.toByteArray(key)));
+                        }
+                    }
+                }
+                check(files == 4, "Benchmark must retain four physical files");
+                check(keys.size() == (name.equals("benchmark_encrypted_v3") ? 4 : 0),
+                        "Benchmark file key independence differs");
+            }
+            return "{\"rows\":1048576,\"sum\":549756338176,\"files\":4,\"independentFileKeys\":true}";
+        }
+    }
+
     private synchronized String verify() throws Exception {
         try (HiveCatalog catalog = catalog(properties())) {
             Table table = catalog.loadTable(TableIdentifier.of(DB, "encrypted_v3"));
@@ -216,12 +409,14 @@ public final class IcebergEncryptionFixture {
             check(metadata.formatVersion() == 3, "Encrypted fixture must be v3");
             check(!metadata.encryptionKeys().isEmpty(), "Encrypted table key chain is absent");
             List<List<Integer>> snapshots = new ArrayList<>();
+            List<Long> snapshotIds = new ArrayList<>();
             for (Snapshot snapshot : table.snapshots()) {
                 check(snapshot.keyId() != null, "Manifest list key ID is absent");
                 for (ManifestFile manifest : snapshot.allManifests(table.io())) {
                     check(manifest.keyMetadata() != null, "Manifest encryption metadata is absent");
                 }
                 snapshots.add(rows(table, snapshot.snapshotId()));
+                snapshotIds.add(snapshot.snapshotId());
             }
             check(snapshots.equals(List.of(List.of(1, 2), List.of(1, 2, 3, 4))), "Historical reference rows differ");
             Set<String> keys = new HashSet<>();
@@ -245,10 +440,141 @@ public final class IcebergEncryptionFixture {
             verifyKmsError("denied", "AccessDeniedException");
             verifyWrongKey(table, metadata);
             return "{\"sdkVersion\":\"1.12.0\",\"formatVersion\":3,\"snapshots\":[[1,2],[1,2,3,4]],"
+                    + "\"snapshotIds\":" + snapshotIds + ","
                     + "\"sparkSnapshots\":[[1,2],[1,2,3,4]],\"fileKeys\":2,"
                     + "\"encryptedManifests\":true,\"encryptedManifestLists\":true,"
                     + "\"missingKms\":\"REJECTED\",\"wrongCredentials\":\"REJECTED\","
                     + "\"denied\":\"REJECTED\",\"wrongKey\":\"REJECTED\"}";
+        }
+    }
+
+    private void restRequest(HttpExchange request) throws IOException {
+        String path = request.getRequestURI().getPath();
+        try {
+            check("GET".equals(request.getRequestMethod()) || "HEAD".equals(request.getRequestMethod()),
+                    "Read-only REST fixture");
+            if (path.equals("/rest/v1/config")) {
+                reply(request, 200, "{\"defaults\":{\"scan-planning-mode\":\"client\"},\"overrides\":{}}");
+                return;
+            }
+            if (path.equals("/rest/v1/namespaces")) {
+                reply(request, 200, "{\"namespaces\":[[\"" + REST_DB + "\"]]}");
+                return;
+            }
+            String namespace = "/rest/v1/namespaces/" + REST_DB;
+            if (path.equals(namespace)) {
+                reply(request, 200, "{\"namespace\":[\"" + REST_DB + "\"],\"properties\":{}}");
+                return;
+            }
+            if (path.equals(namespace + "/tables")) {
+                reply(request, 200, "{\"identifiers\":[{\"namespace\":[\"" + REST_DB
+                        + "\"],\"name\":\"plain_v3\"},{\"namespace\":[\"" + REST_DB
+                        + "\"],\"name\":\"encrypted_v3\"}]}");
+                return;
+            }
+            for (String name : List.of("plain_v3", "encrypted_v3")) {
+                if (path.equals(namespace + "/tables/" + name)) {
+                    try (HiveCatalog catalog = catalog(properties())) {
+                        Table table = catalog.loadTable(TableIdentifier.of(REST_DB, name));
+                        // Return trusted catalog metadata directly. A REST client must not reopen metadata.json
+                        // from the object store to reconstruct the encryption key chain.
+                        try (org.apache.iceberg.io.FileIO io = table.io()) {
+                            reply(request, 200, LoadTableResponseParser.toJson(LoadTableResponse.builder()
+                                    .withTableMetadata(((HasTableOperations) table).operations().current()).build()));
+                        }
+                    }
+                    return;
+                }
+            }
+            reply(request, 404, "{\"error\":{\"message\":\"Unknown fixture table\","
+                    + "\"type\":\"NoSuchTableException\",\"code\":404}}");
+        } catch (Exception | LinkageError e) {
+            e.printStackTrace(System.err);
+            reply(request, 500, "{\"error\":{\"message\":\"REST fixture request failed\","
+                    + "\"type\":\"RuntimeException\",\"code\":500}}");
+        }
+    }
+
+    private Map<String, String> restProperties() {
+        Map<String, String> props = new HashMap<>(properties());
+        props.put(CatalogProperties.URI, "http://127.0.0.1:8181/rest");
+        props.put("rest.auth.type", "none");
+        props.put("scan-planning-mode", "client");
+        return props;
+    }
+
+    private String verifyRest() throws Exception {
+        Map<String, String> props = restProperties();
+        List<List<Integer>> snapshots = restRows(props);
+        check(snapshots.equals(List.of(List.of(1, 2), List.of(1, 2, 3, 4))), "REST historical rows differ");
+        for (String mode : List.of("missingKms", "credentials", "denied")) {
+            Map<String, String> failure = new HashMap<>(props);
+            if (mode.equals("missingKms")) {
+                failure.remove(CatalogProperties.ENCRYPTION_KMS_TYPE);
+            } else {
+                failure.put("kms.endpoint", "http://127.0.0.1:8181/kms/" + mode);
+            }
+            boolean rejected = false;
+            try {
+                restRows(failure);
+            } catch (RuntimeException expected) {
+                rejected = true;
+            }
+            check(rejected, "REST metadata read must reject " + mode);
+        }
+        return "{\"sdkVersion\":\"1.12.0\",\"catalog\":\"rest\",\"formatVersion\":3,"
+                + "\"snapshots\":[[1,2],[1,2,3,4]],\"encryptedManifests\":true,"
+                + "\"encryptedManifestLists\":true,\"missingKms\":\"REJECTED\","
+                + "\"wrongCredentials\":\"REJECTED\",\"denied\":\"REJECTED\",\"wrongKey\":\"REJECTED\"}";
+    }
+
+    private List<List<Integer>> restRows(Map<String, String> props) throws Exception {
+        try (RESTCatalog rest = new RESTCatalog(); KeyManagementClient client = EncryptionUtil.createKmsClient(props)) {
+            rest.initialize("rest_reference", props);
+            Table loaded = rest.loadTable(TableIdentifier.of(REST_DB, "encrypted_v3"));
+            TableMetadata metadata = ((HasTableOperations) loaded).operations().current();
+            check(metadata.formatVersion() == 3 && !metadata.encryptionKeys().isEmpty(), "REST key chain is absent");
+            // The pinned SDK has no REST encryption operations. Build an independent reference read view from
+            // the REST response and standard SDK crypto, rather than depending on Doris's production adapter.
+            EncryptionManager manager = EncryptionUtil.createEncryptionManager(
+                    metadata.encryptionKeys(), metadata.properties(), client);
+            Table view = new BaseTable(new StaticTableOperations(metadata,
+                    EncryptingFileIO.combine(loaded.io(), manager)) {
+                @Override
+                public EncryptionManager encryption() {
+                    return manager;
+                }
+            }, loaded.name());
+            List<List<Integer>> result = new ArrayList<>();
+            for (Snapshot snapshot : view.snapshots()) {
+                check(snapshot.keyId() != null, "REST manifest-list key ID is absent");
+                try (InputStream input = loaded.io().newInputFile(snapshot.manifestListLocation()).newStream()) {
+                    check(Arrays.equals(input.readNBytes(4), "AGS1".getBytes(StandardCharsets.US_ASCII)),
+                            "REST manifest list is not encrypted");
+                }
+                for (ManifestFile manifest : snapshot.allManifests(view.io())) {
+                    check(manifest.keyMetadata() != null, "REST manifest encryption metadata is absent");
+                    try (InputStream input = loaded.io().newInputFile(manifest.path()).newStream()) {
+                        check(Arrays.equals(input.readNBytes(4), "AGS1".getBytes(StandardCharsets.US_ASCII)),
+                                "REST manifest is not encrypted");
+                    }
+                }
+                result.add(rows(view, snapshot.snapshotId()));
+            }
+            Set<String> keys = new HashSet<>();
+            try (CloseableIterable<FileScanTask> tasks = view.newScan().planFiles()) {
+                for (FileScanTask task : tasks) {
+                    check(task.file().keyMetadata() != null, "REST data file key metadata is absent");
+                    keys.add(Base64.getEncoder().encodeToString(ByteBuffers.toByteArray(task.file().keyMetadata())));
+                    try (InputStream input = loaded.io().newInputFile(task.file().location()).newStream()) {
+                        check(Arrays.equals(input.readNBytes(4), "PARE".getBytes(StandardCharsets.US_ASCII)),
+                                "REST payload is not native encrypted Parquet");
+                    }
+                }
+            }
+            check(keys.size() == 2, "REST data files need independent encryption keys");
+            verifyWrongKey(view, metadata);
+            return result;
         }
     }
 
@@ -398,6 +724,12 @@ public final class IcebergEncryptionFixture {
 
     private static void reply(HttpExchange request, int status, String response) throws IOException {
         request.getRequestBody().close();
+        // REST existence probes use HEAD and must not send a JSON body.
+        if ("HEAD".equals(request.getRequestMethod())) {
+            request.sendResponseHeaders(status, -1);
+            request.close();
+            return;
+        }
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
         request.getResponseHeaders().set("Content-Type", "application/x-amz-json-1.1");
         request.sendResponseHeaders(status, bytes.length);

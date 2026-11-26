@@ -137,6 +137,43 @@ services:
     networks:
       - doris--iceberg
 
+  lance-rest:
+    image: python:3.11.9-slim-bookworm
+    container_name: doris--lance-rest
+    depends_on:
+      mc:
+        condition: service_completed_successfully
+    ports:
+      - ${LANCE_REST_PORT}:8080
+    volumes:
+      - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
+    environment:
+      LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance"}'
+      # all_types_unprefixed serves the same dataset but vends its credentials under the
+      # unprefixed object-store spelling, which is what real namespace servers emit.
+      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed"]'
+      # The same dataset again, described as one whose versions the namespace manages, which
+      # Doris refuses until it resolves versions through the namespace.
+      LANCE_REST_MANAGED_TABLES_JSON: '{"all_types_managed":{"uri":"s3://warehouse/lance/all_types.lance"}}'
+      LANCE_S3_ACCESS_KEY: admin
+      LANCE_S3_SECRET_KEY: password
+      LANCE_S3_REGION: us-east-1
+    networks:
+      - doris--iceberg
+    command: ["python3", "/opt/lance-rest/server.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
   trino:
     image: trinodb/trino:482
     container_name: doris--iceberg-trino
@@ -195,6 +232,10 @@ services:
     volumes:
       - ./data:/mnt/data
       - ./scripts/preinstalled_data/:/mnt/preinstalled_data
+    # The lance fixture is mirrored, not copied: this bucket is not recreated between runs, and a
+    # Lance dataset or Directory catalog names its version files u64::MAX - version so that a listing
+    # returns the newest first, so a leftover file from an earlier fixture would win over the one just
+    # published. --remove makes the prefix match the committed fixture exactly.
     entrypoint: >
       /bin/sh -c "
       until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
@@ -206,6 +247,7 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/paimon/ minio/warehouse/wh/;
       "

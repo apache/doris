@@ -535,11 +535,16 @@ struct TQueryOptions {
 
   // FE can explicitly and idempotently acknowledge external-file commit reports.
   236: optional bool supports_external_file_report_ack = false;
-  // Memory limit for one non-streaming analytic partition before it proactively spills.
-  237: optional i64 spill_analytic_sink_mem_limit_bytes = 67108864;
+  // Keep field 237 aligned with branch-4.1 Paimon BLOB query options.
+  237: optional i64 paimon_blob_max_size = 10485760;
+
   // Optional Parquet output indexes; absent fields retain the existing writer defaults.
   238: optional bool enable_parquet_write_page_index = true;
   239: optional i32 parquet_write_data_page_size = 1048576;
+  // Memory limit for one non-streaming analytic partition before it proactively spills.
+  240: optional i64 spill_analytic_sink_mem_limit_bytes = 67108864;
+  // Absent in older FE requests: keep Parquet Bloom output opt-in.
+  241: optional bool enable_parquet_write_bloom_filter = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -562,6 +567,9 @@ struct TQueryOptions {
   // reads the data instead.
   // Defaults to false because an old FE never sends this field, and BE checked both cases before.
   1006: optional bool force_pushdown_zonemap_minmax = false
+  // Use the cache option range to avoid unrelated query-option IDs allocated on other branches.
+  // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
+  1007: optional bool enable_file_cache_io_adaptor = false;
 }
 
 

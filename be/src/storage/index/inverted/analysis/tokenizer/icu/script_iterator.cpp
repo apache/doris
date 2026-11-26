@@ -17,31 +17,26 @@
 
 #include "storage/index/inverted/analysis/tokenizer/icu/script_iterator.h"
 
-#include <unicode/unistr.h>
+#include <unicode/utf16.h>
 
-#include <mutex>
-#include <string>
+#include <cstring>
 
 namespace doris::segment_v2::inverted_index {
 
-std::vector<int32_t> ScriptIterator::k_basic_latin(128);
-
-ScriptIterator::ScriptIterator(bool combine_cj) : combine_cj_(combine_cj) {}
-
-void ScriptIterator::initialize() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, []() {
-        UErrorCode status = U_ZERO_ERROR;
-        for (int32_t i = 0; i < 128; i++) {
-            k_basic_latin[i] = uscript_getScript(i, &status);
-            if (U_FAILURE(status)) {
-                std::string error_msg = "Get script failed: ";
-                error_msg += u_errorName(status);
-                _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
-            }
+int32_t ScriptIterator::skip_ascii(const UChar* text, int32_t index, int32_t limit) {
+    // 8 units, 16 bytes, at a time: none may have a bit above 0x7F.
+    constexpr uint64_t kNotAscii = 0xFF80FF80FF80FF80ULL;
+    while (index + 8 <= limit) {
+        uint64_t low = 0;
+        uint64_t high = 0;
+        std::memcpy(&low, text + index, sizeof(low));
+        std::memcpy(&high, text + index + 4, sizeof(high));
+        if (((low | high) & kNotAscii) != 0) {
+            break;
         }
-        return k_basic_latin;
-    });
+        index += 8;
+    }
+    return index;
 }
 
 bool ScriptIterator::next() {
@@ -49,24 +44,44 @@ bool ScriptIterator::next() {
         return false;
     }
 
-    script_code_ = USCRIPT_COMMON;
     script_start_ = script_limit_;
-
-    while (index_ < limit_) {
-        UChar32 ch = 0;
-        U16_GET(text_, start_, index_, limit_, ch);
-        int32_t script = get_script(ch);
-        if (is_same_script(script_code_, script, ch) || is_combining_mark(ch)) {
-            index_ += U16_LENGTH(ch);
-            if (script_code_ <= USCRIPT_INHERITED && script > USCRIPT_INHERITED) {
-                script_code_ = script;
+    // The loop visits every character of the value, on locals: stores to members would make the
+    // compiler reload the others on every character.
+    const ICUCharTable& table = table_;
+    const UChar* const text = text_;
+    const int32_t start = start_;
+    const int32_t limit = limit_;
+    int32_t index = index_;
+    int32_t code = USCRIPT_COMMON;
+    while (index < limit) {
+        if (code == USCRIPT_LATIN) {
+            index = skip_ascii(text, index, limit);
+            if (index == limit) {
+                break;
             }
-        } else {
+        }
+        UChar32 ch = 0;
+        U16_GET(text, start, index, limit, ch);
+        const int32_t script = table.script(ch);
+        // `|`, not `||`: in "the cat" a Latin run alternates letters and Common spaces, and the
+        // short-circuit form mispredicted at every space. Only two real scripts that differ ask
+        // ICU, and the answer ends the run unless the script extensions of the character name the
+        // run's script: e.g. an Arabic-Indic digit, of the Arabic script, joins a Thaana run.
+        const bool joins =
+                (script == code) | (code <= USCRIPT_INHERITED) | (script <= USCRIPT_INHERITED);
+        if (!joins && !uscript_hasScript(ch, static_cast<UScriptCode>(code)) &&
+            !table.is_combining_mark(ch)) {
             break;
+        }
+        index += U16_LENGTH(ch);
+        if (code <= USCRIPT_INHERITED && script > USCRIPT_INHERITED) {
+            code = script;
         }
     }
 
-    script_limit_ = index_;
+    index_ = index;
+    script_limit_ = index;
+    script_code_ = code;
     return true;
 }
 
@@ -78,44 +93,6 @@ void ScriptIterator::set_text(const UChar* text, int32_t start, int32_t length) 
     script_start_ = start;
     script_limit_ = start;
     script_code_ = USCRIPT_INVALID_CODE;
-}
-
-int32_t ScriptIterator::get_script(UChar32 codepoint) const {
-    if (0 <= codepoint && codepoint < 128) {
-        return k_basic_latin[codepoint];
-    } else {
-        UErrorCode err = U_ZERO_ERROR;
-        int32_t script = uscript_getScript(codepoint, &err);
-        if (U_FAILURE(err)) {
-            std::string error_msg = "Get Script error: ";
-            error_msg += u_errorName(err);
-            error_msg += ", script: " + std::to_string(script);
-            _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
-        }
-        if (combine_cj_) {
-            if (script == USCRIPT_HAN || script == USCRIPT_HIRAGANA || script == USCRIPT_KATAKANA) {
-                return USCRIPT_JAPANESE;
-            } else if (codepoint >= 0xFF10 && codepoint <= 0xFF19) {
-                return USCRIPT_LATIN;
-            } else {
-                return script;
-            }
-        } else {
-            return script;
-        }
-    }
-}
-
-bool ScriptIterator::is_same_script(int32_t current_script, int32_t script, UChar32 codepoint) {
-    return (current_script == script) || (current_script <= USCRIPT_INHERITED) ||
-           (script <= USCRIPT_INHERITED) ||
-           uscript_hasScript(codepoint, (UScriptCode)current_script);
-}
-
-bool ScriptIterator::is_combining_mark(UChar32 codepoint) {
-    auto type = (UCharCategory)u_charType(codepoint);
-    return (type == U_COMBINING_SPACING_MARK || type == U_NON_SPACING_MARK ||
-            type == U_ENCLOSING_MARK);
 }
 
 } // namespace doris::segment_v2::inverted_index

@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <roaring/roaring.hh>
 
 #include "common/compiler_util.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_execute_util.h"
@@ -239,8 +241,28 @@ public:
             return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
-                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
+            // Inverting IN (10, 30) can match values in [11, 29], so positive-IN pruning is unsafe.
+            if (_opposite) {
+                return true;
+            }
+            if (!Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) ||
+                !Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value)) {
+                return false;
+            }
+            // Bound the work per zone map, including containers whose iterators scan a dense
+            // domain rather than just the IN values: a SMALLINT bitmap has 65,536 positions.
+            if (_values->size() > config::in_zonemap_point_check_threshold ||
+                !_values->supports_fast_range_lookup()) {
+                return true;
+            }
+            if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+                // NaN IN (NaN) is true under Doris equality, but the range lookup ignores NaNs.
+                if (std::isnan(_max_value)) {
+                    return true;
+                }
+            }
+            // Overlapping bounds alone cannot reject IN (10, 30) against a zone in [11, 29].
+            return _values->contains_any_in_range(zone_map.min_value, zone_map.max_value);
         } else {
             return true;
         }

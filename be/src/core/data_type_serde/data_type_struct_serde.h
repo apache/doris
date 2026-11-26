@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-
 #include <glog/logging.h>
 
 #include <cstdint>
@@ -39,6 +38,9 @@ public:
               elem_serdes_ptrs(_elem_serdes_ptrs),
               elem_names(names) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override;
 
     Status from_string(StringRef& str, IColumn& column,
@@ -52,6 +54,11 @@ public:
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_simdjson(IColumn& column, simdjson::ondemand::value& value,
+                                              const FormatOptions& options,
+                                              SimdJsonReadContext& context,
+                                              const std::string& column_name) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;

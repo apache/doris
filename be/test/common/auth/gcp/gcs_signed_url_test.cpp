@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-storage/auth/gcp/gcs_signed_url.h"
 
 #include <gtest/gtest.h>
 

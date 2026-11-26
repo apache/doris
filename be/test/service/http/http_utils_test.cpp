@@ -16,6 +16,7 @@
 // under the License.
 
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -23,11 +24,9 @@
 
 #include "common/utils.h"
 #include "gtest/gtest_pred_impl.h"
-#include "service/http/http_common.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/utils.h"
-#include "util/string_util.h"
 #include "util/url_coding.h"
 
 struct evhttp_request;
@@ -46,6 +45,16 @@ public:
     }
 
 private:
+    template <typename Request>
+    void check_token_request(const AuthInfo& auth) {
+        Request request;
+        set_request_auth(&request, auth);
+        EXPECT_TRUE(request.__isset.token);
+        EXPECT_EQ("internal-token", request.token);
+        EXPECT_EQ("admin", request.user);
+        EXPECT_FALSE(request.__isset.auth_code);
+    }
+
     evhttp_request* _evhttp_req = nullptr;
 };
 
@@ -98,23 +107,36 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
     }
 }
 
-TEST_F(HttpUtilsTest, parse_auth_code) {
-    {
+TEST_F(HttpUtilsTest, deprecated_auth_code_does_not_replace_credentials) {
+    for (const auto* value : {"0", "1234567890123", "-1", "not_a_number"}) {
         HttpRequest req(_evhttp_req);
+        req._headers.emplace("auth_code", value);
+        AuthInfo missing_auth;
+        EXPECT_FALSE(parse_basic_auth(req, &missing_auth));
+
         req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
-        req._headers.emplace(HTTP_AUTH_CODE, "1234567890123");
         AuthInfo auth;
         EXPECT_TRUE(parse_basic_auth(req, &auth));
-        EXPECT_EQ(1234567890123, auth.auth_code);
+        TLoadTxnBeginRequest request;
+        set_request_auth(&request, auth);
+        EXPECT_EQ("doris", request.user);
+        EXPECT_EQ("passwd", request.passwd);
+        EXPECT_FALSE(request.__isset.auth_code);
+        EXPECT_FALSE(request.__isset.token);
     }
-    {
-        // a malformed auth code is rejected instead of throwing out of the http callback
+}
+
+TEST_F(HttpUtilsTest, internal_token_is_forwarded_with_user) {
+    for (const auto& header : {std::string("token"), HttpHeaders::AUTH_TOKEN}) {
         HttpRequest req(_evhttp_req);
-        req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
-        req._headers.emplace(HTTP_AUTH_CODE, "not_a_number");
+        req._headers.emplace(header, "internal-token");
+        req._headers.emplace("auth_code", "0");
+        req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("admin", "unused"));
         AuthInfo auth;
-        EXPECT_FALSE(parse_basic_auth(req, &auth));
-        EXPECT_EQ(-1, auth.auth_code);
+        ASSERT_TRUE(parse_basic_auth(req, &auth));
+        check_token_request<TStreamLoadPutRequest>(auth);
+        check_token_request<TLoadTxnCommitRequest>(auth);
+        check_token_request<TLoadTxnRollbackRequest>(auth);
     }
 }
 

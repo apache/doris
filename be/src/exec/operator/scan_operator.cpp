@@ -72,6 +72,14 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+static void sort_conjuncts_by_cost(const RuntimeState* state, VExprContextSPtrs& conjuncts) {
+    if (state->enable_adjust_conjunct_order_by_cost() && conjuncts.size() > 1) {
+        std::ranges::stable_sort(conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    }
+}
+
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads.
@@ -79,18 +87,12 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
             state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
-    VExprContextSPtrs new_conjuncts;
-    if (_conjuncts.size() > conjuncts_before) {
-        new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
-    }
-    if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
-            return a->execute_cost() < b->execute_cost();
-        });
-    }
-    if (new_conjuncts.empty()) {
+    // A disabled filter can advance arrived_rf_num without adding a conjunct.
+    if (_conjuncts.size() == conjuncts_before) {
         return Status::OK();
     }
+    VExprContextSPtrs new_conjuncts(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+    sort_conjuncts_by_cost(state, _conjuncts);
     // Partition projection executes the shared expression tree. Keep it serialized with
     // clone_conjunct_ctxs(), whose VExprContext::clone() opens that same tree.
     return _on_runtime_filter_update(new_conjuncts);
@@ -964,6 +966,15 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
         return Status::OK();
     }
 
+    // A Variant cast can introduce NULLs for non-NULL stored values, so `CAST(v AS T) IS NULL`
+    // is not equivalent to `v IS NULL`. Keep the null test in the expression tree instead of
+    // pushing a NullPredicate down on the source Variant column.
+    if (root->children()[0]->node_type() == TExprNodeType::CAST_EXPR &&
+        VExpr::expr_without_cast(root->children()[0])->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_VARIANT) {
+        return Status::OK();
+    }
+
     auto fn_call = assert_cast<VectorizedFnCall*>(root.get());
     if (fn_call->fn().name.function_name == "is_null_pred") {
         pred = NullPredicate::create_shared(
@@ -987,6 +998,11 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
+    if (_helper.runtime_filter_nums() > 0) {
+        // Order the residual conjuncts before scanners clone them. For example, an early RF
+        // can be cheaper than an existing predicate even though it was appended after it.
+        sort_conjuncts_by_cost(state(), _conjuncts);
+    }
     std::list<ScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper

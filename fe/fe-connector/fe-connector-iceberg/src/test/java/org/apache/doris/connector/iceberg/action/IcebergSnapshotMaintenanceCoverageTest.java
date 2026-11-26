@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
@@ -136,27 +137,27 @@ public class IcebergSnapshotMaintenanceCoverageTest {
 
     @Test
     @Disabled("Known issue: stale expiration metadata misclassifies newly committed position delete files.")
-    public void expirationCountsPositionDeletesCommittedAfterTheTableWasLoaded() {
+    public void expirationCountsPositionDeletesCommittedAfterTheTableWasLoaded() throws IOException {
         assertLateDeleteClassification(true, true);
     }
 
     @Test
     @Disabled("Known issue: stale expiration metadata misclassifies newly committed equality delete files.")
-    public void expirationCountsEqualityDeletesCommittedAfterTheTableWasLoaded() {
+    public void expirationCountsEqualityDeletesCommittedAfterTheTableWasLoaded() throws IOException {
         assertLateDeleteClassification(false, true);
     }
 
     @Test
-    public void expirationCountsPositionDeletesFromAFreshTable() {
+    public void expirationCountsPositionDeletesFromAFreshTable() throws IOException {
         assertLateDeleteClassification(true, false);
     }
 
     @Test
-    public void expirationCountsEqualityDeletesFromAFreshTable() {
+    public void expirationCountsEqualityDeletesFromAFreshTable() throws IOException {
         assertLateDeleteClassification(false, false);
     }
 
-    private static void assertLateDeleteClassification(boolean positionDelete, boolean staleTable) {
+    private static void assertLateDeleteClassification(boolean positionDelete, boolean staleTable) throws IOException {
         InMemoryCatalog catalog = ActionTestTables.freshCatalog();
         ActionTestTables.createTable(catalog, "late_delete");
         ActionTestTables.appendSnapshot(catalog, "late_delete", "base.parquet", 2);
@@ -170,6 +171,7 @@ public class IcebergSnapshotMaintenanceCoverageTest {
         DeleteFile delete = builder.withPath("s3://b/db1/late-delete.parquet")
                 .withFormat(FileFormat.PARQUET).withFileSizeInBytes(64).withRecordCount(1).build();
         Table writer = catalog.loadTable(ActionTestTables.id("late_delete"));
+        writer.io().newOutputFile(delete.location()).createOrOverwrite().close();
         writer.newRowDelta().addDeletes(delete).commit();
         writer.newRowDelta().removeDeletes(delete).commit();
         ActionTestTables.appendSnapshot(catalog, "late_delete", "final.parquet", 1);

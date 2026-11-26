@@ -29,7 +29,6 @@ import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -294,26 +293,29 @@ public class CollectRelation implements AnalysisRuleFactory {
             for (MTMV mtmv : mtmvSet) {
                 cascadesContext.getStatementContext().getCandidateMTMVs().add(mtmv);
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
+                List<List<String>> baseTableQualifiers;
                 mtmv.readMvLock();
                 try {
-                    for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
-                        if (!baseTableInfo.isValid()) {
-                            continue;
-                        }
-                        if (isDebugEnabled) {
-                            LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
-                        }
-                        try {
-                            // Collect all base tables and lock them before querying
-                            cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
-                                    TableFrom.MTMV, Optional.empty());
-                        } catch (AnalysisException exception) {
-                            LOG.warn("mtmv related base table get err, related table is {}",
-                                    baseTableInfo.toList(), exception);
-                        }
-                    }
+                    // Copy names under the MV lock, but resolve external metadata after releasing it:
+                    // catalog retirement holds the catalog monitor while invalidating MV rewrite caches.
+                    baseTableQualifiers = mtmv.getRelation().getBaseTables().stream()
+                            .filter(BaseTableInfo::isValid)
+                            .map(BaseTableInfo::toList)
+                            .collect(Collectors.toList());
                 } finally {
                     mtmv.readMvUnlock();
+                }
+                for (List<String> baseTableQualifier : baseTableQualifiers) {
+                    if (isDebugEnabled) {
+                        LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableQualifier);
+                    }
+                    try {
+                        // Collect all base tables and lock them before querying
+                        cascadesContext.getStatementContext().getAndCacheTable(baseTableQualifier,
+                                TableFrom.MTMV, Optional.empty());
+                    } catch (AnalysisException exception) {
+                        LOG.warn("mtmv related base table get err, related table is {}", baseTableQualifier, exception);
+                    }
                 }
             }
         }
@@ -361,8 +363,8 @@ public class CollectRelation implements AnalysisRuleFactory {
             // IVM creates stream scans during analysis, after the collector has visited ordinary base scans.
             // Full refresh can also reconstruct a non-PCT table at its stream snapshot using changelog.
             boolean ivmReadsChangelog = statementContext.getIvmRewriteContext()
-                    .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
-                            || context.getMode() == IvmRewriteContext.Mode.FULL
+                    .map(context -> context.isIncrementalRefresh()
+                            || context.isPartitionBasedRefresh()
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
             if (((OlapTable) table).hasChangelogTtl()

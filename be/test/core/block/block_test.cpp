@@ -1324,9 +1324,13 @@ TEST(BlockTest, filter) {
 
         block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeUInt8>({1, 1, 1},
                                                                                    {0, 1, 0}));
+        const auto shared_filter = block.get_by_position(2).column;
         auto st = Block::filter_block(&block, {0, 1}, 2, 2);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_EQ(block.rows(), 2);
+        EXPECT_EQ(block.get_by_position(0).column->get_int(1), 3);
+        EXPECT_EQ(assert_cast<const ColumnNullable&>(*shared_filter).get_nested_column().get_int(1),
+                  1);
     }
 
     {

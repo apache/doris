@@ -30,6 +30,13 @@ suite("test_streaming_job_restart_fe", "docker") {
     options.cloudMode = null
     
     docker(options) {
+        def bucket = getS3BucketName()
+        def prefix = "regression/load/streaming_job/${jobName}/${UUID.randomUUID()}"
+        def s3Client = getS3Client()
+        (0..1).each { index ->
+            s3Client.copyObject(bucket, "regression/load/data/example_${index}.csv",
+                    bucket, "${prefix}/example_${index}.csv")
+        }
         sql """drop table if exists `${tableName}` force"""
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
@@ -56,7 +63,7 @@ suite("test_streaming_job_restart_fe", "docker") {
            ON STREAMING DO INSERT INTO ${tableName} 
            SELECT * FROM S3
             (
-                "uri" = "s3://${s3BucketName}/regression/load/data/example_[0-1].csv",
+                "uri" = "s3://${bucket}/${prefix}/example_*.csv",
                 "format" = "csv",
                 "provider" = "${getS3Provider()}",
                 "column_separator" = ",",
@@ -72,10 +79,9 @@ suite("test_streaming_job_restart_fe", "docker") {
             Awaitility.await().atMost(300, SECONDS)
                     .pollInterval(1, SECONDS).until(
                     {
-                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
+                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 1
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && (jobSuccendCount[0][0] as long) >= 2
                     }
             )
         } catch (Exception ex){
@@ -103,28 +109,35 @@ suite("test_streaming_job_restart_fe", "docker") {
             select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert parseJson(jobInfo[0][0]).fileName == "${prefix}/example_1.csv"
         def loadStat = parseJson(jobInfo.get(0).get(2))
         assert loadStat.scannedRows == 20
         assert loadStat.loadBytes == 425
         assert loadStat.fileNumber == 2
         assert loadStat.fileSize == 256
 
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT COUNT(*) FROM ${tableName}")[0][0] == 20
+        }
+        order_qt_before_restart "SELECT * FROM ${tableName} ORDER BY c1, c2, c3"
+
         // Restart FE
         cluster.restartFrontends()
-        sleep(30000)
-        context.reconnectFe()
+        Awaitility.await().pollInSameThread().atMost(120, SECONDS)
+                .pollInterval(1, SECONDS).ignoreExceptions().until {
+                    context.reconnectFe()
+                    sql("SELECT 1")[0][0] == 1
+                }
 
-        def jobStatus = sql """
-            select status from jobs("type"="insert") where Name='${jobName}'
-        """
-        log.info("jobstatus: " + jobStatus)
-        assert jobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
+        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
+            def jobStatus = sql """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            jobStatus.size() == 1 && jobStatus[0][0] in ["RUNNING", "PENDING"]
+        }
         jobInfo = sql """
             select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert parseJson(jobInfo[0][0]).fileName == "${prefix}/example_1.csv"
         def loadStatAfter = parseJson(jobInfo.get(0).get(2))
         assert loadStatAfter.scannedRows == 20
         assert loadStatAfter.loadBytes == 425
@@ -138,7 +151,16 @@ suite("test_streaming_job_restart_fe", "docker") {
         assert lastSuccessAfter.get(0).get(0) != null && lastSuccessAfter.get(0).get(0) != "",
                 "LastTaskSuccessTime should survive FE restart, got: " + lastSuccessAfter.get(0).get(0)
 
+        order_qt_after_restart "SELECT * FROM ${tableName} ORDER BY c1, c2, c3"
+
+        s3Client.putObject(bucket, "${prefix}/example_2.csv", "10001,after_restart,10001\n")
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            def job = sql """SELECT CurrentOffset FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            job.size() == 1 && parseJson(job[0][0]).fileName == "${prefix}/example_2.csv" &&
+                    sql("SELECT COUNT(*) FROM ${tableName}")[0][0] == 21
+        }
+        order_qt_new_data "SELECT * FROM ${tableName} ORDER BY c1, c2, c3"
+
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """
-        sql """drop table if exists `${tableName}` force"""
     }
 }

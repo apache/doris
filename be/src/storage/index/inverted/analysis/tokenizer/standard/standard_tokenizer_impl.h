@@ -19,12 +19,14 @@
 
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
+#include <unicode/utf8.h>
 
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/common/text_cursor.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -182,8 +184,8 @@ public:
 
     int32_t get_token_end_offset() const { return _zz_buffer_offset + _zz_marked_pos; }
 
-    inline void yyreset(const ReaderPtr& reader) {
-        _zz_reader = reader;
+    inline void yyreset(std::string_view text) {
+        _zz_cursor.reset(text);
         _zz_at_eof = false;
         _zz_current_pos = 0;
         _zz_marked_pos = 0;
@@ -197,6 +199,8 @@ public:
     inline int32_t yylength() const { return _zz_marked_pos - _zz_start_read; }
 
     void set_buffer_size(int32_t num_chars) { _zz_buffer.resize(num_chars); }
+
+    size_t buffer_capacity() const { return _zz_buffer.capacity(); }
 
 private:
     inline int32_t zz_cmap(int32_t input) {
@@ -226,8 +230,7 @@ private:
             return true;
         }
 
-        int32_t _num_read =
-                _zz_reader->readCopy((const void**)_zz_buffer.data(), _zz_end_read, requested);
+        int32_t _num_read = _zz_cursor.read_copy(_zz_buffer.data() + _zz_end_read, requested);
         if (_num_read <= 0) {
             return true;
         }
@@ -275,6 +278,9 @@ public:
     static constexpr int32_t YYINITIAL = 0;
 
 private:
+    // Lays the ZZ_* tables out flat for the standard tokenizers' core loop.
+    friend struct Uax29Table;
+
     static constexpr int32_t ZZ_UNKNOWN_ERROR = 0;
     static constexpr int32_t ZZ_NO_MATCH = 1;
     static constexpr int32_t ZZ_PUSHBACK_2BIG = 2;
@@ -290,7 +296,7 @@ private:
 
     static const int32_t ZZ_BUFFERSIZE = 255;
 
-    ReaderPtr _zz_reader;
+    TextCursor _zz_cursor;
     std::string _zz_buffer;
 
     int32_t _zz_state = 0;

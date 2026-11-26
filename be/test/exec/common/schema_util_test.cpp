@@ -165,7 +165,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     normal_column.set_name("test_col");
     normal_column.set_unique_id(1);
 
-    bool result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, normal_column);
+    bool result =
+            variant_util::inherit_index(parent_indexes, subcolumns_indexes, normal_column, false);
     EXPECT_FALSE(result);
 
     // 2. Test index inheritance for extracted column
@@ -177,7 +178,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     PathInData path("parent.path");
     extracted_column.set_path_info(path);
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, extracted_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, extracted_column,
+                                         false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -193,7 +195,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     empty_array_column.set_unique_id(3);
     // No subcolumns added, so get_sub_columns() will be empty
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, empty_array_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, empty_array_column,
+                                         false);
     EXPECT_FALSE(result);
 
     // 4. Test index inheritance for array type with non-empty subcolumns
@@ -212,7 +215,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     sub_column.set_unique_id(5);
     array_column.add_sub_column(sub_column);
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column, false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -231,7 +234,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     sub_column1.set_name("sub_col1");
     sub_column1.set_unique_id(6);
     array_column1.add_sub_column(sub_column1);
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column1);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column1, false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -242,7 +245,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     std::vector<const TabletIndex*> empty_indexes;
     TabletIndexes empty_subcolumns_indexes;
 
-    result = variant_util::inherit_index(empty_indexes, empty_subcolumns_indexes, normal_column);
+    result = variant_util::inherit_index(empty_indexes, empty_subcolumns_indexes, normal_column,
+                                         false);
     EXPECT_FALSE(result);
     EXPECT_EQ(empty_subcolumns_indexes.size(), 0);
 
@@ -254,8 +258,34 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     hll_column.set_parent_unique_id(1); // Set parent column id
     PathInData decimal_path("parent.hll");
     hll_column.set_path_info(decimal_path);
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, hll_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, hll_column, false);
     EXPECT_FALSE(result);
+}
+
+TEST_F(SchemaUtilTest, EscapedVariantIndexInheritanceUsesStoragePathOnce) {
+    TabletIndexPB pb;
+    pb.set_index_id(1);
+    pb.set_index_name("v_idx");
+    pb.set_index_type(IndexType::INVERTED);
+    TabletIndex parent_index;
+    parent_index.init_from_pb(pb);
+    std::vector<const TabletIndex*> parent_indexes {&parent_index};
+    TabletColumn child;
+    child.set_unique_id(-1);
+    child.set_parent_unique_id(1);
+    child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    child.set_path_info(PathInData("v.a%2Eb"));
+
+    // The schema-level flag also escapes '%', so stored "a%2Eb" and nested "a.b" differ.
+    TabletIndexes escaped;
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, escaped, child, true));
+    ASSERT_EQ(escaped.size(), 1);
+    EXPECT_EQ(escaped[0]->get_index_suffix(), "v%2Ea%252Eb");
+
+    TabletIndexes legacy;
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, legacy, child, false));
+    ASSERT_EQ(legacy.size(), 1);
+    EXPECT_EQ(legacy[0]->get_index_suffix(), "v%2Ea%2Eb");
 }
 
 TEST_F(SchemaUtilTest, inherit_column_attributes) {
@@ -340,6 +370,84 @@ TEST_F(SchemaUtilTest, test_multiple_index_inheritance) {
 
     for (const auto& index : inherited_indexes) {
         EXPECT_EQ(index->get_index_suffix(), "v1%2Ename");
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions keep the index-order and leaf-type matrix together.
+TEST_F(SchemaUtilTest, ValuesIndexPositionDoesNotChangePathInheritance) {
+    auto make_index = [](int64_t id, bool values, const std::string& parser,
+                         const std::string& selector = "parser") {
+        TabletIndexPB pb;
+        pb.set_index_id(id);
+        pb.set_index_name("idx_" + std::to_string(id));
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        (*pb.mutable_properties())[selector] = parser;
+        if (values) {
+            (*pb.mutable_properties())["variant_index_scope"] = "values";
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        return index;
+    };
+    for (bool analyzer : {false, true}) {
+        const std::string selector = analyzer ? "analyzer" : "parser";
+        auto english = make_index(101, false, "english", selector);
+        auto unicode = make_index(102, false, "unicode");
+        auto values = make_index(103, true, "english");
+        for (size_t position = 0; position < 3; ++position) {
+            SCOPED_TRACE(position);
+            std::vector<const TabletIndex*> parents {&english, &unicode};
+            parents.insert(parents.begin() + position, &values);
+            TabletIndexes inherited;
+            ASSERT_TRUE(variant_util::inherit_index(
+                    parents, inherited, FieldType::OLAP_FIELD_TYPE_STRING, "v.s", false, false));
+            ASSERT_EQ(inherited.size(), 2);
+            EXPECT_EQ(inherited[0]->index_id(), 101);
+            EXPECT_EQ(inherited[1]->index_id(), 102);
+            EXPECT_EQ(inherited[0]->properties().at(selector), "english");
+            EXPECT_EQ(inherited[1]->properties().at("parser"), "unicode");
+            for (const auto& index : inherited) {
+                EXPECT_FALSE(index->is_variant_values_index());
+                EXPECT_EQ(index->get_index_suffix(), "v%2Es");
+            }
+            for (bool array : {false, true}) {
+                for (auto type : {FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                                  FieldType::OLAP_FIELD_TYPE_STRING}) {
+                    if (!array && type == FieldType::OLAP_FIELD_TYPE_STRING) {
+                        continue; // Scalar strings were checked above; arrays inherit only the first index.
+                    }
+                    ASSERT_TRUE(variant_util::inherit_index(parents, inherited, type, "v.n", array,
+                                                            false));
+                    ASSERT_EQ(inherited.size(), 1);
+                    EXPECT_EQ(inherited.front()->index_id(), 101);
+                    EXPECT_FALSE(inherited.front()->properties().contains("parser"));
+                    EXPECT_FALSE(inherited.front()->properties().contains("analyzer"));
+                    EXPECT_EQ(inherited.front()->get_index_suffix(), "v%2En");
+                }
+            }
+            ASSERT_FALSE(variant_util::inherit_index(
+                    {&values}, inherited, FieldType::OLAP_FIELD_TYPE_STRING, "v.s", false, false));
+            EXPECT_TRUE(inherited.empty());
+            ASSERT_FALSE(variant_util::inherit_index(
+                    {&values}, inherited, FieldType::OLAP_FIELD_TYPE_INT, "v.n", false, false));
+            EXPECT_TRUE(inherited.empty());
+            for (const auto& [path, suffix] : std::vector<std::pair<std::string, std::string>> {
+                         {"v.a%2Eb", "v%2Ea%252Eb"},
+                         {"v.a.b", "v%2Ea%2Eb"},
+                         {"v.a%252Eb", "v%2Ea%25252Eb"}}) {
+                for (auto type :
+                     {FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_STRING}) {
+                    ASSERT_TRUE(variant_util::inherit_index(parents, inherited, type, path, false,
+                                                            true));
+                    ASSERT_EQ(inherited.size(), type == FieldType::OLAP_FIELD_TYPE_INT ? 1 : 2);
+                    for (const auto& index : inherited) {
+                        EXPECT_FALSE(index->is_variant_values_index());
+                        EXPECT_EQ(index->get_index_suffix(), suffix);
+                    }
+                }
+            }
+        }
     }
 }
 

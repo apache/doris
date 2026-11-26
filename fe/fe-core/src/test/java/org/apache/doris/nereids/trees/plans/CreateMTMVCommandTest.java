@@ -33,7 +33,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -66,11 +65,19 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class CreateMTMVCommandTest extends TestWithFeService {
+    private boolean originalEnableTableStream;
+
     @Override
     protected void runBeforeAll() throws Exception {
+        originalEnableTableStream = Config.enable_table_stream;
         createDatabase("test");
         connectContext.setDatabase("test");
         Config.enable_table_stream = true;
+    }
+
+    @Override
+    protected void runAfterAll() {
+        Config.enable_table_stream = originalEnableTableStream;
     }
 
     @Override
@@ -496,7 +503,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertTrue(mtmv.isIvm());
         Assertions.assertFalse(mtmv.isIvmAppendOnlyDupTable());
         Assertions.assertNotNull(mtmv.getColumn(Column.SEQUENCE_COL));
-        Assertions.assertNotNull(mtmv.getIvmInfo().getPlanSignature());
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
     }
 
     @Test
@@ -534,6 +541,58 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("mtmv_auto_increment_flag");
         Assertions.assertTrue(mtmv.isIvm());
         Assertions.assertTrue(mtmv.getIvmInfo().isEnableIvm());
+    }
+
+    @Test
+    public void testCreateAutoMTMVFallsBackWhenTableStreamsAreDisabled() throws Exception {
+        createIvmMowTable("mtmv_auto_stream_disabled_base");
+        boolean previousEnableTableStream = Config.enable_table_stream;
+        try {
+            Config.enable_table_stream = false;
+            createMtmv("CREATE MATERIALIZED VIEW mtmv_auto_stream_disabled BUILD DEFERRED\n"
+                    + " PROPERTIES ('replication_num' = '1')\n"
+                    + " AS SELECT k1, SUM(v1) AS s FROM mtmv_auto_stream_disabled_base GROUP BY k1;");
+
+            MTMV mtmv = getMtmv("mtmv_auto_stream_disabled");
+            Assertions.assertEquals(RefreshMethod.AUTO, mtmv.getRefreshInfo().getRefreshMethod());
+            Assertions.assertFalse(mtmv.isIvm());
+            Assertions.assertNull(mtmv.getColumn(Column.IVM_ROW_ID_COL));
+            assertCreateMtmvFails("CREATE MATERIALIZED VIEW mtmv_incr_stream_disabled\n"
+                    + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + " PROPERTIES ('replication_num' = '1')\n"
+                    + " AS SELECT k1, SUM(v1) AS s FROM mtmv_auto_stream_disabled_base GROUP BY k1;",
+                    "enable_table_stream=true");
+
+            createMtmv("CREATE MATERIALIZED VIEW IF NOT EXISTS mtmv_auto_stream_disabled\n"
+                    + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + " PROPERTIES ('replication_num' = '1')\n"
+                    + " AS SELECT k1, SUM(v1) AS s FROM mtmv_auto_stream_disabled_base GROUP BY k1;");
+            Assertions.assertSame(mtmv, getMtmv("mtmv_auto_stream_disabled"));
+        } finally {
+            Config.enable_table_stream = previousEnableTableStream;
+        }
+    }
+
+    @Test
+    public void testCreateAutoMTMVFallsBackWhenHistoricalChangelogValuesAreDisabled() throws Exception {
+        createTable("CREATE TABLE test.mtmv_auto_no_history_base (k1 INT, v1 INT)\n"
+                + " UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + " PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',\n"
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'false');");
+        createMtmv("CREATE MATERIALIZED VIEW mtmv_auto_no_history\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, MIN(v1) AS v FROM mtmv_auto_no_history_base GROUP BY k1;");
+
+        MTMV mtmv = getMtmv("mtmv_auto_no_history");
+        Assertions.assertFalse(mtmv.isIvm());
+        Assertions.assertNull(mtmv.getColumn(Column.IVM_ROW_ID_COL));
+        Assertions.assertFalse(mtmv.getMvProperties().containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK));
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW mtmv_incr_no_history\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, MIN(v1) AS v FROM mtmv_auto_no_history_base GROUP BY k1;",
+                "changelog.need_historical_value=true");
     }
 
     @Test
@@ -624,6 +683,25 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertEquals("mv_score", createMTMVInfo.getColumns().get(2).getName());
         Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_id`"));
         Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_score`"));
+    }
+
+    @Test
+    public void testCreateMTMVRewritesQuerySqlAfterSupplementaryCharacters() throws Exception {
+        createTable("create table test.mtmv_supplementary_char_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        // The parser counts a supplementary character such as an emoji as one character, while
+        // the Java string of the query counts it as two.
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_supplementary_char\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT '😀😀' AS e, id FROM mtmv_supplementary_char_base;");
+
+        Assertions.assertEquals("SELECT '😀😀' AS `e`, `internal`.`test`.`mtmv_supplementary_char_base`.`id` "
+                + "FROM `internal`.`test`.`mtmv_supplementary_char_base`", createMTMVInfo.getQuerySql());
     }
 
     @Test
@@ -1747,8 +1825,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " AS SELECT k1, v1 FROM ivm_context_base;");
 
         Assertions.assertTrue(info.isEnableIvm());
-        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
-                connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().isCreate());
     }
 
     @Test
@@ -2341,7 +2418,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true');");
+                + "'changelog.enable' = 'true', 'changelog.need_historical_value' = 'false');");
         createMtmv("CREATE MATERIALIZED VIEW ivm_excl_stream_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"

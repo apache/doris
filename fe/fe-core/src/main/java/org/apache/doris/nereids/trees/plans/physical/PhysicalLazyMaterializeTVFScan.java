@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  wrapper for PhysicalTVFRelation used for lazy materialization
@@ -49,6 +50,13 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
         this.scan = scan;
         this.rowId = rowId;
         this.lazySlots = lazySlots;
+    }
+
+    @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        PhysicalTVFRelation copiedScan = (PhysicalTVFRelation) copyPlan.apply(scan);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeTVFScan(
+                copiedScan, rowId, lazySlots));
     }
 
     @Override

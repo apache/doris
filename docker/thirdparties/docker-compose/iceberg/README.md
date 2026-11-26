@@ -28,9 +28,11 @@ tools:
 
 Spark 4.0.0 uses the Paimon 2.1.0 Spark 4.0 / Scala 2.13 connector and S3
 filesystem plugin from `iceberg_data_spark40_paimon210.zip`. The startup script
-downloads this archive from the configured regression bucket and mounts the
-jars from `data/input/jars`. Existing data directories missing the required
-jars are replaced with the current archive.
+downloads this archive from the `doris-teamcity-regression` bucket in OSS
+Hong Kong and mounts the jars from `data/input/jars`. Set
+`ICEBERG_DATA_ARCHIVE_URL` to use an alternate mirror of the same archive.
+Existing data directories missing the required jars are replaced with the
+current archive.
 The Paimon catalog explicitly enables path-style S3 access for the standalone
 MinIO service.
 

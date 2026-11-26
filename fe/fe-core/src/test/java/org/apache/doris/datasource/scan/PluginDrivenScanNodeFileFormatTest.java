@@ -42,6 +42,14 @@ public class PluginDrivenScanNodeFileFormatTest {
     }
 
     @Test
+    public void mapsLanceToTheLanceReader() {
+        // BE reads a Lance dataset through lance-c; under the JNI default the scan would never reach the
+        // Lance table reader its ranges are addressed to.
+        Assertions.assertEquals(TFileFormatType.FORMAT_LANCE,
+                PluginDrivenScanNode.mapFileFormatType("lance"));
+    }
+
+    @Test
     public void mapsTheFileBackedFormatsToTheirNativeReaders() {
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET,
                 PluginDrivenScanNode.mapFileFormatType("parquet"));
@@ -57,6 +65,8 @@ public class PluginDrivenScanNodeFileFormatTest {
                 PluginDrivenScanNode.mapFileFormatType("avro"));
         Assertions.assertEquals(TFileFormatType.FORMAT_ES_HTTP,
                 PluginDrivenScanNode.mapFileFormatType("es_http"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_MONGODB,
+                PluginDrivenScanNode.mapFileFormatType("mongodb"));
     }
 
     @Test

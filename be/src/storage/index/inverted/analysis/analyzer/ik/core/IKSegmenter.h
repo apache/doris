@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <iostream>
 #include <memory>
-#include <vector>
+#include <string_view>
 
 #include "core/arena.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
@@ -27,25 +26,37 @@
 #include "storage/index/inverted/analysis/analyzer/ik/core/CJKSegmenter.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CN_QuantifierSegmenter.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/IKArbitrator.h"
-#include "storage/index/inverted/analysis/analyzer/ik/core/ISegmenter.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/LetterSegmenter.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/SurrogatePairSegmenter.h"
 namespace doris::segment_v2 {
 
 class IKSegmenter {
 public:
+    // The dictionaries must be loaded: the segmenter takes the loaded Dictionary once, here.
     IKSegmenter(std::shared_ptr<Configuration> config);
-    bool next(Lexeme& lexeme);
-    void reset(lucene::util::Reader* newInput);
+    // The next lexeme of the value, or false once it is exhausted. `text` views the lexeme's bytes
+    // in the window and stays valid until the next call.
+    bool next(Lexeme& lexeme, std::string_view& text);
+    void reset(std::string_view text);
     size_t getLastUselessCharNum();
+    // The arena of the current window and the window itself.
+    size_t reserved_bytes() const { return arena_.size() + context_->reserved_bytes(); }
 
 private:
-    std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
+    // Runs the segmenters on the character at the cursor, in the order letter, quantifier, CJK,
+    // surrogate pair.
+    void analyzeCurrentChar();
+    void resetSegmenters();
+
     Arena arena_;
-    lucene::util::Reader* input_;
+    inverted_index::TextCursor input_;
     std::shared_ptr<Configuration> config_;
+    const Dictionary& dictionary_;
     std::unique_ptr<AnalyzeContext> context_;
-    std::vector<std::unique_ptr<ISegmenter>> segmenters_;
+    LetterSegmenter letter_segmenter_;
+    CN_QuantifierSegmenter quantifier_segmenter_;
+    CJKSegmenter cjk_segmenter_;
+    SurrogatePairSegmenter surrogate_pair_segmenter_;
     IKArbitrator arbitrator_;
 };
 } // namespace doris::segment_v2

@@ -26,6 +26,7 @@
 #include <string_view>
 
 #include "common/config.h"
+#include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -55,7 +56,8 @@ void PinyinAlphabetDict::load() {
     std::string dict_path = get_alphabet_dict_path();
     std::ifstream in(dict_path);
     if (!in.is_open()) {
-        _CLTHROWA(CL_ERR_IO, ("pinyin alphabet dictionary file not found: " + dict_path).c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "pinyin alphabet dictionary file not found: {}", dict_path);
     }
     std::string line;
     _alphabet.clear();

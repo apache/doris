@@ -37,7 +37,9 @@ public final class PaimonRestMetaStoreProperties extends AbstractMetaStoreProper
 
     private static final String PAIMON_REST_PREFIX = "paimon.rest.";
 
-    @ConnectorProperty(names = {"paimon.rest.uri", "uri"}, required = false,
+    // URI values may contain credentials; the shared alias still needs value-aware catalog rendering.
+    @ConnectorProperty(names = {"paimon.rest.uri", "uri"}, required = false, sensitive = true,
+            sensitiveInDiagnosticsOnly = true,
             description = "The REST catalog service URI.")
     private String uri = "";
 

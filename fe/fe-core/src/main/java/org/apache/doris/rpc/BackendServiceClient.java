@@ -36,6 +36,11 @@ public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
     private static final BackendServiceClientChannelProvider CHANNEL_PROVIDER =
             BackendServiceClientChannelProviderFactory.create();
+
+    public static boolean supportsPrivateFileKeys() {
+        return CHANNEL_PROVIDER.supportsPrivateFileKeys();
+    }
+
     private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
@@ -43,12 +48,20 @@ public class BackendServiceClient {
     private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
+        this(address, resolvedIp, executor, true);
+    }
+
+    public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor, boolean internalRpc) {
         this.address = address;
-        channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
+        channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor, internalRpc);
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
         execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
+    }
+
+    public static boolean supportsRemoteWorkers() {
+        return CHANNEL_PROVIDER.supportsRemoteWorkers();
     }
 
     // Is the underlying channel in a normal state? (That means the RPC call will not fail immediately)

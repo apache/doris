@@ -33,7 +33,6 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
@@ -94,7 +93,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(result, zoneId);
+            Instant instant = DateUtils.convertLocalToInstant(result, zoneId);
             result = LocalDateTime.ofInstant(instant, DateUtils.getTimeZone());
         }
         return result;
@@ -312,9 +311,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
             int scale = ((TimeStampTzType) targetType).getScale();
             LocalDateTime rounded = roundToScale(scale);
             // Round before resolving the local time: a carry can cross a DST transition.
-            Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
-                    rounded, DateUtils.getTimeZone());
-            LocalDateTime utc = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+            LocalDateTime utc = TimestampTzLiteral.toUtc(rounded, DateUtils.getTimeZone());
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(), utc.getHour(),
                     utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);

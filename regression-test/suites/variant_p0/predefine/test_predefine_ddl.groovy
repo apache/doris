@@ -36,11 +36,11 @@ suite("test_predefine_ddl", "p0") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    sql """ set default_variant_enable_doc_mode = false """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_max_subcolumns_count = 10 """
-    sql """ set default_variant_max_sparse_column_statistics_size = 10 """
-    sql """ set default_variant_sparse_hash_shard_count = 10 """
+    sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_max_subcolumns_count = 10 """
+    sql """ set debug_variant_max_sparse_column_statistics_size = 10 """
+    sql """ set debug_variant_sparse_hash_shard_count = 10 """
 
     def tableName = "test_ddl_table"
 
@@ -336,8 +336,8 @@ suite("test_predefine_ddl", "p0") {
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "set default_variant_max_subcolumns_count = 10"
-    sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set debug_variant_max_subcolumns_count = 10"
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
         `var` variant NULL

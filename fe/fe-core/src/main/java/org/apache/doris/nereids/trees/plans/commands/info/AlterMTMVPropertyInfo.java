@@ -80,6 +80,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
                         + "' cannot be altered. It is fixed at creation time.");
             }
         }
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }
@@ -87,7 +88,10 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     }
 
     private void validateIvmOnlyProperties() {
-        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT)) {
+        boolean changesWindowLimit = properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT);
+        boolean changesMinMaxTopK = properties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK);
+        if (!changesWindowLimit && !changesMinMaxTopK) {
             return;
         }
         MTMV mtmv;
@@ -99,8 +103,14 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
         if (!mtmv.isIvm()) {
-            throw new AnalysisException("Property '" + PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+            String property = changesMinMaxTopK
+                    ? PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    : PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT;
+            throw new AnalysisException("Property '" + property
                     + "' can only be set on IVM materialized views (REFRESH INCREMENTAL)");
+        }
+        if (!changesWindowLimit) {
+            return;
         }
         MTMVRelation relation = mtmv.getRelation();
         if (relation == null || relation.getBaseTables() == null) {

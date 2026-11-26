@@ -20,6 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <memory>
+
 #include "io/io_common.h"
 
 namespace doris {
@@ -28,6 +30,8 @@ namespace io {
 class FileReader;
 }
 namespace segment_v2 {
+
+struct ColumnReadAheadResources;
 
 struct ColumnIteratorOptions {
     bool use_page_cache = false;
@@ -41,6 +45,7 @@ struct ColumnIteratorOptions {
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
     bool only_read_offsets = false;
+    std::shared_ptr<const ColumnReadAheadResources> read_ahead = nullptr;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

@@ -98,6 +98,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -615,6 +616,7 @@ public class MTMVPlanUtil {
             ivmRewriteContext.ifPresent(rewriteContext -> {
                 rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
                 rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+                rewriteContext.setMinMaxTopK(MTMVPropertyUtil.getIvmMinMaxTopK(mvProperties).orElse(null));
             });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -668,6 +670,16 @@ public class MTMVPlanUtil {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+            // CREATE persists the capacity normalize resolved, so a later refresh reads the same
+            // value instead of re-deriving it. NORMALIZE/INCREMENTAL read the MV's own property and
+            // must not mutate it here (the change would bypass journaling).
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                Long resolved = rewriteContext.getResolvedMinMaxTopK();
+                if (rewriteContext.isCreate() && resolved != null
+                        && !mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK)) {
+                    mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK, String.valueOf(resolved));
+                }
+            });
             boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
             // The table model decides both: only the unique-key model merges on write, and only it has IVM
             // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
@@ -1082,7 +1094,22 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        checkVariantEscapeDotsInKeys(mtmv, mtmvAnalyzedQueryInfo.getRelation());
         return mtmvAnalyzedQueryInfo;
+    }
+
+    private static void checkVariantEscapeDotsInKeys(MTMV mtmv, MTMVRelation relation) throws JobException {
+        try {
+            List<TableIf> baseTables = Lists.newArrayList();
+            for (BaseTableInfo baseTable : relation.getBaseTables()) {
+                baseTables.add(MTMVUtil.getTable(baseTable));
+            }
+            PropertyAnalyzer.inheritVariantEscapeDotsInKeys(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS,
+                    Boolean.toString(mtmv.getVariantEscapeDotsInKeys())), baseTables, true);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new JobException(e.getMessage(), e);
+        }
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)

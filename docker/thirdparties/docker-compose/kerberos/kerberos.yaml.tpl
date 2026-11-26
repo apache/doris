@@ -24,6 +24,12 @@ x-kerberos-image: &kerberos-image
 x-kerberos-service: &kerberos-service
   <<: *kerberos-image
   network_mode: "host"
+  extra_hosts:
+    - "hadoop-master:${IP_HOST}"
+    - "hadoop-master-2:${IP_HOST}"
+    # Hadoop's Kerberos resolver performs absolute (trailing-dot) lookups.
+    - "hadoop-master.:${IP_HOST}"
+    - "hadoop-master-2.:${IP_HOST}"
   mem_limit: 1536m
   stop_grace_period: 30s
 

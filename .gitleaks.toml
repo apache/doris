@@ -74,6 +74,15 @@ regexTarget = "line"
 paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
 
+[[rules.allowlists]]
+description = "Ignore two synthetic Hadoop property-name literals in catalog masking tests"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/common/util/DatasourcePropertyMaskingTest\.java$''']
+# Generic detection reads adjacent property names in Java lists as key/value pairs.
+# Keep both path and exact-name constraints so other values in this test remain scanned.
+regexes = ['''^fs\.s3a\.bucket\.fixture\.(encryption\.key|bucket\.secret\.key)$''']
+
 [[rules]]
 id = "jwt"
 
@@ -90,3 +99,7 @@ id = "private-key"
 [[rules.allowlists]]
 description = "Ignore test-only TLS private key used by MySQL docker-compose fixtures"
 paths = ['''^docker/thirdparties/docker-compose/mysql/certs/server\.key$''']
+
+[[rules.allowlists]]
+description = "Ignore the PKCS#8 form of the existing regression client TLS test key"
+paths = ['''^regression-test/ssl_default_certificate/client-key-pkcs8\.pem$''']

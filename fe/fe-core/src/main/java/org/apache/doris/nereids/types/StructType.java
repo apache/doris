@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -39,7 +40,7 @@ import java.util.stream.Collectors;
  * Struct type in Nereids.
  */
 @Developing
-public class StructType extends DataType implements ComplexDataType, NestedColumnPrunable {
+public class StructType extends DataType implements ComplexDataType, NamedFieldType {
 
     public static final StructType SYSTEM_DEFAULT = new StructType();
 
@@ -70,6 +71,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         }
     }
 
+    @Override
     public List<StructField> getFields() {
         return fields;
     }
@@ -78,7 +80,17 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         return nameToFields;
     }
 
+    /** Resolve a one-based integer selector at its SQL precision. */
+    public StructField getFieldByOrdinal(BigDecimal ordinal) {
+        // For example, 4294967297 becomes 1 if converted to int before this comparison.
+        if (ordinal.signum() <= 0 || ordinal.compareTo(BigDecimal.valueOf(fields.size())) > 0) {
+            return null;
+        }
+        return fields.get(ordinal.intValueExact() - 1);
+    }
+
     /** Get a field by its case-insensitive runtime name. */
+    @Override
     public StructField getField(String name) {
         StructField field = nameToFields.get(name.toLowerCase(Locale.ROOT));
         if (field != null && (!field.isLegacyLocaleDependentName() || field.getName().equals(name))) {
@@ -198,6 +210,11 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public String toString() {
         return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return fields.stream().allMatch(field -> field.getDataType().allowsKeyUse(keyUse));
     }
 
     @Override

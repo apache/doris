@@ -33,6 +33,7 @@
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/io/file_reader.h"
 #include "storage/index/inverted/snii/io/local_file.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using doris::Status;
@@ -40,8 +41,9 @@ using doris::Status;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("file_reader_caller_buffer_test");
     static int counter = 0;
-    return "/tmp/snii_reader_buf_test_" + std::to_string(getpid()) + "_" +
+    return (temp_dir.path() / "snii_reader_buf_test_").string() + std::to_string(getpid()) + "_" +
            std::to_string(counter++) + ".bin";
 }
 

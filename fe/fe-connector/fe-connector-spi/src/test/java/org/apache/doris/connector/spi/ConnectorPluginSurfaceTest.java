@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 29 adds typed table-absence errors after the upstream API 28 changes.
-        Assertions.assertEquals("30.0", version.getProperty("api.version"));
+        // Native encryption requires a new major after API 36 added connector file formats.
+        Assertions.assertEquals("37.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -98,8 +98,11 @@ public class ConnectorPluginSurfaceTest {
             DiagnosticException.class,
             ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
+            ConnectorFileSource.class,
+            ConnectorFileSourceOps.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
             ConnectorSession.class,
             ConnectorStatementScope.class,
             ConnectorStatementScopes.class,

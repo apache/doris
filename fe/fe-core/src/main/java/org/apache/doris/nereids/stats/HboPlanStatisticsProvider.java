@@ -31,6 +31,30 @@ public interface HboPlanStatisticsProvider {
 
     RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash);
 
+    /**
+     * Get all learned hbo plan statistics entries keyed by hbo fingerprint, for diagnostics
+     * (e.g. the {@code HBO SHOW STATISTICS} statement). The returned map is a read-only view.
+     */
+    Map<String, RecentRunsPlanStatistics> getAllHboPlanStats();
+
+    /**
+     * Whether any learned entry is cached at all. The planning path needs the hbo fingerprint of a
+     * plan node to look an entry up; when the cache is empty no lookup can succeed, so the caller
+     * can skip computing a fingerprint it would only use to miss. Unlike
+     * {@link #getAllHboPlanStats()} this must not build a map wrapper, because it is asked once per
+     * candidate plan node.
+     */
+    boolean hasAnyHboPlanStats();
+
+    /**
+     * Inject a learned entry keyed directly by fingerprint ({@code HBO SET LEARNED STATISTICS});
+     * the injected entry carries no input table statistics and matches by fingerprint alone.
+     */
+    void putHboPlanStatsByFingerprint(String fingerprint, RecentRunsPlanStatistics planStatistics);
+
+    /** Remove a learned entry by fingerprint. */
+    void removeHboPlanStats(String fingerprint);
+
     void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
 
     void updatePlanStats(PlanNodeAndHash hash, RecentRunsPlanStatistics planStatistics);

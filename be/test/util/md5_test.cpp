@@ -17,8 +17,7 @@
 
 #include "util/md5.h"
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
@@ -26,8 +25,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 namespace {
@@ -91,11 +88,7 @@ void expect_batch_matches_scalar(const std::vector<std::string>& inputs) {
 
 } // namespace
 
-class Md5Test : public testing::Test {
-public:
-    Md5Test() {}
-    virtual ~Md5Test() {}
-};
+class Md5Test : public testing::Test {};
 
 TEST_F(Md5Test, empty) {
     Md5Digest digest;
@@ -158,7 +151,8 @@ TEST_F(Md5Test, batch_block_padding_boundaries) {
 }
 
 TEST_F(Md5Test, batch_size_boundaries) {
-    const std::vector<size_t> counts = {0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 47, 48, 49};
+    const std::vector<size_t> counts = {0,  1,  2,  3,  4,  5,  7,  8,  9,
+                                        15, 16, 17, 31, 32, 33, 47, 48, 49};
     const std::vector<size_t> boundary_lengths = {0, 1, 55, 56, 57, 63, 64, 65, 119, 120, 121};
 
     for (size_t count : counts) {
@@ -189,6 +183,34 @@ TEST_F(Md5Test, batch_binary_payloads) {
                                        make_binary_input(128, 6),  make_binary_input(129, 7)};
 
     expect_batch_matches_scalar(inputs);
+}
+
+TEST_F(Md5Test, batch_unaligned_inputs_and_null_empty_input) {
+    const std::array<size_t, 14> boundary_lengths = {0,  1,  15,  16,  55,  56,  63,
+                                                     64, 65, 119, 120, 127, 128, 4097};
+    constexpr size_t count = 65;
+    std::vector<std::string> inputs(count);
+    std::vector<std::string> storage(count);
+    std::vector<const unsigned char*> data(count);
+    std::vector<size_t> lengths(count);
+    for (size_t i = 0; i < count; ++i) {
+        lengths[i] = boundary_lengths[i % boundary_lengths.size()];
+        inputs[i] = make_binary_input(lengths[i], i);
+        const size_t prefix = i % 16 + 1;
+        storage[i] = std::string(prefix, '!') + inputs[i];
+        data[i] = lengths[i] == 0
+                          ? nullptr
+                          : reinterpret_cast<const unsigned char*>(storage[i].data() + prefix);
+    }
+    std::vector<char> output(count * MD5_HEX_LENGTH + 2, '!');
+    md5_hex_batch(data.data(), lengths.data(), output.data() + 1, count);
+    EXPECT_EQ('!', output.front());
+    EXPECT_EQ('!', output.back());
+    for (size_t i = 0; i < count; ++i) {
+        EXPECT_EQ(scalar_md5_hex(inputs[i]),
+                  std::string(output.data() + 1 + i * MD5_HEX_LENGTH, MD5_HEX_LENGTH))
+                << i;
+    }
 }
 
 } // namespace doris
