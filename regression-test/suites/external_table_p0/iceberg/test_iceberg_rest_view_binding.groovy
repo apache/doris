@@ -204,8 +204,12 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     sql """CREATE CATALOG ${rootedCatalog} PROPERTIES (${catalogProperties}, 'external_catalog.name' = '${storeDb}')"""
     // Binding the view must find its unqualified table in the one-level database exposed by this catalog.
     sql """SELECT x FROM ${rootedCatalog}.${storeDb}.v_rooted LIMIT 0"""
-    sql """DROP CATALOG IF EXISTS ${catalog}"""
-    sql """CREATE CATALOG ${catalog} PROPERTIES (${catalogProperties})"""
+    // Spark saves demo as the default catalog of v_spark_created. Its unqualified body reads from demo.
+    sql """CREATE CATALOG IF NOT EXISTS demo PROPERTIES (${catalogProperties})"""
+    if (catalog != "demo") {
+        sql """DROP CATALOG IF EXISTS ${catalog}"""
+        sql """CREATE CATALOG ${catalog} PROPERTIES (${catalogProperties})"""
+    }
     sql """USE ${catalog}.${storeDb}"""
 
     order_qt_table_control "SELECT x, y FROM ${catalog}.${sourceDb}.t"

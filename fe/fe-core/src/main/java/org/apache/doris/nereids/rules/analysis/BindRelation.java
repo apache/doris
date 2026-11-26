@@ -914,12 +914,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 pluginViewTable.getViewSchema(definition));
                         Plan pluginViewPlan = parseAndAnalyzeExternalView(externalView,
                                 pluginCatalog, pluginDb, cascadesContext);
-                        List<NamedExpression> viewOutputs = new ArrayList<>();
-                        for (Slot output : pluginViewPlan.getOutput()) {
-                            viewOutputs.add(new Alias(output, output.getName()));
-                        }
-                        return new LogicalSubQueryAlias<>(qualifiedTableName,
-                                new LogicalProject<>(viewOutputs, pluginViewPlan));
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
@@ -1046,8 +1041,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // so that we can parse and analyze the view sql in external context.
         try {
             ctx.setViewDefaultNamespace(externalCatalog, externalDb);
-            return new LogicalView<>(view,
-                    parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext));
+            Plan body = parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext);
+            LogicalView<Plan> logicalView = new LogicalView<>(view, body);
+            List<Slot> declaredOutputs = logicalView.getOutput();
+            List<Slot> bodyOutputs = body.getOutput();
+            List<NamedExpression> aliases = new ArrayList<>(declaredOutputs.size());
+            // Each declared position needs its own ExprId, even for repeated body slots. Keep those
+            // aliases inside the view so policy checking sees the view and its declared output slots.
+            for (int i = 0; i < declaredOutputs.size(); i++) {
+                aliases.add(new Alias(bodyOutputs.get(i), declaredOutputs.get(i).getName()));
+            }
+            return logicalView.withChildren(new LogicalProject<>(aliases, body));
         } finally {
             // Also restore failed namespace entry without masking analysis errors with metadata IO.
             ctx.restoreNameSpaceContext(previousNamespace);

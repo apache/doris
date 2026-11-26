@@ -17,7 +17,11 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -26,6 +30,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -33,12 +38,17 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -96,6 +106,45 @@ public class PluginDrivenExternalViewBindingTest extends TestWithFeService {
         Fixture f = new Fixture(definition("SELECT x, x FROM t", SOURCE_DB, "a", "b"));
         List<Slot> outputs = f.query("SELECT a, b FROM " + VIEW_DB + ".v").analyze().getPlan().getOutput();
         Assertions.assertNotEquals(outputs.get(0).getExprId(), outputs.get(1).getExprId());
+    }
+
+    @Test
+    public void viewPoliciesBindToDistinctDeclaredColumns() throws Exception {
+        Fixture fixture = new Fixture(definition(
+                "SELECT x, x FROM (SELECT CAST(10 AS INT) AS x) t", VIEW_DB, "a", "b"));
+        Env originalEnv = connectContext.getEnv();
+        UserIdentity originalUser = connectContext.getCurrentUserIdentity();
+        Env env = Mockito.spy(originalEnv);
+        AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
+        Mockito.doReturn(access).when(env).getAccessManager();
+        try {
+            connectContext.setEnv(env);
+            useUser("view_reader");
+            UserIdentity reader = connectContext.getCurrentUserIdentity();
+            Mockito.when(access.evalDataMaskPolicies(reader, "internal", VIEW_DB, "v", ImmutableSet.of("a", "b")))
+                    .thenReturn(Collections.singletonMap("a", new DataMaskSpec("mask-a", "a + 1")));
+            Mockito.when(access.evalRowFilterPolicies(reader, "internal", VIEW_DB, "v"))
+                    .thenReturn(Collections.singletonList(RowFilterSpec.restrictive("filter-b", "b > 0")));
+
+            Plan plan = fixture.query("SELECT a, b FROM " + VIEW_DB + ".v").analyze().getPlan();
+            List<LogicalProject<?>> masks = plan.collectToList(node -> node instanceof LogicalProject
+                    && node.child(0) instanceof LogicalFilter);
+            Assertions.assertEquals(1, masks.size(), plan::treeString);
+            LogicalProject<?> mask = masks.get(0);
+            LogicalFilter<?> filter = (LogicalFilter<?>) mask.child();
+            LogicalSubQueryAlias<?> alias = Assertions.assertInstanceOf(LogicalSubQueryAlias.class, filter.child());
+            LogicalView<?> view = Assertions.assertInstanceOf(LogicalView.class, alias.child());
+            List<Slot> slots = view.getOutput();
+            Assertions.assertEquals(Arrays.asList("a", "b"), names(view));
+            Assertions.assertNotEquals(slots.get(0).getExprId(), slots.get(1).getExprId());
+            Assertions.assertEquals(Collections.singleton(slots.get(1)), filter.getPredicate().getInputSlots());
+            Assertions.assertEquals(Collections.singleton(slots.get(0)), mask.getProjects().get(0).getInputSlots());
+            Assertions.assertNotEquals(slots.get(0).getExprId(), mask.getOutput().get(0).getExprId());
+            Assertions.assertEquals(slots.get(1).getExprId(), mask.getOutput().get(1).getExprId());
+        } finally {
+            connectContext.setEnv(originalEnv);
+            connectContext.setCurrentUserIdentity(originalUser);
+        }
     }
 
     @Test

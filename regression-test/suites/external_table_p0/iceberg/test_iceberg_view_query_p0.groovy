@@ -29,19 +29,19 @@ suite("test_iceberg_view_query_p0", "p0,external,iceberg,external_docker,externa
     String accessKey = config.get("iceberg_view_access_key") ?: "admin"
     String secretKey = config.get("iceberg_view_secret_key") ?: "password"
 
-    sql """DROP CATALOG IF EXISTS test_iceberg_view_query_p0"""
-    sql """CREATE CATALOG test_iceberg_view_query_p0 PROPERTIES (
+    // run14.sql creates these views after USE demo.test_db and persists unqualified table names.
+    sql """CREATE CATALOG IF NOT EXISTS demo PROPERTIES (
         'type' = 'iceberg',
         'iceberg.catalog.type' = 'rest',
         'uri' = 'http://${externalEnvIp}:${restPort}',
         's3.access_key' = '${accessKey}',
         's3.secret_key' = '${secretKey}',
         's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
-        's3.region' = 'us-east-1'
+        's3.region' = 'us-east-1',
+        'use_path_style' = 'true'
     )"""
 
-    // run14.sql in the Iceberg Docker fixture creates these persistent Spark views.
-    sql """USE test_iceberg_view_query_p0.test_db"""
+    sql """USE demo.test_db"""
 
     qt_partitioned """SELECT * FROM v_with_partitioned_table ORDER BY col1"""
     qt_unpartitioned """SELECT * FROM v_with_unpartitioned_table ORDER BY col1"""
