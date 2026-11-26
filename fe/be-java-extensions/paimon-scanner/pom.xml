@@ -125,10 +125,10 @@ under the License.
           constraint - these two lived on the shared preload classpath while the interface did not,
           which is a NoClassDefFoundError - and it is now simply what a plugin directory is.
 
-          paimon-s3-shade is Paimon's self-contained fat jar with only the accidental OUTER
-          multi-release overlay removed. The actual embedded runtime under paimon-plugin-s3/ is
-          unchanged; see that module for why deploying the upstream jar beside Hadoop's current
-          Bouncy Castle dependency is unsafe. paimon-jindo is 24KB of adapter: the
+          paimon-s3-shade removes the accidental OUTER multi-release overlay and replaces the
+          embedded Bouncy Castle provider with the managed version. The other runtime contents under
+          paimon-plugin-s3/ stay unchanged; see that module for the isolation requirement.
+          paimon-jindo is 24KB of adapter: the
           implementation it names, com.aliyun.jindodata.*, ships in the JindoFS jars, which are not
           maven artifacts - build.sh copies them into this plugin directory after post-build.sh has
           packaged them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF,

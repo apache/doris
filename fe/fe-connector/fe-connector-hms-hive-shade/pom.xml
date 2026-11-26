@@ -63,6 +63,11 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- DLF's embedded provider is filtered below; keep its SM3 implementation in a signed jar. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+        </dependency>
         <!-- DLF's Hive-3 client must be shaded with the same thrift namespace as the Hive metastore
              classes below. Keeping that invariant lets Iceberg load ProxyMetaStoreClient entirely
              from its plugin instead of falling back to the removed host-side fat shade. -->
@@ -406,6 +411,9 @@ under the License.
                                         <exclude>META-INF/*.RSA</exclude>
                                         <exclude>META-INF/maven/**</exclude>
                                         <exclude>META-INF/versions/**</exclude>
+                                        <!-- The DLF fat jar embeds an unsigned BC 1.65 copy that Maven
+                                             version management cannot replace and that can split signed packages. -->
+                                        <exclude>org/bouncycastle/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
