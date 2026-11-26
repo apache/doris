@@ -755,6 +755,10 @@ void read_encoded_variant_rows(ColumnVariantV2& result, const arrow::StructArray
     // Validate into a temporary batch, so that a bad row appends nothing.
     VariantBatchBuilder decoded;
     VariantPayloadValidator payload_validator;
+    // Rows that name one dictionary entry return the same bytes, so an entry is validated once per
+    // run of rows that use it instead of once per row, e.g. indices [0, 0, 0, 1, 1] validate entry
+    // 0 and entry 1 once each.
+    std::string_view validated_metadata;
     for (int64_t row = 0; row < rows; ++row) {
         auto output = decoded.begin_row();
         if (storage.IsNull(row)) {
@@ -764,11 +768,16 @@ void read_encoded_variant_rows(ColumnVariantV2& result, const arrow::StructArray
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Native Variant has a NULL value child at row {}", row);
             }
+            check_not_empty(values.value_length(row), "value at row", row);
             const std::string_view metadata = metadata_at(row);
             const auto value = values.GetView(row);
             const VariantRef ref {.metadata = {.data = metadata.data(), .size = metadata.size()},
                                   .value = {value.data(), value.size()}};
-            validate_variant_metadata(ref.metadata);
+            if (metadata.data() != validated_metadata.data() ||
+                metadata.size() != validated_metadata.size()) {
+                validate_variant_metadata(ref.metadata);
+                validated_metadata = metadata;
+            }
             payload_validator.validate(ref);
             output.add_value(ref);
         }
@@ -827,13 +836,20 @@ JsonToVariantOptions serde_json_options() {
 // is kept as a string. A NULL row is JSON null, the value a NOT NULL Variant column keeps for it.
 void read_json_variant_arrow(ColumnVariantV2& result, const arrow::Array& array) {
     JsonStringToVariantEncoder encoder(serde_json_options());
-    with_binary_array(array, [&](const auto& text) {
+    const auto add_rows = [&](const auto& text) {
         for (int64_t row = 0; row < text.length(); ++row) {
             const std::string_view json =
                     text.IsNull(row) ? std::string_view {"null"} : text.GetView(row);
             encoder.add_json({json.data(), json.size()});
         }
-    });
+    };
+    if (array.type_id() == arrow::Type::STRING_VIEW) {
+        // The utf8_view storage of an arrow.json column. A plain utf8_view column does not get
+        // here: the stream reader normalizes it to utf8 first.
+        add_rows(static_cast<const arrow::StringViewArray&>(array));
+    } else {
+        with_binary_array(array, add_rows);
+    }
     result.insert_encoded_batch(encoder.finish_batch());
 }
 
@@ -843,12 +859,16 @@ bool DataTypeVariantV2SerDe::is_arrow_input_type(const arrow::DataType& type) {
     if (type.id() == arrow::Type::EXTENSION) {
         // An extension type reaches the SerDe only when Arrow has it registered, and Arrow then
         // builds it over its canonical storage alone: arrow.parquet.variant over a struct of
-        // non-nullable binary or large_binary children, arrow.json over a string type. The same
-        // field with dictionary-encoded metadata therefore arrives as the plain struct while the
-        // extension is unregistered, and fails in Arrow's IPC reader once it is registered.
+        // non-nullable binary or large_binary children, arrow.json over utf8, large_utf8 or
+        // utf8_view. A field tagged arrow.parquet.variant whose children are nullable, which is
+        // what pyarrow declares unless told otherwise, or whose metadata is dictionary encoded
+        // therefore arrives as the plain struct while the extension is unregistered, and fails in
+        // Arrow's IPC reader once it is registered. Doris registers it on the first Arrow Flight
+        // VARIANT result, so only the canonical storage loads under the tag at all times.
         const auto& extension = static_cast<const arrow::ExtensionType&>(type);
         if (extension.extension_name() == "arrow.json") {
-            return is_arrow_text_type(*extension.storage_type());
+            return is_arrow_text_type(*extension.storage_type()) ||
+                   extension.storage_type()->id() == arrow::Type::STRING_VIEW;
         }
         return extension.extension_name() == "arrow.parquet.variant" &&
                is_encoded_variant_struct_type(*extension.storage_type());

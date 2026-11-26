@@ -278,6 +278,16 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, ArrowJsonExtensionIsUnwrapped) {
         ASSERT_TRUE(status.ok()) << status;
         EXPECT_EQ(json_rows(*column), json_rows(*encode_rows(documents())));
     }
+    // utf8_view is the third storage Arrow allows for arrow.json. The stream reader leaves an
+    // extension array alone, so the SerDe reads the view array itself.
+    auto view_type = arrow::extension::json(arrow::utf8_view());
+    ASSERT_TRUE(DataTypeVariantV2SerDe::is_arrow_input_type(*view_type));
+    auto views = arrow::ExtensionType::WrapArray(view_type,
+                                                 binary_array<arrow::StringViewBuilder>(texts));
+    auto column = ColumnVariantV2::create();
+    auto status = read_arrow(*column, *views);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(json_rows(*column), json_rows(*encode_rows(documents())));
 }
 
 TEST(DataTypeVariantV2SerdeArrowInputTest, BinaryStructShapesMatchJsonText) {
@@ -302,6 +312,63 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, SharedMetadataIsStoredOnce) {
     ASSERT_TRUE(read_arrow(*column, *binary_struct(*encoded)).ok());
     for (size_t row = 1; row < column->size(); ++row) {
         EXPECT_EQ(column->get_value_ref(row).metadata.data, column->get_value_ref(0).metadata.data);
+    }
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, SharedMetadataIsKeptAsSent) {
+    // The blob names the keys "a" and "b" while the rows sent use only "a". A block that shares
+    // one blob is appended with that blob as it is; a re-keyed block would store a blob that holds
+    // "a" alone, so this fails if shared blocks start taking the re-keying path.
+    auto encoded = encode_batch({R"({"a":1})", R"({"b":2})"});
+    const std::string_view blob = metadata_at(*encoded, 0);
+    auto values =
+            binary_array<arrow::BinaryBuilder>({value_at(*encoded, 0), value_at(*encoded, 0)});
+    for (const auto& array :
+         {make_struct(binary_array<arrow::BinaryBuilder>({blob, blob}), values),
+          make_struct(dictionary_metadata<arrow::Int32Type>({blob}, {0, 0}), values)}) {
+        auto column = ColumnVariantV2::create();
+        ASSERT_TRUE(read_arrow(*column, *array).ok()) << array->type()->ToString();
+        EXPECT_EQ(json_rows(*column), (std::vector<std::string> {R"({"a":1})", R"({"a":1})"}));
+        EXPECT_EQ(metadata_at(*column, 0), blob) << array->type()->ToString();
+        EXPECT_EQ(metadata_at(*column, 1), blob) << array->type()->ToString();
+    }
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, LateMetadataMismatchIsRekeyed) {
+    // Three rows share a blob and only the last row differs, so the block is found to hold several
+    // blobs after most of it was scanned. Every row must still be read, into one blob.
+    auto first = encode_batch({R"({"a":1})", R"({"a":2})", R"({"a":3})"});
+    auto second = encode_batch({R"({"x":"y"})"});
+    const std::string_view a = metadata_at(*first, 0);
+    const std::string_view b = metadata_at(*second, 0);
+    auto values = binary_array<arrow::BinaryBuilder>(
+            {value_at(*first, 0), value_at(*first, 1), value_at(*first, 2), value_at(*second, 0)});
+    for (const auto& array :
+         {make_struct(binary_array<arrow::BinaryBuilder>({a, a, a, b}), values),
+          make_struct(dictionary_metadata<arrow::Int32Type>({a, b}, {0, 0, 0, 1}), values)}) {
+        auto column = ColumnVariantV2::create();
+        ASSERT_TRUE(read_arrow(*column, *array).ok()) << array->type()->ToString();
+        EXPECT_EQ(json_rows(*column), (std::vector<std::string> {R"({"a":1})", R"({"a":2})",
+                                                                 R"({"a":3})", R"({"x":"y"})"}));
+        for (size_t row = 1; row < column->size(); ++row) {
+            EXPECT_EQ(column->get_value_ref(row).metadata.data,
+                      column->get_value_ref(0).metadata.data);
+        }
+    }
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, RangeOfOnlyNullStructRows) {
+    // No row supplies a metadata blob, so the rows take the empty metadata. The hidden cells,
+    // empty here as StructBuilder::AppendNull() leaves them, are not read.
+    auto values = binary_array<arrow::BinaryBuilder>({"", ""});
+    for (const auto& array : {make_struct(binary_array<arrow::BinaryBuilder>({"", ""}), values,
+                                          false, validity({true, true})),
+                              make_struct(dictionary_metadata<arrow::Int32Type>({""}, {0, 0}),
+                                          values, false, validity({true, true}))}) {
+        auto column = ColumnVariantV2::create();
+        auto status = read_arrow(*column, *array);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(json_rows(*column), (std::vector<std::string> {"null", "null"}));
     }
 }
 
@@ -427,15 +494,48 @@ TEST(DataTypeVariantV2SerdeArrowInputTest, DictionaryEntriesNoRowReadsAreIgnored
             binary_array<arrow::BinaryBuilder>({value_at(*first, 0), value_at(*first, 0)});
     auto mixed_values =
             binary_array<arrow::BinaryBuilder>({value_at(*first, 0), value_at(*second, 0)});
+    column = ColumnVariantV2::create();
+    status = read_arrow(*column,
+                        *make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad"}, {0, 0}),
+                                     row_values));
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(json_rows(*column), (std::vector<std::string> {R"({"a":1})", R"({"a":1})"}));
+
+    column = ColumnVariantV2::create();
+    status = read_arrow(
+            *column, *make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad", b}, {0, 3}),
+                                  mixed_values));
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(json_rows(*column), (std::vector<std::string> {R"({"a":1})", R"({"x":"y"})"}));
+}
+
+TEST(DataTypeVariantV2SerdeArrowInputTest, EmptyAndNullCellsAreInvalidArgument) {
+    // Cells that are not encoded Variant bytes at all fail the load with INVALID_ARGUMENT on both
+    // paths: "shared" blocks, whose rows carry one metadata blob and go to insert_encoded_rows,
+    // which asserts on an empty blob rather than reporting it, and "distinct" blocks, which are
+    // re-keyed.
+    auto first = encode_batch({R"({"a":1})", R"({"a":2})"});
+    auto second = encode_batch({R"({"x":"y"})"});
+    const std::string_view a = metadata_at(*first, 0);
+    const std::string_view b = metadata_at(*second, 0);
+    const std::string_view v0 = value_at(*first, 0);
+    const std::string_view v1 = value_at(*first, 1);
+    auto good_values = binary_array<arrow::BinaryBuilder>({v0, v1});
+    auto shared_metadata = binary_array<arrow::BinaryBuilder>({a, a});
+    auto distinct_metadata = binary_array<arrow::BinaryBuilder>({a, b});
+    auto null_value = binary_array<arrow::BinaryBuilder>({v0, v1}, {false, true});
+    auto empty_value = binary_array<arrow::BinaryBuilder>({v0, ""});
+    auto column = encode_batch({R"({"sentinel":1})"});
     for (const auto& array :
-         {make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad"}, {0, 0}), row_values),
-          make_struct(dictionary_metadata<arrow::Int32Type>({a, "", "bad", b}, {0, 3}),
-                      mixed_values)}) {
-        column = ColumnVariantV2::create();
-        status = read_arrow(*column, *array);
-        ASSERT_TRUE(status.ok()) << status;
-        EXPECT_EQ(column->size(), 2);
-        EXPECT_EQ(json_at(*column, 0), R"({"a":1})");
+         {// Every row's metadata is empty, so the rows share the empty blob.
+          make_struct(binary_array<arrow::BinaryBuilder>({"", ""}), good_values),
+          make_struct(shared_metadata, null_value), make_struct(shared_metadata, empty_value),
+          make_struct(distinct_metadata, null_value), make_struct(distinct_metadata, empty_value),
+          make_struct(binary_array<arrow::BinaryBuilder>({a, b}, {false, true}), good_values)}) {
+        EXPECT_EQ(read_arrow(*column, *array).code(), ErrorCode::INVALID_ARGUMENT)
+                << array->ToString();
+        ASSERT_EQ(column->size(), 1);
+        EXPECT_EQ(json_at(*column, 0), R"({"sentinel":1})");
     }
 }
 

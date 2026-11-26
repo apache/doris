@@ -59,9 +59,9 @@ public:
     Status convert_to_arrow_type(const DataTypePtr& origin_type,
                                  std::shared_ptr<arrow::DataType>* result) const override {
         const auto type = remove_nullable(origin_type);
-        // The type a VARIANT nested in an ARRAY, MAP, or STRUCT is normalized to: its input SerDe
-        // reads the native binary carrier, though VARIANT output may be UTF-8. A top-level VARIANT
-        // column keeps any wire type the SerDe reads, such as JSON text; see _prepare_arrays().
+        // The declared Arrow type of a VARIANT is the native binary carrier, though VARIANT
+        // output may be UTF-8. No array is cast to it: input_binding_type() keeps the wire type of
+        // a VARIANT at every nesting depth and its SerDe checks the carrier shape.
         if (type->get_primitive_type() == TYPE_VARIANT) {
             *result = arrow::struct_({arrow::field("metadata", arrow::binary(), false),
                                       arrow::field("value", arrow::binary(), false)});

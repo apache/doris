@@ -72,8 +72,9 @@ public:
     static bool is_native_arrow_type(const arrow::DataType& type);
     // Every Arrow shape read_column_from_arrow accepts: struct<metadata, value> in either field
     // order with binary or large_binary children, optionally under the arrow.parquet.variant
-    // extension or, without the extension, with a dictionary-encoded metadata child; and JSON text
-    // in utf8, large_utf8, binary, large_binary or the arrow.json extension.
+    // extension when the children are non-nullable or, without the extension, with a
+    // dictionary-encoded metadata child; and JSON text in utf8, large_utf8, binary, large_binary
+    // or the arrow.json extension.
     static bool is_arrow_input_type(const arrow::DataType& type);
     Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
                                         const IColumn& column, const NullMap* null_map,
