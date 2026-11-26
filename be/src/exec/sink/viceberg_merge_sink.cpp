@@ -190,7 +190,13 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         std::vector<int> delete_indices {_row_id_idx};
         delete_block.erase_not_in(delete_indices);
         Block::filter_block_internal(&delete_block, delete_filter);
-        RETURN_IF_ERROR(_delete_writer->write(state, delete_block));
+        // An unchecked MERGE can repeat a target position. Only blocks with standalone DELETEs
+        // need to distinguish their actions from UPDATEs in the delete writer.
+        ColumnPtr unchecked_operations;
+        if (!_require_merge_cardinality_check && delete_only_rows != 0) {
+            unchecked_operations = op_data->filter(delete_filter, delete_rows);
+        }
+        RETURN_IF_ERROR(_delete_writer->write(delete_block, unchecked_operations.get()));
     }
 
     if (has_insert && !skip_io) {

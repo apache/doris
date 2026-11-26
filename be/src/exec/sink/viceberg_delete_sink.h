@@ -76,6 +76,7 @@ public:
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
     Status write(RuntimeState* state, Block& block) override;
+    Status write(const Block& block, const IColumn* unchecked_merge_operations);
 
     Status close(Status) override;
 
@@ -90,7 +91,8 @@ private:
      * Extract $row_id column from block and group by file_path.
      */
     Status _collect_position_deletes(const Block& block,
-                                     std::map<std::string, IcebergFileDeletion>& file_deletions);
+                                     std::map<std::string, IcebergFileDeletion>& file_deletions,
+                                     const IColumn* unchecked_merge_operations = nullptr);
 
     /**
      * Write grouped position deletes to delete files
@@ -155,6 +157,9 @@ private:
     //  per-file when the upstream guarantees file_path ordering, or flushing
     //  when estimated memory exceeds a threshold, to reduce peak memory usage.
     std::map<std::string, IcebergFileDeletion> _file_deletions;
+    // Without MERGE cardinality validation a position can receive both DELETE and UPDATE.
+    // Until close, keep standalone deletes separate from the UPDATE positions in _file_deletions.
+    std::map<std::string, roaring::Roaring64Map> _unchecked_standalone_deletes;
     std::map<std::string, std::vector<TIcebergDeleteFileDesc>> _rewritable_delete_files;
 
     // Hadoop configuration

@@ -357,10 +357,10 @@ public class IcebergConnectorTransactionTest {
         }
     }
 
-    // ─────────────────── addCommitData: 15-field TBinaryProtocol round-trip (T03, regression) ───────────────────
+    // ─────────────────── addCommitData: all-field TBinaryProtocol round-trip (T03, regression) ───────────────────
 
     @Test
-    public void addCommitDataRoundTripsAll15Fields() {
+    public void addCommitDataRoundTripsAllFields() {
         TIcebergColumnStats stats = new TIcebergColumnStats();
         stats.putToColumnSizes(1, 100L);
         stats.putToValueCounts(1, 10L);
@@ -384,6 +384,7 @@ public class IcebergConnectorTransactionTest {
         d.setContentOffset(64L);
         d.setContentSizeInBytes(256L);
         d.setAffectedRows(99L);
+        d.setSplitOffsets(Arrays.asList(4L, 512L));
         d.setDeleteOnlyRows(2L);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
@@ -392,7 +393,7 @@ public class IcebergConnectorTransactionTest {
         List<TIcebergCommitData> acc = txn.getCommitDataList();
         Assertions.assertEquals(1, acc.size());
         Assertions.assertEquals(d, acc.get(0),
-                "every one of the 15 TIcebergCommitData fields (and the nested TIcebergColumnStats) "
+                "every TIcebergCommitData field (and the nested TIcebergColumnStats) "
                         + "must survive the TBinaryProtocol round-trip into the accumulator");
     }
 

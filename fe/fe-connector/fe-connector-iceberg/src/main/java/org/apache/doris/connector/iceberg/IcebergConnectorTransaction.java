@@ -131,6 +131,10 @@ import java.util.Set;
 public class IcebergConnectorTransaction implements ConnectorTransaction, RewriteCapableTransaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
+    // The host FE supplies the generated Thrift classes. An older host has the generic field
+    // accessors but neither the enum constant nor the dedicated accessor for delete_only_rows.
+    private static final TIcebergCommitData._Fields DELETE_ONLY_ROWS_FIELD =
+            TIcebergCommitData._Fields.findByName("delete_only_rows");
     private static final String LEGACY_DELETE_ISOLATION_LEVEL = "delete_isolation_level";
     // Scope of a bare INSERT OVERWRITE (no PARTITION clause). Key + values are byte-identical to the fe-core
     // SessionVariable constants (the connector cannot import fe-core); the value reaches the commit through
@@ -805,9 +809,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             long affectedRows = commitData.isSetAffectedRows()
                     ? commitData.getAffectedRows()
                     : commitData.getRowCount();
-            if (commitData.isSetDeleteOnlyRows()) {
+            if (DELETE_ONLY_ROWS_FIELD != null && commitData.isSet(DELETE_ONLY_ROWS_FIELD)) {
                 hasActionScopedDeleteRows = true;
-                deleteOnlyRows += commitData.getDeleteOnlyRows();
+                deleteOnlyRows += (long) commitData.getFieldValue(DELETE_ONLY_ROWS_FIELD);
             }
             if (commitData.isSetFileContent()
                     && (commitData.getFileContent() == TFileContent.POSITION_DELETES
