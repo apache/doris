@@ -42,6 +42,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -229,6 +230,8 @@ TQueryOptions make_read_query_options(const IndexReadOptions& options) {
     query_options.__set_enable_inverted_index_query(options.enable_inverted_index_query);
     query_options.__set_enable_fallback_on_missing_inverted_index(
             options.enable_fallback_on_missing_inverted_index);
+    query_options.__set_enable_match_without_inverted_index(
+            options.enable_match_without_inverted_index);
     query_options.__set_enable_no_need_read_data_opt(options.enable_no_need_read_data_opt);
     query_options.__set_enable_common_expr_pushdown(options.enable_common_expr_pushdown);
     query_options.__set_enable_inverted_index_query_cache(
@@ -391,6 +394,18 @@ Result<std::vector<IndexBatch>> materialize_batches(const IndexRowsetSpec& spec)
     return batches;
 }
 
+TabletSchemaSPtr make_variant_v2_schema(const TabletSchema& tablet_schema) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->copy_from(tablet_schema);
+    for (size_t i = 0; i < schema->num_columns(); ++i) {
+        auto& column = schema->mutable_column(i);
+        if (column.is_variant_type()) {
+            column.set_variant_is_v2(true);
+        }
+    }
+    return schema;
+}
+
 void ensure_variant_json_shape(const IndexBatch& batch, size_t column_pos) {
     CHECK(!batch.variant_jsons_by_column.empty());
     CHECK_LT(column_pos, batch.variant_jsons_by_column.size());
@@ -401,32 +416,44 @@ void ensure_variant_json_shape(const IndexBatch& batch, size_t column_pos) {
 }
 
 Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatch& batch,
-                           size_t column_pos, MutableColumnPtr* output) {
+                           size_t column_pos, bool use_variant_v2, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
-    auto variant_column =
-            ColumnVariant::create(column_spec.max_subcolumns_count, column_spec.enable_doc_mode);
-    auto json_column = ColumnString::create();
-    for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
-        json_column->insert_data(json.data(), json.size());
+    const auto& values = batch.variant_jsons_by_column[column_pos];
+    MutableColumnPtr variant_column;
+    if (use_variant_v2) {
+        JsonStringToVariantEncoder encoder;
+        for (const auto& json : values) {
+            encoder.add_json({json.data(), json.size()});
+        }
+        auto column = ColumnVariantV2::create();
+        column->insert_encoded_batch(encoder.finish_batch());
+        variant_column = std::move(column);
+    } else {
+        auto column = ColumnVariant::create(column_spec.max_subcolumns_count,
+                                            column_spec.enable_doc_mode);
+        auto json_column = ColumnString::create();
+        for (const auto& json : values) {
+            json_column->insert_data(json.data(), json.size());
+        }
+        ParseConfig config;
+        config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
+        config.parse_to = column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
+                                                      : batch.parse_to;
+        variant_util::parse_json_to_variant(*column, *json_column, config);
+        variant_column = std::move(column);
     }
-
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
-    config.parse_to =
-            column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn : batch.parse_to;
-    variant_util::parse_json_to_variant(*variant_column, *json_column, config);
     if (column_spec.nullable) {
         auto null_map = ColumnUInt8::create();
         null_map->insert_many_defaults(variant_column->size());
-        *output = ColumnNullable::create(std::move(variant_column), std::move(null_map));
-    } else {
-        *output = std::move(variant_column);
+        variant_column = ColumnNullable::create(std::move(variant_column), std::move(null_map));
     }
+    *output = std::move(variant_column);
     return Status::OK();
 }
 
 Status validate_direct_variant_column(const VariantColumnSpec& column_spec, const ColumnPtr& column,
-                                      size_t expected_rows, size_t variant_pos) {
+                                      size_t expected_rows, size_t variant_pos,
+                                      bool use_variant_v2) {
     if (!column) {
         return Status::InvalidArgument("direct variant column {} is null", variant_pos);
     }
@@ -445,11 +472,13 @@ Status validate_direct_variant_column(const VariantColumnSpec& column_spec, cons
         }
         nested_column = &nullable_column->get_nested_column();
     }
-    if (check_and_get_column<ColumnVariant>(nested_column) == nullptr) {
+    const bool correct_type =
+            use_variant_v2 ? check_and_get_column<ColumnVariantV2>(nested_column) != nullptr
+                           : check_and_get_column<ColumnVariant>(nested_column) != nullptr;
+    if (!correct_type) {
         return Status::InvalidArgument(
-                "direct variant column {} must be ColumnVariant or ColumnNullable(ColumnVariant), "
-                "actual={}",
-                column_spec.name, column->get_name());
+                "direct variant column {} must use {}, actual={}", column_spec.name,
+                use_variant_v2 ? "VARIANT V2" : "VARIANT V1", column->get_name());
     }
     return Status::OK();
 }
@@ -491,10 +520,12 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
 
     for (size_t variant_pos = 0; variant_pos < tablet_options.variant_columns.size();
          ++variant_pos, ++column_pos) {
+        const bool use_variant_v2 = schema.column(column_pos).variant_is_v2();
         if (!batch.variant_columns_by_column.empty()) {
-            RETURN_IF_ERROR(validate_direct_variant_column(
-                    tablet_options.variant_columns[variant_pos],
-                    batch.variant_columns_by_column[variant_pos], rows, variant_pos));
+            RETURN_IF_ERROR(
+                    validate_direct_variant_column(tablet_options.variant_columns[variant_pos],
+                                                   batch.variant_columns_by_column[variant_pos],
+                                                   rows, variant_pos, use_variant_v2));
             auto variant_column = batch.variant_columns_by_column[variant_pos]->clone_resized(rows);
             if (tablet_options.variant_columns[variant_pos].nullable &&
                 !variant_column->is_nullable()) {
@@ -509,10 +540,14 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
 
         MutableColumnPtr variant_column;
         RETURN_IF_ERROR(fill_variant_column(tablet_options.variant_columns[variant_pos], batch,
-                                            variant_pos, &variant_column));
+                                            variant_pos, use_variant_v2, &variant_column));
         columns[column_pos] = std::move(variant_column);
     }
 
+    if (schema.delete_sign_idx() >= 0) {
+        CHECK_EQ(column_pos, schema.delete_sign_idx());
+        columns[column_pos++]->insert_many_defaults(rows);
+    }
     CHECK_EQ(column_pos, schema.num_columns());
     block->set_columns(std::move(columns));
     return Status::OK();
@@ -836,7 +871,8 @@ bool IndexReadResult::inverted_index_used() const {
 
 TabletSchemaPB build_tablet_schema_pb(const IndexTabletOptions& options) {
     TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_keys_type(options.enable_unique_key_merge_on_write ? KeysType::UNIQUE_KEYS
+                                                                     : KeysType::DUP_KEYS);
     schema_pb.set_num_short_key_columns(options.include_key_column ? 1 : 0);
     schema_pb.set_num_rows_per_row_block(1024);
     schema_pb.set_compress_kind(COMPRESS_NONE);
@@ -1119,10 +1155,15 @@ void IndexStorageTestFixture::TearDown() {
 }
 
 Status IndexStorageTestFixture::create_tablet(const IndexTabletOptions& options) {
+    _use_variant_v2 = options.use_variant_v2;
     _tablet_schema = build_tablet_schema(options);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->set_enable_unique_key_merge_on_write(options.enable_unique_key_merge_on_write);
     tablet_meta->_tablet_id = options.tablet_id;
+    if (options.enable_unique_key_merge_on_write) {
+        tablet_meta->_delete_bitmap = std::make_shared<DeleteBitmap>(options.tablet_id);
+    }
     tablet_meta->set_tablet_uid(TabletUid(options.tablet_id, options.tablet_id + 1));
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     RETURN_IF_ERROR(_tablet->init());
@@ -1150,7 +1191,8 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
     context.rowset_type = BETA_ROWSET;
     context.data_dir = _data_dir.get();
     context.rowset_state = VISIBLE;
-    context.tablet_schema = _tablet_schema;
+    context.tablet_schema =
+            _use_variant_v2 ? make_variant_v2_schema(*_tablet_schema) : _tablet_schema;
     context.tablet_path = _tablet->tablet_path();
     context.tablet_id = _tablet->tablet_id();
     context.tablet_uid = _tablet->tablet_uid();
@@ -1159,6 +1201,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
     context.segments_overlap = NONOVERLAPPING;
     context.max_rows_per_segment = spec.max_rows_per_segment;
     context.write_type = spec.write_type;
+    context.enable_unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
 
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine_ref, context, false);
     if (!writer_result.has_value()) {
@@ -1235,9 +1278,9 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
                     tablet_options.variant_columns.size(), batch.variant_columns_by_column.size()));
         }
 
-        Block block = _tablet_schema->create_block();
+        Block block = context.tablet_schema->create_block();
         RETURN_RESULT_IF_ERROR(
-                fill_block(*_tablet_schema, tablet_options, batch, &next_key, &block));
+                fill_block(*context.tablet_schema, tablet_options, batch, &next_key, &block));
         RETURN_RESULT_IF_ERROR(rowset_writer->add_block(&block));
         RETURN_RESULT_IF_ERROR(rowset_writer->flush());
     }
@@ -1277,16 +1320,9 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         std::iota(return_columns.begin(), return_columns.end(), 0);
     }
 
-    TabletSchemaSPtr read_schema = _tablet_schema;
-    if (options.use_variant_v2) {
-        read_schema = std::make_shared<TabletSchema>(*_tablet_schema);
-        for (int32_t column_id = 0; column_id < read_schema->num_columns(); ++column_id) {
-            auto& column = read_schema->mutable_column(column_id);
-            if (column.is_variant_type()) {
-                column.set_variant_is_v2(true);
-            }
-        }
-    }
+    const auto read_schema = options.use_variant_v2 || _use_variant_v2
+                                     ? make_variant_v2_schema(*_tablet_schema)
+                                     : _tablet_schema;
 
     RuntimeState runtime_state;
     runtime_state.set_exec_env(ExecEnv::GetInstance());

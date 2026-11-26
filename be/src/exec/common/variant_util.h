@@ -23,9 +23,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -184,8 +186,18 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
 
+// RESTORE or RECOVER can leave a logical values index on a legacy segment.
+inline bool supports_values_index_format(InvertedIndexStorageFormatPB format) {
+    return format == InvertedIndexStorageFormatPB::SNII;
+}
+
 class VariantCompactionUtil {
 public:
+    static bool has_writable_values_index(const TabletSchema& schema);
+    static Status plan_values_index_compaction(
+            const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
+            const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema);
+
     // get the subpaths and sparse paths for the variant column
     static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
                              TabletSchema::PathsSetInfo& paths_set_info);
@@ -203,7 +215,8 @@ public:
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
     static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
-                                                 TabletSchemaSPtr& target);
+                                                 TabletSchemaSPtr& target,
+                                                 const std::set<int32_t>& skip_roots = {});
 
     // Used to collect all the subcolumns types of variant column from rowsets
     static TabletSchemaSPtr calculate_variant_extended_schema(

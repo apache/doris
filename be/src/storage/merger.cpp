@@ -65,6 +65,25 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+static TabletSchemaSPtr make_compaction_read_schema(
+        const TabletSchema& tablet_schema,
+        const std::vector<RowsetMetaSharedPtr>& delete_predicates) {
+    auto read_schema = std::make_shared<TabletSchema>();
+    read_schema->copy_from(tablet_schema);
+    // copy_from round-trips the persisted schema. Keep the runtime column types aligned
+    // with the output block when compaction selects V2 for legacy-encoded VARIANT roots.
+    for (size_t i = 0; i < tablet_schema.num_columns(); ++i) {
+        if (tablet_schema.column(i).variant_is_v2()) {
+            read_schema->mutable_column(i).set_variant_is_v2(true);
+        }
+    }
+    for (const auto& rowset : delete_predicates) {
+        read_schema->merge_dropped_columns(*rowset->tablet_schema());
+    }
+    return read_schema;
+}
+
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
@@ -93,14 +112,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     reader_params.version = dst_rowset_writer->version();
 
-    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
-    merge_tablet_schema->copy_from(cur_tablet_schema);
-
-    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_rs : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
-    }
-    reader_params.tablet_schema = merge_tablet_schema;
+    reader_params.tablet_schema =
+            make_compaction_read_schema(cur_tablet_schema, reader_params.delete_predicates);
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -282,14 +295,8 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.version = dst_rowset_writer->version();
 
-    TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
-    merge_tablet_schema->copy_from(tablet_schema);
-
-    for (auto& del_pred_rs : reader_params.delete_predicates) {
-        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
-    }
-
-    reader_params.tablet_schema = merge_tablet_schema;
+    reader_params.tablet_schema =
+            make_compaction_read_schema(tablet_schema, reader_params.delete_predicates);
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();

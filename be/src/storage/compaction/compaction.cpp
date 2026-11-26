@@ -329,6 +329,14 @@ Status Compaction::merge_input_rowsets() {
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
     ctx.input_rs_readers = input_rs_readers;
+    if (_should_compact_indexes()) {
+        construct_index_compaction_columns(ctx);
+    }
+    if (variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
+        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::plan_values_index_compaction(
+                _input_rowsets, _enable_vertical_compact_variant_subcolumns,
+                ctx.snii_indexes_to_do_compaction, _cur_tablet_schema));
+    }
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     prepare_rowid_conversion(ctx);
@@ -497,6 +505,10 @@ Tablet* CompactionMixin::tablet() {
 Status CompactionMixin::do_compact_ordered_rowsets() {
     RETURN_IF_ERROR(build_basic_info(true));
     RowsetWriterContext ctx;
+    // only do index compaction for dup_keys and unique_keys with mow enabled
+    if (_should_compact_indexes()) {
+        construct_index_compaction_columns(ctx);
+    }
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->tablet_id()
@@ -593,7 +605,8 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction &&
+        !variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                 _input_rowsets, _cur_tablet_schema));
     }
@@ -1440,7 +1453,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             }
             const int32_t col_unique_id = col_unique_ids[0];
             if (!_cur_tablet_schema->has_column_unique_id(col_unique_id) ||
-                !field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
+                (!field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type()) &&
+                 !destination_index->is_variant_values_index())) {
                 continue;
             }
 
@@ -1565,6 +1579,11 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             if (eligible) {
                 ctx.snii_indexes_to_do_compaction.emplace(col_unique_id,
                                                           destination_index->index_id());
+                if (destination_index->is_variant_values_index()) {
+                    VLOG_DEBUG << "tablet[" << _tablet->tablet_id() << "] VARIANT values index["
+                               << destination_index->index_id()
+                               << "] planned for SNII postings compaction";
+                }
             } else {
                 LOG(INFO) << "tablet[" << _tablet->tablet_id() << "] index["
                           << destination_index->index_id()
@@ -1695,12 +1714,6 @@ Status CloudCompactionMixin::update_delete_bitmap() {
 }
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
-        construct_index_compaction_columns(ctx);
-    }
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
@@ -2011,7 +2024,8 @@ Status CloudCompactionMixin::build_basic_info() {
 
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns) {
+    if (_enable_vertical_compact_variant_subcolumns &&
+        !variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                 _input_rowsets, _cur_tablet_schema));
     }
@@ -2266,13 +2280,6 @@ Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWrite
 }
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
-    // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
-        construct_index_compaction_columns(ctx);
-    }
-
     // Use the storage resource of the previous rowset.
     RETURN_IF_ERROR(set_storage_resource_from_input_rowsets(ctx));
 

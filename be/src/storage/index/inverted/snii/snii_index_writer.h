@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -63,6 +65,10 @@ public:
                             size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
+    // Visits the text values of one non-NULL docs-only document. The visitor and
+    // consumer run synchronously, and the visitor must propagate consumer errors.
+    using TextConsumer = std::function<Status(std::string_view)>;
+    Status add_text_document(const std::function<Status(const TextConsumer&)>& visit);
     Status finish() override;
     int64_t size() const override { return 0; }
     void close_on_error() override;
@@ -126,7 +132,7 @@ private:
     void _arm_density_calibration();
     Status _finish_density_calibration();
     void _report_density_sample_capacity(bool release_all = false);
-    Status _latch_analysis_failure(Status status);
+    Status _latch_write_failure(Status status);
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;

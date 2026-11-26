@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -224,6 +225,10 @@ public class IndexDef {
         ANN
     }
 
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED && InvertedIndexProperties.isVariantValuesIndex(properties);
+    }
+
     public boolean isInvertedIndex() {
         return (this.indexType == IndexType.INVERTED);
     }
@@ -340,6 +345,10 @@ public class IndexDef {
             }
 
             if (indexType == IndexType.INVERTED) {
+                if (properties != null && properties.containsKey(InvertedIndexUtil.VARIANT_INDEX_SCOPE_KEY)) {
+                    InvertedIndexUtil.validateVariantValuesIndex(DataType.fromCatalogType(columnType), properties,
+                            invertedIndexFileStorageFormat);
+                }
                 InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties,
                         invertedIndexFileStorageFormat);
             } else if (indexType == IndexType.NGRAM_BF) {

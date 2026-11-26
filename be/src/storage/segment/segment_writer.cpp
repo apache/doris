@@ -227,6 +227,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // Legacy partitions can retain values-index metadata after RESTORE or RECOVER.
+    if (column.is_variant_type() && !column.is_extracted_column() &&
+        !variant_util::supports_values_index_format(schema->get_inverted_index_storage_format())) {
+        skip_inverted_index = true;
+    }
     // Let SNII select the direct-load PRX zstd level.
     opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     // indexes for this column

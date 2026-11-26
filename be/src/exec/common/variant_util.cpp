@@ -619,6 +619,10 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     // because this schema is a read schema from fe
     if (target.is_variant_type()) {
         for (auto& index : source_indexes) {
+            // Values indexes belong only to the root.
+            if (index->is_variant_values_index()) {
+                continue;
+            }
             auto index_info = std::make_shared<TabletIndex>(*index);
             index_info->set_escaped_escaped_index_suffix_path(
                     target.path_info_ptr()->get_path(),
@@ -1231,18 +1235,66 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
     append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
+bool VariantCompactionUtil::has_writable_values_index(const TabletSchema& schema) {
+    if (!supports_values_index_format(schema.get_inverted_index_storage_format())) {
+        return false;
+    }
+    return std::ranges::any_of(schema.inverted_indexes(), [](const TabletIndex* index) {
+        return index->is_variant_values_index() && !index->col_unique_ids().empty();
+    });
+}
+
+Status VariantCompactionUtil::plan_values_index_compaction(
+        const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
+        const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema) {
+    std::set<int32_t> values_roots;
+    std::set<int32_t> rebuild_roots;
+    for (const auto* index : schema->inverted_indexes()) {
+        // Replayed indexes without column IDs are skipped by index compaction as well.
+        if (!index->is_variant_values_index() || index->col_unique_ids().empty()) {
+            continue;
+        }
+        const int32_t uid = index->col_unique_ids().front();
+        values_roots.insert(uid);
+        if (!native_indexes.contains({uid, index->index_id()})) {
+            rebuild_roots.insert(uid);
+        }
+    }
+    if (expand_subcolumns) {
+        RETURN_IF_ERROR(get_extended_compaction_schema(rowsets, schema, rebuild_roots));
+    } else {
+        // Historical schemas may contain extracted children even when expansion is disabled.
+        schema = schema->copy_without_variant_extracted_columns();
+        schema->set_path_set_info({});
+    }
+    // The rowset schema does not persist the FE's VARIANT execution type. Compaction owns
+    // the newly built schema, so it can select the V2 writer while keeping legacy key encoding.
+    for (size_t i = 0; i < schema->num_columns(); ++i) {
+        const auto& column = schema->column(i);
+        const int32_t uid =
+                column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
+        if (column.is_variant_type() && values_roots.contains(uid)) {
+            schema->mutable_column(i).set_variant_is_v2(true);
+        }
+    }
+    return Status::OK();
+}
+
 // Build the temporary schema for compaction.
 // NestedGroup roots are special: the root VARIANT column owns the NG tree and the streaming NG
 // writer handles NG children, while regular non-NG paths beside the arrays are materialized as
 // ordinary extracted subcolumns. NG typed paths still use get_compaction_typed_columns(), keeping
 // typed-column rules out of the NG-specific regular-path filtering.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status VariantCompactionUtil::get_extended_compaction_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
+        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target,
+        const std::set<int32_t>& skip_roots) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
     const bool needs_variant_extended_info =
-            std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
-                return column->is_variant_type() && (should_check_variant_path_stats(*column) ||
-                                                     column->variant_enable_nested_group());
+            std::ranges::any_of(target->columns(), [&](const TabletColumnPtr& column) {
+                return column->is_variant_type() && !skip_roots.contains(column->unique_id()) &&
+                       (should_check_variant_path_stats(*column) ||
+                        column->variant_enable_nested_group());
             });
     if (needs_variant_extended_info) {
         // collect path stats from all rowsets and segments
@@ -1278,6 +1330,11 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
+
+        if (skip_roots.contains(column->unique_id())) {
+            // Rebuild this root from the normal visible value; its writer chooses the layout.
+            continue;
+        }
 
         const auto info_it = uid_to_variant_extended_info.find(column->unique_id());
         const VariantExtendedInfo empty_extended_info;
@@ -1682,7 +1739,13 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
     if (field_is_numeric_type(column_type) ||
         (is_array_nested_type &&
          (field_is_numeric_type(column_type) || field_is_slice_type(column_type)))) {
-        auto index_ptr = std::make_shared<TabletIndex>(*parent_indexes[0]);
+        const auto parent_index = std::ranges::find_if(
+                parent_indexes,
+                [](const TabletIndex* index) { return !index->is_variant_values_index(); });
+        if (parent_index == parent_indexes.end()) {
+            return false;
+        }
+        auto index_ptr = std::make_shared<TabletIndex>(**parent_index);
         index_ptr->set_escaped_escaped_index_suffix_path(suffix_path, escape_dots);
         // no need parse for bkd index or array index
         index_ptr->remove_parser_and_analyzer();
@@ -1692,11 +1755,14 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
     // string type need to inherit all indexes
     else if (field_is_slice_type(column_type) && !is_array_nested_type) {
         for (const auto& index : parent_indexes) {
+            if (index->is_variant_values_index()) {
+                continue;
+            }
             auto index_ptr = std::make_shared<TabletIndex>(*index);
             index_ptr->set_escaped_escaped_index_suffix_path(suffix_path, escape_dots);
             subcolumns_indexes.emplace_back(std::move(index_ptr));
         }
-        return true;
+        return !subcolumns_indexes.empty();
     }
     return false;
 }

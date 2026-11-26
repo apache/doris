@@ -55,6 +55,20 @@ import java.util.Map;
 public class InvertedIndexPropertiesTest {
 
     @Test
+    public void testValuesAndPathAnalyzerScopesAreIndependent() {
+        IndexDefinition root = new IndexDefinition("root", false, ImmutableList.of("v"), "INVERTED",
+                ImmutableMap.of("parser", "english", "variant_index_scope", "values"), "");
+        IndexDefinition path = new IndexDefinition("path", false, ImmutableList.of("v"), "INVERTED",
+                ImmutableMap.of("parser", "english"), "");
+        IndexDefinition anotherPath = new IndexDefinition("another_path", false, ImmutableList.of("v"), "INVERTED",
+                ImmutableMap.of("parser", "english"), "");
+        Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                org.apache.doris.nereids.types.VariantType.INSTANCE, ImmutableList.of(root, path)));
+        Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                org.apache.doris.nereids.types.VariantType.INSTANCE, ImmutableList.of(root, path, anotherPath)));
+    }
+
+    @Test
     public void testRejectsTypeOnlyAndExplicitDefaultPinyinAnalyzers() {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(policyMgr.getPolicyByName("pinyin_type_only")).thenReturn(new IndexPolicy(

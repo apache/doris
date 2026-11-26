@@ -54,6 +54,7 @@
 #include "storage/types.h"
 #include "storage/utils.h"
 #include "util/json/path_in_data.h"
+#include "util/string_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -724,6 +725,11 @@ std::string escape_for_path_name(const std::string& s, bool escape_percent = fal
         ++pos;
     }
     return res;
+}
+
+bool TabletIndex::is_variant_values_index() const {
+    const auto scope = _properties.find("variant_index_scope");
+    return is_inverted_index() && scope != _properties.end() && iequal(scope->second, "values");
 }
 
 void TabletIndex::set_escaped_escaped_index_suffix_path(const std::string& path_name,
@@ -1548,6 +1554,12 @@ std::vector<TabletIndexPtr> TabletSchema::inverted_index_by_field_pattern(
 }
 
 std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn& col) const {
+    if (col.is_variant_type() && !col.is_extracted_column()) {
+        auto result = inverted_indexs(col.unique_id(), col.suffix_path());
+        std::erase_if(result,
+                      [](const TabletIndex* index) { return !index->is_variant_values_index(); });
+        return result;
+    }
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
     if (!segment_v2::IndexColumnWriter::check_support_inverted_index(col)) {
         return {};

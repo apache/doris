@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -208,6 +209,9 @@ public class GroupCommitPlanner {
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         InsertIntoTableCommand command = (InsertIntoTableCommand) (prepareCommand.getLogicalPlan());
         OlapTable table = (OlapTable) command.getTable(ctx);
+        if (table.isVariantValuesIndexExecutionDisabled()) {
+            throw new DdlException(InvertedIndexUtil.VARIANT_VALUES_INDEX_REQUIRES_V2);
+        }
         for (int retry = 0; retry < MAX_RETRY; retry++) {
             if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
                 String msg = "insert table " + table.getId() + SCHEMA_CHANGE;

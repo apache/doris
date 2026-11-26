@@ -18,10 +18,18 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.common.io.Text;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -37,6 +45,49 @@ public class IndexTest {
 
         Assert.assertEquals(Collections.singletonList(107),
                 index.getColumnUniqueIds(Collections.singletonList(shadowColumn)));
+    }
+
+    @Test
+    public void testValuesAndPathIndexPersistence() throws Exception {
+        List<Index> indexes = ImmutableList.of(
+                new Index(71, "values", ImmutableList.of("V"), IndexType.INVERTED,
+                        ImmutableMap.of("variant_index_scope", "values", "analyzer", "english",
+                                "support_phrase", "false", "lower_case", "true"), "root"),
+                new Index(72, "paths", ImmutableList.of("V"), IndexType.INVERTED,
+                        ImmutableMap.of("parser", "unicode", "lower_case", "false"), "paths"),
+                new Index(73, "template", ImmutableList.of("V"), IndexType.INVERTED,
+                        ImmutableMap.of("field_pattern", "tag*", "analyzer", "unicode"), "template"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            for (Index index : indexes) {
+                index.write(output);
+            }
+        }
+        Column column = new Column("v", Type.VARIANT);
+        column.setUniqueId(123);
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            for (Index original : indexes) {
+                Index restored = Index.read(input);
+                Assert.assertEquals(original.getIndexId(), restored.getIndexId());
+                Assert.assertEquals(original.getColumns(), restored.getColumns());
+                Assert.assertEquals(original.getProperties(), restored.getProperties());
+                Assert.assertEquals(original.isVariantValuesIndex(), restored.isVariantValuesIndex());
+                Assert.assertEquals(ImmutableList.of(123), restored.getColumnUniqueIds(ImmutableList.of(column)));
+            }
+        }
+        // Old serialized metadata has no scope property and must remain an ordinary path index.
+        bytes.reset();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            Text.writeString(output, "{\"i\":74,\"in\":\"legacy\",\"c\":[\"V\"],"
+                    + "\"it\":\"INVERTED\",\"pt\":{\"parser\":\"english\"},\"ct\":\"\"}");
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            Index legacy = Index.read(input);
+            Assert.assertFalse(legacy.isVariantValuesIndex());
+            Assert.assertEquals(74, legacy.getIndexId());
+            Assert.assertEquals("english", legacy.getInvertedIndexParser());
+            Assert.assertFalse(legacy.getProperties().containsKey("variant_index_scope"));
+        }
     }
 
     @Test

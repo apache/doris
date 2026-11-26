@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -342,6 +343,29 @@ public class RewriteSearchToSlotsTest {
         Assertions.assertTrue(searchExpression.getSlotChildren().get(0) instanceof SlotReference);
         Assertions.assertEquals("name",
                 ((SlotReference) searchExpression.getSlotChildren().get(0)).getName());
+    }
+
+    @Test
+    public void testVariantValuesIndexCannotServeSearchSubpath() throws Exception {
+        OlapTable table = buildVariantTableWithInvertedIndex(103L);
+        Index pathIndex = table.getIndexes().get(0);
+        Index rootIndex = new Index(3L, "idx_values", ImmutableList.of("v"), IndexType.INVERTED,
+                ImmutableMap.of("parser", "english", "variant_index_scope", "values"), "");
+        table.setIndexes(ImmutableList.of(rootIndex));
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                table, ImmutableList.of("db"));
+        Search search = new Search(new StringLiteral("v.foo:bar"));
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+        InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
+                () -> rewriteMethod.invoke(rewriteRule, search, scan));
+        Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
+        Assertions.assertTrue(thrown.getCause().getMessage().contains("has no inverted index"));
+
+        // The values index does not prevent an ordinary path index from serving SEARCH.
+        table.setIndexes(ImmutableList.of(rootIndex, pathIndex));
+        Assertions.assertInstanceOf(SearchExpression.class, rewriteMethod.invoke(rewriteRule, search, scan));
     }
 
     private static OlapTable buildStudentWithInvertedIndexOnName(long tableId) {

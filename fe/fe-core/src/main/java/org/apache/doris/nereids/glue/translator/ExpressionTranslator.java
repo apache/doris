@@ -246,7 +246,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         // Get the first slot from match's left expr
-        SlotReference slot = match.getInputSlots().stream()
+        SlotReference slot = match.left().getInputSlots().stream()
                         .findFirst()
                         .filter(SlotReference.class::isInstance)
                         .map(SlotReference.class::cast)
@@ -266,7 +266,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (column != null && olapTbl != null) {
+        if (Match.isVariantRootSlot(match.left())) {
+            invertedIndex = column != null && olapTbl != null
+                    ? olapTbl.getVariantValuesIndex(column, analyzer) : null;
+            if (invertedIndex == null) {
+                throw new AnalysisException("VARIANT root MATCH requires a values index matching its analyzer"
+                        + (analyzer == null ? "" : " '" + analyzer + "'"));
+            }
+        } else if (column != null && olapTbl != null) {
             invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
             if (analyzer != null && invertedIndex == null) {
                 throw new AnalysisException("No inverted index found for analyzer '" + analyzer
