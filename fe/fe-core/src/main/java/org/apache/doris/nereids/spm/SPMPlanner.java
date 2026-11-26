@@ -787,7 +787,7 @@ public class SPMPlanner {
         // The cost, validation and locked table/function fingerprints still require optimization
         // even when the parsed inputs already rule out freezing. Skip the freeze-specific work in that case.
         boolean attemptFreeze = canFreezeBeforeOptimization(ctx, bindPlan, planPlan,
-                parameterizeBuilder.hasParameterizedGroupByOrdinalTarget());
+                parameterizeBuilder.hasParameterizedGroupingSetOrdinalTarget());
 
         SPMOptimizer.OptimizeResult optimizeResult;
         DecompiledPlan frozen;
@@ -840,7 +840,7 @@ public class SPMPlanner {
         // CREATE is a one-shot operation.
         if (frozen.decompiled) {
             frozen = validateFrozenTextReplannable(ctx, frozen, planSql, bindPlan, parameterizedPlan,
-                    optimizeResult.getPhysicalPlan());
+                    optimizeResult.getPhysicalPlan(), parameterizeBuilder.getGroupByOrdinalTargets());
         }
         if (globalScope) {
             // A GLOBAL baseline must never be frozen over a temporary table: the physical
@@ -938,14 +938,21 @@ public class SPMPlanner {
 
     /**
      * Probes decompiled SQL by substituting payloads collected from the writer plan and running nested SPM
-     * optimization. A planning or parsing failure returns the original user SQL as a fallback. If unresolved
-     * marker calls remain, the current implementation retains the frozen text without running the optimization
-     * probe.
+     * optimization. A planning or parsing failure returns the original user SQL as a fallback. Ordinary
+     * parameterized GROUP BY ordinal targets additionally require a grouping-column proof and a complete
+     * substitution. Other shapes retain the existing unresolved-marker behavior.
      */
     private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
-            DecompiledPlan frozen, String planSql, LogicalPlan bindPlan, Plan parameterizedPlan, Plan writePlan) {
+            DecompiledPlan frozen, String planSql, LogicalPlan bindPlan, Plan parameterizedPlan, Plan writePlan,
+            Set<Set<Long>> groupByOrdinalTargets) {
         try {
             LogicalPlan parsed = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects(frozen.sql);
+            if (!groupByOrdinalTargets.isEmpty()
+                    && !SPMGroupByOrdinalValidator.preservesTargets(parsed, groupByOrdinalTargets)) {
+                LOG.info("SPM frozen SQL cannot prove the parameterized GROUP BY ordinal targets {};"
+                        + " retaining the original plan", groupByOrdinalTargets);
+                return new DecompiledPlan(planSql, false);
+            }
             // Substitute the placeholders with the WRITER plan's own literal payloads
             // before re-planning: the replay substitutes the caller's values by id, so
             // re-planning the raw marker calls can only fail ("Can not found function
@@ -970,7 +977,7 @@ public class SPMPlanner {
                 return new DecompiledPlan(planSql, false);
             }
             if (SPMPlanTreeSupport.containsFrozenPlaceholder(substituted)) {
-                return frozen;
+                return groupByOrdinalTargets.isEmpty() ? frozen : new DecompiledPlan(planSql, false);
             }
             // A re-plannable tree can still be unusable for replay, for example a
             // derived table folded to a one-row relation whose outputs cannot be aligned.
@@ -1043,10 +1050,10 @@ public class SPMPlanner {
      * before resolving relations for the view check.
      */
     static boolean canFreezeBeforeOptimization(ConnectContext ctx, LogicalPlan bindPlan,
-            LogicalPlan planPlan, boolean parameterizedGroupByOrdinal) {
-        if (parameterizedGroupByOrdinal) {
-            LOG.info("SPM freeze skipped: a GROUP BY ordinal references a parameterized SELECT item;"
-                    + " the parameterized tree preserves the grouping");
+            LogicalPlan planPlan, boolean parameterizedGroupingSetOrdinal) {
+        if (parameterizedGroupingSetOrdinal) {
+            LOG.info("SPM freeze skipped: a grouping-set ordinal references a parameterized SELECT item;"
+                    + " the parameterized tree preserves the grouping sets");
             return false;
         }
         if (SPMPlanTreeSupport.pinsExplicitIndex(bindPlan)

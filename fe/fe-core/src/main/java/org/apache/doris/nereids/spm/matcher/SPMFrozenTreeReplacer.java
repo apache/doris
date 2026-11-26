@@ -93,6 +93,11 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
         return false;
     }
 
+    /** Returns the id of an unqualified frozen marker, or null for an ordinary expression. */
+    public static Long frozenPlaceholderId(Expression expr) {
+        return isUnsubstitutedPlaceholder(expr) ? placeholderId((UnboundFunction) expr) : null;
+    }
+
     @Override
     public Expression visit(Expression expr, Map<Long, Expression> placeholderValues) {
         // default: rebuild the children bottom-up (a CAST / arithmetic / comparison /

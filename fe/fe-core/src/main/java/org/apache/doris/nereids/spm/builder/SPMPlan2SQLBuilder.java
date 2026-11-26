@@ -1054,7 +1054,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // query block still resolves it. ORDER BY and LIMIT
                 // always move TOGETHER: a limit without its order picks arbitrary rows.
                 String hoisted = sinkOrderBy.isEmpty() ? ""
-                        : hoistableOrderBy(child, sinkOrderBy, ordered, true);
+                        : hoistableOrderBy(child, sinkOrderBy, ordered, true, alias);
                 if (hoisted != null) {
                     outer.setOrderBy(hoisted);
                     outer.setLimit(sinkLimit);
@@ -3675,7 +3675,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (!child.isAssertRows() && (!childOrderBy.isEmpty() || !childLimit.isEmpty())
                 && hoistableProjection(project)) {
             String hoisted = childOrderBy.isEmpty() ? ""
-                    : hoistableOrderBy(child, childOrderBy, selects, embedsAsSubquery(child));
+                    : hoistableOrderBy(child, childOrderBy, selects, embedsAsSubquery(child), null);
             if (hoisted != null) {
                 child.setOrderBy("");
                 child.setLimit("");
@@ -3877,12 +3877,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      *                       child's exports at the outer level), or null when unknown
      * Parameter canAugment: whether the child's SELECT list can still receive an export
      *                       (the child renders as its own subquery block)
+     * Parameter inputAlias: the final sink wrapper's derived-table alias, or null for intermediate hoists
      * Returns: the clause text to place on the wrapper (possibly rewritten), or null when
      *         the clause cannot be hoisted safely - the caller keeps it inside the child
      *         then, where its own query block resolves every reference
      */
     private String hoistableOrderBy(SQLRelation child, String orderBy,
-            List<Pair<ExprId, String>> wrapperOutputs, boolean canAugment) {
+            List<Pair<ExprId, String>> wrapperOutputs, boolean canAugment, String inputAlias) {
         if (orderBy.isEmpty()) {
             return "";
         }
@@ -3896,17 +3897,19 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 }
             }
         }
-        Map<String, ExprId> shadowed = new HashMap<>();
+        Map<String, Set<ExprId>> shadowed = new HashMap<>();
         if (wrapperOutputs != null) {
             for (Pair<ExprId, String> select : wrapperOutputs) {
                 String outputName = selectOutputName(select.value());
                 if (outputName != null && !outputName.isEmpty()) {
-                    shadowed.putIfAbsent(normalizeOutputName(outputName), select.key());
+                    shadowed.computeIfAbsent(normalizeOutputName(outputName), name -> new HashSet<>())
+                            .add(select.key());
                 }
             }
         }
         String rewritten = orderBy;
         List<Pair<ExprId, String>> additions = new ArrayList<>();
+        List<String> qualifyNames = new ArrayList<>();
         Set<String> handled = new HashSet<>();
         for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet()) {
             String name = entry.getValue();
@@ -3923,15 +3926,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (!handled.add(normalized)) {
                 continue;
             }
-            ExprId shadowOwner = shadowed.get(normalized);
-            if (shadowOwner != null && !shadowOwner.equals(entry.getKey())) {
+            Set<ExprId> shadowOwners = shadowed.get(normalized);
+            if (shadowOwners != null && (shadowOwners.size() != 1 || !shadowOwners.contains(entry.getKey()))) {
+                // The result sink may deliberately restore duplicate caller labels,
+                // e.g. SELECT c, v AS c. ORDER BY c can bind to v although c is also
+                // the first output's label. If the actual input column is exported,
+                // qualify it with the final FROM alias. This also works for SELECT *
+                // children, which cannot safely be augmented with one extra item.
+                if (shadowOwners.size() > 1 && inputAlias != null
+                        && (starChild || entry.getKey().equals(exported.get(normalized)))) {
+                    qualifyNames.add(name);
+                    continue;
+                }
                 // the wrapper's own output alias would capture the reference: dodge it
                 if (starChild || !canAugment) {
                     LOG.info("SPM order-by hoist refused: '{}' name '{}' shadowed by the wrapper and"
                             + " nothing can be re-exported", orderBy, name);
                     return null; // nothing to re-export the column from
                 }
-                String fresh = freshExportName(child, orderBy, exported, shadowed);
+                String fresh = freshExportName(child, orderBy, exported, shadowed.keySet());
                 additions.add(Pair.of(entry.getKey(), name + " AS " + fresh));
                 exported.put(normalizeOutputName(fresh), entry.getKey());
                 reExportedLabels.put(fresh, entry.getKey());
@@ -3965,7 +3978,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                         orderBy, name);
                 return null;
             }
-            String fresh = freshExportName(child, orderBy, exported, shadowed);
+            String fresh = freshExportName(child, orderBy, exported, shadowed.keySet());
             additions.add(Pair.of(entry.getKey(), name + " AS " + fresh));
             exported.put(normalizeOutputName(fresh), entry.getKey());
             reExportedLabels.put(fresh, entry.getKey());
@@ -4006,6 +4019,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
         if (!additions.isEmpty()) {
             child.getSelects().addAll(additions);
+        }
+        // Qualify after re-export rewrites so the generated table alias cannot be
+        // mistaken for another sort column of the same name.
+        for (String name : qualifyNames) {
+            rewritten = replaceStandaloneReference(rewritten, name, inputAlias + "." + name, true);
         }
         return rewritten;
     }
@@ -4087,10 +4105,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * shadowed, not a registered child column and not present in the clause itself.
      */
     private static String freshExportName(SQLRelation child, String orderBy,
-            Map<String, ExprId> exported, Map<String, ExprId> shadowed) {
+            Map<String, ExprId> exported, Set<String> shadowed) {
         for (long i = 1; ; i++) {
             String candidate = "c_" + i;
-            if (exported.containsKey(candidate) || shadowed.containsKey(candidate)
+            if (exported.containsKey(candidate) || shadowed.contains(candidate)
                     || referencesName(orderBy, candidate)
                     || childNamesContain(child, candidate)) {
                 continue;
@@ -4115,6 +4133,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * because its own name would bind to a descending output alias of the wrapper
      */
     private static String replaceStandaloneReference(String sql, String name, String replacement) {
+        return replaceStandaloneReference(sql, name, replacement, false);
+    }
+
+    private static String replaceStandaloneReference(String sql, String name, String replacement,
+            boolean unqualifiedOnly) {
         boolean quotedName = name.startsWith("`") && name.endsWith("`") && name.length() >= 2;
         StringBuilder sb = new StringBuilder(sql.length() + 8);
         boolean inString = false;
@@ -4158,7 +4181,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 char prev = i == 0 ? ' ' : sql.charAt(i - 1);
                 int end = i + name.length();
                 char next = end >= sql.length() ? ' ' : sql.charAt(end);
-                if (!isIdentifierChar(prev) && !isIdentifierChar(next)) {
+                if (!isIdentifierChar(prev) && !isIdentifierChar(next)
+                        && (!unqualifiedOnly || (prev != '.' && next != '.'))) {
                     sb.append(replacement);
                     i = end;
                     continue;

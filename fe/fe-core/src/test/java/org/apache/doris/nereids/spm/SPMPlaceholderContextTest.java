@@ -152,9 +152,27 @@ public class SPMPlaceholderContextTest {
     }
 
     @Test
-    public void testParameterizedGroupByOrdinalPreventsFreezing() {
+    public void testParameterizedGroupByOrdinalRecordsTargetIds() {
         String query = "SELECT k + 1 AS c, count(*) AS n FROM t GROUP BY 1";
-        Assertions.assertTrue(parameterize(query).hasParameterizedGroupByOrdinalTarget(), query);
+        TestSPMPlaceholderBuilder builder = parameterize(query);
+        Assertions.assertTrue(builder.hasParameterizedGroupByOrdinalTarget(), query);
+        Assertions.assertEquals(Set.of(Set.of(1L)), builder.getGroupByOrdinalTargets());
+        Assertions.assertFalse(builder.hasParameterizedGroupingSetOrdinalTarget());
+
+        builder = parameterize("SELECT k + 1 AS c, v * 2 AS d, count(*) AS n FROM t GROUP BY 2, 1");
+        Assertions.assertEquals(Set.of(Set.of(1L), Set.of(2L)), builder.getGroupByOrdinalTargets());
+        builder = parameterize("SELECT (SELECT 1 AS c FROM u GROUP BY 1) FROM t");
+        Assertions.assertEquals(Set.of(Set.of(1L)), builder.getGroupByOrdinalTargets());
+    }
+
+    @Test
+    public void testParameterizedGroupingSetOrdinalRetainsRawPlan() {
+        for (String grouping : List.of("ROLLUP(1)", "CUBE(1)", "GROUPING SETS((1), ())")) {
+            TestSPMPlaceholderBuilder builder = parameterize(
+                    "SELECT k + 1 AS c, count(*) AS n FROM t GROUP BY " + grouping);
+            Assertions.assertTrue(builder.hasParameterizedGroupingSetOrdinalTarget(), grouping);
+            Assertions.assertTrue(builder.getGroupByOrdinalTargets().isEmpty(), grouping);
+        }
     }
 
     @Test

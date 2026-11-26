@@ -196,7 +196,7 @@ public final class SPMPlanTreeSupport {
         }
 
         /** Records a GROUP BY ordinal whose SELECT item contains placeholders. */
-        default void noteParameterizedGroupByOrdinalTarget() {
+        default void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
         }
     }
 
@@ -1520,9 +1520,9 @@ public final class SPMPlanTreeSupport {
             if (newOutput != aggregate.getOutputExpressions()) {
                 changed = true;
             }
-            // The group key can inline the SELECT expression during analysis. Keep the
-            // parameterized tree when the physical grouping cannot preserve that ordinal.
-            noteParameterizedGroupByOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform);
+            // The source target carries the placeholder ids that must survive in a
+            // grouping-column producer in the frozen SQL, not in the ordinal itself.
+            noteParameterizedGroupByOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform, false);
             if (!changed) {
                 return aggregate;
             }
@@ -1606,16 +1606,18 @@ public final class SPMPlanTreeSupport {
 
         /** Detects a GROUP BY ordinal that resolves to a parameterized SELECT item. */
         private void noteParameterizedGroupByOrdinalTargets(List<Expression> keys,
-                List<? extends NamedExpression> outputs, ExprTransform transform) {
+                List<? extends NamedExpression> outputs, ExprTransform transform, boolean groupingSet) {
             for (Expression key : keys) {
                 if (!(key instanceof IntegerLikeLiteral)) {
                     continue;
                 }
                 BigDecimal ordinal = ((IntegerLikeLiteral) key).getBigDecimalValue();
                 if (ordinal.compareTo(BigDecimal.ONE) >= 0
-                        && ordinal.compareTo(BigDecimal.valueOf(outputs.size())) <= 0
-                        && containsPlaceholder(outputs.get(ordinal.intValueExact() - 1))) {
-                    transform.noteParameterizedGroupByOrdinalTarget();
+                        && ordinal.compareTo(BigDecimal.valueOf(outputs.size())) <= 0) {
+                    Expression target = outputs.get(ordinal.intValueExact() - 1);
+                    if (containsPlaceholder(target)) {
+                        transform.noteParameterizedGroupByOrdinalTarget(target, groupingSet);
+                    }
                 }
             }
         }
@@ -1678,6 +1680,9 @@ public final class SPMPlanTreeSupport {
                     transform);
             if (newOutput != repeat.getOutputExpressions()) {
                 changed = true;
+            }
+            for (List<Expression> groupingSet : repeat.getGroupingSets()) {
+                noteParameterizedGroupByOrdinalTargets(groupingSet, newOutput, transform, true);
             }
             if (!changed) {
                 return repeat;
@@ -5057,6 +5062,13 @@ public final class SPMPlanTreeSupport {
                 collectPlaceholderIds(expr, ids, true);
             }
         });
+    }
+
+    /** The marker ids of an individual parameterized expression (including subqueries). */
+    public static Set<Long> collectPlaceholderIds(Expression expression) {
+        Set<Long> ids = new HashSet<>();
+        collectPlaceholderIds(expression, ids, true);
+        return ids;
     }
 
     /** Recurses one expression tree collecting placeholder ids. */

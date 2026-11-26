@@ -58,6 +58,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -197,12 +198,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /** Number of array items or map values before reaching the key selected by MAP_KEYS. */
     private int mapKeyDepth = NO_MAP_KEY_DEPENDENCY;
 
-    /**
-     * Whether a GROUP BY ordinal references a parameterized SELECT item. Analysis can inline
-     * that expression and the physical grouping can lose its binding to the original item.
-     * Keep the parameterized tree so replay binds the ordinal against the caller's values.
-     */
-    private boolean parameterizedGroupByOrdinalTarget;
+    /** Marker-id sets of the SELECT expressions targeted by ordinary GROUP BY ordinals. */
+    private final Set<Set<Long>> groupByOrdinalTargets = new HashSet<>();
+
+    /** Parameterized grouping-set ordinal targets require a separate repeat-aware proof. */
+    private boolean parameterizedGroupingSetOrdinalTarget;
 
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock. */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
@@ -216,15 +216,29 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         this.groupByMirrorLookup = lookup;
     }
 
-    /** Reports whether capture must keep the parameterized tree for a GROUP BY ordinal. */
+    /** Reports whether any GROUP BY ordinal needs the frozen grouping-column proof. */
     public boolean hasParameterizedGroupByOrdinalTarget() {
-        return parameterizedGroupByOrdinalTarget;
+        return !groupByOrdinalTargets.isEmpty() || parameterizedGroupingSetOrdinalTarget;
     }
 
-    /** Marks a GROUP BY ordinal whose SELECT item carries placeholders. */
+    /** Returns the marker sets that the ordinary grouping-column proof must preserve. */
+    public Set<Set<Long>> getGroupByOrdinalTargets() {
+        return Set.copyOf(groupByOrdinalTargets);
+    }
+
+    /** Reports whether the separate grouping-set path must retain the raw SQL. */
+    public boolean hasParameterizedGroupingSetOrdinalTarget() {
+        return parameterizedGroupingSetOrdinalTarget;
+    }
+
+    /** Records targets across both bind and plan trees before optimization can erase their provenance. */
     @Override
-    public void noteParameterizedGroupByOrdinalTarget() {
-        this.parameterizedGroupByOrdinalTarget = true;
+    public void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
+        if (groupingSet) {
+            parameterizedGroupingSetOrdinalTarget = true;
+        } else {
+            groupByOrdinalTargets.add(Set.copyOf(SPMPlanTreeSupport.collectPlaceholderIds(target)));
+        }
     }
 
     /** Starts one expression ROOT of the current block (see nextRootOrdinal). */
@@ -284,8 +298,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
 
         @Override
-        public void noteParameterizedGroupByOrdinalTarget() {
-            SPMPlaceholderBuilder.this.noteParameterizedGroupByOrdinalTarget();
+        public void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
+            SPMPlaceholderBuilder.this.noteParameterizedGroupByOrdinalTarget(target, groupingSet);
         }
 
         @Override

@@ -3023,6 +3023,29 @@ public class SPMPlan2SQLBuilderTest {
                         + " Limit: " + frozen.getClass().getSimpleName() + " / " + sql);
     }
 
+    @Test
+    public void testSinkRelabelDuplicateNamesPreservesOrderKeyIdentity() {
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(c, v));
+        List<OrderKey> keys = List.of(new OrderKey(c, true, true), new OrderKey(v, true, true));
+        PhysicalQuickSort<?> local = mockQuickSort(scan, keys);
+        PhysicalQuickSort<?> merge = mockQuickSort(local, keys);
+        Slot second = Mockito.mock(Slot.class);
+        Mockito.when(second.getExprId()).thenReturn(v.getExprId());
+        Mockito.when(second.getName()).thenReturn("c");
+        PhysicalResultSink sink = Mockito.mock(PhysicalResultSink.class);
+        Mockito.when(sink.child(0)).thenReturn(merge);
+        Mockito.when(sink.getOutput()).thenReturn(List.of(c, second));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalSink(sink, null);
+        String sql = relation.toSQL();
+        Assertions.assertTrue(sql.startsWith("SELECT c, v AS c"), sql);
+        Assertions.assertEquals(relation.getRelationAlias() + ".c ASC NULLS FIRST, v ASC NULLS FIRST",
+                relation.getOrderBy(), sql);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql), sql);
+    }
+
     /**
      * The same hoist must happen WITHOUT a LIMIT. "SELECT a FROM t ORDER BY b + 1"
      * arrives as a Sort under the relabel wrapper, and an ORDER BY left inside the
