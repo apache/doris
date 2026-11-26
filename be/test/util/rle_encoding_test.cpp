@@ -419,6 +419,172 @@ TEST_F(TestRle, TestSkip) {
     encoder.Flush();
 }
 
+// Regression tests for #66365: RleDecoder::Skip must preserve its `size_t`
+// non-zero count contract (returning 0 on valid all-zero runs) while stopping
+// boundedly instead of spinning when the bitstream ends or is malformed.
+TEST_F(TestRle, TestSkipAllZeroContractPreserved) {
+    faststring buffer;
+    RleEncoder<bool> encoder(&buffer, 1);
+    encoder.Put(false, 64);
+    for (int i = 0; i < 16; ++i) {
+        encoder.Put(false);
+    }
+    const int encoded_len = encoder.Flush();
+
+    RleDecoder<bool> decoder(buffer.data(), encoded_len, 1);
+    EXPECT_EQ(0u, decoder.Skip(30));
+    EXPECT_EQ(0u, decoder.Skip(50));
+    bool val = true;
+    EXPECT_FALSE(decoder.Get(&val));
+    EXPECT_EQ(0u, decoder.Skip(1));
+}
+
+TEST_F(TestRle, TestSkipTruncatedAndMalformedTerminates) {
+    // 1. Exhausted valid repeated + literal stream: Skip past EOF must return boundedly.
+    {
+        faststring buffer;
+        RleEncoder<bool> encoder(&buffer, 1);
+        encoder.Put(true, 10);
+        for (int i = 0; i < 8; ++i) {
+            encoder.Put((i & 1) != 0);
+        }
+        const int encoded_len = encoder.Flush();
+
+        RleDecoder<bool> decoder(buffer.data(), encoded_len, 1);
+        EXPECT_EQ(14u, decoder.Skip(100));
+        bool val = false;
+        EXPECT_FALSE(decoder.Get(&val));
+    }
+
+    // 2. Empty buffer.
+    {
+        uint8_t dummy = 0;
+        RleDecoder<bool> decoder(&dummy, 0, 1);
+        EXPECT_EQ(0u, decoder.Skip(16));
+    }
+
+    // 3. Zero-length repeated indicator (0x00) and zero-length literal indicator (0x01).
+    for (uint8_t bad_indicator : {uint8_t {0x00}, uint8_t {0x01}}) {
+        uint8_t raw[2] = {bad_indicator, 0x01};
+        RleDecoder<bool> decoder(raw, sizeof(raw), 1);
+        EXPECT_EQ(0u, decoder.Skip(8));
+        bool val = false;
+        EXPECT_FALSE(decoder.Get(&val));
+        EXPECT_EQ(0u, decoder.GetNextRun(&val, 8));
+    }
+
+    // 4. Truncated repeated run (VLQ header present, value byte missing) and
+    //    truncated literal run (header claims 2 groups = 16 uint8_t literals, only 1 byte present).
+    {
+        uint8_t truncated_repeat[1] = {static_cast<uint8_t>(16u << 1)};
+        RleDecoder<uint32_t> dec_rep(truncated_repeat, sizeof(truncated_repeat), 32);
+        EXPECT_EQ(0u, dec_rep.Skip(4));
+        uint32_t v32 = 0;
+        EXPECT_FALSE(dec_rep.Get(&v32));
+
+        uint8_t truncated_literal[2] = {static_cast<uint8_t>((2u << 1) | 1u), 0x2A};
+        RleDecoder<uint8_t> dec_lit(truncated_literal, sizeof(truncated_literal), 8);
+        EXPECT_EQ(1u, dec_lit.Skip(8));
+        uint8_t v8 = 0;
+        EXPECT_FALSE(dec_lit.Get(&v8));
+    }
+}
+
+TEST_F(TestRle, TestSkipWithStatusContract) {
+    // 1. Valid all-zero stream: 2-arg Skip returns true and reports 0 non-zero entries,
+    //    and reports false with 0 non-zero entries once exhausted.
+    {
+        faststring buffer;
+        RleEncoder<bool> encoder(&buffer, 1);
+        encoder.Put(false, 64);
+        for (int i = 0; i < 16; ++i) {
+            encoder.Put(false);
+        }
+        const int encoded_len = encoder.Flush();
+
+        RleDecoder<bool> decoder(buffer.data(), encoded_len, 1);
+        size_t non_zero = 999;
+        EXPECT_TRUE(decoder.Skip(30, &non_zero));
+        EXPECT_EQ(0u, non_zero);
+        non_zero = 999;
+        EXPECT_TRUE(decoder.Skip(50, &non_zero));
+        EXPECT_EQ(0u, non_zero);
+        non_zero = 999;
+        EXPECT_TRUE(decoder.Skip(0, &non_zero));
+        EXPECT_EQ(0u, non_zero);
+        non_zero = 999;
+        EXPECT_FALSE(decoder.Skip(1, &non_zero));
+        EXPECT_EQ(0u, non_zero);
+        EXPECT_FALSE(decoder.Skip(1, nullptr));
+    }
+
+    // 2. Mixed stream skipping past EOF: returns false and preserves skipped non-zero count.
+    {
+        faststring buffer;
+        RleEncoder<bool> encoder(&buffer, 1);
+        encoder.Put(true, 10);
+        for (int i = 0; i < 8; ++i) {
+            encoder.Put((i & 1) != 0);
+        }
+        const int encoded_len = encoder.Flush();
+
+        RleDecoder<bool> decoder(buffer.data(), encoded_len, 1);
+        size_t non_zero = 0;
+        EXPECT_FALSE(decoder.Skip(100, &non_zero));
+        EXPECT_EQ(14u, non_zero);
+    }
+
+    // 3. Zero-length indicators return false with 0 non-zero entries.
+    for (uint8_t bad_indicator : {uint8_t {0x00}, uint8_t {0x01}}) {
+        uint8_t raw[2] = {bad_indicator, 0x01};
+        RleDecoder<bool> decoder(raw, sizeof(raw), 1);
+        size_t non_zero = 999;
+        EXPECT_FALSE(decoder.Skip(8, &non_zero));
+        EXPECT_EQ(0u, non_zero);
+    }
+
+    // 4. Multi-group literal stream where group 1 is intact (fast path: 5 non-zeros) and
+    //    group 2 is truncated after 3 bytes (slow path: 2 non-zeros): returns false with 7.
+    {
+        const uint8_t lit_hdr = static_cast<uint8_t>((1u << 1) | 1u);
+        uint8_t raw[] = {lit_hdr, 1, 0, 2, 0, 3, 4, 0, 5, lit_hdr, 6, 0, 7};
+        RleDecoder<uint8_t> decoder(raw, sizeof(raw), 8);
+        size_t non_zero = 0;
+        EXPECT_FALSE(decoder.Skip(16, &non_zero));
+        EXPECT_EQ(7u, non_zero);
+    }
+
+    // 5. Non-byte-aligned 1-bit literal run with only 1 payload byte (0xB6 = 0b10110110, LSB=0,
+    //    remaining 7 bits contain 5 ones): skipping 1 bit leaves bit_offset_=1 so bytes_left()==0
+    //    forces the slow path; skipping 8 more bits must return false with 5 non-zeros, while
+    //    skipping exactly 7 more bits succeeds with 5 non-zeros before EOF on the next bit.
+    {
+        const uint8_t lit_hdr_2groups = static_cast<uint8_t>((2u << 1) | 1u);
+        uint8_t raw[] = {lit_hdr_2groups, 0xB6};
+        {
+            RleDecoder<bool> decoder(raw, sizeof(raw), 1);
+            size_t non_zero = 999;
+            EXPECT_TRUE(decoder.Skip(1, &non_zero));
+            EXPECT_EQ(0u, non_zero);
+            non_zero = 999;
+            EXPECT_FALSE(decoder.Skip(8, &non_zero));
+            EXPECT_EQ(5u, non_zero);
+        }
+        {
+            RleDecoder<bool> decoder(raw, sizeof(raw), 1);
+            size_t non_zero = 999;
+            EXPECT_TRUE(decoder.Skip(1, &non_zero));
+            EXPECT_EQ(0u, non_zero);
+            non_zero = 999;
+            EXPECT_TRUE(decoder.Skip(7, &non_zero));
+            EXPECT_EQ(5u, non_zero);
+            non_zero = 999;
+            EXPECT_FALSE(decoder.Skip(1, &non_zero));
+            EXPECT_EQ(0u, non_zero);
+        }
+    }
+}
+
 // Helper to compare Put with run_length vs multiple Put(value) calls
 template <typename T>
 void ValidatePutRunLength(const std::vector<std::pair<T, size_t>>& runs, int bit_width) {

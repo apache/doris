@@ -101,6 +101,10 @@ public:
 
     // Skip n values, and returns the number of non-zero entries skipped.
     size_t Skip(size_t to_skip);
+    // Skip n values. Writes the number of non-zero entries skipped to
+    // `*non_zero_count` (if non-null), and returns false if the input ends or
+    // is malformed before `to_skip` values are skipped.
+    bool Skip(size_t to_skip, size_t* non_zero_count);
 
     // Gets the next value.  Returns false if there are no more.
     bool Get(T* val);
@@ -246,22 +250,31 @@ bool RleDecoder<T>::ReadHeader() {
         // Read the next run's indicator int, it could be a literal or repeated run
         // The int is encoded as a vlq-encoded value.
         uint32_t indicator_value = 0;
-        bool result = bit_reader_.GetVlqInt(&indicator_value);
-        if (!result) [[unlikely]] {
+        if (!bit_reader_.GetVlqInt(&indicator_value)) [[unlikely]] {
+            return false;
+        }
+
+        uint32_t run_len = indicator_value >> 1;
+        if (UNLIKELY(run_len == 0)) {
             return false;
         }
 
         // lsb indicates if it is a literal run or repeated run
         bool is_literal = indicator_value & 1;
         if (is_literal) {
-            literal_count_ = (indicator_value >> 1) * 8;
-            DCHECK_GT(literal_count_, 0);
+            uint64_t literal_count = static_cast<uint64_t>(run_len) * 8;
+            if (UNLIKELY(literal_count > std::numeric_limits<uint32_t>::max())) {
+                return false;
+            }
+            literal_count_ = static_cast<uint32_t>(literal_count);
         } else {
-            repeat_count_ = indicator_value >> 1;
-            DCHECK_GT(repeat_count_, 0);
-            bool result1 = bit_reader_.GetAligned<T>(BitUtil::Ceil(bit_width_, 8),
-                                                     reinterpret_cast<T*>(&current_value_));
-            DCHECK(result1);
+            uint64_t value = 0;
+            if (!bit_reader_.GetAligned<T>(BitUtil::Ceil(bit_width_, 8),
+                                           reinterpret_cast<T*>(&value))) [[unlikely]] {
+                return false;
+            }
+            current_value_ = value;
+            repeat_count_ = run_len;
         }
     }
     return true;
@@ -280,8 +293,11 @@ bool RleDecoder<T>::Get(T* val) {
         rewind_state_ = REWIND_RUN;
     } else {
         DCHECK(literal_count_ > 0);
-        bool result = bit_reader_.GetValue(bit_width_, val);
-        DCHECK(result);
+        if (!bit_reader_.GetValue(bit_width_, val)) [[unlikely]] {
+            literal_count_ = 0;
+            rewind_state_ = CANT_REWIND;
+            return false;
+        }
         --literal_count_;
         rewind_state_ = REWIND_LITERAL;
     }
@@ -335,17 +351,24 @@ size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
         } else {
             DCHECK(literal_count_ > 0);
             if (ret == 0) {
-                bool has_more = bit_reader_.GetValue(bit_width_, val);
-                DCHECK(has_more);
+                if (!bit_reader_.GetValue(bit_width_, val)) [[unlikely]] {
+                    literal_count_ = 0;
+                    return 0;
+                }
                 literal_count_--;
                 ret++;
                 rem--;
             }
 
             while (literal_count_ > 0) {
-                bool result = bit_reader_.GetValue(bit_width_, &current_value_);
-                DCHECK(result);
-                if (current_value_ != *val || rem == 0) {
+                if (rem == 0) {
+                    return ret;
+                }
+                if (!bit_reader_.GetValue(bit_width_, &current_value_)) [[unlikely]] {
+                    literal_count_ = 0;
+                    return ret;
+                }
+                if (current_value_ != *val) {
                     bit_reader_.Rewind(bit_width_);
                     return ret;
                 }
@@ -372,13 +395,15 @@ size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
             read_num += read_this_time;
         } else if (literal_count_ > 0) {
             read_this_time = std::min((size_t)literal_count_, read_this_time);
-            for (int i = 0; i < read_this_time; ++i) {
-                bool result = bit_reader_.GetValue(bit_width_, values);
-                DCHECK(result);
+            for (size_t i = 0; i < read_this_time; ++i) {
+                if (!bit_reader_.GetValue(bit_width_, values)) [[unlikely]] {
+                    literal_count_ = 0;
+                    return read_num;
+                }
                 values++;
+                literal_count_--;
+                read_num++;
             }
-            literal_count_ -= read_this_time;
-            read_num += read_this_time;
         } else {
             if (!ReadHeader()) {
                 return read_num;
@@ -407,13 +432,20 @@ T RleDecoder<T>::get_repeated_value(size_t count) {
 }
 
 template <typename T>
-size_t RleDecoder<T>::Skip(size_t to_skip) {
+bool RleDecoder<T>::Skip(size_t to_skip, size_t* non_zero_count) {
     DCHECK(bit_reader_.is_initialized());
 
     size_t set_count = 0;
+    if (to_skip > 0) {
+        rewind_state_ = CANT_REWIND;
+    }
     while (to_skip > 0) {
-        bool result = ReadHeader();
-        DCHECK(result);
+        if (!ReadHeader()) [[unlikely]] {
+            if (non_zero_count != nullptr) {
+                *non_zero_count = set_count;
+            }
+            return false;
+        }
 
         if (repeat_count_ > 0) [[likely]] {
             size_t nskip = (repeat_count_ < to_skip) ? repeat_count_ : to_skip;
@@ -427,16 +459,44 @@ size_t RleDecoder<T>::Skip(size_t to_skip) {
             size_t nskip = (literal_count_ < to_skip) ? literal_count_ : to_skip;
             literal_count_ -= nskip;
             to_skip -= nskip;
-            for (; nskip > 0; nskip--) {
-                T value = 0;
-                bool result1 = bit_reader_.GetValue(bit_width_, &value);
-                DCHECK(result1);
-                if (value != 0) {
-                    set_count++;
+            const uint64_t safe_bits_left =
+                    static_cast<uint64_t>(std::max(0, bit_reader_.bytes_left())) * 8;
+            if (LIKELY(static_cast<uint64_t>(nskip) * static_cast<uint64_t>(bit_width_) <=
+                       safe_bits_left)) {
+                for (; nskip > 0; nskip--) {
+                    T value = 0;
+                    (void)bit_reader_.GetValue(bit_width_, &value);
+                    if (value != 0) {
+                        set_count++;
+                    }
+                }
+            } else {
+                for (; nskip > 0; nskip--) {
+                    T value = 0;
+                    if (!bit_reader_.GetValue(bit_width_, &value)) [[unlikely]] {
+                        literal_count_ = 0;
+                        if (non_zero_count != nullptr) {
+                            *non_zero_count = set_count;
+                        }
+                        return false;
+                    }
+                    if (value != 0) {
+                        set_count++;
+                    }
                 }
             }
         }
     }
+    if (non_zero_count != nullptr) {
+        *non_zero_count = set_count;
+    }
+    return true;
+}
+
+template <typename T>
+inline size_t RleDecoder<T>::Skip(size_t to_skip) {
+    size_t set_count = 0;
+    (void)Skip(to_skip, &set_count);
     return set_count;
 }
 
