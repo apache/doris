@@ -1233,9 +1233,11 @@ static bool geography_raw_edges_cross(const GeographyEdgeNodes::LineEdge& left,
     return acb != 0 && side(c, b, d) == acb && side(b, d, a) == acb && side(d, a, c) == acb;
 }
 
-static bool geography_has_raw_line_edge_crossing(const GeographyEdgeNodes::LineEdges& left,
-                                                 const GeographyEdgeNodes::LineEdges& right) {
-    // Only called when rounded endpoints collide without an exact shared vertex.
+static bool geography_has_indexed_raw_crossing(const GeographyEdgeNodes::LineEdges& left,
+                                               const GeographyEdgeNodes::LineEdges& right) {
+    if (left.empty() || right.empty()) {
+        return false;
+    }
     // The index recalls rounded crossing candidates and the raw coordinates certify contact.
     MutableS2ShapeIndex index;
     auto shape = std::make_unique<S2EdgeVectorShape>();
@@ -1693,29 +1695,39 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
             container.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             value.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
             (containment || name == "st_equals" || name == "st_overlaps" || name == "st_touches");
+    const bool contact = name == "st_intersects" || name == "st_disjoint";
     const bool raw_coverage = raw_line_coverage || raw_polygon_coverage || containment ||
-                              name == "st_touches" || name == "st_overlaps" ||
-                              name == "st_intersects" || name == "st_disjoint";
+                              name == "st_touches" || name == "st_overlaps" || contact;
     geography_shape_index(container, name == "st_within" ? nodes.right : nodes.left, nodes, &left,
                           raw_coverage ? &left_edges : nullptr);
     geography_shape_index(value, name == "st_within" ? nodes.left : nodes.right, nodes, &right,
                           raw_coverage ? &right_edges : nullptr);
+    const auto has_polygon_contact_witness = [&] {
+        const bool left_polygon = lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON;
+        const bool right_polygon = rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON;
+        // Try vertices before edge crossings: an interior vertex already proves intersection.
+        if ((left_polygon &&
+             geography_has_polygon_intersection_witness(nodes.left, left, nodes.right, nodes)) ||
+            (right_polygon &&
+             geography_has_polygon_intersection_witness(nodes.right, right, nodes.left, nodes))) {
+            return true;
+        }
+        if (left_polygon && right_polygon) {
+            return geography_has_raw_polygon_edge_crossing(left_edges, right_edges);
+        }
+        const auto& polygon = left_polygon ? left_edges.polygon : right_edges.polygon;
+        const auto& line = left_polygon ? right_edges.line : left_edges.line;
+        return std::ranges::any_of(polygon, [&](const auto& boundary) {
+            return geography_has_indexed_raw_crossing(line, boundary);
+        });
+    };
     const auto check_polygon_admission =
             [&](const GeographyCoordinates& polygon_raw, const S2ShapeIndex& polygon_index,
                 const GeoShape& other, const GeographyCoordinates& other_raw) {
                 if (other.type() != GeoShapeType::GEO_SHAPE_LINE_STRING) {
                     return false;
                 }
-                if (name == "st_intersects" || name == "st_disjoint") {
-                    // Test indexed ambiguity first. An exterior line has no interior witness, so
-                    // looking for one first would scan every polygon edge at each line vertex.
-                    // An ambiguous vertex matters only if no other vertex proves contact.
-                    return geography_polygon_line_has_ambiguous_vertex(polygon_raw, polygon_index,
-                                                                       other_raw, nodes) &&
-                           !geography_has_polygon_intersection_witness(polygon_raw, polygon_index,
-                                                                       other_raw, nodes);
-                }
-                if (containment) {
+                if (contact || containment) {
                     return geography_polygon_line_has_ambiguous_vertex(polygon_raw, polygon_index,
                                                                        other_raw, nodes);
                 }
@@ -1732,6 +1744,11 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
           check_polygon_admission(nodes.left, lhs_index, rhs, nodes.right)) ||
          (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
           check_polygon_admission(nodes.right, rhs_index, lhs, nodes.left)))) {
+        // An ambiguous line vertex cannot undo a separately proven crossing.
+        if (contact && has_polygon_contact_witness()) {
+            *result = name == "st_intersects";
+            return Status::OK();
+        }
         return Status::NotSupported(
                 "{} does not support ambiguous spherical Polygon boundary interiors", name);
     }
@@ -1819,12 +1836,11 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         return Status::OK();
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
-    if (intersects && (name == "st_intersects" || name == "st_disjoint") &&
-        lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+    if (intersects && contact && lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
         rhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
         geography_rounded_vertex_collision(left_edges, nodes.left, right_edges, nodes.right)) {
         if (!shares_raw_vertex() &&
-            !geography_has_raw_line_edge_crossing(left_edges.line, right_edges.line)) {
+            !geography_has_indexed_raw_crossing(left_edges.line, right_edges.line)) {
             return Status::NotSupported(
                     "{} does not support ambiguous spherical Polygon boundary line vertex "
                     "contact",
@@ -1834,27 +1850,15 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         *result = name == "st_intersects";
         return Status::OK();
     }
-    if (intersects && (name == "st_intersects" || name == "st_disjoint") &&
+    if (intersects && contact &&
         (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON ||
          rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON) &&
         geography_rounded_vertex_collision(left_edges, nodes.left, right_edges, nodes.right) &&
-        !shares_raw_vertex()) {
+        !shares_raw_vertex() && !has_polygon_contact_witness()) {
         // CLOSED indexes can turn a raw endpoint/apex gap into contact. An unrelated collision
         // must not hide genuine contact or a strict interior point elsewhere in either shape.
-        // Interior/vertex witnesses prove the contact without inspecting every edge pair. Keep
-        // the raw crossing fallback last: nested N-edge polygons can otherwise perform N^2
-        // CrossingSign calls even though a cheap inner vertex already proves the intersection.
-        const bool has_witness = (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                                  geography_has_polygon_intersection_witness(nodes.left, left,
-                                                                             nodes.right, nodes)) ||
-                                 (rhs.type() == GeoShapeType::GEO_SHAPE_POLYGON &&
-                                  geography_has_polygon_intersection_witness(nodes.right, right,
-                                                                             nodes.left, nodes)) ||
-                                 geography_has_raw_polygon_edge_crossing(left_edges, right_edges);
-        if (!has_witness) {
-            return Status::NotSupported(
-                    "{} does not support ambiguous spherical Polygon boundary intersection", name);
-        }
+        return Status::NotSupported(
+                "{} does not support ambiguous spherical Polygon boundary intersection", name);
     }
     // A nearby disjoint curve must not become a boundary contact through the legacy
     // conversion-distance fallback used below by Intersects/Disjoint.

@@ -2675,6 +2675,20 @@ TEST(VGeoFunctionsTest, GeographyLineCrossingSurvivesUnrelatedRoundedInteriorVer
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyPolygonLineCrossingSurvivesRoundedApex) {
+    const std::string polygon = "POLYGON ((0 58.00000000000001,2 60,-2 60,0 58.00000000000001))";
+    // All line vertices are exterior. The first rounds onto the apex, but the last
+    // segment crosses the polygon independently of that rounded contact.
+    const std::string line = "LINESTRING (0 58,3 59,-3 59.5)";
+    for (const bool reverse : {false, true}) {
+        const auto& left = reverse ? line : polygon;
+        const auto& right = reverse ? polygon : line;
+        expect_geography_relation("st_intersects", left, right, true);
+        expect_geography_relation("st_disjoint", left, right, false);
+        expect_geography_zero_distance(left, right);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyPolygonCrossingDoesNotRequireRepresentableIntersection) {
     const Strings polygons {"POLYGON ((0 58.00000000000001,2 60,-2 60,0 58.00000000000001))",
                             "POLYGON ((0 58.00000000000001,-2 60,2 60,0 58.00000000000001))",
