@@ -234,11 +234,11 @@ Status LoadBlockQueue::_sync_wal_before_ack(std::unique_lock<std::mutex>& lock) 
 }
 
 Status LoadBlockQueue::remove_load_id(const UniqueId& load_id, bool sync_wal) {
+    const bool sync_before_ack = sync_wal && config::get_group_commit_wal_sync_before_ack();
     std::unique_lock l(mutex);
     if (sync_wal) {
         RETURN_IF_ERROR(status);
-        if (config::get_group_commit_wal_sync_before_ack() &&
-            _load_ids_to_write_dep.contains(load_id)) {
+        if (sync_before_ack && _load_ids_to_write_dep.contains(load_id)) {
             RETURN_IF_ERROR(_sync_wal_before_ack(l));
         }
     }

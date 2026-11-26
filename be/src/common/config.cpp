@@ -1695,13 +1695,10 @@ DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 // Require async group commit ACKs to wait for a shared WAL sync on this BE.
 DEFINE_mBool(group_commit_wal_sync_before_ack, "false");
-static std::atomic<bool> published_group_commit_wal_sync_before_ack {false};
-DEFINE_ON_UPDATE(group_commit_wal_sync_before_ack, [](bool, bool value) {
-    published_group_commit_wal_sync_before_ack.store(value, std::memory_order_relaxed);
-});
 
 bool get_group_commit_wal_sync_before_ack() {
-    return published_group_commit_wal_sync_before_ack.load(std::memory_order_relaxed);
+    std::lock_guard lock(*get_mutable_string_config_lock());
+    return group_commit_wal_sync_before_ack;
 }
 
 // Max WAL count for one table before rejecting async group commit loads.
@@ -2556,8 +2553,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
-    published_group_commit_wal_sync_before_ack.store(group_commit_wal_sync_before_ack,
-                                                     std::memory_order_relaxed);
     published_inverted_index_candidate_pushdown_ratio.store(
             inverted_index_candidate_pushdown_ratio);
     atomic_lookup_connection_cache_block_pool_size.store(
