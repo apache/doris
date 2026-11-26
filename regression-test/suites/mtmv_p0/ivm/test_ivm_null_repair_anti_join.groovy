@@ -17,6 +17,7 @@
 
 suite("test_ivm_null_repair_anti_join", "nonConcurrent") {
     sql "SET enable_materialized_view_rewrite = false"
+    sql "SET enable_dml_materialized_view_rewrite = false"
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_repair_anti_mv"
     sql "DROP TABLE IF EXISTS ivm_repair_anti_retained"
     sql "DROP TABLE IF EXISTS ivm_repair_anti_snapshot"
@@ -38,7 +39,7 @@ suite("test_ivm_null_repair_anti_join", "nonConcurrent") {
         PROPERTIES ("replication_num"="1", "enable_unique_key_merge_on_write"="true",
                     "changelog.enable"="true", "changelog.need_historical_value"="true")
     """
-    sql "INSERT INTO ivm_repair_anti_retained VALUES (1, 10), (2, 20), (3, 30)"
+    sql "INSERT INTO ivm_repair_anti_retained VALUES (1, 10), (2, 20), (3, 30), (4, 40)"
     sql "INSERT INTO ivm_repair_anti_snapshot VALUES (1, 10), (2, 10), (3, 20)"
     // Simulate an old NDV on one column after the table row count shrinks. Each column statistic is
     // valid on its own, and the final scan validation detects the mismatch against the new table count.
@@ -48,7 +49,7 @@ suite("test_ivm_null_repair_anti_join", "nonConcurrent") {
     """
     sql """
         ALTER TABLE ivm_repair_anti_retained MODIFY COLUMN k SET STATS
-        ('row_count'='3', 'ndv'='3', 'min_value'='10', 'max_value'='30')
+        ('row_count'='4', 'ndv'='4', 'min_value'='10', 'max_value'='40')
     """
     sql """
         CREATE MATERIALIZED VIEW ivm_repair_anti_mv
@@ -78,8 +79,10 @@ suite("test_ivm_null_repair_anti_join", "nonConcurrent") {
     // REFRESH uses an admin planning context. A small global row cap exercises both sides of the
     // broadcast threshold with a modest fixture.
     def cap = sql_return_maparray("SHOW GLOBAL VARIABLES LIKE 'broadcast_row_count_limit'")[0].Value
+    def reorderDisabled = sql_return_maparray("SHOW GLOBAL VARIABLES LIKE 'disable_join_reorder'")[0].Value
     try {
         sql "SET GLOBAL broadcast_row_count_limit = 128"
+        sql "SET GLOBAL disable_join_reorder = false"
         refresh("COMPLETE")
         sql "INSERT INTO ivm_repair_anti_snapshot VALUES (4, 30)"
         explainAntiJoin("LEFT_ANTI_JOIN", true)
@@ -91,11 +94,17 @@ suite("test_ivm_null_repair_anti_join", "nonConcurrent") {
             SELECT number + 100, number + 100 FROM numbers("number"="4096")
         """
         refresh("COMPLETE")
+        sql "INSERT INTO ivm_repair_anti_snapshot VALUES (5, 40)"
         sql "DELETE FROM ivm_repair_anti_snapshot WHERE id IN (1, 3)"
         explainAntiJoin("RIGHT_ANTI_JOIN", false)
+
+        sql "SET GLOBAL disable_join_reorder = true"
+        explainAntiJoin("LEFT_ANTI_JOIN", false)
+        sql "SET GLOBAL disable_join_reorder = false"
         refresh("INCREMENTAL")
         order_qt_large "SELECT retained_id, matching_id FROM ivm_repair_anti_mv"
     } finally {
         sql "SET GLOBAL broadcast_row_count_limit = ${cap}"
+        sql "SET GLOBAL disable_join_reorder = ${reorderDisabled}"
     }
 }
