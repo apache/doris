@@ -236,7 +236,14 @@ suite("test_streaming_postgres_job_publication", "p0,external,pg,external_docker
         // Drop job: Doris must NOT touch user-provided slot or publication.
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 
-        sleep(5000)
+        Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
+            boolean inactive = false
+            connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                def slot = sql """SELECT active FROM pg_replication_slots WHERE slot_name = '${userSlot}'"""
+                inactive = slot.size() == 1 && slot[0][0] == false
+            }
+            inactive
+        })
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             def pubAfter = sql """SELECT COUNT(1) FROM pg_publication WHERE pubname = '${userPub}'"""
             assert pubAfter[0][0] == 1 : "User-provided publication must be preserved after job deletion"

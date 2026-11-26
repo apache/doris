@@ -28,4 +28,20 @@ list(APPEND SRC_FILES ${FORMAT_V2_SRC_FILES})
 
 add_library(Format STATIC ${SRC_FILES})
 
+# Read the pinned SDK timezone rules without changing SDK decoding or public interfaces.
+target_include_directories(Format PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/apache-orc/c++/src
+    ${BUILD_DIR}/apache-orc/c++/src)
+
 pch_reuse(Format)
+
+# Shared format utilities and writers remain individual translation units. Reader implementations
+# under format_v2/ share one reader/expr header closure and use bounded unity batches. Keep the
+# ADBC source individual so its file-scope status macro cannot leak into sibling sources.
+set(FORMAT_UNITY_SKIP ${SRC_FILES})
+list(FILTER FORMAT_UNITY_SKIP EXCLUDE REGEX ".*/format_v2/.*")
+list(APPEND FORMAT_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/../format_v2/table/adbc_reader.cpp)
+doris_skip_unity_inclusion(${FORMAT_UNITY_SKIP})
+set_target_properties(Format PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                        UNITY_BUILD_BATCH_SIZE 8)

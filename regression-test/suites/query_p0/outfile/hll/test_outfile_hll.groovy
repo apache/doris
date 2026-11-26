@@ -65,7 +65,7 @@ suite("test_outfile_hll") {
 
     def filePath=testHelper.localDir+"/tmp_*"
     cmd """
-    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns: k1, tmp, k2=hll_from_base64(tmp)" -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} -XPUT http://${context.config.feHttpAddress}/api/regression_test_query_p0_outfile_hll/h_table2/_stream_load
+    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns: k1, tmp, k2=hll_from_base64(tmp)" -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} -XPUT ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/regression_test_query_p0_outfile_hll/h_table2/_stream_load${getDorisCurlTlsOptions()}
     """
     Thread.sleep(10000)
     qt_test "select k1,hll_union_agg(k2) from h_table2 group by k1 order by k1;"

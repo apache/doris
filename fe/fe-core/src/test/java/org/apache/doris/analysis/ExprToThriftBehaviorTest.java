@@ -17,7 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExpr;
@@ -244,6 +247,17 @@ public class ExprToThriftBehaviorTest {
     }
 
     @Test
+    public void testStrictCastExprFlagIsSerialized() {
+        CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(42), false);
+        expr.setStrict(true);
+
+        TExprNode node = firstNode(expr);
+        Assertions.assertEquals(TExprNodeType.CAST_EXPR, node.node_type);
+        Assertions.assertTrue(node.isSetIsStrictCast());
+        Assertions.assertTrue(node.isIsStrictCast());
+    }
+
+    @Test
     public void testCastExprNoOpTrue() {
         // Cast TINYINT to TINYINT -> noOp should be true (same type)
         IntLiteral child = new IntLiteral(42);
@@ -256,6 +270,45 @@ public class ExprToThriftBehaviorTest {
         // noOp=true means the cast node is skipped; only the child node appears
         Assertions.assertEquals(1, nodes.size());
         Assertions.assertEquals(TExprNodeType.INT_LITERAL, nodes.get(0).node_type);
+    }
+
+    @Test
+    public void testStructRenameCastIsNotNoOp() {
+        // CAST(s AS STRUCT<b:STRING,a:STRING>) on a STRUCT<a:STRING,b:STRING> must reach BE: the
+        // conversion is positional, so the result carries the target field names. Folding it away
+        // would leave the value labeled with the source names, and any name based field access on
+        // the cast result (ELEMENT_AT, nested field references) would resolve against the source.
+        StructType sourceType = structType("a", "b");
+        StructType targetType = structType("b", "a");
+        CastExpr expr = new CastExpr(targetType, new SlotRef(sourceType, true), true);
+        Assertions.assertFalse(expr.isNoOp());
+
+        List<TExprNode> nodes = ExprToThriftVisitor.treeToThrift(expr).getNodes();
+        Assertions.assertEquals(2, nodes.size());
+        Assertions.assertEquals(TExprNodeType.CAST_EXPR, nodes.get(0).node_type);
+        Assertions.assertEquals(TExprOpcode.CAST, nodes.get(0).getOpcode());
+        StructType emittedTarget = (StructType) Type.fromThrift(nodes.get(0).getType());
+        Assertions.assertEquals("b", emittedTarget.getFields().get(0).getName());
+        Assertions.assertEquals("a", emittedTarget.getFields().get(1).getName());
+        Assertions.assertEquals(TExprNodeType.SLOT_REF, nodes.get(1).node_type);
+    }
+
+    @Test
+    public void testStructRenameNestedInArrayCastIsNotNoOp() {
+        ArrayType sourceType = new ArrayType(structType("a", "b"), true);
+        ArrayType targetType = new ArrayType(structType("b", "a"), true);
+        Assertions.assertFalse(new CastExpr(targetType, new SlotRef(sourceType, true), true).isNoOp());
+    }
+
+    @Test
+    public void testSameStructTypeCastIsStillNoOp() {
+        CastExpr expr = new CastExpr(structType("a", "b"),
+                new SlotRef(structType("a", "b"), true), true);
+        Assertions.assertTrue(expr.isNoOp());
+
+        List<TExprNode> nodes = ExprToThriftVisitor.treeToThrift(expr).getNodes();
+        Assertions.assertEquals(1, nodes.size());
+        Assertions.assertEquals(TExprNodeType.SLOT_REF, nodes.get(0).node_type);
     }
 
     // ======================== treesToThrift ========================
@@ -297,5 +350,12 @@ public class ExprToThriftBehaviorTest {
         Assertions.assertNotNull(texpr.getNodes());
         Assertions.assertFalse(texpr.getNodes().isEmpty());
         return texpr.getNodes().get(0);
+    }
+
+    private static StructType structType(String firstName, String secondName) {
+        return new StructType(
+                new StructField(firstName, Type.STRING, null, true),
+                new StructField(secondName, Type.STRING, null, true)
+        );
     }
 }

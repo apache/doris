@@ -17,13 +17,15 @@
 
 #pragma once
 
-#include <brpc/controller.h>
-#include <bthread/countdown_event.h>
-#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <condition_variable>
+#include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <semaphore>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -31,13 +33,15 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
-#include "storage/tablet_info.h" // DorisNodesInfo
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
-class DorisNodesInfo;
+class RuntimeProfile;
 class RuntimeState;
+class TQueryOptions;
 class TupleDescriptor;
+class ScannerScheduler;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
 }
@@ -50,40 +54,7 @@ struct IteratorKey;
 struct IteratorItem;
 struct HashOfIteratorKey;
 
-inline void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
-template <typename T>
-class ColumnStr;
-using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
-
-// fetch rows by global rowid
-// tablet_id/rowset_name/segment_id/ordinal_id
-
-struct FetchOption {
-    TupleDescriptor* desc = nullptr;
-    RuntimeState* runtime_state = nullptr;
-    TFetchOption t_fetch_opt;
-};
-
-class RowIDFetcher {
-public:
-    RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
-    Status init();
-    Status fetch(const ColumnPtr& row_ids, Block* block);
-
-private:
-    PMultiGetRequest _init_fetch_request(const ColumnString& row_ids) const;
-    Status _merge_rpc_results(const PMultiGetRequest& request,
-                              const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls, Block* output_block,
-                              std::vector<PRowLocation>* rows_id) const;
-
-    std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
-    FetchOption _fetch_option;
-};
 
 struct RowStoreReadStruct {
     RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
@@ -100,6 +71,11 @@ public:
     static const std::string InitReaderAvgTimeProfile;
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
+    static const std::string LanceDatasetOpenTimeProfile;
+    static const std::string LanceRowIdTakeReadTimeProfile;
+    static const std::string LanceArrowToDorisBlockTimeProfile;
+    static const std::string LanceRowIdFetchTotalTimeProfile;
+    static const std::map<std::string, TUnit::type> LanceFetchCountersProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
     static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;
@@ -112,8 +88,15 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseRowsRead;
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
-    static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
+
+    // Runs read_by_rowids() for the multiget_data_v2 RPC and serializes the outcome into the
+    // response status. The remote scan scheduler runs the RPC callback on a plain ThreadPool
+    // worker, which has no exception boundary of its own, so a doris::Exception thrown while
+    // reading (for example by a slot of the request whose PTypeNode this BE does not know) is
+    // converted into an error status here instead of terminating the process.
+    static void read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                       PMultiGetResponseV2* response);
 
 private:
     struct ExternalFetchStatistics;
@@ -121,7 +104,7 @@ private:
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
-            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
@@ -142,22 +125,57 @@ private:
             Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
             int64_t* get_block_avg_ms, size_t* scan_range_cnt);
 
+    static Status read_lance_rows_by_row_ids(const TFileRangeDesc& scan_range_desc,
+                                             const std::vector<uint64_t>& row_ids,
+                                             const std::vector<SlotDescriptor>& slots,
+                                             RuntimeState* runtime_state,
+                                             RuntimeProfile* runtime_profile,
+                                             const TFileScanRangeParams& scan_params, Block* block,
+                                             ExternalFetchStatistics* fetch_statistics);
+
     static Status read_external_row_from_file_mapping(
-            size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
+            size_t idx, const std::multimap<uint64_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
-            const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+            const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
             const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
             std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
-            std::atomic<int>& producer_count, size_t scan_rows_count,
-            std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
-            TupleDescriptor& tuple_desc);
+            std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
+
+    static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
+
+    friend class RowIdStorageReaderTest;
+
+    static Status submit_external_scan_tasks(ScannerScheduler* scheduler,
+                                             std::counting_semaphore<>& semaphore,
+                                             size_t task_count,
+                                             const std::function<std::string(size_t)>& make_task_id,
+                                             const std::function<Status(size_t)>& run_task);
+
+    // Reports InitReaderAvgTime and GetBlockAvgTime of one request block: the mean reader-init
+    // and block-read times over its scan ranges, e.g. 20ms and 200ms for two ranges that took
+    // 10/100 ms and 30/300 ms. Both outputs are overwritten rather than accumulated, because an
+    // RPC that fetches two lazily materialized tables reads its two request blocks into the same
+    // caller variables.
+    static void add_external_fetch_avg_time_profile(
+            const std::vector<ExternalFetchStatistics>& fetch_statistics,
+            RuntimeProfile* runtime_profile, int64_t* init_reader_avg_ms,
+            int64_t* get_block_avg_ms);
 
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;
         int64_t get_block_ms = 0;
+        std::map<std::string, int64_t> lance_fetch_times_ns;
+        std::map<std::string, int64_t> lance_fetch_counters;
         std::string file_read_bytes;
         std::string file_read_times;
     };

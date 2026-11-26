@@ -17,14 +17,17 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.jni.JniWriter;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.VectorColumn;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.JniWriter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.VectorColumn;
+import org.apache.doris.jni.spi.vec.VectorTable;
+import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -46,8 +49,10 @@ import java.util.Map;
  *   open() -> write() [repeated] -> close()
  * </pre>
  *
- * <p>Transaction control is exposed via getStatistics() responses and
- * additional JNI method calls from C++ side.
+ * <p>A transaction, when asked for, lives entirely inside that lifecycle: {@code openInternal}
+ * turns auto-commit off and {@code closeInternal} commits, or rolls back if the commit fails.
+ * There is no way for BE to drive it from outside - BE resolves its method ids on
+ * {@link JniWriter} itself, so a method a writer adds of its own is not reachable from C++.
  *
  * <p>Parameters (passed via constructor params map):
  * <ul>
@@ -68,8 +73,9 @@ import java.util.Map;
  * </ul>
  */
 public class JdbcJniWriter extends JniWriter {
-    private static final Logger LOG = Logger.getLogger(JdbcJniWriter.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcJniWriter.class);
 
+    private final JdbcTypeHandler typeHandler;
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
@@ -96,6 +102,7 @@ public class JdbcJniWriter extends JniWriter {
 
     public JdbcJniWriter(int batchSize, Map<String, String> params) {
         super(batchSize, params);
+        this.typeHandler = JdbcTypeHandlerFactory.create(params.getOrDefault("table_type", ""));
         this.jdbcUrl = params.getOrDefault("jdbc_url", "");
         this.jdbcUser = params.getOrDefault("jdbc_user", "");
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
@@ -116,12 +123,13 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             initializeClassLoaderAndDataSource();
 
             conn = hikariDataSource.getConnection();
+            typeHandler.initializeWriteConnection(conn);
 
             if (useTransaction) {
                 conn.setAutoCommit(false);
@@ -130,7 +138,7 @@ public class JdbcJniWriter extends JniWriter {
             LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
-            throw new IOException("JdbcJniWriter open failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -155,12 +163,12 @@ public class JdbcJniWriter extends JniWriter {
             insertTime += System.nanoTime() - startInsert;
             writtenRows += numRows;
         } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter write failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter write failed", e, jdbcPassword, jdbcUrl);
         }
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         try {
             // Commit transaction before closing if useTransaction is enabled.
             // autoCommit was set to false in open(), so without explicit commit()
@@ -181,10 +189,11 @@ public class JdbcJniWriter extends JniWriter {
                     conn.rollback();
                 }
             } catch (SQLException rollbackEx) {
-                LOG.warn("JdbcJniWriter rollback on close failure also failed: "
-                        + rollbackEx.getMessage(), rollbackEx);
+                String diagnostic = JdbcExceptionUtils.format("JdbcJniWriter rollback on close failure also failed",
+                        rollbackEx, jdbcPassword, jdbcUrl);
+                LOG.warn("{}", diagnostic);
             }
-            throw new IOException("JdbcJniWriter close failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter close failed", e, jdbcPassword, jdbcUrl);
         } finally {
             preparedStatement = null;
             conn = null;
@@ -197,40 +206,8 @@ public class JdbcJniWriter extends JniWriter {
         }
     }
 
-    // === Transaction control methods (called by C++ via JNI) ===
-
-    public void openTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.setAutoCommit(false);
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter openTrans failed: " + e.getMessage(), e);
-        }
-    }
-
-    public void commitTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.commit();
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter commitTrans failed: " + e.getMessage(), e);
-        }
-    }
-
-    public void rollbackTrans() throws IOException {
-        try {
-            if (conn != null) {
-                conn.rollback();
-            }
-        } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter rollbackTrans failed: " + e.getMessage(), e);
-        }
-    }
-
     @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> stats = new HashMap<>();
         stats.put("counter:WrittenRows", String.valueOf(writtenRows));
         stats.put("timer:InsertTime", String.valueOf(insertTime));
@@ -240,7 +217,7 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     // =====================================================================
-    // Private helpers — adapted from BaseJdbcExecutor.insert/insertColumn
+    // Private helpers
     // =====================================================================
 
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
@@ -289,13 +266,15 @@ public class JdbcJniWriter extends JniWriter {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setObject(
-                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                typeHandler.setTimestampTz(preparedStatement, parameterIndex, column.getTimeStampTz(rowIdx));
                 break;
             case CHAR:
             case VARCHAR:
             case STRING:
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
+                break;
+            case UUID:
+                typeHandler.setUuid(preparedStatement, parameterIndex, column.getUuid(rowIdx));
                 break;
             case BINARY:
             case VARBINARY:
@@ -346,12 +325,15 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+                typeHandler.setTimestampTzNull(preparedStatement, parameterIndex);
                 break;
             case CHAR:
             case VARCHAR:
             case STRING:
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+                break;
+            case UUID:
+                typeHandler.setUuidNull(preparedStatement, parameterIndex);
                 break;
             case BINARY:
             case VARBINARY:
@@ -362,10 +344,11 @@ public class JdbcJniWriter extends JniWriter {
         }
     }
 
-    private void initializeClassLoaderAndDataSource() throws Exception {
-        java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
-        ClassLoader parent = getClass().getClassLoader();
-        this.classLoader = java.net.URLClassLoader.newInstance(urls, parent);
+    private void initializeClassLoaderAndDataSource() {
+        // See JdbcJniScanner.initializeClassLoaderAndDataSource: the catalog's checksum is checked
+        // once per driver jar, when the classloader for it is created.
+        this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader(),
+                JdbcDriverUtils.checksumVerifier(jdbcDriverChecksum));
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
         // the thread context classloader.
@@ -379,7 +362,7 @@ public class JdbcJniWriter extends JniWriter {
                 if (hikariDataSource == null) {
                     HikariDataSource ds = new HikariDataSource();
                     ds.setDriverClassName(jdbcDriverClass);
-                    ds.setJdbcUrl(SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl));
+                    ds.setJdbcUrl(jdbcUrl);
                     ds.setUsername(jdbcUser);
                     ds.setPassword(jdbcPassword);
                     ds.setMinimumIdle(connectionPoolMinSize);
@@ -394,7 +377,8 @@ public class JdbcJniWriter extends JniWriter {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniWriter: Created connection pool for " + jdbcUrl);
+                    String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+                    LOG.info("JdbcJniWriter: Created connection pool for " + safeJdbcUrl);
                 }
             }
         }
@@ -402,7 +386,8 @@ public class JdbcJniWriter extends JniWriter {
 
     private String createCacheKey() {
         return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, jdbcPassword,
-                jdbcDriverUrl, jdbcDriverClass, connectionPoolMinSize, connectionPoolMaxSize,
-                connectionPoolMaxLifeTime, connectionPoolMaxWaitTime, connectionPoolKeepAlive);
+                jdbcDriverUrl, jdbcDriverClass, jdbcDriverChecksum, connectionPoolMinSize,
+                connectionPoolMaxSize, connectionPoolMaxLifeTime, connectionPoolMaxWaitTime,
+                connectionPoolKeepAlive);
     }
 }

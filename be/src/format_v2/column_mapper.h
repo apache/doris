@@ -63,6 +63,14 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Iceberg data-file path metadata column `_file`.
+    ICEBERG_FILE_PATH = 4,
+    // Iceberg absolute physical row position metadata column `_pos`.
+    ICEBERG_ROW_POSITION = 5,
+    // Paimon RawFile path metadata column `__paimon_file_path`.
+    PAIMON_FILE_PATH = 6,
+    // Paimon absolute physical row position metadata column `__paimon_row_index`.
+    PAIMON_ROW_POSITION = 7,
 };
 
 enum class FilterConversionType {
@@ -128,6 +136,9 @@ struct ColumnMapping {
     // schema, not table child order. TableReader uses this to map table-output children back to the
     // file-local block layout when projection, predicate-only children, and schema evolution mix.
     std::vector<ColumnDefinition> projected_file_children;
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
+    // Table-side Variant object-key paths retained until the physical shredding schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
@@ -145,22 +156,30 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // Paimon TIMESTAMP precision narrowing uses truncation instead of the ordinary SQL CAST
+    // rounding behavior. This is carried recursively so nested timestamp children follow it too.
+    bool truncate_datetimev2_precision = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
-    // One-row constant owns variable-width payloads; Field<TYPE_VARBINARY> is only a borrowed
-    // StringView and cannot safely outlive the Base64 decode buffer used to construct it.
-    ColumnPtr initial_default_column;
 
     std::string debug_string() const;
 };
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
+    // Iceberg requires a missing required field to fail unless an initial default is present.
+    // Other table formats keep the existing missing-column behavior unless they opt in.
+    bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
+    bool enable_iceberg_metadata_virtual_columns = false;
+    bool enable_paimon_metadata_virtual_columns = false;
+    // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
+    // behavior, which rounds when reducing DATETIMEV2 scale.
+    bool truncate_datetimev2_precision_for_paimon = false;
 
     std::string debug_string() const;
 };
@@ -172,6 +191,19 @@ const Field* find_partition_value(const ColumnDefinition& table_column,
 // used by TableColumnMapper's BY_NAME mode.
 const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
                                             const std::vector<ColumnDefinition>& file_schema);
+// Apply BY_FIELD_ID matching and, when requested, retain a unique ID-less complex wrapper that
+// contains a descendant selected by Iceberg field ID.
+const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
+                                                const std::vector<ColumnDefinition>& file_schema,
+                                                bool allow_idless_complex_wrapper_projection);
+// Put the timestamp semantics recorded on an annotated file column and its descendants onto a
+// projection of that column. A full projection gains a child only for a subtree that carries a
+// semantic; a partial projection keeps its selection. Callers that project a file column without
+// a ColumnMapping, such as a hidden equality-delete key, must call this or the file reader keeps
+// the physical type while the annotated file schema expects the table-format type.
+void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                const std::vector<ColumnDefinition>& file_children,
+                                LocalColumnIndex* projection);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this
@@ -193,10 +225,16 @@ public:
     // Convert a table-level scan request into a file-local scan request. table_filters preserve
     // row-level filtering semantics and are rewritten as file-local conjuncts. File-layer pruning
     // such as ZoneMap, dictionary, and bloom filter derives from those localized VExpr conjuncts.
-    virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const std::vector<ColumnDefinition>& projected_columns,
-                                       FileScanRequest* file_request,
-                                       RuntimeState* runtime_state = nullptr);
+    virtual Status create_scan_request(
+            const std::vector<TableFilter>& table_filters,
+            const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
+            RuntimeState* runtime_state = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr,
+            const std::map<LocalColumnId, LocalIndex>* fixed_non_predicate_positions = nullptr);
+
+    // Table-format hooks may append hidden physical dependencies after the initial request is
+    // localized. Reconcile output mappings with that final layout before opening expressions.
+    Status reconcile_scan_request_after_customization(FileScanRequest* file_request);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
@@ -207,6 +245,7 @@ public:
                                     RuntimeState* runtime_state = nullptr);
     void clear() {
         _mappings.clear();
+        _predicate_mappings.clear();
         _hidden_mappings.clear();
         _constant_map.clear();
         _filter_entries.clear();
@@ -227,6 +266,12 @@ protected:
     // delimited text field. They must scan the whole complex top-level field and let TableReader
     // rematerialize the requested table child after row-level filters have run.
     virtual bool force_full_complex_scan_projection() const { return false; }
+    // Only Parquet currently has a Variant physical shredding schema and a reader that can
+    // validate residual-value completeness before honoring a typed-leaf projection.
+    virtual bool enable_variant_leaf_projection() const { return false; }
+    // Parquet can keep two independent readers/cursors for the same complex root: a narrow eager
+    // predicate subtree and the final output subtree materialized only for surviving rows.
+    virtual bool enable_independent_predicate_projection() const { return false; }
 
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
@@ -249,6 +294,7 @@ protected:
     std::vector<ColumnMapping> _filter_visible_mappings() const;
 
     ColumnMapping* _find_mapping(GlobalIndex global_index);
+    ColumnMapping* _find_predicate_mapping(GlobalIndex global_index);
     ColumnMapping* _find_filter_mapping(GlobalIndex global_index);
 
     TableColumnMapperOptions _options;
@@ -256,6 +302,9 @@ protected:
     // describes how to get one table/global column from file-local sources, and carries metadata
     // for filter localization and result finalize.
     std::vector<ColumnMapping> _mappings;
+    // Optional mappings built from SlotDescriptor::predicate_access_paths. They deliberately keep
+    // a different file type/projection shape from the final output mappings above.
+    std::vector<ColumnMapping> _predicate_mappings;
     // Predicate-only top-level columns are not output projection columns, so keep their mappings
     // here. They are visible only to filter localization and file-reader predicate construction.
     std::vector<ColumnMapping> _hidden_mappings;
@@ -272,6 +321,10 @@ protected:
 class ParquetColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;
+
+protected:
+    bool enable_variant_leaf_projection() const override { return true; }
+    bool enable_independent_predicate_projection() const override { return true; }
 };
 
 // Mapper for readers that always materialize every required file column before filtering. The

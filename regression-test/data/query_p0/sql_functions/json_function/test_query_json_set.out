@@ -85,3 +85,23 @@ null
 -- !set8 --
 {"a":100}
 
+-- !set_odd_arity_ok --
+{"a":1}	{"a":1,"b":2}	{"a":1,"b":2}
+
+-- !set_nested_sibling --
+{"a":{"c":1},"b":2}
+
+-- !set_nested_sibling_nonempty --
+{"a":{"d":4,"c":1},"b":2}
+
+-- !set_nested_sibling_before --
+{"b":2,"a":{"c":1}}
+
+-- !set_deep_nested_sibling --
+{"a":{"b":{"c":1}},"x":1}
+
+-- !set_nested_sibling_json_col --
+1	{"a":{"c":1},"b":2}
+2	{"b":2,"a":{"c":1}}
+3	{"a":{"d":4,"c":1},"b":2}
+

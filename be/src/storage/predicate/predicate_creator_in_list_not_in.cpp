@@ -139,6 +139,10 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::NOT_IN_
         return create_in_list_predicate_impl<TYPE_DATETIMEV2, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);
     }
+    case TYPE_TIMESTAMP_NS: {
+        return create_in_list_predicate_impl<TYPE_TIMESTAMP_NS, PredicateType::NOT_IN_LIST>(
+                cid, col_name, set, is_opposite);
+    }
     case TYPE_TIMESTAMPTZ: {
         return create_in_list_predicate_impl<TYPE_TIMESTAMPTZ, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);
@@ -153,6 +157,10 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::NOT_IN_
     }
     case TYPE_IPV6: {
         return create_in_list_predicate_impl<TYPE_IPV6, PredicateType::NOT_IN_LIST>(
+                cid, col_name, set, is_opposite);
+    }
+    case TYPE_UUID: {
+        return create_in_list_predicate_impl<TYPE_UUID, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);
     }
     default:

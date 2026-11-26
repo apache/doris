@@ -22,6 +22,7 @@ import argparse
 import base64
 import http.client
 import json
+import ssl
 import sys
 import time
 import uuid
@@ -42,6 +43,10 @@ def parse_args():
     parser.add_argument("--sleep-ms", type=int, default=10, help="Delay between chunks in milliseconds")
     parser.add_argument("--connect-timeout", type=int, default=5, help="Connect timeout in seconds")
     parser.add_argument("--read-timeout", type=int, default=120, help="Read timeout in seconds")
+    parser.add_argument("--tls", action="store_true", help="Use HTTPS with a client certificate")
+    parser.add_argument("--tls-ca", help="CA certificate used to verify FE")
+    parser.add_argument("--tls-cert", help="Client certificate")
+    parser.add_argument("--tls-key", help="Client private key")
     return parser.parse_args()
 
 
@@ -84,7 +89,16 @@ def chunked_csv_generator(total_bytes, chunk_bytes, sleep_ms):
 def main():
     args = parse_args()
     path = f"/api/{args.db}/{args.table}/_stream_load"
-    conn = http.client.HTTPConnection(args.host, args.fe_http_port, timeout=args.read_timeout)
+    if args.tls:
+        if not all((args.tls_ca, args.tls_cert, args.tls_key)):
+            raise ValueError("HTTPS requires --tls-ca, --tls-cert and --tls-key")
+        tls_context = ssl.create_default_context(cafile=args.tls_ca)
+        tls_context.load_cert_chain(certfile=args.tls_cert, keyfile=args.tls_key)
+        conn = http.client.HTTPSConnection(
+            args.host, args.fe_http_port, timeout=args.read_timeout, context=tls_context
+        )
+    else:
+        conn = http.client.HTTPConnection(args.host, args.fe_http_port, timeout=args.read_timeout)
     label = f"stream_load_redirect_regression_{uuid.uuid4().hex[:12]}"
     total_bytes = args.payload_mb * 1024 * 1024
     chunk_bytes = args.chunk_kb * 1024

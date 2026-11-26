@@ -103,6 +103,10 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        return Impl::get_arguments_that_are_always_constant();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl_inner(context, block, arguments, result, input_rows_count);
@@ -170,6 +174,8 @@ void execute_result(const char* src_raw, size_t src_size, const char* key_raw, s
 
 template <typename Impl, EncryptionMode mode, bool is_encrypt>
 struct EncryptionAndDecryptTwoImpl {
+    static ColumnNumbers get_arguments_that_are_always_constant() { return {2}; }
+
     static DataTypes get_variadic_argument_types_impl() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeString>()};
@@ -275,6 +281,8 @@ struct EncryptionAndDecryptTwoImpl {
 
 template <typename Impl, EncryptionMode mode, bool is_encrypt, bool is_sm_mode, int arg_num = 4>
 struct EncryptionAndDecryptMultiImpl {
+    static ColumnNumbers get_arguments_that_are_always_constant() { return {3}; }
+
     static DataTypes get_variadic_argument_types_impl() {
         if constexpr (arg_num == 5) {
             return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
@@ -315,18 +323,30 @@ struct EncryptionAndDecryptMultiImpl {
         auto& result_offset = result_column->get_offsets();
         result_offset.resize(input_rows_count);
 
-        if ((arg_num == 5) && col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(),
-                         argument_columns[4]->get_data_at(0));
-        } else if ((arg_num == 4) && col_const[1] && col_const[2] && col_const[3]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(), StringRef());
-        } else {
+        // if constexpr: the discarded arg_num instantiation must not index
+        // col_const[4] / argument_columns[4] out of bounds (-Warray-bounds).
+        bool all_params_const = false;
+        if constexpr (arg_num == 5) {
+            if (col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map_column->get_data(),
+                             argument_columns[4]->get_data_at(0));
+                all_params_const = true;
+            }
+        } else if constexpr (arg_num == 4) {
+            if (col_const[1] && col_const[2] && col_const[3]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map_column->get_data(), StringRef());
+                all_params_const = true;
+            }
+        }
+        if (!all_params_const) {
             std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
             std::vector<const ColumnString::Chars*> chars_list(argument_size);
             for (size_t i = 0; i < argument_size; ++i) {

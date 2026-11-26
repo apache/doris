@@ -261,6 +261,17 @@ struct ColumnDefinition {
     // Full table-schema identity subtree before access-path pruning. ID-less physical complex
     // wrappers must be discovered from this view without adding unrequested children to output.
     std::vector<ColumnDefinition> identity_children {};
+    // Logical object-key paths requested from a Variant column. An empty collection means the
+    // whole Variant is required; non-empty paths may be resolved to format-specific shredded
+    // physical children after the per-file schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths {};
+    // Predicate access paths are kept separately from the final union projection. File Scanner V2
+    // can lower this smaller semantic tree to an eager predicate projection while deferring the
+    // final children until rows survive. The flag distinguishes no predicate metadata from a
+    // whole-root predicate, whose child/path collections are intentionally empty.
+    bool has_predicate_access_paths = false;
+    std::vector<ColumnDefinition> predicate_children {};
+    std::vector<std::vector<std::string>> predicate_variant_access_paths {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;
@@ -270,9 +281,20 @@ struct ColumnDefinition {
     // that are absent from the query projection.
     std::optional<std::string> initial_default_value = std::nullopt;
     bool initial_default_value_is_base64 = false;
+    // Table-format field optionality. std::nullopt means the format did not provide this semantic
+    // metadata. Iceberg uses an explicit false value to reject old files that are missing a
+    // required field without an initial default.
+    std::optional<bool> is_optional = std::nullopt;
+    // Logical timestamp semantic supplied by a table format when the physical encoding cannot
+    // carry it (for example, Paimon TIMESTAMP versus TIMESTAMP_LTZ stored as INT96).
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
+    // Synthesized table columns are produced by the table reader rather than matched against a
+    // physical file field. This comes from the explicit FE slot category; old FE plans leave it
+    // false so a physical column that shares a metadata spelling keeps its legacy behavior.
+    bool is_synthesized = false;
     // File-local column kind. For table/global columns this remains DATA_COLUMN.
     ColumnType column_type = ColumnType::DATA_COLUMN;
 
@@ -351,6 +373,7 @@ struct LocalColumnIndex {
     int32_t index = -1;
     bool project_all_children = true;
     std::vector<LocalColumnIndex> children {};
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
 
     static LocalColumnIndex top_level(LocalColumnId column_id) {
         return {.index = column_id.value()};
@@ -366,6 +389,19 @@ struct LocalColumnIndex {
     int32_t local_id() const { return index; }
     std::string debug_string() const;
 };
+
+inline bool same_local_column_index(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
+    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
+        lhs.children.size() != rhs.children.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < lhs.children.size(); ++i) {
+        if (!same_local_column_index(lhs.children[i], rhs.children[i])) {
+            return false;
+        }
+    }
+    return true;
+}
 
 inline bool is_full_projection(const LocalColumnIndex* projection) {
     return projection == nullptr || projection->project_all_children;
@@ -390,31 +426,71 @@ inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local
     return is_full_projection(projection) || find_child_projection(projection, local_id) != nullptr;
 }
 
+// True when this subtree still has to reach the reader after its projection becomes full: a node
+// that names a table-format timestamp semantic, or one on the path to such a node.
+inline bool carries_timestamp_semantics(const LocalColumnIndex& projection) {
+    if (projection.timestamp_is_adjusted_to_utc.has_value()) {
+        return true;
+    }
+    return std::ranges::any_of(projection.children, [](const LocalColumnIndex& child) {
+        return carries_timestamp_semantics(child);
+    });
+}
+
+// Drop the children that only selected a subtree, keeping the ones that name a timestamp semantic.
+//
+// A full projection selects every child, so its children list stops being a selection -- but it is
+// also the only way a per-child timestamp semantic travels: attach_timestamp_semantics() puts a
+// child on a full projection for exactly that purpose, and readers resolve those children by id
+// without looking at project_all_children, so they must survive the collapse.
+inline void keep_only_semantic_children(LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    std::erase_if(projection->children, [](const LocalColumnIndex& child) {
+        return !carries_timestamp_semantics(child);
+    });
+    for (auto& child : projection->children) {
+        keep_only_semantic_children(&child);
+    }
+}
+
 // Merge two projection trees that point to the same file-local node.
 //
-// A full projection dominates a partial projection. Two partial projections are merged by child id
-// and recursively union their child paths. The caller must only merge projections for the same
-// root/child node.
+// A full projection dominates a partial projection for SELECTION, but not for the timestamp
+// semantics the children carry: those survive on both sides. Two partial projections are merged by
+// child id and recursively union their child paths. The caller must only merge projections for the
+// same root/child node.
 inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
     DORIS_CHECK(target != nullptr);
     DORIS_CHECK(target->index == source.index);
-    if (target->project_all_children) {
-        return Status::OK();
+    if (!target->timestamp_is_adjusted_to_utc.has_value()) {
+        target->timestamp_is_adjusted_to_utc = source.timestamp_is_adjusted_to_utc;
+    } else if (source.timestamp_is_adjusted_to_utc.has_value() &&
+               target->timestamp_is_adjusted_to_utc != source.timestamp_is_adjusted_to_utc) {
+        return Status::InvalidArgument("Conflicting timestamp semantics for file-local column {}",
+                                       target->index);
     }
-    if (source.project_all_children) {
+    const bool full = target->project_all_children || source.project_all_children;
+    if (full) {
         target->project_all_children = true;
-        target->children.clear();
-        return Status::OK();
+        keep_only_semantic_children(target);
     }
     for (const auto& source_child : source.children) {
+        if (full && !carries_timestamp_semantics(source_child)) {
+            // Pure selection under a projection that now takes every child.
+            continue;
+        }
         auto target_child_it = std::find_if(
                 target->children.begin(), target->children.end(),
                 [&](const LocalColumnIndex& child) { return child.index == source_child.index; });
         if (target_child_it == target->children.end()) {
             target->children.push_back(source_child);
-            continue;
+            target_child_it = target->children.end() - 1;
+        } else {
+            RETURN_IF_ERROR(merge_local_column_index(&*target_child_it, source_child));
         }
-        RETURN_IF_ERROR(merge_local_column_index(&*target_child_it, source_child));
+        if (full) {
+            keep_only_semantic_children(&*target_child_it);
+        }
     }
     return Status::OK();
 }

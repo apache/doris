@@ -31,4 +31,15 @@ TEST_F(AggregateFunctionAvgTest, test_int64) {
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnHelper::create_column_with_name<DataTypeFloat64>({2}));
 }
+
+TEST_F(AggregateFunctionAvgTest, test_incremental_mode_only_for_exact_sum) {
+    create_agg("avg", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeFloat64>());
+    EXPECT_TRUE(agg_fn->supported_incremental_mode());
+
+    // Floating-point sums are not exactly invertible, so sliding frames must be recomputed.
+    create_agg("avg", false, {std::make_shared<DataTypeFloat64>()},
+               std::make_shared<DataTypeFloat64>());
+    EXPECT_FALSE(agg_fn->supported_incremental_mode());
+}
 } // namespace doris

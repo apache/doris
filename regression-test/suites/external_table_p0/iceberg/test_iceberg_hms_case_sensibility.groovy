@@ -47,7 +47,7 @@ suite("test_iceberg_hms_case_sensibility", "p0,external") {
             sql """create database iceberg_hms_case_db1;"""
             test {
                 sql """create database ICEBERG_HMS_CASE_DB1;""" // conflict
-                exception "Can't create database 'ICEBERG_HMS_CASE_DB1'; database exists"
+                exception "Namespace already exists: ICEBERG_HMS_CASE_DB1"
             }
             sql """create database ICEBERG_HMS_CASE_DB2;"""
             sql """create database if not exists ICEBERG_HMS_CASE_DB1;"""
@@ -59,18 +59,18 @@ suite("test_iceberg_hms_case_sensibility", "p0,external") {
             qt_sql3 """show databases like "%iceberg_hms_case_db2%";"""
             test {
                 sql """create database ICEBERG_HMS_CASE_DB2;""" // conflict
-                exception "database exists"
+                exception "Namespace already exists"
                 exception "ICEBERG_HMS_CASE_DB2"
             }
             test {
                 sql """create database iceberg_hms_case_db2;""" // conflict
-                exception "database exists"
+                exception "Namespace already exists"
                 exception "iceberg_hms_case_db2"
             }
             // 2. drop database
             test {
                 sql """drop database ICEBERG_HMS_CASE_DB1"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "ICEBERG_HMS_CASE_DB1"
             }
             sql """drop database if exists ICEBERG_HMS_CASE_DB1;""" 
@@ -80,18 +80,18 @@ suite("test_iceberg_hms_case_sensibility", "p0,external") {
 
             test {
                 sql """drop database ICEBERG_HMS_CASE_DB2;"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "ICEBERG_HMS_CASE_DB2"
             }
             sql """drop database iceberg_hms_case_db2;"""
             test {
                 sql """drop database iceberg_hms_case_db1"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "iceberg_hms_case_db1"
             }
             test {
                 sql """drop database iceberg_hms_case_db2"""
-                exception "database doesn't exist"
+                exception "Failed to get database"
                 exception "iceberg_hms_case_db2"
             }
             sql """drop database if exists iceberg_hms_case_db2;""" 
@@ -142,7 +142,8 @@ suite("test_iceberg_hms_case_sensibility", "p0,external") {
             qt_sql11 """show tables from iceberg_hms_case_db2 like "%case_tbl14%"""" // empty
             qt_sql12 """show tables from iceberg_hms_case_db2 like "%case_tbl21%""""
 
-            order_qt_sql13 """select * from information_schema.tables where TABLE_SCHEMA="iceberg_hms_case_db1";"""
+            // UPDATE_TIME is populated when an external table object is loaded; it is not a case-mapping result.
+            order_qt_sql13 """select * replace(cast(null as datetime) as UPDATE_TIME) from information_schema.tables where TABLE_SCHEMA="iceberg_hms_case_db1";"""
             order_qt_sql14 """select * from information_schema.columns where TABLE_SCHEMA="iceberg_hms_case_db1";"""
 
             // 4. insert

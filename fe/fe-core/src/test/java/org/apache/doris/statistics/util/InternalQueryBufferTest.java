@@ -17,16 +17,16 @@
 
 package org.apache.doris.statistics.util;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
 public class InternalQueryBufferTest {
     private InternalQueryBuffer internalQueryBuffer;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         ByteBuffer buffer = ByteBuffer.allocate(1024);
         buffer.put((byte) 6);
@@ -47,74 +47,74 @@ public class InternalQueryBufferTest {
     @Test
     public void testData() {
         byte[] result = internalQueryBuffer.data();
-        Assert.assertEquals(1024, result.length);
+        Assertions.assertEquals(1024, result.length);
     }
 
     @Test
     public void testLength() {
         int result = internalQueryBuffer.length();
-        Assert.assertEquals(1024, result);
+        Assertions.assertEquals(1024, result);
     }
 
     @Test
     public void testPosition() {
         int result = internalQueryBuffer.position();
         // (1 + 6) + (1 + 3) + (1 + 3) + (1 + 7)
-        Assert.assertEquals(23, result);
+        Assertions.assertEquals(23, result);
     }
 
     @Test
     public void testReadBytesWithLength() {
         internalQueryBuffer.clear();
         byte[] result1 = internalQueryBuffer.readBytesWithLength();
-        Assert.assertArrayEquals("field1".getBytes(), result1);
+        Assertions.assertArrayEquals("field1".getBytes(), result1);
 
         byte[] result2 = internalQueryBuffer.readBytesWithLength();
-        Assert.assertArrayEquals("123".getBytes(), result2);
+        Assertions.assertArrayEquals("123".getBytes(), result2);
 
         byte[] result3 = internalQueryBuffer.readBytesWithLength();
-        Assert.assertArrayEquals("0.1".getBytes(), result3);
+        Assertions.assertArrayEquals("0.1".getBytes(), result3);
     }
 
     @Test
     public void testReadStringWithLength() {
         internalQueryBuffer.clear();
         String result1 = internalQueryBuffer.readStringWithLength();
-        Assert.assertEquals("field1", result1);
+        Assertions.assertEquals("field1", result1);
 
         String result2 = internalQueryBuffer.readStringWithLength();
-        Assert.assertEquals("123", result2);
+        Assertions.assertEquals("123", result2);
 
         String result3 = internalQueryBuffer.readStringWithLength();
-        Assert.assertEquals("0.1", result3);
+        Assertions.assertEquals("0.1", result3);
     }
 
     @Test
     public void testReadStringWithLengthByCharset() throws Exception {
         internalQueryBuffer.clear();
         String result1 = internalQueryBuffer.readStringWithLength("UTF-8");
-        Assert.assertEquals("field1", result1);
+        Assertions.assertEquals("field1", result1);
 
         String result2 = internalQueryBuffer.readStringWithLength("UTF-8");
-        Assert.assertEquals("123", result2);
+        Assertions.assertEquals("123", result2);
 
         String result3 = internalQueryBuffer.readStringWithLength("UTF-8");
-        Assert.assertEquals("0.1", result3);
+        Assertions.assertEquals("0.1", result3);
     }
 
     @Test
     public void testReadIntAndFloatAndDouble() {
         internalQueryBuffer.clear();
         String result1 = internalQueryBuffer.readStringWithLength();
-        Assert.assertEquals("field1", result1);
+        Assertions.assertEquals("field1", result1);
 
         int result2 = internalQueryBuffer.readInt();
-        Assert.assertEquals(123, result2);
+        Assertions.assertEquals(123, result2);
 
         float result3 = internalQueryBuffer.readFloat();
-        Assert.assertEquals(0.1, result3, 0.0001);
+        Assertions.assertEquals(0.1, result3, 0.0001);
 
         double result4 = internalQueryBuffer.readDouble();
-        Assert.assertEquals(18.2322, result4, 0.0001);
+        Assertions.assertEquals(18.2322, result4, 0.0001);
     }
 }

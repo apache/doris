@@ -30,6 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 
 #include "common/arg_parser.h"
@@ -38,6 +39,7 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
+#include "common/version_metrics.h"
 #include "meta-service/meta_server.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -151,17 +153,6 @@ static std::string build_info() {
     return ss.str();
 }
 
-// TODO(gavin): add doris cloud role to the metrics name
-bvar::Status<uint64_t> doris_cloud_version_metrics("doris_cloud_version", [] {
-    std::stringstream ss;
-    ss << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
-       << DORIS_CLOUD_BUILD_VERSION_PATCH;
-    if (DORIS_CLOUD_BUILD_VERSION_HOTFIX > 0) {
-        ss << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
-    }
-    return std::strtoul(ss.str().c_str(), nullptr, 10);
-}());
-
 namespace brpc {
 DECLARE_uint64(max_body_size);
 DECLARE_int64(socket_max_unwritten_bytes);
@@ -245,12 +236,18 @@ int main(int argc, char** argv) {
         std::cerr << "try to start meta_service, recycler" << std::endl;
     }
 
-    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
-                                 config::bvar_max_dump_multi_dimension_metric_num.c_str());
+    init_doris_cloud_version_metrics();
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
     brpc::FLAGS_socket_max_unwritten_bytes = config::brpc_socket_max_unwritten_bytes;
+
+    std::unique_ptr<ICloudServerStarter> meta_brpc_starter;
+    int port = config::brpc_listen_port;
+    if (!create_meta_brpc_starter(&server, port, &meta_brpc_starter) ||
+        !meta_brpc_starter->validate_config()) {
+        return -1;
+    }
 
     std::shared_ptr<TxnKv> txn_kv;
     if (config::use_mem_kv) {
@@ -326,10 +323,7 @@ int main(int argc, char** argv) {
         pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
 
-    std::unique_ptr<ICloudServerStarter> meta_brpc_starter;
-    int port = config::brpc_listen_port;
-    if (!create_meta_brpc_starter(&server, port, &meta_brpc_starter) ||
-        !meta_brpc_starter->start()) {
+    if (!meta_brpc_starter->start()) {
         return -1;
     }
     end = steady_clock::now();

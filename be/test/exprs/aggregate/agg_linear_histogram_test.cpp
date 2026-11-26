@@ -206,7 +206,7 @@ public:
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         auto agg_function = factory.get("linear_histogram", data_types, nullptr, false, -1,
                                         {.column_names = {""}});
-        EXPECT_NE(agg_function, nullptr);
+        ASSERT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
@@ -256,6 +256,28 @@ public:
             EXPECT_EQ(result2, expect_empty_result);
         }
 
+        if (input_rows == 2 && interval == 1 && offset == 0) {
+            EXPECT_EQ(result1,
+                      "{\"num_buckets\":2,\"buckets\":["
+                      "{\"lower\":0.0,\"upper\":1.0,\"count\":2,\"acc_count\":2},"
+                      "{\"lower\":1.0,\"upper\":2.0,\"count\":2,\"acc_count\":4}]}");
+            EXPECT_EQ(result2,
+                      "{\"num_buckets\":2,\"buckets\":["
+                      "{\"lower\":0.0,\"upper\":1.0,\"count\":1,\"acc_count\":1},"
+                      "{\"lower\":1.0,\"upper\":2.0,\"count\":1,\"acc_count\":2}]}");
+        }
+
+        if (input_rows == 2 && interval == 1 && offset == 0.5) {
+            EXPECT_EQ(result1,
+                      "{\"num_buckets\":2,\"buckets\":["
+                      "{\"lower\":-0.5,\"upper\":0.5,\"count\":2,\"acc_count\":2},"
+                      "{\"lower\":0.5,\"upper\":1.5,\"count\":2,\"acc_count\":4}]}");
+            EXPECT_EQ(result2,
+                      "{\"num_buckets\":2,\"buckets\":["
+                      "{\"lower\":-0.5,\"upper\":0.5,\"count\":1,\"acc_count\":1},"
+                      "{\"lower\":0.5,\"upper\":1.5,\"count\":1,\"acc_count\":2}]}");
+        }
+
         // test with data
         if (input_rows == 100 && interval == 10 && offset == 0) {
             std::string expect_result1 = s1;
@@ -289,6 +311,13 @@ public:
 private:
     Arena _agg_arena_pool;
 };
+
+TEST_F(AggLinearHistogramTest, test_boolean) {
+    test_agg_linear_histogram<DataTypeBool>(0, 1, 0);
+    test_agg_linear_histogram<DataTypeBool>(0, 1, 0.5);
+    test_agg_linear_histogram<DataTypeBool>(2, 1, 0);
+    test_agg_linear_histogram<DataTypeBool>(2, 1, 0.5);
+}
 
 TEST_F(AggLinearHistogramTest, test_empty) {
     test_agg_linear_histogram<DataTypeInt8>(0, 10, 0);

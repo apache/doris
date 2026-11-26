@@ -63,6 +63,8 @@ struct ColumnChunkRange {
 struct ParquetReaderCompat {
     bool parquet_816_padding = false;
     bool data_page_v2_always_compressed = false;
+    // Legacy parquet-mr and Arrow writers can under-report null_count.
+    bool null_count_trusted = true;
 };
 
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by);
@@ -177,6 +179,14 @@ public:
                               ParquetDecodeContext& context, ParquetMaterializationState& state,
                               ColumnSelectVector& select_vector);
 
+    bool supports_fused_nullable_selection(IColumn& column) const;
+
+    Status materialize_fused_nullable_values(MutableColumnPtr& doris_column,
+                                             const DataTypeSerDe& serde,
+                                             ParquetDecodeContext& context,
+                                             ParquetMaterializationState& state, size_t num_values,
+                                             size_t num_nulls, const NullMap& selected_nulls);
+
     static bool supports_raw_fixed_filter_encoding(tparquet::Encoding::type encoding,
                                                    tparquet::Type::type physical_type) {
         switch (encoding) {
@@ -251,6 +261,7 @@ public:
     Decoder* get_page_decoder() { return _page_decoder; }
 
     void release_decoder_scratch(size_t max_retained_bytes) {
+        _page_reader->release_scratch(max_retained_bytes);
         for (auto& [encoding, decoder] : _decoders) {
             decoder->release_scratch(max_retained_bytes);
         }
@@ -284,7 +295,8 @@ public:
 
     size_t retained_decoder_scratch_bytes() const {
         size_t bytes = _decompress_buf_size + _rep_level_decoder.retained_scratch_bytes() +
-                       _def_level_decoder.retained_scratch_bytes();
+                       _def_level_decoder.retained_scratch_bytes() +
+                       _page_reader->retained_scratch_bytes();
         for (const auto& [encoding, decoder] : _decoders) {
             bytes += decoder->retained_scratch_bytes();
         }
@@ -296,7 +308,7 @@ public:
     size_t active_decoder_scratch_bytes() const {
         // Only the current encoding is active. Old decoder instances retain reusable capacity but
         // must not make the high-water policy treat their last batch as current working memory.
-        return _active_decompress_bytes +
+        return _active_decompress_bytes + _page_reader->active_scratch_bytes() +
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
                _def_level_decoder.active_scratch_bytes() +
@@ -463,5 +475,11 @@ private:
 };
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
+
+/// Instantiated once in column_chunk_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnChunkReader<true, true>;
+extern template class ColumnChunkReader<true, false>;
+extern template class ColumnChunkReader<false, true>;
+extern template class ColumnChunkReader<false, false>;
 
 } // namespace doris::format::parquet::native

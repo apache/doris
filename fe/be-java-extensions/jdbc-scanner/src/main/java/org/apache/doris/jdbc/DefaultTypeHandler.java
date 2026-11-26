@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -34,6 +34,14 @@ import java.sql.Timestamp;
  * Database-specific handlers extend this and override methods as needed.
  */
 public class DefaultTypeHandler implements JdbcTypeHandler {
+    protected static java.time.LocalDateTime checkedUtcTimestamp(java.time.Instant value) {
+        java.time.LocalDateTime utc = java.time.LocalDateTime.ofInstant(value, java.time.ZoneOffset.UTC);
+        // JNI packs fields without range validation; rejecting here also preserves NOT NULL schemas.
+        if (utc.getYear() < 0 || utc.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ is outside Doris UTC year range [0, 9999]: " + value);
+        }
+        return utc;
+    }
 
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,

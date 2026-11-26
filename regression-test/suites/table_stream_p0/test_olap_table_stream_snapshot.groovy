@@ -62,6 +62,13 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
             exception "__DORIS_STREAM_SEQUENCE_COL__"
         }
     }
+    // DUP snapshot exposes base row LSN.
+    def checkDupSnapshotLsn = { streamName ->
+        def lsns = sql("SELECT __DORIS_ROW_LSN_COL__ FROM ${streamName}@snapshot() ORDER BY id")
+                .collect { it[0] as long }
+        assertTrue(lsns.size() > 0)
+        lsns.each { lsn -> assertTrue(lsn > 0, "snapshot row lsn should be positive but got ${lsn}") }
+    }
 
     // 1) DUP + append_only + show_initial_rows=true + non-partitioned table.
     // snapshot reads the stream creation snapshot and does not advance the stream offset.
@@ -74,8 +81,7 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_np_true VALUES (1, 10), (2, 20)"
@@ -119,8 +125,7 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_np_false VALUES (1, 10), (2, 20)"
@@ -136,6 +141,7 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
     waitVisible()
     checkRows([["1", "10"], ["2", "20"]],
             "SELECT id, v FROM s_dup_np_false@snapshot() ORDER BY id")
+    checkDupSnapshotLsn("s_dup_np_false")
     checkRows([["3", "30"]],
             "SELECT id, v FROM s_dup_np_false ORDER BY id")
     sql """
@@ -169,9 +175,8 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql "INSERT INTO mow_md_true VALUES (1, 10), (2, 20), (3, 30)"
@@ -202,9 +207,8 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql "INSERT INTO mow_append_false VALUES (1, 10), (2, 20)"
@@ -241,8 +245,7 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_part_true VALUES (1, 10)"
@@ -272,5 +275,39 @@ suite("test_olap_table_stream_snapshot", "nonConcurrent") {
     })
     checkRows([["1", "10"], ["11", "110"]],
             "SELECT id, v FROM s_dup_part_true ORDER BY id")
+
+    // 6) DUP + append_only + show_initial_rows=false + range partitions.
+    // Same as case 2, but on a partitioned table: the snapshot image carries the base row LSN.
+    sql """
+        CREATE TABLE dup_part_false (
+            id INT,
+            v INT
+        )
+        DUPLICATE KEY(id)
+        PARTITION BY RANGE(id)
+        (
+            PARTITION p1 VALUES LESS THAN (10),
+            PARTITION p2 VALUES [(10), (20))
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "changelog.enable" = "true"
+        )
+    """
+    sql "INSERT INTO dup_part_false VALUES (1, 10), (2, 20)"
+    waitVisible()
+    sql """
+        CREATE STREAM s_dup_part_false ON TABLE dup_part_false
+        PROPERTIES (
+            "type" = "append_only",
+            "show_initial_rows" = "false"
+        )
+    """
+    sql "INSERT INTO dup_part_false VALUES (11, 110)"
+    waitVisible()
+    checkRows([["1", "10"], ["2", "20"]],
+            "SELECT id, v FROM s_dup_part_false@snapshot() ORDER BY id")
+    checkDupSnapshotLsn("s_dup_part_false")
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_snapshot_db"
 }

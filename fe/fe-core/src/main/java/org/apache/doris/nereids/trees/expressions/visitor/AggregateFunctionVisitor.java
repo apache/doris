@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
@@ -54,12 +56,13 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -71,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmap
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
@@ -100,6 +104,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -185,6 +190,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
+    }
+
+    default R visitCountAtMin(CountAtMin countAtMin, C context) {
+        return visitAggregateFunction(countAtMin, context);
+    }
+
+    default R visitCountAtMax(CountAtMax countAtMax, C context) {
+        return visitAggregateFunction(countAtMax, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {
@@ -275,10 +288,6 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitNullableAggregateFunction(aiAgg, context);
     }
 
-    default R visitMapAgg(MapAgg mapAgg, C context) {
-        return visitAggregateFunction(mapAgg, context);
-    }
-
     default R visitMax(Max max, C context) {
         return visitNullableAggregateFunction(max, context);
     }
@@ -329,6 +338,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitPercentileApprox(PercentileApproxWeighted percentileApprox, C context) {
         return visitNullableAggregateFunction(percentileApprox, context);
+    }
+
+    default R visitPercentileApproxArray(PercentileApproxArray percentileApproxArray, C context) {
+        return visitAggregateFunction(percentileApproxArray, context);
     }
 
     default R visitPercentileArray(PercentileArray percentileArray, C context) {
@@ -411,6 +424,14 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(sum0, context);
     }
 
+    default R visitMaxTopK(MaxTopK maxTopK, C context) {
+        return visitAggregateFunction(maxTopK, context);
+    }
+
+    default R visitMinTopK(MinTopK minTopK, C context) {
+        return visitAggregateFunction(minTopK, context);
+    }
+
     default R visitTopN(TopN topN, C context) {
         return visitNullableAggregateFunction(topN, context);
     }
@@ -440,6 +461,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMergeCombinator(MergeCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitCombineCombinator(CombineCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 

@@ -23,8 +23,8 @@ import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -58,8 +58,7 @@ public class CheckReplicaContinuousVersionSuccTest {
         Field f = PublishVersionTask.class.getDeclaredField("succTablets");
         f.setAccessible(true);
         f.set(task, null);
-        Assert.assertNull("precondition: succTablets must be null for this test",
-                task.getSuccTablets());
+        Assertions.assertNull(task.getSuccTablets(), "precondition: succTablets must be null for this test");
         return task;
     }
 
@@ -86,7 +85,7 @@ public class CheckReplicaContinuousVersionSuccTest {
                     tabletSuccReplicas, tabletWriteFailedReplicas, tabletVersionFailedReplicas);
         } catch (InvocationTargetException ite) {
             if (ite.getCause() instanceof NullPointerException) {
-                Assert.fail("checkReplicaContinuousVersionSucc threw NPE on null succTablets: "
+                Assertions.fail("checkReplicaContinuousVersionSucc threw NPE on null succTablets: "
                         + ite.getCause());
             }
             throw ite;
@@ -116,10 +115,9 @@ public class CheckReplicaContinuousVersionSuccTest {
                 tabletVersionFailedReplicas, task, replica, /*minReplicaVersion*/100L,
                 /*maxReplicaVersion*/101L);
 
-        Assert.assertTrue("replica should be classified as write-failed when succTablets is null",
-                tabletWriteFailedReplicas.contains(replica));
-        Assert.assertTrue(tabletSuccReplicas.isEmpty());
-        Assert.assertTrue(tabletVersionFailedReplicas.isEmpty());
+        Assertions.assertTrue(tabletWriteFailedReplicas.contains(replica), "replica should be classified as write-failed when succTablets is null");
+        Assertions.assertTrue(tabletSuccReplicas.isEmpty());
+        Assertions.assertTrue(tabletVersionFailedReplicas.isEmpty());
     }
 
     /**
@@ -148,10 +146,8 @@ public class CheckReplicaContinuousVersionSuccTest {
                 tabletVersionFailedReplicas, task, replica, /*minReplicaVersion*/100L,
                 /*maxReplicaVersion*/100L);
 
-        Assert.assertFalse("happy path must clear the replica from errorReplicaIds",
-                errorReplicaIds.contains(REPLICA_ID));
-        Assert.assertTrue("happy path must add the replica to tabletSuccReplicas",
-                tabletSuccReplicas.contains(replica));
+        Assertions.assertFalse(errorReplicaIds.contains(REPLICA_ID), "happy path must clear the replica from errorReplicaIds");
+        Assertions.assertTrue(tabletSuccReplicas.contains(replica), "happy path must add the replica to tabletSuccReplicas");
     }
 
     /**
@@ -172,6 +168,6 @@ public class CheckReplicaContinuousVersionSuccTest {
         invokeCheck(errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
                 tabletVersionFailedReplicas, /*task*/null, replica, 100L, 101L);
 
-        Assert.assertTrue(tabletWriteFailedReplicas.contains(replica));
+        Assertions.assertTrue(tabletWriteFailedReplicas.contains(replica));
     }
 }

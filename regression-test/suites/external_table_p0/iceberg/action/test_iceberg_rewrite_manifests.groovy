@@ -238,30 +238,28 @@ suite("test_iceberg_rewrite_manifests", "p0,external") {
     sql """INSERT INTO ${db_name}.${spec_id_table} VALUES (4, 'item4', 400, 2024, 3, 18)"""
     sql """INSERT INTO ${db_name}.${spec_id_table} VALUES (5, 'item5', 500, 2024, 3, 19)"""
     
-    // Check spec_ids after adding new partition field
-    List<List<Object>> allSpecs = sql """
-        SELECT partition_spec_id, COUNT(*) as manifest_count 
-        FROM ${spec_id_table}\$manifests 
-        GROUP BY partition_spec_id 
-        ORDER BY partition_spec_id
+    // The first INSERT after the spec change merges the three spec-0 manifests into one, because Iceberg's
+    // merge append compacts the manifests of a spec that the commit does not write to. So spec 0 has one
+    // manifest and spec 1 has two.
+    order_qt_manifests_by_spec_before """
+        SELECT partition_spec_id, COUNT(*) FROM ${spec_id_table}\$manifests GROUP BY partition_spec_id
     """
-    logger.info("All spec IDs and manifest counts: ${allSpecs}")
-    
-    if (allSpecs.size() > 0) {
-        int targetSpec = allSpecs[0][0] as int
-        int targetCount = allSpecs[0][1] as int
-        List<List<Object>> specResult = sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${spec_id_table}
-            EXECUTE rewrite_manifests('spec_id' = '${targetSpec}')
-        """
-        int specRewritten = specResult[0][0] as int
-        assertTrue(specRewritten == targetCount,
-            "Should rewrite exactly ${targetCount} manifests for spec_id=${targetSpec}, got ${specRewritten}")
-        qt_after_spec_id_rewrite """SELECT * FROM ${spec_id_table} ORDER BY id"""
-        logger.info("spec_id filtering test completed successfully")
-    } else {
-        logger.warn("Could not create spec_id, skipping spec_id filtering test")
-    }
+
+    // spec_id limits the rewrite to the two manifests of spec 1, which are merged into one
+    qt_spec_id_rewrite """
+        ALTER TABLE ${catalog_name}.${db_name}.${spec_id_table}
+        EXECUTE rewrite_manifests('spec_id' = '1')
+    """
+    order_qt_manifests_by_spec_after """
+        SELECT partition_spec_id, COUNT(*) FROM ${spec_id_table}\$manifests GROUP BY partition_spec_id
+    """
+
+    // A single manifest smaller than the target size is left alone, as Spark's RewriteManifests action does
+    qt_single_manifest_spec_rewrite """
+        ALTER TABLE ${catalog_name}.${db_name}.${spec_id_table}
+        EXECUTE rewrite_manifests('spec_id' = '0')
+    """
+    qt_after_spec_id_rewrite """SELECT * FROM ${spec_id_table} ORDER BY id"""
 
     // =====================================================================================
     // Test Case 4: rewrite_manifests on empty table (no current snapshot)
@@ -348,7 +346,7 @@ suite("test_iceberg_rewrite_manifests", "p0,external") {
             ALTER TABLE ${catalog_name}.${db_name}.${table_name}
             EXECUTE rewrite_manifests() WHERE id > 0
         """
-        exception "Action 'rewrite_manifests' does not support WHERE condition"
+        exception "WHERE condition is not supported for this EXECUTE action"
     }
 
     // Test on non-existent table

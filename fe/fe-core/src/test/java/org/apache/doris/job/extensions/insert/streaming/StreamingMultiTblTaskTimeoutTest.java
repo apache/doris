@@ -20,14 +20,14 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.common.Config;
 import org.apache.doris.job.cdc.StreamingTaskStatus;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class StreamingMultiTblTaskTimeoutTest {
 
-    @Before
+    @BeforeEach
     public void setup() {
         Config.streaming_task_timeout_multiplier = 10;
         Config.streaming_task_min_timeout_sec = 300;
@@ -54,36 +54,36 @@ public class StreamingMultiTblTaskTimeoutTest {
     @Test
     public void readAdvancingRenewsDeadline() {
         StreamingMultiTblTask t = newTask(10 * 3600_000L, 60L);
-        Assert.assertFalse(t.isTimeout(status(2000)));
+        Assertions.assertFalse(t.isTimeout(status(2000)));
     }
 
     @Test
     public void noProgressWithinBudgetNotTimeout() {
         StreamingMultiTblTask t = newTask(5 * 60_000L, 60L);
-        Assert.assertFalse(t.isTimeout(status(1000)));
+        Assertions.assertFalse(t.isTimeout(status(1000)));
     }
 
     @Test
     public void noProgressOverBudgetTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
-        Assert.assertTrue(t.isTimeout(status(1000)));
+        Assertions.assertTrue(t.isTimeout(status(1000)));
     }
 
     @Test
     public void smallIntervalFlooredByMinTimeout() {
         StreamingMultiTblTask t = newTask(4 * 60_000L, 1L);
-        Assert.assertFalse(t.isTimeout(status(1000)));
+        Assertions.assertFalse(t.isTimeout(status(1000)));
     }
 
     @Test
     public void nullProgressBehavesLikeOldTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
-        Assert.assertTrue(t.isTimeout(null));
+        Assertions.assertTrue(t.isTimeout(null));
     }
 
     @Test
     public void localTimeoutGatesProgressPull() {
-        Assert.assertFalse(newTask(5 * 60_000L, 60L).isLocalTimeout());
-        Assert.assertTrue(newTask(11 * 60_000L, 60L).isLocalTimeout());
+        Assertions.assertFalse(newTask(5 * 60_000L, 60L).isLocalTimeout());
+        Assertions.assertTrue(newTask(11 * 60_000L, 60L).isLocalTimeout());
     }
 }

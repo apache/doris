@@ -160,6 +160,84 @@ TxnErrorCode MetaReader::get_partition_version(Transaction* txn, int64_t partiti
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::get_table_stream_offset(Transaction* txn,
+                                                 const TableStreamIdentityPB& identity,
+                                                 int64_t partition_id, TableStreamOffsetPB* offset,
+                                                 Versionstamp* versionstamp, bool snapshot) {
+    std::string key = versioned::table_stream_offset_key(
+            {instance_id_, identity.base_db_id(), identity.base_table_id(), identity.stream_db_id(),
+             identity.stream_id(), partition_id});
+    std::string value;
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, key, snapshot_version_, &key_version, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (versionstamp) {
+        *versionstamp = key_version;
+    }
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
+    if (offset && !offset->ParseFromString(value)) {
+        LOG_ERROR("Failed to parse TableStreamOffsetPB")
+                .tag("instance_id", instance_id_)
+                .tag("stream_id", identity.stream_id())
+                .tag("partition_id", partition_id)
+                .tag("key", hex(key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_table_stream_offsets(
+        Transaction* txn, const std::vector<TableStreamPartitionSetPB>& bindings,
+        TableStreamOffsetMap* offsets, TableStreamOffsetVersionstampMap* versionstamps,
+        bool snapshot) {
+    std::vector<std::string> keys;
+    std::vector<std::pair<int64_t, int64_t>> positions;
+    for (const TableStreamPartitionSetPB& binding : bindings) {
+        const TableStreamIdentityPB& identity = binding.identity();
+        for (int64_t partition_id : binding.partition_ids()) {
+            keys.push_back(versioned::table_stream_offset_key(
+                    {instance_id_, identity.base_db_id(), identity.base_table_id(),
+                     identity.stream_db_id(), identity.stream_id(), partition_id}));
+            positions.emplace_back(identity.stream_id(), partition_id);
+        }
+    }
+    if (keys.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::optional<std::pair<std::string, Versionstamp>>> values;
+    TxnErrorCode err = versioned_batch_get(txn, keys, snapshot_version_, &values, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (!values[i].has_value()) {
+            continue;
+        }
+        const auto& [value, versionstamp] = *values[i];
+        auto [stream_id, partition_id] = positions[i];
+        TableStreamOffsetPB offset;
+        if (!offset.ParseFromString(value)) {
+            LOG_ERROR("Failed to parse TableStreamOffsetPB")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("partition_id", partition_id)
+                    .tag("key", hex(keys[i]));
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        (*offsets)[stream_id].emplace(partition_id, std::move(offset));
+        if (versionstamps) {
+            (*versionstamps)[stream_id].emplace(partition_id, versionstamp);
+        }
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_tablet_load_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                Versionstamp* versionstamp, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
@@ -679,7 +757,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                                           int64_t start_version, int64_t end_version,
                                           std::vector<RowsetMetaCloudPB>* rowset_metas,
                                           bool snapshot) {
-    std::map<int64_t, RowsetMetaCloudPB> rowset_graph;
+    std::map<int64_t, std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_graph;
 
     {
         std::string start_key =
@@ -698,8 +776,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
             auto&& [key, version, rowset_meta] = *kvp;
-            rowset_graph.emplace(rowset_meta.end_version(), std::move(rowset_meta));
-            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
+            rowset_graph.try_emplace(rowset_meta.end_version(), std::move(rowset_meta), version);
             DCHECK(version < snapshot_version_)
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
@@ -744,12 +821,11 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 continue;
             }
 
-            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
             last_start_version = start_version;
             // erase the rowsets that are covered by this compact rowset
             rowset_graph.erase(rowset_graph.lower_bound(start_version),
                                rowset_graph.upper_bound(end_version));
-            rowset_graph.emplace(end_version, std::move(rowset_meta));
+            rowset_graph.try_emplace(end_version, std::move(rowset_meta), version);
         }
         if (!iter->is_valid()) {
             LOG_ERROR("failed to get compacted rowset metas")
@@ -764,7 +840,10 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 
     rowset_metas->clear();
     rowset_metas->reserve(rowset_graph.size());
-    for (auto&& [version, rowset_meta] : rowset_graph) {
+    // Only returned rowsets contribute dependencies after both scans succeed.
+    for (auto&& [end_version, entry] : rowset_graph) {
+        auto& [rowset_meta, versionstamp] = entry;
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
         rowset_metas->emplace_back(std::move(rowset_meta));
     }
 
@@ -887,6 +966,73 @@ TxnErrorCode MetaReader::get_tablet_indexes(
         tablet_indexes->emplace(tablet_id, std::move(tablet_index));
     }
 
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_partition_indexes(
+        Transaction* txn, const std::vector<int64_t>& partition_ids,
+        std::unordered_map<int64_t, PartitionIndexPB>* partition_indexes, bool snapshot) {
+    if (partition_ids.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::string> keys;
+    keys.reserve(partition_ids.size());
+    for (int64_t partition_id : partition_ids) {
+        keys.push_back(versioned::partition_index_key({instance_id_, partition_id}));
+    }
+
+    std::vector<std::optional<std::string>> values;
+    Transaction::BatchGetOptions options(snapshot);
+    TxnErrorCode err = txn->batch_get(&values, keys, options);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (!values[i].has_value()) {
+            continue;
+        }
+        int64_t partition_id = partition_ids[i];
+        PartitionIndexPB partition_index;
+        if (!partition_index.ParseFromString(*values[i])) {
+            LOG_ERROR("Failed to parse PartitionIndexPB")
+                    .tag("instance_id", instance_id_)
+                    .tag("partition_id", partition_id)
+                    .tag("key", hex(keys[i]));
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        partition_indexes->emplace(partition_id, std::move(partition_index));
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_existing_partitions(
+        Transaction* txn, const std::vector<int64_t>& partition_ids,
+        std::unordered_set<int64_t>* existing_partition_ids, bool snapshot) {
+    if (partition_ids.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::string> keys;
+    keys.reserve(partition_ids.size());
+    for (int64_t partition_id : partition_ids) {
+        keys.push_back(versioned::meta_partition_key({instance_id_, partition_id}));
+    }
+
+    std::vector<std::optional<std::pair<std::string, Versionstamp>>> values;
+    TxnErrorCode err = versioned_batch_get(txn, keys, snapshot_version_, &values, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (!values[i].has_value()) {
+            continue;
+        }
+        existing_partition_ids->insert(partition_ids[i]);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, values[i]->second);
+    }
     return TxnErrorCode::TXN_OK;
 }
 

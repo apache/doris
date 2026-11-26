@@ -48,6 +48,11 @@ import java.util.Map;
  * infrastructure as the read-side TVF (SELECT * FROM s3/hdfs/local(...)).
  */
 public class TVFTableSink extends DataSink {
+    // Upper bound on the zero-padding width for the per-file index in output file names
+    // (the "file_name_padding" property). _file_idx on the BE is a 32-bit int, so 10 digits
+    // covers its full range.
+    private static final int MAX_FILE_NAME_PADDING = 10;
+
     private final PlanNodeId exchNodeId;
     private final String tvfName;
     private final Map<String, String> properties;
@@ -154,6 +159,22 @@ public class TVFTableSink extends DataSink {
         String maxFileSizeStr = properties.get("max_file_size");
         if (maxFileSizeStr != null) {
             tSink.setMaxFileSizeBytes(Long.parseLong(maxFileSizeStr));
+        }
+
+        // Zero-pad the per-file index in output file names so they sort lexicographically.
+        String fileNamePaddingStr = properties.get("file_name_padding");
+        if (fileNamePaddingStr != null) {
+            int fileNamePadding;
+            try {
+                fileNamePadding = Integer.parseInt(fileNamePaddingStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("file_name_padding must be an integer. Given: " + fileNamePaddingStr);
+            }
+            if (fileNamePadding < 0 || fileNamePadding > MAX_FILE_NAME_PADDING) {
+                throw new AnalysisException("file_name_padding must be between 0 and "
+                        + MAX_FILE_NAME_PADDING + ". Given: " + fileNamePadding);
+            }
+            tSink.setFileNamePadding(fileNamePadding);
         }
 
         // Delete existing files is handled by FE (InsertIntoTVFCommand), always tell BE not to delete

@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -37,11 +38,14 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
 #include "core/value/vdatetime_value.h"
+#include "cpp/sync_point.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -49,6 +53,7 @@
 #include "storage/iterators.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
+#include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
@@ -59,6 +64,7 @@
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 class OlapMeta;
@@ -69,17 +75,15 @@ class OlapMeta;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
-static std::shared_ptr<Schema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+static std::shared_ptr<ReadSchema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
     size_t num_columns = tablet_schema->num_columns();
     if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
         --num_columns;
     }
 
-    std::vector<ColumnId> column_ids(num_columns);
-    for (uint32_t cid = 0; cid < num_columns; ++cid) {
-        column_ids[cid] = cid;
-    }
-    return std::make_shared<Schema>(tablet_schema->columns(), column_ids);
+    std::vector<TabletColumnPtr> columns(tablet_schema->columns().begin(),
+                                         tablet_schema->columns().begin() + num_columns);
+    return std::make_shared<ReadSchema>(std::move(columns));
 }
 
 static void set_up() {
@@ -190,6 +194,12 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .column_pos(4)
                                    .nullable(false)
                                    .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_STRING)
+                                   .column_name(BeConsts::ROW_STORE_COL)
+                                   .column_pos(5)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -220,6 +230,7 @@ static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
 
     int32_t c5 = seq;
     columns[4]->insert_data((const char*)&c5, sizeof(c5));
+    columns[5]->insert_default();
     block->set_columns(std::move(columns));
 }
 
@@ -240,7 +251,17 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
-    create_tablet_request_with_sequence_col(55555, 270068377, &request);
+    create_tablet_request_with_sequence_col(55555, 270068377, &request, true);
+    request.tablet_schema.__set_store_row_column(true);
+    TColumn row_store_column;
+    row_store_column.column_name = BeConsts::ROW_STORE_COL;
+    row_store_column.column_type.type = TPrimitiveType::STRING;
+    row_store_column.__set_is_key(false);
+    row_store_column.__set_is_allow_null(false);
+    row_store_column.__set_aggregation_type(TAggregationType::REPLACE);
+    row_store_column.__set_default_value("");
+    row_store_column.__set_visible(false);
+    request.tablet_schema.columns.push_back(row_store_column);
     Status res = engine_ref->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
@@ -292,7 +313,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -326,7 +347,6 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     ASSERT_EQ(1, tablet->num_rows());
     std::vector<segment_v2::SegmentSharedPtr> segments;
 
-    SegmentCacheHandle handle;
     BetaRowsetSharedPtr rowset_ptr = std::dynamic_pointer_cast<BetaRowset>(rowset);
 
     std::mutex lock;
@@ -334,6 +354,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
         // Use lock to make sure only this segment can be loaded by SegmentLoader during this test.
         // SegmeentLoader is singleton. Without this lock, multiple segments will be loaded. Result will be wrong.
         std::lock_guard<std::mutex> l(lock);
+        SegmentCacheHandle handle;
         // load segments first
         int64_t start_size = SegmentLoader::instance()->cache_mem_usage();
         res = SegmentLoader::instance()->load_segments(rowset_ptr, &handle, true, true);
@@ -352,6 +373,83 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
                   segment_ptr->meta_mem_usage());
     }
 
+    std::atomic<int> segment_load_calls = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("SegmentLoader::load_segments", [&](auto&& args) {
+        if (try_any_cast<BetaRowset*>(args[0]) == rowset_ptr.get()) {
+            segment_load_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+    sync_point->enable_processing();
+    Defer clear_sync_point([&]() {
+        sync_point->clear_call_back("SegmentLoader::load_segments");
+        sync_point->disable_processing();
+    });
+
+    RowCursor key_cursor;
+    ASSERT_TRUE(key_cursor
+                        .init_scan_key(tablet->tablet_schema(),
+                                       {Field::create_field<TYPE_TINYINT>(int8_t {123}),
+                                        Field::create_field<TYPE_SMALLINT>(int16_t {456})})
+                        .ok());
+    std::string encoded_key;
+    key_cursor.encode_key_with_padding<true>(&encoded_key,
+                                             tablet->tablet_schema()->num_key_columns(), true);
+
+    std::vector<RowsetSharedPtr> specified_rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    RowLocation row_location;
+    RowsetSharedPtr found_rowset;
+    segment_v2::SegmentSharedPtr found_segment;
+    OlapReaderStatistics lookup_stats;
+    res = tablet->lookup_row_key(encoded_key, nullptr, false, specified_rowsets, &row_location,
+                                 version.second, segment_caches, &found_rowset, false, nullptr,
+                                 &lookup_stats, nullptr, nullptr, &found_segment);
+    ASSERT_TRUE(res.ok()) << res;
+    ASSERT_EQ(rowset.get(), found_rowset.get());
+    ASSERT_NE(nullptr, segment_caches[0]);
+    ASSERT_EQ(segment_caches[0]->get_segments().front().get(), found_segment.get());
+    ASSERT_EQ(found_segment->id(), row_location.segment_id);
+
+    const int load_calls_after_key_lookup = segment_load_calls.load(std::memory_order_relaxed);
+    ASSERT_EQ(1, load_calls_after_key_lookup);
+    std::string row_data;
+    res = tablet->lookup_row_data(encoded_key, row_location, found_segment, found_rowset,
+                                  lookup_stats, row_data, false);
+    ASSERT_TRUE(res.ok()) << res;
+    ASSERT_FALSE(row_data.empty());
+    EXPECT_EQ(load_calls_after_key_lookup, segment_load_calls.load(std::memory_order_relaxed));
+
+    std::string legacy_row_data;
+    res = tablet->lookup_row_data(encoded_key, row_location, found_rowset, lookup_stats,
+                                  legacy_row_data, false);
+    ASSERT_TRUE(res.ok()) << res;
+    EXPECT_EQ(row_data, legacy_row_data);
+    EXPECT_EQ(load_calls_after_key_lookup + 1, segment_load_calls.load(std::memory_order_relaxed));
+
+    // The executor drops its key-lookup cache handles before reading row data. Even if
+    // the cache entry is then evicted, the returned shared pointer must keep the segment alive.
+    segment_caches.clear();
+    SegmentLoader::instance()->erase_segments(*rowset->rowset_meta());
+    std::string uncached_row_data;
+    res = tablet->lookup_row_data(encoded_key, row_location, found_segment, found_rowset,
+                                  lookup_stats, uncached_row_data, false);
+    ASSERT_TRUE(res.ok()) << res;
+    EXPECT_EQ(row_data, uncached_row_data);
+    EXPECT_EQ(load_calls_after_key_lookup + 1, segment_load_calls.load(std::memory_order_relaxed));
+
+    // A deleted key must not return a segment for the row-data stage.
+    auto delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+    delete_bitmap->add({row_location.rowset_id, row_location.segment_id, version.second},
+                       row_location.row_id);
+    segment_caches.resize(specified_rowsets.size());
+    segment_v2::SegmentSharedPtr deleted_segment;
+    res = tablet->lookup_row_key(encoded_key, nullptr, false, specified_rowsets, &row_location,
+                                 version.second, segment_caches, nullptr, false, nullptr,
+                                 &lookup_stats, delete_bitmap, nullptr, &deleted_segment);
+    EXPECT_TRUE(res.is<ErrorCode::KEY_NOT_FOUND>()) << res;
+    EXPECT_EQ(nullptr, deleted_segment);
+
     res = ((BetaRowset*)rowset.get())->load_segments(&segments);
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, rowset->num_segments());
@@ -359,15 +457,13 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
 
     // read data, verify the data correct
     OlapReaderStatistics stats;
-    StorageReadOptions opts;
-    opts.stats = &stats;
-    opts.tablet_schema = rowset->tablet_schema();
+    StorageReadOptions opts(stats);
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = create_full_schema(rowset->tablet_schema());
+    std::shared_ptr<ReadSchema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
-    auto read_block = rowset->tablet_schema()->create_block();
+    auto read_block = schema->create_read_block();
     res = iter->next_batch(&read_block);
     ASSERT_TRUE(res.ok()) << res;
     ASSERT_EQ(1, read_block.rows());

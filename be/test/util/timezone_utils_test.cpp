@@ -93,7 +93,7 @@ TEST(TimezoneUtilsTest, ParseOffset) {
 TEST(TimezoneUtilsTest, LoadOffsets) {
     TimezoneUtils::clear_timezone_caches();
     TimezoneUtils::load_offsets_to_cache();
-    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 3);
+    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 3 - 4);
 
     TimezoneUtils::load_timezones_to_cache();
     EXPECT_GE(TimezoneUtils::cache_size(), 100);
@@ -154,6 +154,33 @@ TEST(TimezoneUtilsTest, FindTimezone) {
 
     tzname = "+800";
     EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(tzname, result));
+}
+
+TEST(TimezoneUtilsTest, OffsetBoundariesWithAndWithoutCache) {
+    for (bool preload : {false, true}) {
+        TimezoneUtils::clear_timezone_caches();
+        if (preload) {
+            TimezoneUtils::load_timezones_to_cache();
+        }
+        for (const auto* prefix : {"", "UTC", "GMT", "utc", "gmt"}) {
+            for (const auto* offset : {"+14:01", "+14:30", "+14:45", "-12:01", "-12:30", "-12:45",
+                                       "+15:00", "-13:00", "+08:60"}) {
+                const std::string input = std::string(prefix) + offset;
+                cctz::time_zone result = cctz::fixed_time_zone(cctz::seconds(3600));
+                EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(input, result)) << input;
+                EXPECT_EQ(
+                        result.lookup(cctz::convert(cctz::civil_second(2024, 1, 1), result)).offset,
+                        3600)
+                        << input;
+            }
+            for (const auto* offset : {"+14:00", "-12:00", "+08:01", "+08:15", "-00:30"}) {
+                cctz::time_zone result;
+                EXPECT_TRUE(
+                        TimezoneUtils::find_cctz_time_zone(std::string(prefix) + offset, result));
+            }
+        }
+    }
+    TimezoneUtils::load_timezones_to_cache();
 }
 
 TEST(TimezoneUtilsTest, TryGetFixedOffsetSeconds) {

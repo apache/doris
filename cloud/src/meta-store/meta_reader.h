@@ -20,11 +20,20 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versionstamp.h"
 
 namespace doris::cloud {
+
+using TableStreamOffsetMap =
+        std::unordered_map<int64_t, std::unordered_map<int64_t, TableStreamOffsetPB>>;
+using TableStreamOffsetVersionstampMap =
+        std::unordered_map<int64_t, std::unordered_map<int64_t, Versionstamp>>;
 
 // A versioned meta reader that encapsulates the logic to read versioned metadata.
 //
@@ -76,6 +85,22 @@ public:
                                        Versionstamp* versionstamp, bool snapshot = false);
     TxnErrorCode get_partition_version(Transaction* txn, int64_t partition_id, VersionPB* version,
                                        Versionstamp* versionstamp, bool snapshot = false);
+
+    // Get the versioned table stream offset for the given stream partition.
+    //
+    // Returns TXN_KEY_NOT_FOUND when the offset has never been materialized in this instance at
+    // the configured snapshot version.
+    TxnErrorCode get_table_stream_offset(Transaction* txn, const TableStreamIdentityPB& identity,
+                                         int64_t partition_id, TableStreamOffsetPB* offset,
+                                         Versionstamp* versionstamp, bool snapshot = false);
+
+    // Get versioned offsets for all (stream, partition) pairs in the bindings. Results are keyed by
+    // stream id and then partition id. Missing offsets are omitted.
+    TxnErrorCode get_table_stream_offsets(Transaction* txn,
+                                          const std::vector<TableStreamPartitionSetPB>& bindings,
+                                          TableStreamOffsetMap* offsets,
+                                          TableStreamOffsetVersionstampMap* versionstamps,
+                                          bool snapshot = false);
 
     // Get the partition versions and versionstamps for the given partition_ids.
     //
@@ -164,6 +189,19 @@ public:
     TxnErrorCode get_tablet_indexes(Transaction* txn, const std::vector<int64_t>& tablet_ids,
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
                                     bool snapshot = false);
+
+    // Get current Partition Index mappings for the given partition ids. Missing mappings are
+    // omitted from the output map.
+    TxnErrorCode get_partition_indexes(
+            Transaction* txn, const std::vector<int64_t>& partition_ids,
+            std::unordered_map<int64_t, PartitionIndexPB>* partition_indexes,
+            bool snapshot = false);
+
+    // Get partition ids whose versioned Partition Meta exists at this reader's snapshot version.
+    TxnErrorCode get_existing_partitions(Transaction* txn,
+                                         const std::vector<int64_t>& partition_ids,
+                                         std::unordered_set<int64_t>* existing_partition_ids,
+                                         bool snapshot = false);
 
     // Get the rowset meta for the given tablet_id and version range [start_version, end_version].
     //

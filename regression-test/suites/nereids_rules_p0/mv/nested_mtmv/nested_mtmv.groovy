@@ -22,7 +22,7 @@ suite("nested_mtmv") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_materialized_view_nest_rewrite = true"
-
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
     sql """
     drop table if exists orders_1
     """

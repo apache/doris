@@ -17,6 +17,26 @@
 
 suite("test_array_zip_array_enumerate_uniq", "p0") {
 //     ========== array-zip ==========
+    sql "SET debug_skip_fold_constant = false"
+    order_qt_array_zip_folded_null """
+        SELECT array_zip([1.1, 2.2, 3.3], [1, 2, 3], NULL)
+    """
+
+    sql "SET debug_skip_fold_constant = true"
+    order_qt_array_zip_null_first """
+        SELECT array_zip(NULL, [1, 2, 3], ['a', 'b', 'c'])
+    """
+    order_qt_array_zip_null_middle """
+        SELECT array_zip([1.1, 2.2, 3.3], NULL, [1, 2, 3])
+    """
+    order_qt_array_zip_null_last """
+        SELECT array_zip([1.1, 2.2, 3.3], [1, 2, 3], NULL)
+    """
+    order_qt_array_zip_typed_null """
+        SELECT array_zip([1.1, 2.2, 3.3], CAST(NULL AS ARRAY<INT>), [1, 2, 3])
+    """
+    sql "SET debug_skip_fold_constant = false"
+
 //     wrong case
     test {
         sql """ SELECT array_zip() """

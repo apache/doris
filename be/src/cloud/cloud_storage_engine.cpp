@@ -33,6 +33,7 @@
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_compaction_stop_token.h"
 #include "cloud/cloud_cumulative_compaction.h"
+#include "cloud/cloud_cumulative_compaction_changelog_policy.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_index_change_compaction.h"
@@ -59,6 +60,8 @@
 #include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
+#include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction_task_tracker.h"
@@ -93,6 +96,16 @@ int get_base_thread_num() {
     return std::min(std::max(int(num_cores * config::base_compaction_thread_num_factor), 1), 10);
 }
 
+int get_changelog_thread_num() {
+    if (config::max_changelog_compaction_threads > 0) {
+        return config::max_changelog_compaction_threads;
+    }
+
+    int num_cores = doris::CpuInfo::num_cores();
+    return std::min(std::max(int(num_cores * config::changelog_compaction_thread_num_factor), 1),
+                    10);
+}
+
 CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
         : BaseStorageEngine(Type::CLOUD, options.backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
@@ -102,6 +115,8 @@ CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
             std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
             std::make_shared<CloudTimeSeriesCumulativeCompactionPolicy>();
+    _cumulative_compaction_policies[CUMULATIVE_CHANGELOG_POLICY] =
+            std::make_shared<CloudChangelogCumulativeCompactionPolicy>();
     _startup_timepoint = std::chrono::system_clock::now();
 }
 
@@ -152,8 +167,8 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id,
-                                                       nullptr, vault.prefix()));
+        auto fs = DORIS_TRY(
+                io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, vault.prefix()));
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
@@ -182,9 +197,8 @@ struct RefreshFSVaultVisitor {
 
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto hdfs_fs =
-                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
-                                                     vault.has_prefix() ? vault.prefix() : ""));
+        auto hdfs_fs = DORIS_TRY(io::HdfsFileSystem::create(
+                hdfs_params, hdfs_params.fs_name, id, vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
         put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();
@@ -260,6 +274,24 @@ Status CloudStorageEngine::open() {
     return Status::OK();
 }
 
+#ifdef BE_TEST
+void CloudStorageEngine::init_calc_delete_bitmap_executor_for_UT() {
+    if (_calc_delete_bitmap_executor == nullptr) {
+        _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
+        _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
+                                           config::calc_delete_bitmap_max_thread);
+    }
+    if (_calc_delete_bitmap_executor_for_load == nullptr) {
+        _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+        _calc_delete_bitmap_executor_for_load->init(
+                "LoadCalcDeleteBitmapThreadPool",
+                config::calc_delete_bitmap_for_load_max_thread > 0
+                        ? config::calc_delete_bitmap_for_load_max_thread
+                        : std::max(1, CpuInfo::num_cores() / 2));
+    }
+}
+#endif
+
 void CloudStorageEngine::stop() {
     if (_stopped) {
         return;
@@ -267,6 +299,7 @@ void CloudStorageEngine::stop() {
 
     _stopped = true;
     _stop_background_threads_latch.count_down();
+    _stop_changelog_ttl_scanner();
 
     for (auto&& t : _bg_threads) {
         if (t) {
@@ -279,6 +312,9 @@ void CloudStorageEngine::stop() {
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_changelog_compaction_thread_pool) {
+        _changelog_compaction_thread_pool->shutdown();
     }
     _adaptive_thread_controller.stop();
     LOG(INFO) << "Cloud storage engine is stopped.";
@@ -352,10 +388,10 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     LOG(INFO) << "sync tablets thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "CloudStorageEngine", "evict_querying_rowset_thread",
-            [this]() { this->_evict_quring_rowset_thread_callback(); },
-            &_evict_quering_rowset_thread));
-    LOG(INFO) << "evict quering thread started";
+            "CloudStorageEngine", "id_file_map_gc_thread",
+            [this]() { this->_gc_expired_id_file_map_thread_callback(); },
+            &_id_file_map_gc_thread));
+    LOG(INFO) << "id file map gc thread started";
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
@@ -372,6 +408,7 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     // compaction tasks producer thread
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
+    int changelog_thread_num = get_changelog_thread_num();
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                             .set_min_threads(base_thread_num)
@@ -381,12 +418,25 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
                             .set_min_threads(cumu_thread_num)
                             .set_max_threads(cumu_thread_num)
                             .build(&_cumu_compaction_thread_pool));
+    // ATTN(changelog-rename): formerly "BinlogCompactionTaskThreadPool"
+    RETURN_IF_ERROR(ThreadPoolBuilder("ChangelogCompactionTaskThreadPool")
+                            .set_min_threads(changelog_thread_num)
+                            .set_max_threads(changelog_thread_num)
+                            .set_max_queue_size(changelog_thread_num)
+                            .build(&_changelog_compaction_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
             [this]() { this->_compaction_tasks_producer_callback(); },
             &_bg_threads.emplace_back()));
+    // ATTN(changelog-rename): formerly "binlog_compaction_tasks_producer_thread"
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "changelog_compaction_tasks_producer_thread",
+            [this]() { this->_changelog_compaction_tasks_producer_callback(); },
+            &_bg_threads.emplace_back()));
+    RETURN_IF_ERROR(_start_changelog_ttl_scanner());
     LOG(INFO) << "compaction tasks producer thread started,"
-              << " base thread num " << base_thread_num << " cumu thread num " << cumu_thread_num;
+              << " base thread num " << base_thread_num << " cumu thread num " << cumu_thread_num
+              << " changelog thread num " << changelog_thread_num;
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "lease_compaction_thread",
@@ -453,15 +503,9 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
         sync_storage_vault();
-        // The other place that rebuilds the S3 rate limiter is S3ClientFactory::create(), which
-        // is not called when an existing vault's conf is unchanged. Trigger the check here as well
-        // so that dynamically modified s3_{get,put}_* rate limiter configs take effect within
-        // refresh_s3_info_interval_s even when no vault is created or its conf does not change.
-        // Gate it behind enable_s3_rate_limiter so that clusters with rate limiting disabled
-        // (e.g. HDFS-only vaults) do not force-initialize S3ClientFactory / the AWS SDK here.
-        if (config::enable_s3_rate_limiter) {
-            check_s3_rate_limiter_config_changed();
-        }
+        // Dynamically modified s3_{get,put}_* rate limiter configs and cgroup CPU quota
+        // changes are picked up by the daemon's s3_rate_limiter_refresh_thread, which
+        // runs in both cloud and non-cloud mode.
     }
 }
 
@@ -491,8 +535,9 @@ void CloudStorageEngine::get_cumu_compaction(
 Status CloudStorageEngine::_adjust_compaction_thread_num() {
     int base_thread_num = get_base_thread_num();
 
-    if (!_base_compaction_thread_pool || !_cumu_compaction_thread_pool) {
-        LOG(WARNING) << "base or cumu compaction thread pool is not created";
+    if (!_base_compaction_thread_pool || !_cumu_compaction_thread_pool ||
+        !_changelog_compaction_thread_pool) {
+        LOG(WARNING) << "compaction thread pool is not created";
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>("");
     }
 
@@ -528,6 +573,24 @@ Status CloudStorageEngine::_adjust_compaction_thread_num() {
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool min_threads from " << old_min_threads
                         << " to " << cumu_thread_num;
+        }
+    }
+
+    int changelog_thread_num = get_changelog_thread_num();
+    if (_changelog_compaction_thread_pool->max_threads() != changelog_thread_num) {
+        int old_max_threads = _changelog_compaction_thread_pool->max_threads();
+        Status status = _changelog_compaction_thread_pool->set_max_threads(changelog_thread_num);
+        if (status.ok()) {
+            VLOG_NOTICE << "update changelog compaction thread pool max_threads from "
+                        << old_max_threads << " to " << changelog_thread_num;
+        }
+    }
+    if (_changelog_compaction_thread_pool->min_threads() != changelog_thread_num) {
+        int old_min_threads = _changelog_compaction_thread_pool->min_threads();
+        Status status = _changelog_compaction_thread_pool->set_min_threads(changelog_thread_num);
+        if (status.ok()) {
+            VLOG_NOTICE << "update changelog compaction thread pool min_threads from "
+                        << old_min_threads << " to " << changelog_thread_num;
         }
     }
     return Status::OK();
@@ -615,6 +678,47 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
+void CloudStorageEngine::_changelog_compaction_tasks_producer_callback() {
+    LOG(INFO) << "try to start changelog compaction producer process!";
+
+    int64_t last_changelog_score_update_time = 0;
+    static const int64_t check_score_interval_ms = 5000;
+
+    int64_t interval = config::generate_compaction_tasks_interval_ms;
+    do {
+        int64_t cur_time = UnixMillis();
+        if (!config::disable_auto_compaction) {
+            Status st = _adjust_compaction_thread_num();
+            if (!st.ok()) {
+                break;
+            }
+
+            bool check_score = false;
+            if (cur_time - last_changelog_score_update_time >= check_score_interval_ms) {
+                check_score = true;
+                last_changelog_score_update_time = cur_time;
+            }
+
+            std::vector<CloudTabletSPtr> tablets_compaction = _generate_cloud_compaction_tasks(
+                    CompactionType::CHANGELOG_COMPACTION, check_score);
+            for (const auto& tablet : tablets_compaction) {
+                Status status =
+                        submit_compaction_task(tablet, CompactionType::CHANGELOG_COMPACTION);
+                if (status.ok()) continue;
+                if ((!status.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
+                     !status.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
+                    VLOG_DEBUG_IS_ON) {
+                    LOG(WARNING) << "failed to submit changelog compaction task for tablet: "
+                                 << tablet->tablet_id() << ", err: " << status;
+                }
+            }
+            interval = config::generate_compaction_tasks_interval_ms;
+        } else {
+            interval = config::check_auto_compaction_interval_seconds * 1000;
+        }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
+}
+
 void CloudStorageEngine::unregister_index_change_compaction(int64_t tablet_id,
                                                             bool is_base_compact) {
     std::lock_guard lock(_compaction_mtx);
@@ -662,12 +766,17 @@ bool CloudStorageEngine::register_index_change_compaction(
 
 std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_tasks(
         CompactionType compaction_type, bool check_score) {
+    DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
+           compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+           compaction_type == CompactionType::CHANGELOG_COMPACTION);
     std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
 
-    int64_t max_compaction_score = 0;
+    CompactionScoreStats score_stats;
+    bool got_score_stats = false;
     std::unordered_set<int64_t> tablet_preparing_cumu_compaction;
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             submitted_cumu_compactions;
+    int submitted_cumu_changelog_compaction_count = 0;
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> submitted_base_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> submitted_full_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudIndexChangeCompaction>>
@@ -678,6 +787,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
         std::lock_guard lock(_compaction_mtx);
         tablet_preparing_cumu_compaction = _tablet_preparing_cumu_compaction;
         submitted_cumu_compactions = _submitted_cumu_compactions;
+        submitted_cumu_changelog_compaction_count = _submitted_cumu_changelog_compaction_count;
         submitted_base_compactions = _submitted_base_compactions;
         submitted_full_compactions = _submitted_full_compactions;
         submitted_index_change_cumu_compactions = _submitted_index_change_cumu_compaction;
@@ -685,14 +795,19 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     }
 
     bool need_pick_tablet = true;
-    int thread_per_disk =
-            config::compaction_task_num_per_fast_disk; // all disks are fast in cloud mode
+    int thread_per_disk = compaction_type == CompactionType::CHANGELOG_COMPACTION
+                                  ? config::changelog_compaction_task_num_per_disk
+                                  : config::compaction_task_num_per_fast_disk;
     int num_cumu =
             std::accumulate(submitted_cumu_compactions.begin(), submitted_cumu_compactions.end(), 0,
                             [](int a, auto& b) { return a + b.second.size(); });
+    int num_cumu_changelog = submitted_cumu_changelog_compaction_count;
+    int num_cumu_data = num_cumu - num_cumu_changelog;
     int num_base =
             cast_set<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
-    int n = thread_per_disk - num_cumu - num_base;
+    int n = compaction_type == CompactionType::CHANGELOG_COMPACTION
+                    ? thread_per_disk - num_cumu_changelog
+                    : thread_per_disk - num_cumu_data - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
         // because base compactions may take too long to complete, which may
@@ -712,15 +827,27 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         filter_out = [&submitted_base_compactions, &submitted_full_compactions,
                       &submitted_index_change_base_compactions](CloudTablet* t) {
-            return submitted_base_compactions.contains(t->tablet_id()) ||
+            return t->is_changelog_tablet() ||
+                   submitted_base_compactions.contains(t->tablet_id()) ||
                    submitted_full_compactions.contains(t->tablet_id()) ||
                    submitted_index_change_base_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+        filter_out = [&tablet_preparing_cumu_compaction, &submitted_cumu_compactions,
+                      &submitted_index_change_cumu_compactions](CloudTablet* t) {
+            return !t->is_changelog_tablet() ||
+                   tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
+                   submitted_cumu_compactions.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
+        };
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_index_change_cumu_compactions](CloudTablet* t) {
-            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+            return t->is_changelog_tablet() ||
+                   tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
                    submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
                    (t->tablet_state() != TABLET_RUNNING &&
                     (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
@@ -728,7 +855,8 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     } else {
         filter_out = [&tablet_preparing_cumu_compaction, &submitted_cumu_compactions,
                       &submitted_index_change_cumu_compactions](CloudTablet* t) {
-            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+            return t->is_changelog_tablet() ||
+                   tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
                    submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
                    submitted_cumu_compactions.contains(t->tablet_id()) ||
                    (t->tablet_state() != TABLET_RUNNING &&
@@ -741,22 +869,37 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     do {
         std::vector<CloudTabletSPtr> tablets;
         auto st = tablet_mgr().get_topn_tablets_to_compact(n, compaction_type, filter_out, &tablets,
-                                                           &max_compaction_score);
+                                                           &score_stats);
         if (!st.ok()) {
             LOG(WARNING) << "failed to get tablets to compact, err=" << st;
             break;
         }
+        got_score_stats = true;
         if (!need_pick_tablet) break;
         tablets_compaction = std::move(tablets);
     } while (false);
 
-    if (max_compaction_score > 0) {
-        if (compaction_type == CompactionType::BASE_COMPACTION) {
+    if (got_score_stats && score_stats.scanned) {
+        if (compaction_type == CompactionType::BASE_COMPACTION && score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
-                    max_compaction_score);
-        } else {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    max_compaction_score);
+                    score_stats.max_score);
+        } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            if (check_score || score_stats.max_score > 0) {
+                DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
+                        score_stats.max_score);
+            }
+            if (check_score || score_stats.size_based_max_score > 0) {
+                DorisMetrics::instance()->tablet_size_based_max_compaction_score->set_value(
+                        score_stats.size_based_max_score);
+            }
+            if (check_score || score_stats.time_series_max_score > 0) {
+                DorisMetrics::instance()->tablet_time_series_max_compaction_score->set_value(
+                        score_stats.time_series_max_score);
+            }
+        } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION &&
+                   score_stats.max_score > 0) {
+            DorisMetrics::instance()->tablet_changelog_max_compaction_score->set_value(
+                    score_stats.max_score);
         }
     }
 
@@ -920,7 +1063,10 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
 }
 
 Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet,
-                                                              int trigger_method) {
+                                                              int trigger_method,
+                                                              CompactionType compaction_type) {
+    DCHECK(compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+           compaction_type == CompactionType::CHANGELOG_COMPACTION);
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -985,6 +1131,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         std::lock_guard lock(_compaction_mtx);
         _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
         _submitted_cumu_compactions[tablet->tablet_id()].push_back(compaction);
+        if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+            ++_submitted_cumu_changelog_compaction_count;
+        }
     }
     auto erase_submitted_cumu_compaction = [=, this]() {
         std::lock_guard lock(_compaction_mtx);
@@ -994,6 +1143,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         auto it1 = std::find(compactions.begin(), compactions.end(), compaction);
         DCHECK(it1 != compactions.end());
         compactions.erase(it1);
+        if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+            DCHECK_GT(_submitted_cumu_changelog_compaction_count, 0);
+            --_submitted_cumu_changelog_compaction_count;
+        }
         if (compactions.empty()) { // No compactions on this tablet, erase key
             _submitted_cumu_compactions.erase(it);
             // No cumu compaction on this tablet, reset `last_cumu_no_suitable_version_ms` to enable this tablet to
@@ -1018,30 +1171,48 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
-        DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
-        DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                _cumu_compaction_thread_pool->get_queue_size());
+    auto& submit_thread_pool = compaction_type == CompactionType::CHANGELOG_COMPACTION
+                                       ? _changelog_compaction_thread_pool
+                                       : _cumu_compaction_thread_pool;
+    st = submit_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+            DorisMetrics::instance()->changelog_compaction_task_running_total->increment(1);
+            DorisMetrics::instance()->changelog_compaction_task_pending_total->set_value(
+                    _changelog_compaction_thread_pool->get_queue_size());
+        } else {
+            DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        }
         DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.wait_in_line",
                         { sleep(5); })
         signal::tablet_id = tablet->tablet_id();
         g_cumu_compaction_running_task_count << 1;
         bool is_large_task = true;
+        bool cumu_thread_counted = false;
         Defer defer {[&]() {
             DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
                             { sleep(5); })
             // Idempotent cleanup: remove task from tracker
             CompactionTaskTracker::instance()->remove_task(compaction_id);
-            std::lock_guard lock(_cumu_compaction_delay_mtx);
-            _cumu_compaction_thread_pool_used_threads--;
-            if (!is_large_task) {
-                _cumu_compaction_thread_pool_small_tasks_running--;
+            if (cumu_thread_counted) {
+                std::lock_guard lock(_cumu_compaction_delay_mtx);
+                _cumu_compaction_thread_pool_used_threads--;
+                if (!is_large_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running--;
+                }
             }
             g_cumu_compaction_running_task_count << -1;
             erase_submitted_cumu_compaction();
-            DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(-1);
-            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                    _cumu_compaction_thread_pool->get_queue_size());
+            if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+                DorisMetrics::instance()->changelog_compaction_task_running_total->increment(-1);
+                DorisMetrics::instance()->changelog_compaction_task_pending_total->set_value(
+                        _changelog_compaction_thread_pool->get_queue_size());
+            } else {
+                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(-1);
+                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                        _cumu_compaction_thread_pool->get_queue_size());
+            }
         }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_CUMULATIVE_COMPACTION,
                                                          tablet, compaction);
@@ -1054,8 +1225,12 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
         }
         do {
+            if (compaction_type != CompactionType::CUMULATIVE_COMPACTION) {
+                break;
+            }
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
+            cumu_thread_counted = true;
             if (config::large_cumu_compaction_task_min_thread_num > 1 &&
                 _cumu_compaction_thread_pool->max_threads() >=
                         config::large_cumu_compaction_task_min_thread_num) {
@@ -1101,8 +1276,13 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
         erase_executing_cumu_compaction();
     });
-    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-            _cumu_compaction_thread_pool->get_queue_size());
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+        DorisMetrics::instance()->changelog_compaction_task_pending_total->set_value(
+                _changelog_compaction_thread_pool->get_queue_size());
+    } else {
+        DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                _cumu_compaction_thread_pool->get_queue_size());
+    }
     if (!st.ok()) {
         tracker->remove_task(compaction_id);
         erase_submitted_cumu_compaction();
@@ -1110,6 +1290,12 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                                      tablet->tablet_id());
     }
     return st;
+}
+
+Status CloudStorageEngine::_submit_changelog_compaction_task(const CloudTabletSPtr& tablet,
+                                                             int trigger_method) {
+    return _submit_cumulative_compaction_task(tablet, trigger_method,
+                                              CompactionType::CHANGELOG_COMPACTION);
 }
 
 Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& tablet,
@@ -1209,6 +1395,7 @@ Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
                                                   int trigger_method) {
     DCHECK(compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
            compaction_type == CompactionType::BASE_COMPACTION ||
+           compaction_type == CompactionType::CHANGELOG_COMPACTION ||
            compaction_type == CompactionType::FULL_COMPACTION);
     switch (compaction_type) {
     case CompactionType::BASE_COMPACTION:
@@ -1216,6 +1403,9 @@ Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
         return Status::OK();
     case CompactionType::CUMULATIVE_COMPACTION:
         RETURN_IF_ERROR(_submit_cumulative_compaction_task(tablet, trigger_method));
+        return Status::OK();
+    case CompactionType::CHANGELOG_COMPACTION:
+        RETURN_IF_ERROR(_submit_changelog_compaction_task(tablet, trigger_method));
         return Status::OK();
     case CompactionType::FULL_COMPACTION:
         RETURN_IF_ERROR(_submit_full_compaction_task(tablet, trigger_method));
@@ -1338,8 +1528,11 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
 }
 
 std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compaction_policy(
-        std::string_view compaction_policy) {
+        std::string_view compaction_policy, int64_t tablet_id) {
     if (!_cumulative_compaction_policies.contains(compaction_policy)) {
+        LOG_EVERY_N(WARNING, 100) << "unknown compaction policy " << compaction_policy
+                                  << " of tablet " << tablet_id << ", fall back to "
+                                  << CUMULATIVE_SIZE_BASED_POLICY;
         return _cumulative_compaction_policies.at(CUMULATIVE_SIZE_BASED_POLICY);
     }
     return _cumulative_compaction_policies.at(compaction_policy);

@@ -58,6 +58,13 @@ public class ElementAtTest {
     }
 
     @Test
+    public void testVariantEmptyObjectKeyIsLegal() {
+        ElementAt emptyKey = new ElementAt(
+                new MockVariantExpression(new VariantType(100)), new VarcharLiteral(""));
+        Assertions.assertDoesNotThrow(emptyKey::checkLegalityBeforeTypeCoercion);
+    }
+
+    @Test
     public void testComputeSignatureSingleVariant() {
         VariantType variantType = new VariantType(100);
         ElementAt elementAt = new ElementAt(new MockVariantExpression(variantType), new VarcharLiteral("k"));
@@ -73,19 +80,6 @@ public class ElementAtTest {
         Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
 
         Assertions.assertTrue(signature.getArgType(1) instanceof VarcharType);
-    }
-
-    @Test
-    public void testComputeSignaturePreservesVariantV2Marker() {
-        ElementAt elementAt = new ElementAt(
-                new MockVariantExpression(VariantType.COMPUTE_V2_INSTANCE), new VarcharLiteral("k"));
-        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
-                .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
-
-        signature = elementAt.computeSignature(signature);
-
-        Assertions.assertTrue(((VariantType) signature.returnType).isComputeV2());
-        Assertions.assertTrue(((VariantType) signature.getArgType(0)).isComputeV2());
     }
 
     @Test

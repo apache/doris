@@ -19,15 +19,17 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
@@ -67,10 +69,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     /** Date difference rounded toward zero by time part. */
     public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
         long days = DateV2Literal.dateDiffInDays(lhs, rhs);
-        long microSecondDiff = timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
-        if (days > 0 && microSecondDiff < 0) {
+        long nanosecondDiff = lhs.getTimePartInNanoseconds() - rhs.getTimePartInNanoseconds();
+        if (days > 0 && nanosecondDiff < 0) {
             days--;
-        } else if (days < 0 && microSecondDiff > 0) {
+        } else if (days < 0 && nanosecondDiff > 0) {
             days++;
         }
         return days;
@@ -88,10 +90,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     private static long timePartToMicroSecond(DateLiteral date) {
-        if (date instanceof DateTimeLiteral) {
-            return ((DateTimeLiteral) date).timePartToMicroSecond();
-        }
-        return 0;
+        return date.getTimePartInNanoseconds() / 1000L;
     }
 
     @Override
@@ -190,6 +189,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
     }
 
+    /** Convert the value without changing its declared precision or bypassing range validation. */
+    public DateTimeV2Literal inTimeZone(String fromZone, String toZone) {
+        return fromJavaDateType(DateUtils.convertTimeZone(toJavaDateType(), fromZone, toZone),
+                getDataType().getScale());
+    }
+
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
@@ -199,14 +204,17 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             return new DateTimeLiteral((DateTimeType) targetType,
                     year, month, day, hour, minute, second, microSecond);
         }
+        if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, hour, minute, second,
+                        microSecond * 1000);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        }
         if (targetType.isTimeStampTzType()) {
-            DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                    this,
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                    new StringLiteral("UTC")));
-            return new TimestampTzLiteral((TimeStampTzType) targetType,
-                    dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+            return TimestampTzLiteral.fromTimeZone((TimeStampTzType) targetType, this,
+                    ConnectContext.get().getSessionVariable().timeZone);
         }
         return super.uncheckedCastTo(targetType);
     }
@@ -419,6 +427,11 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public int getScale() {
         return ((DateTimeV2Type) dataType).getScale();
+    }
+
+    /** Return DATETIMEV2's microsecond fraction in the common nanosecond comparison unit. */
+    public long getNanoSecond() {
+        return microSecond * 1000L;
     }
 
     public int commonScale(DateTimeV2Literal other) {

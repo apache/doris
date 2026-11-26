@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
 #include <vector>
 
 #include "common/config.h"
@@ -30,10 +31,12 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/jsonb_document.h"
@@ -42,6 +45,26 @@
 
 namespace doris {
 class Arena;
+
+namespace {
+
+void append_orc_null_map(const ::orc::ColumnVectorBatch& batch, size_t rows,
+                         const std::vector<size_t>* selected_rows, NullMap* null_map) {
+    DORIS_CHECK(null_map != nullptr);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(rows, selected_rows);
+    const auto old_size = null_map->size();
+    null_map->resize(old_size + output_rows);
+    if (batch.hasNulls) {
+        for (size_t row = 0; row < output_rows; ++row) {
+            (*null_map)[old_size + row] =
+                    !batch.notNull[orc_serde_utils::orc_source_row_at(row, selected_rows)];
+        }
+        return;
+    }
+    std::memset(null_map->data() + old_size, 0, output_rows);
+}
+
+} // namespace
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                        int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {
@@ -100,14 +123,15 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                        JsonbWriter& writer) const {
+                                                        JsonbWriter& writer,
+                                                        const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
 
     if (col_null.is_null_at(row_num)) {
         writer.writeNull();
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
-                                                                row_num, writer));
+                                                                row_num, writer, options));
     }
 
     return Status::OK();
@@ -360,10 +384,44 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
                                                start, end, ctz);
 }
 
+Status DataTypeNullableSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_paimon_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_iceberg_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
 Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (arrow_array->type_id() == arrow::Type::NA) {
+        // Arrow Null has neither a validity bitmap nor values, even when sliced. Avoid the
+        // physical SerDe for Doris's UInt8 placeholder and keep nested values and nulls aligned.
+        if (arrow_array->offset() < 0 || start < 0 || end < start || end > arrow_array->length()) {
+            return Status::InvalidArgument(
+                    "Invalid Arrow Null read range: start={}, end={}, "
+                    "length={}, offset={}",
+                    start, end, arrow_array->length(), arrow_array->offset());
+        }
+        column.insert_many_defaults(end - start);
+        return Status::OK();
+    }
     if (config::enable_arrow_input_validation) {
         check_arrow_array_range(*arrow_array, start, end);
         check_arrow_validity_bitmap(*arrow_array);
@@ -491,7 +549,17 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
-    auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
+    const NullMap* effective_null_map = &null_map_tmp;
+    NullMap combined_null_map;
+    if (null_map != nullptr && null_map != &null_map_tmp) {
+        DORIS_CHECK(null_map->size() == null_map_tmp.size());
+        combined_null_map.assign(null_map_tmp.begin(), null_map_tmp.end());
+        for (size_t row = start; row < static_cast<size_t>(end); ++row) {
+            combined_null_map[row] |= (*null_map)[row];
+        }
+        effective_null_map = &combined_null_map;
+    }
+    auto orc_null_map = revert_null_map(effective_null_map, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
     // because orc_col_batch->notNull.data() begins at 0
     // orc_null_map.data() do not need add 'start' (+ start),
@@ -499,8 +567,8 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
-                                                      &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, arena, options));
+                                                      effective_null_map, orc_col_batch, start, end,
+                                                      arena, options));
     return Status::OK();
 }
 
@@ -524,8 +592,10 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
                                       const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     if (col_null.is_null_at(row_num)) {
+        // A child may reserve lowercase null for a value; use its paired SQL-null marker.
         if (_nesting_level > 1) {
-            bw.write("null", 4);
+            const auto null_format = nested_serde->get_nested_null_format();
+            bw.write(null_format.data, null_format.size);
         } else {
             bw.write("NULL", 4);
         }
@@ -536,6 +606,28 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
 
 std::string DataTypeNullableSerDe::to_olap_string(const Field& field) const {
     return nested_serde->to_olap_string(field);
+}
+
+Status DataTypeNullableSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                                    const FormatOptions& options,
+                                                    bool is_strict_mode) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // Match the unquoted marker before parsing the value: for JSON, null and
+    // "null" are non-SQL-null values, whereas NULL is the SQL-null marker.
+    if (str == nested_serde->get_nested_null_format()) {
+        null_column.insert_default();
+        return Status::OK();
+    }
+    auto status = nested_serde->from_string_as_nested(str, null_column.get_nested_column(), options,
+                                                      is_strict_mode);
+    // Malformed children become SQL NULL only in non-strict mode, just as in from_string.
+    if (!status.ok() && !is_strict_mode) {
+        null_column.insert_default();
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(status);
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
 }
 
 // In non-strict mode, from string will handle errors by inserting a null value.
@@ -553,13 +645,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// A zone map bound is never a null Field -- nullness lives in has_null/has_not_null, not in
+// min/max -- so there is no null to fall back to here: defer to the nested serde as is.
 Status DataTypeNullableSerDe::from_zonemap_string(const std::string& str, Field& field) const {
-    if (!nested_serde->from_zonemap_string(str, field).ok()) {
-        // fill null if fail
-        field = Field();
-        return Status::OK();
-    }
-    return Status::OK();
+    return nested_serde->from_zonemap_string(str, field);
 }
 
 Status DataTypeNullableSerDe::from_fe_string(const std::string& str, Field& field) const {
@@ -580,5 +669,30 @@ Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& c
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
+}
+
+Status DataTypeNullableSerDe::read_column_from_orc(IColumn& column,
+                                                   const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.selected_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == view.selected_type->getKind());
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    if (output_rows == 0) {
+        return Status::OK();
+    }
+
+    auto& null_map = nullable_column.get_null_map_data();
+    const auto old_null_map_size = null_map.size();
+    auto& nested_column = nullable_column.get_nested_column();
+    const auto old_nested_size = nested_column.size();
+    append_orc_null_map(*view.batch, view.rows, view.selected_rows, &null_map);
+    auto st = nested_serde->read_column_from_orc(nested_column, view);
+    if (!st.ok()) {
+        null_map.resize(old_null_map_size);
+        nested_column.resize(old_nested_size);
+    }
+    return st;
 }
 } // namespace doris

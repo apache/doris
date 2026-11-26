@@ -24,20 +24,30 @@
 #include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/encoding.h>
+#include <unistd.h>
 
+#include <atomic>
+#include <bit>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <queue>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -66,16 +76,25 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/fs_file_cache_storage.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
+#include "testutil/benchmark_control.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/coding.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -172,7 +191,14 @@ public:
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
               _op(op),
-              _value(value) {}
+              _value(value) {
+        _fn.name.function_name = op == Op::GE ? "ge" : op == Op::GT ? "gt" : "lt";
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        // Keep the test double structurally equivalent to a scalar comparison because Page Index
+        // admission resolves the physical probe from expression children.
+        add_child(VSlotRef::create_shared(column_id, column_id, -1, int_type, "c0"));
+        add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    }
 
     const std::string& expr_name() const override { return _expr_name; }
 
@@ -570,6 +596,47 @@ VExprContextSPtr create_string_in_conjunct(int column_id, const std::vector<std:
     return VExprContext::create_shared(std::move(root));
 }
 
+DataTypePtr floating_data_type(PrimitiveType type) {
+    if (type == TYPE_FLOAT) {
+        return std::make_shared<DataTypeFloat32>();
+    }
+    DORIS_CHECK(type == TYPE_DOUBLE);
+    return std::make_shared<DataTypeFloat64>();
+}
+
+VExprContextSPtr create_floating_function_conjunct(int column_id, PrimitiveType type,
+                                                   const std::string& function_name,
+                                                   TExprOpcode::type opcode, const Field& value) {
+    const auto data_type = floating_data_type(type);
+    auto root = create_binary_predicate(
+            function_name, opcode,
+            VSlotRef::create_shared(column_id, column_id, -1, make_nullable(data_type),
+                                    "floating_key"),
+            VLiteral::create_shared(data_type, value));
+    return VExprContext::create_shared(std::move(root));
+}
+
+VExprContextSPtr create_floating_in_conjunct(int column_id, PrimitiveType type,
+                                             const std::vector<Field>& values, bool is_not_in) {
+    const auto data_type = floating_data_type(type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.__set_type(result_type->to_thrift());
+    node.__set_num_children(static_cast<int16_t>(values.size() + 1));
+    node.__set_is_nullable(true);
+    TInPredicate in_predicate;
+    in_predicate.__set_is_not_in(is_not_in);
+    node.__set_in_predicate(in_predicate);
+    auto root = VInPredicate::create_shared(node);
+    root->add_child(VSlotRef::create_shared(column_id, column_id, -1, make_nullable(data_type),
+                                            "floating_key"));
+    for (const auto& value : values) {
+        root->add_child(VLiteral::create_shared(data_type, value));
+    }
+    return VExprContext::create_shared(std::move(root));
+}
+
 VExprContextSPtr create_null_conjunct(int column_id, const DataTypePtr& data_type, bool is_null) {
     const auto nullable_type = make_nullable(remove_nullable(data_type));
     const auto result_type = std::make_shared<DataTypeUInt8>();
@@ -900,7 +967,8 @@ struct PreparedTopNConjunct {
 
 PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
                                           const DataTypePtr& data_type, const Field& bound,
-                                          bool publish_bound = true) {
+                                          bool publish_bound = true, bool is_asc = true,
+                                          bool nulls_first = false) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(data_type != nullptr);
     TExpr target_expr;
@@ -916,8 +984,8 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
 
     TTopnFilterDesc desc;
     desc.__set_source_node_id(10);
-    desc.__set_is_asc(true);
-    desc.__set_null_first(false);
+    desc.__set_is_asc(is_asc);
+    desc.__set_null_first(nulls_first);
     desc.__set_target_node_id_to_target_expr({{20, std::move(target_expr)}});
     auto query_context = MockQueryContext::create();
     state->_query_ctx = query_context.get();
@@ -931,7 +999,7 @@ PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
 
     TExprNode topn_node;
     topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
-    topn_node.__set_is_nullable(false);
+    topn_node.__set_is_nullable(data_type->is_nullable());
     auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
     topn->add_child(VSlotRef::create_shared(column_id, column_id, -1, data_type, "topn_column"));
     auto conjunct = VExprContext::create_shared(std::move(topn));
@@ -1173,6 +1241,22 @@ std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& valu
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_float_array(const std::vector<float>& values) {
+    arrow::FloatBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_double_array(const std::vector<double>& values) {
+    arrow::DoubleBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_int8_array(const std::vector<int8_t>& values) {
     arrow::Int8Builder builder;
     for (const auto value : values) {
@@ -1265,17 +1349,19 @@ std::shared_ptr<arrow::Array> build_list_array() {
     return finish_array(&builder);
 }
 
-void write_table(const std::string& file_path, const std::shared_ptr<arrow::Table>& table,
-                 int64_t row_group_size, bool enable_dictionary = false,
-                 bool enable_page_index = false, bool enable_statistics = true,
-                 std::optional<::parquet::Encoding::type> encoding = std::nullopt) {
+void write_table(
+        const std::string& file_path, const std::shared_ptr<arrow::Table>& table,
+        int64_t row_group_size, bool enable_dictionary = false, bool enable_page_index = false,
+        bool enable_statistics = true,
+        std::optional<::parquet::Encoding::type> encoding = std::nullopt,
+        ::parquet::ParquetDataPageVersion page_version = ::parquet::ParquetDataPageVersion::V2) {
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.data_page_version(page_version);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     if (enable_dictionary) {
         builder.enable_dictionary();
@@ -1295,6 +1381,151 @@ void write_table(const std::string& file_path, const std::shared_ptr<arrow::Tabl
     }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_footer_nan_counts(const std::string& file_path,
+                             const std::vector<std::optional<int64_t>>& counts) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto size = static_cast<std::streamoff>(input.tellg());
+    std::vector<uint8_t> bytes(cast_set<size_t>(size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(bytes.data()), size);
+    DORIS_CHECK(input.good());
+    uint32_t footer_size = decode_fixed32_le(bytes.data() + bytes.size() - 8);
+    const size_t footer_offset = bytes.size() - 8 - footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(deserialize_thrift_msg(bytes.data() + footer_offset, &footer_size, true, &metadata)
+                        .ok());
+    size_t index = 0;
+    for (auto& row_group : metadata.row_groups) {
+        for (auto& chunk : row_group.columns) {
+            DORIS_CHECK(index < counts.size());
+            if (counts[index].has_value()) {
+                chunk.meta_data.statistics.__set_nan_count(*counts[index]);
+            }
+            ++index;
+        }
+    }
+    DORIS_CHECK(index == counts.size());
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    bytes.resize(footer_offset);
+    bytes.insert(bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, 4> encoded_size {};
+    encode_fixed32_le(encoded_size.data(), cast_set<uint32_t>(footer.size()));
+    bytes.insert(bytes.end(), encoded_size.begin(), encoded_size.end());
+    bytes.insert(bytes.end(), {'P', 'A', 'R', '1'});
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
+template <typename T>
+std::vector<uint8_t> build_parquet_bloom_filter(const T* values, size_t count) {
+    format::parquet::native::BlockSplitBloomFilter bloom_filter;
+    DORIS_CHECK(bloom_filter
+                        .init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                              segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+    for (size_t index = 0; index < count; ++index) {
+        bloom_filter.add_bytes(reinterpret_cast<const char*>(&values[index]), sizeof(T));
+    }
+
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader header;
+    header.__set_numBytes(static_cast<int32_t>(bloom_filter.size()));
+    header.__set_algorithm(algorithm);
+    header.__set_hash(hash);
+    header.__set_compression(compression);
+
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 64);
+    DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
+    bytes.insert(bytes.end(), bloom_filter.data(), bloom_filter.data() + bloom_filter.size());
+    return bytes;
+}
+
+void append_floating_bloom_filters(const std::string& file_path,
+                                   const std::vector<float>& float_values,
+                                   const std::vector<double>& double_values) {
+    DORIS_CHECK(float_values.size() == double_values.size());
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+
+    file_bytes.resize(footer_offset);
+    size_t first_row = 0;
+    for (auto& row_group : metadata.row_groups) {
+        const size_t row_count = cast_set<size_t>(row_group.num_rows);
+        DORIS_CHECK(row_group.columns.size() >= 2);
+        DORIS_CHECK(first_row + row_count <= float_values.size());
+        const auto append_column_bloom = [&]<typename T>(size_t column_id,
+                                                         const std::vector<T>& values) {
+            auto bytes = build_parquet_bloom_filter(values.data() + first_row, row_count);
+            auto& column = row_group.columns[column_id].meta_data;
+            column.__set_bloom_filter_offset(cast_set<int64_t>(file_bytes.size()));
+            column.__set_bloom_filter_length(cast_set<int32_t>(bytes.size()));
+            file_bytes.insert(file_bytes.end(), bytes.begin(), bytes.end());
+        };
+        append_column_bloom(0, float_values);
+        append_column_bloom(1, double_values);
+        first_row += row_count;
+    }
+    DORIS_CHECK(first_row == float_values.size());
+
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()), file_bytes.size());
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
+void write_floating_parquet_file_with_bloom_filters(const std::string& file_path) {
+    const std::vector<float> float_values {
+            -1.0F, -0.0F, 1.0F, 0.5F, std::bit_cast<float>(uint32_t {0x7fc00001U}),
+            -2.0F, 2.0F,  4.0F};
+    const std::vector<double> double_values {
+            -1.0, -0.0, 1.0, 0.5, std::bit_cast<double>(uint64_t {0x7ff8000000000001ULL}),
+            -2.0, 2.0,  4.0};
+    auto schema = arrow::schema({arrow::field("float_value", arrow::float32(), false),
+                                 arrow::field("double_value", arrow::float64(), false),
+                                 arrow::field("id", arrow::int32(), false)});
+    auto table = arrow::Table::Make(
+            schema, {build_float_array(float_values), build_double_array(double_values),
+                     build_int32_array({0, 1, 2, 3, 4, 5, 6, 7})});
+    write_table(file_path, table, 4);
+    append_floating_bloom_filters(file_path, float_values, double_values);
 }
 
 void write_required_adjusted_time_parquet_file(const std::string& file_path) {
@@ -1396,6 +1627,22 @@ void write_dictionary_int_pair_parquet_file(const std::string& file_path) {
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 40, 50, 60})});
     write_table(file_path, table, 6, true, false, false);
+}
+
+void write_dictionary_int_pair_parquet_file(const std::string& file_path,
+                                            const std::vector<int32_t>& dictionary_values) {
+    std::vector<int32_t> scores(dictionary_values.size());
+    for (size_t index = 0; index < scores.size(); ++index) {
+        scores[index] = static_cast<int32_t>((index + 1) * 10);
+    }
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array(dictionary_values), build_int32_array(scores)});
+    write_table(file_path, table, static_cast<int64_t>(dictionary_values.size()), true, false,
+                false);
 }
 
 void write_dictionary_bigint_pair_parquet_file(const std::string& file_path) {
@@ -1662,6 +1909,17 @@ void write_page_index_parquet_file(const std::string& file_path) {
     write_table(file_path, table, ids.size(), false, true);
 }
 
+void write_multi_column_page_index_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ascending(128);
+    std::iota(ascending.begin(), ascending.end(), 0);
+    std::vector<int32_t> descending(ascending.rbegin(), ascending.rend());
+    auto schema = arrow::schema({arrow::field("ascending", arrow::int32(), false),
+                                 arrow::field("descending", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema,
+                                    {build_int32_array(ascending), build_int32_array(descending)});
+    write_table(file_path, table, ascending.size(), false, true);
+}
+
 void write_multi_row_group_page_index_parquet_file(const std::string& file_path) {
     std::vector<int32_t> ids(384);
     std::iota(ids.begin(), ids.end(), 0);
@@ -1718,7 +1976,9 @@ void use_schema_order_positions(format::FileScanRequest* request,
 class ParquetScanTest : public testing::Test {
 protected:
     void SetUp() override {
-        _test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_parquet_scan_test";
+        // Paired baseline/candidate benchmarks must not remove the other process's fixtures.
+        _test_dir = std::filesystem::temp_directory_path() /
+                    ("doris_format_v2_parquet_scan_test_" + std::to_string(getpid()));
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "scan.parquet").string();
@@ -1750,9 +2010,395 @@ protected:
         return request;
     }
 
+    struct FloatingScanResult {
+        ColumnInt32::Container ids;
+        int64_t raw_rows = 0;
+        int64_t filtered_groups = 0;
+        int64_t filtered_page_rows = 0;
+        int64_t read_bytes = 0;
+    };
+
+    void scan_floating(int column_id, const VExprContextSPtr& conjunct, FloatingScanResult* result,
+                       int second_column_id = -1) {
+        const auto bytes_before = DorisMetrics::instance()->local_bytes_read_total->value();
+        RuntimeProfile profile("profile");
+        auto reader = create_reader(0, -1, &profile);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        use_schema_order_positions(request.get(), schema);
+        format::FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
+        ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+        request->predicate_only_columns.push_back(format::LocalColumnId(column_id));
+        if (second_column_id >= 0) {
+            ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(second_column_id)).ok());
+            request->predicate_only_columns.push_back(format::LocalColumnId(second_column_id));
+        }
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        Defer close([&] { conjunct->close(); });
+        request->conjuncts.push_back(conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& ids = int32_data_column(*block.get_by_position(2).column).get_data();
+            result->ids.insert(result->ids.end(), ids.begin(), ids.end());
+        }
+        result->raw_rows = counter_value(profile, "RawRowsRead");
+        result->filtered_groups = counter_value(profile, "RowGroupsFilteredByMinMax");
+        result->filtered_page_rows = counter_value(profile, "FilteredRowsByPage");
+        result->read_bytes =
+                DorisMetrics::instance()->local_bytes_read_total->value() - bytes_before;
+    }
+
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(ParquetScanTest, ZeroNanCountRestoresFloatingFooterPruning) {
+    std::vector<float> floats(64, 1.0F);
+    std::vector<double> doubles(64, 1.0);
+    std::fill(floats.begin() + 32, floats.end(), 2.0F);
+    std::fill(doubles.begin() + 32, doubles.end(), 2.0);
+    std::vector<int32_t> ids(64);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32(), false),
+                           arrow::field("d", arrow::float64(), false),
+                           arrow::field("id", arrow::int32(), false)}),
+            {build_float_array(floats), build_double_array(doubles), build_int32_array(ids)});
+    ColumnInt32::Container expected;
+    for (int id = 32; id < 64; ++id) {
+        expected.push_back(id);
+    }
+    for (const auto version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        for (const auto count : std::vector<std::optional<int64_t>> {std::nullopt, 0, 1, -1, 33}) {
+            SCOPED_TRACE(count.has_value() ? std::to_string(*count) : "missing");
+            write_table(_file_path, table, 32, false, false, true, std::nullopt, version);
+            write_footer_nan_counts(_file_path,
+                                    {count, count, std::nullopt, count, count, std::nullopt});
+            const auto check = [&]<PrimitiveType Type>(int column_id) {
+                const auto one = Field::create_field<Type>(1);
+                const auto two = Field::create_field<Type>(2);
+                std::vector<VExprContextSPtr> predicates {
+                        create_floating_function_conjunct(column_id, Type, "gt", TExprOpcode::GT,
+                                                          one),
+                        create_floating_function_conjunct(column_id, Type, "ge", TExprOpcode::GE,
+                                                          two),
+                        create_floating_function_conjunct(column_id, Type, "ne", TExprOpcode::NE,
+                                                          one),
+                        create_floating_in_conjunct(column_id, Type, {one}, true)};
+                for (const auto& predicate : predicates) {
+                    FloatingScanResult result;
+                    scan_floating(column_id, predicate, &result);
+                    EXPECT_EQ(result.ids, expected);
+                    EXPECT_EQ(result.raw_rows, count == 0 ? 32 : 64);
+                    EXPECT_EQ(result.filtered_groups, count == 0 ? 1 : 0);
+                }
+            };
+            check.template operator()<TYPE_FLOAT>(0);
+            check.template operator()<TYPE_DOUBLE>(1);
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, ZeroNanCountRestoresFloatingPageIndexPruning) {
+    std::vector<float> floats(128, 1.0F);
+    std::vector<double> doubles(128, 1.0);
+    std::fill(floats.begin() + 64, floats.end(), 2.0F);
+    std::fill(doubles.begin() + 64, doubles.end(), 2.0);
+    std::vector<int32_t> ids(128);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32(), false),
+                           arrow::field("d", arrow::float64(), false),
+                           arrow::field("id", arrow::int32(), false)}),
+            {build_float_array(floats), build_double_array(doubles), build_int32_array(ids)});
+    ColumnInt32::Container expected;
+    for (int id = 64; id < 128; ++id) {
+        expected.push_back(id);
+    }
+    for (const auto version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        for (const auto count : std::vector<std::optional<int64_t>> {std::nullopt, 0, 1, -1, 129}) {
+            write_table(_file_path, table, 128, false, true, true, std::nullopt, version);
+            write_footer_nan_counts(_file_path, {count, count, std::nullopt});
+            const auto check = [&]<PrimitiveType Type>(int column_id) {
+                FloatingScanResult result;
+                scan_floating(
+                        column_id,
+                        create_floating_function_conjunct(column_id, Type, "gt", TExprOpcode::GT,
+                                                          Field::create_field<Type>(1)),
+                        &result);
+                EXPECT_EQ(result.ids, expected);
+                EXPECT_EQ(result.filtered_groups, 0);
+                EXPECT_EQ(result.raw_rows, count == 0 ? 64 : 128);
+                EXPECT_EQ(result.filtered_page_rows, count == 0 ? 64 : 0);
+            };
+            check.template operator()<TYPE_FLOAT>(0);
+            check.template operator()<TYPE_DOUBLE>(1);
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, ZeroNanCountRespectsOrBranchesInPageIndex) {
+    std::vector<float> floats(128, 1.0F);
+    std::vector<double> doubles(128, 1.0);
+    std::fill(floats.begin() + 64, floats.end(), 2.0F);
+    std::fill(doubles.begin() + 64, doubles.end(), 2.0);
+    std::vector<int32_t> ids(128);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32(), false),
+                           arrow::field("d", arrow::float64(), false),
+                           arrow::field("id", arrow::int32(), false)}),
+            {build_float_array(floats), build_double_array(doubles), build_int32_array(ids)});
+    for (const auto double_count : std::vector<std::optional<int64_t>> {0, std::nullopt}) {
+        write_table(_file_path, table, 128, false, true);
+        write_footer_nan_counts(_file_path, {0, double_count, std::nullopt});
+        auto f = create_floating_function_conjunct(0, TYPE_FLOAT, "gt", TExprOpcode::GT,
+                                                   Field::create_field<TYPE_FLOAT>(1));
+        auto d = create_floating_function_conjunct(1, TYPE_DOUBLE, "gt", TExprOpcode::GT,
+                                                   Field::create_field<TYPE_DOUBLE>(1));
+        auto disjunction = create_compound_conjunct(TExprOpcode::COMPOUND_OR, f->root(), d->root());
+        FloatingScanResult result;
+        scan_floating(0, disjunction, &result, 1);
+        ColumnInt32::Container expected;
+        for (int row = 64; row < 128; ++row) {
+            expected.push_back(row);
+        }
+        EXPECT_EQ(result.ids, expected);
+        EXPECT_EQ(result.filtered_groups, 0);
+        EXPECT_EQ(result.raw_rows, double_count == 0 ? 64 : 128);
+        EXPECT_EQ(result.filtered_page_rows, double_count == 0 ? 64 : 0);
+    }
+}
+
+TEST_F(ParquetScanTest, NanCountProofIsScopedToItsColumnAndRowGroup) {
+    // A zero for the finite FLOAT column or the first row group must not hide a DOUBLE NaN.
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32(), false),
+                           arrow::field("d", arrow::float64(), false),
+                           arrow::field("id", arrow::int32(), false)}),
+            {build_float_array({1, 1, 1, 1}),
+             build_double_array({1, 1, 1, std::numeric_limits<double>::quiet_NaN()}),
+             build_int32_array({0, 1, 2, 3})});
+    for (const auto count : std::vector<std::optional<int64_t>> {std::nullopt, 1, -1, 3}) {
+        write_table(_file_path, table, 2);
+        write_footer_nan_counts(_file_path, {0, 0, std::nullopt, 0, count, std::nullopt});
+        FloatingScanResult result;
+        scan_floating(1,
+                      create_floating_function_conjunct(1, TYPE_DOUBLE, "gt", TExprOpcode::GT,
+                                                        Field::create_field<TYPE_DOUBLE>(1)),
+                      &result);
+        EXPECT_EQ(result.ids, ColumnInt32::Container({3}));
+        EXPECT_EQ(result.raw_rows, 2);
+        EXPECT_EQ(result.filtered_groups, 1);
+    }
+}
+
+TEST_F(ParquetScanTest, NanCountPreservesNullAndNanRowsAcrossEncodings) {
+    arrow::FloatBuilder floats;
+    arrow::DoubleBuilder doubles;
+    for (int row = 0; row < 12; ++row) {
+        if (row < 4 || row == 8) {
+            ASSERT_TRUE(floats.AppendNull().ok());
+            ASSERT_TRUE(doubles.AppendNull().ok());
+        } else {
+            const double value = row < 8 || row == 10 ? std::numeric_limits<double>::quiet_NaN()
+                                                      : (row == 9 ? 1.0 : 2.0);
+            ASSERT_TRUE(floats.Append(static_cast<float>(value)).ok());
+            ASSERT_TRUE(doubles.Append(value).ok());
+        }
+    }
+    std::vector<int32_t> ids(12);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32()), arrow::field("d", arrow::float64()),
+                           arrow::field("id", arrow::int32(), false)}),
+            {finish_array(&floats), finish_array(&doubles), build_int32_array(ids)});
+    const ColumnInt32::Container expected {4, 5, 6, 7, 10, 11};
+    for (const auto version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        for (const bool dictionary : {false, true}) {
+            for (const bool page_index : {false, true}) {
+                for (int mode = 0; mode < 3; ++mode) {
+                    // Mode 0 is the statistics-disabled oracle; mode 1 supplies positive counts,
+                    // and mode 2 leaves them absent. Neither may lose NaNs hidden by finite bounds.
+                    write_table(_file_path, table, 4, dictionary, page_index, mode != 0,
+                                std::nullopt, version);
+                    if (mode == 1) {
+                        write_footer_nan_counts(_file_path, {0, 0, std::nullopt, 4, 4, std::nullopt,
+                                                             1, 1, std::nullopt});
+                    }
+                    const auto check = [&]<PrimitiveType Type>(int column_id) {
+                        FloatingScanResult result;
+                        scan_floating(column_id,
+                                      create_floating_function_conjunct(
+                                              column_id, Type, "gt", TExprOpcode::GT,
+                                              Field::create_field<Type>(1)),
+                                      &result);
+                        EXPECT_EQ(result.ids, expected);
+                    };
+                    check.template operator()<TYPE_FLOAT>(0);
+                    check.template operator()<TYPE_DOUBLE>(1);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, ZeroNanCountReaderMicrobench) {
+    if (std::getenv("DORIS_PARQUET_NAN_COUNT_BENCHMARK") == nullptr) {
+        GTEST_SKIP() << "Set DORIS_PARQUET_NAN_COUNT_BENCHMARK=1 to run the reader microbenchmark";
+    }
+    constexpr int GROUPS = 128;
+    constexpr int GROUP_ROWS = 4096;
+    constexpr int ITERATIONS = 8;
+    constexpr int SAMPLES = 7;
+    std::vector<float> floats(GROUPS * GROUP_ROWS, 1.0F);
+    std::vector<double> doubles(GROUPS * GROUP_ROWS, 1.0);
+    std::fill(floats.end() - GROUP_ROWS, floats.end(), 2.0F);
+    std::fill(doubles.end() - GROUP_ROWS, doubles.end(), 2.0);
+    std::vector<int32_t> ids(GROUPS * GROUP_ROWS);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("f", arrow::float32(), false),
+                           arrow::field("d", arrow::float64(), false),
+                           arrow::field("id", arrow::int32(), false)}),
+            {build_float_array(floats), build_double_array(doubles), build_int32_array(ids)});
+    const auto missing_path = (_test_dir / "missing.parquet").string();
+    const auto zero_path = (_test_dir / "zero.parquet").string();
+    _file_path = missing_path;
+    write_table(_file_path, table, GROUP_ROWS);
+    std::filesystem::copy_file(missing_path, zero_path);
+    std::vector<std::optional<int64_t>> counts;
+    for (int group = 0; group < GROUPS; ++group) {
+        counts.insert(counts.end(), {0, 0, std::nullopt});
+    }
+    write_footer_nan_counts(zero_path, counts);
+    // Compare identical data pages with/without the optional proof. Alternate order after warmup.
+    for (int sample = -1; sample < SAMPLES; ++sample) {
+        for (int turn = 0; turn < 2; ++turn) {
+            const bool zero = (turn + sample + 1) % 2 == 0;
+            _file_path = zero ? zero_path : missing_path;
+            int64_t nanos = 0;
+            std::clock_t cpu_ticks = 0;
+            int64_t read_bytes = 0;
+            for (int iteration = 0; iteration < ITERATIONS; ++iteration) {
+                FloatingScanResult result;
+                auto predicate = create_floating_function_conjunct(
+                        1, TYPE_DOUBLE, "gt", TExprOpcode::GT, Field::create_field<TYPE_DOUBLE>(1));
+                const auto cpu_start = std::clock();
+                const auto start = std::chrono::steady_clock::now();
+                scan_floating(1, predicate, &result);
+                nanos += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - start)
+                                 .count();
+                cpu_ticks += std::clock() - cpu_start;
+                ASSERT_EQ(result.ids.size(), GROUP_ROWS);
+                for (int row = 0; row < GROUP_ROWS; ++row) {
+                    ASSERT_EQ(result.ids[row], (GROUPS - 1) * GROUP_ROWS + row);
+                }
+                ASSERT_EQ(result.raw_rows, zero ? GROUP_ROWS : GROUPS * GROUP_ROWS);
+                ASSERT_EQ(result.filtered_groups, zero ? GROUPS - 1 : 0);
+                read_bytes += result.read_bytes;
+            }
+            if (sample >= 0) {
+                std::cout << "PARQUET_NAN_COUNT_WORK sample=" << sample << " zero=" << zero
+                          << " wall_ns=" << nanos / ITERATIONS << " cpu_ns="
+                          << static_cast<double>(cpu_ticks) / CLOCKS_PER_SEC * 1e9 / ITERATIONS
+                          << " read_bytes=" << read_bytes / ITERATIONS
+                          << " raw_rows=" << (zero ? GROUP_ROWS : GROUPS * GROUP_ROWS)
+                          << " filtered_groups=" << (zero ? GROUPS - 1 : 0) << '\n';
+            }
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, FloatingPredicatesPreserveDorisSemanticsWithRealBloomFilters) {
+    write_floating_parquet_file_with_bloom_filters(_file_path);
+
+    const auto expect_ids = [&](int column_id, const VExprContextSPtr& conjunct,
+                                const ColumnInt32::Container& expected,
+                                bool expect_bloom_pruning = false) {
+        RuntimeProfile profile("profile");
+        auto reader = create_reader(0, -1, &profile);
+        TQueryOptions options;
+        options.__set_enable_parquet_filter_by_bloom_filter(true);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        use_schema_order_positions(request.get(), schema);
+        format::FileScanRequestBuilder request_builder(request.get());
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column_id)).ok());
+        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+        request->predicate_only_columns.push_back(format::LocalColumnId(column_id));
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+
+        ColumnInt32::Container actual;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& ids = int32_data_column(*block.get_by_position(2).column).get_data();
+            actual.insert(actual.end(), ids.begin(), ids.end());
+        }
+        EXPECT_EQ(actual, expected);
+        if (expect_bloom_pruning) {
+            EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByBloomFilter"), 1);
+        }
+        conjunct->close();
+    };
+
+    const auto check_type = [&]<PrimitiveType Type>(int column_id) {
+        using CppType = typename PrimitiveTypeTraits<Type>::CppType;
+        const CppType query_nan = [] {
+            if constexpr (Type == TYPE_FLOAT) {
+                return std::bit_cast<float>(uint32_t {0x7fc00002U});
+            } else {
+                return std::bit_cast<double>(uint64_t {0x7ff8000000000002ULL});
+            }
+        }();
+        const auto nan = Field::create_field<Type>(query_nan);
+        const auto zero = Field::create_field<Type>(CppType {0});
+        const auto one = Field::create_field<Type>(CppType {1});
+        const auto absent = Field::create_field<Type>(CppType {10});
+
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "eq", TExprOpcode::EQ, nan),
+                   {4});
+        expect_ids(column_id, create_floating_in_conjunct(column_id, Type, {absent, nan}, false),
+                   {4});
+        expect_ids(column_id, create_floating_in_conjunct(column_id, Type, {zero}, true),
+                   {0, 2, 3, 4, 5, 6, 7});
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "eq", TExprOpcode::EQ, zero),
+                   {1}, true);
+        expect_ids(column_id,
+                   create_floating_function_conjunct(column_id, Type, "gt", TExprOpcode::GT, one),
+                   {4, 6, 7});
+    };
+
+    // The file stores different NaN payloads and -0.0, so these scans exercise both semantic
+    // equivalence classes through the real V2 footer-statistics and Bloom-filter path.
+    check_type.template operator()<TYPE_FLOAT>(0);
+    check_type.template operator()<TYPE_DOUBLE>(1);
+}
 
 TEST(ParquetScanSelectionTest, CompactFilterShrinksCurrentSelection) {
     format::parquet::SelectionVector selection(4);
@@ -1826,6 +2472,48 @@ TEST(ParquetScanAdaptivePredicateTest, ThrowingNestedFunctionDisablesSelectedRow
     EXPECT_FALSE(throwing_comparison->root()->is_safe_to_execute_on_selected_rows());
 }
 
+TEST(ParquetScanAdaptivePredicateTest, TotalNestedAccessorsAndNullSafeEqualityAreSafe) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_int_type}, Strings {"value"}));
+    const auto array_type = std::make_shared<DataTypeArray>(struct_type);
+
+    const auto function_call = [](const std::string& name, const DataTypePtr& result_type,
+                                  VExprSPtrs children) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+        node.__set_type(result_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(cast_set<int16_t>(children.size()));
+        node.__set_is_nullable(result_type->is_nullable());
+        auto expr = VectorizedFnCall::create_shared(node);
+        expr->set_children(std::move(children));
+        return expr;
+    };
+
+    auto array_element =
+            function_call("element_at", struct_type,
+                          {VSlotRef::create_shared(0, 0, -1, array_type, "items"),
+                           VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(1))});
+    auto struct_element = function_call(
+            "struct_element", nullable_int_type,
+            {array_element, VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                                    Field::create_field<TYPE_STRING>("value"))});
+    auto null_safe_eq = function_call(
+            "eq_for_null", std::make_shared<DataTypeUInt8>(),
+            {struct_element,
+             VLiteral::create_shared(nullable_int_type, Field::create_field<TYPE_INT>(7))});
+
+    EXPECT_TRUE(array_element->is_safe_to_execute_on_selected_rows());
+    EXPECT_TRUE(struct_element->is_safe_to_execute_on_selected_rows());
+    EXPECT_TRUE(null_safe_eq->is_safe_to_execute_on_selected_rows());
+}
+
 TEST(ParquetScanSmallFileTest, StagesOnlyBoundedHttpObjects) {
     using format::parquet::detail::should_stage_small_http_file;
     EXPECT_TRUE(should_stage_small_http_file("http://host/tiny.parquet", 512, 1024));
@@ -1851,10 +2539,14 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
              .row_group_rows = ConditionCacheContext::GRANULE_SIZE,
              .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
              .page_skip_plans = {},
-             .offset_indexes = {}});
+             .offset_indexes = {},
+             .full_variant_projection_ordinals = {},
+             .variant_leaf_projection_columns = 0,
+             .variant_full_projection_columns = 0,
+             .expensive_pruning_pending = false});
 
     format::parquet::ParquetScanScheduler scheduler;
-    scheduler.set_plan(std::move(plan));
+    scheduler.set_plan(std::make_shared<format::parquet::RowGroupScanPlan>(std::move(plan)));
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
     ctx->base_granule = 0;
@@ -2186,13 +2878,174 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
             const auto location = decode_rowid(rowid_column, row);
             EXPECT_EQ(location.version, context.version);
             EXPECT_EQ(location.backend_id, context.backend_id);
-            EXPECT_EQ(location.file_id, context.file_id);
-            row_ids.push_back(location.row_id);
+            EXPECT_EQ(location.file_local.file_id, context.file_id);
+            row_ids.push_back(location.file_local.row_id);
         }
     }
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
     EXPECT_EQ(row_ids, std::vector<uint32_t>({2, 3}));
+}
+
+TEST_F(ParquetScanTest, ReadsOnlyRequestedAbsoluteFileRowsAcrossRowGroups) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->row_ids = {0, 3, 5};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 4, 6}));
+}
+
+class CountingParquetRemoteReader final : public io::FileReader {
+public:
+    explicit CountingParquetRemoteReader(io::FileReaderSPtr reader) : _reader(std::move(reader)) {}
+    Status close() override { return _reader->close(); }
+    const io::Path& path() const override { return _reader->path(); }
+    size_t size() const override { return _reader->size(); }
+    bool closed() const override { return _reader->closed(); }
+    int64_t mtime() const override { return _reader->mtime(); }
+    std::atomic<size_t> remote_bytes {0};
+    std::atomic<size_t> dryrun_bytes {0};
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        RETURN_IF_ERROR(_reader->read_at(offset, result, bytes_read, io_ctx));
+        remote_bytes += *bytes_read;
+        if (io_ctx != nullptr && io_ctx->is_dryrun) {
+            dryrun_bytes += *bytes_read;
+        }
+        return Status::OK();
+    }
+
+private:
+    io::FileReaderSPtr _reader;
+};
+
+TEST_F(ParquetScanTest, SparseRowIdsAvoidCachedRemoteChunkPrefetch) {
+    using namespace format::parquet;
+    // Use multiple cache blocks so an eager chunk read cannot hide inside one demand read.
+    std::vector<int32_t> ids(1024 * 1024);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("id", arrow::int32(), false)}),
+                                    {build_int32_array(ids)});
+    write_table(_file_path, table, ids.size());
+
+    auto* env = ExecEnv::GetInstance();
+    auto* old_factory = env->file_cache_factory();
+    auto factory = std::make_unique<io::FileCacheFactory>();
+    const auto cache_path = (_test_dir / "cache").string();
+    io::FileCacheSettings settings;
+    settings.storage = "disk";
+    settings.capacity = 16 * 1024 * 1024;
+    settings.query_queue_size = settings.capacity;
+    settings.query_queue_elements = 1024;
+    settings.max_file_block_size = 64 * 1024;
+    const auto old_ttl_gc_interval = config::file_cache_background_ttl_gc_interval_ms;
+    const auto old_ttl_info_interval = config::file_cache_background_ttl_info_update_interval_ms;
+    // The TTL workers sleep between iterations, so bound the fixture's shutdown latency.
+    config::file_cache_background_ttl_gc_interval_ms = 100;
+    config::file_cache_background_ttl_info_update_interval_ms = 100;
+    const auto old_column_buffer = config::parquet_column_max_buffer_mb;
+    config::parquet_column_max_buffer_mb = 1;
+    const auto old_block_size = config::file_cache_each_block_size;
+    config::file_cache_each_block_size = settings.max_file_block_size;
+    auto old_fd_cache = std::move(env->_file_cache_open_fd_cache);
+    auto old_pool = std::move(env->_segment_prefetch_thread_pool);
+    Defer restore([&] {
+        env->_segment_prefetch_thread_pool.reset();
+        factory.reset();
+        env->set_file_cache_factory(old_factory);
+        env->_file_cache_open_fd_cache = std::move(old_fd_cache);
+        env->_segment_prefetch_thread_pool = std::move(old_pool);
+        config::file_cache_each_block_size = old_block_size;
+        config::parquet_column_max_buffer_mb = old_column_buffer;
+        config::file_cache_background_ttl_gc_interval_ms = old_ttl_gc_interval;
+        config::file_cache_background_ttl_info_update_interval_ms = old_ttl_info_interval;
+    });
+    env->set_file_cache_factory(factory.get());
+    env->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();
+    ASSERT_TRUE(factory->create_file_cache(cache_path, settings).ok());
+    auto* cache = factory->get_by_path(cache_path);
+    ASSERT_NE(cache, nullptr);
+    for (int attempt = 0; attempt < 200 && !cache->get_async_open_success(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(cache->get_async_open_success());
+    ASSERT_TRUE(ThreadPoolBuilder("parquet_test_prefetch")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&ExecEnv::GetInstance()->_segment_prefetch_thread_pool)
+                        .ok());
+    io::FileReaderSPtr local;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(_file_path, &local).ok());
+    auto remote = std::make_shared<CountingParquetRemoteReader>(local);
+    io::FileReaderOptions options;
+    options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    options.cache_base_path = cache_path;
+    options.cache_write_mode = io::CacheWriteMode::SYNC_WRITE;
+    auto cached = std::make_shared<io::CachedRemoteFileReader>(remote, options);
+    io::FileCacheStatistics cache_stats;
+    io::IOContext io_ctx;
+    io_ctx.file_cache_stats = &cache_stats;
+    io::FileDescription description;
+    description.path = _file_path;
+    description.file_size = local->size();
+    ParquetFileContext context;
+    ASSERT_TRUE(context.open(cached, &io_ctx, false, description).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->row_ids = {0};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RowGroupScanPlan plan;
+    ASSERT_TRUE(plan_parquet_row_groups(*context.native_metadata, schema, *request, {}, false,
+                                        &plan, &state.timezone_obj(), &state, &context)
+                        .ok());
+    ParquetScanScheduler scheduler;
+    scheduler.set_plan(std::make_shared<RowGroupScanPlan>(std::move(plan)));
+    scheduler.set_scan_request(request);
+    scheduler.set_runtime_state(&state);
+    scheduler.set_timezone(&state.timezone_obj());
+    Block block;
+    block.insert({schema[0]->type->create_column(), schema[0]->type, "id"});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(scheduler.read_next_batch(context, schema, &block, &rows, &eof).ok());
+    ExecEnv::GetInstance()->segment_prefetch_thread_pool()->wait();
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(0), 0);
+    EXPECT_FALSE(scheduler._current_merge_range_active);
+    EXPECT_FALSE(scheduler._current_non_predicate_prefetched);
+    EXPECT_LT(remote->remote_bytes.load(), local->size() / 2);
+    EXPECT_EQ(remote->dryrun_bytes.load(), 0);
+    // Source counters measure copied bytes; downloads can include cache-block alignment padding.
+    EXPECT_GT(cache_stats.bytes_read_from_remote, 0);
+    EXPECT_LE(cache_stats.bytes_read_from_remote, remote->remote_bytes.load());
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyGlobalRowIdKeepsSignedFileLocalId) {
@@ -2266,6 +3119,49 @@ TEST_F(ParquetScanTest, NoRequestedColumnsReturnsRowsOnlyAcrossRowGroups) {
         total_rows += rows;
     }
     EXPECT_EQ(total_rows, 6);
+}
+
+TEST_F(ParquetScanTest, LateRequestReplansUnopenedRowGroupsWithFooterStatistics) {
+    write_int_pair_parquet_file(_file_path, 2);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(2);
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto initial = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder initial_builder(initial.get());
+    ASSERT_TRUE(initial_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(initial_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(reader->open(initial).ok());
+
+    Block first_block = build_file_block(schema);
+    size_t first_rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&first_block, &first_rows, &eof).ok());
+    ASSERT_EQ(first_rows, 2);
+    EXPECT_EQ(int32_data_column(*first_block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2}));
+
+    auto refreshed = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder refreshed_builder(refreshed.get());
+    ASSERT_TRUE(refreshed_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(refreshed_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    refreshed->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 4));
+    ASSERT_TRUE(reader->queue_scan_request(refreshed).ok());
+
+    Block refreshed_block = build_file_block(schema);
+    size_t refreshed_rows = 0;
+    ASSERT_TRUE(reader->get_block(&refreshed_block, &refreshed_rows, &eof).ok());
+    ASSERT_EQ(refreshed_rows, 2);
+    EXPECT_EQ(int32_data_column(*refreshed_block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {5, 6}));
+    // The middle row group is rejected from footer statistics before any data page is decoded.
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 4);
+    EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), 1);
+    EXPECT_NE(profile.get_counter("RefreshScanRequestTime"), nullptr);
 }
 
 TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
@@ -3045,6 +3941,53 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainStringNullPredicatesUseDefinitionLevel
     }
 }
 
+TEST_F(ParquetScanTest, PyArrow3DictionaryNullCountFixturePreservesIsNullRows) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    const auto fixture_path =
+            std::filesystem::path(source_root) /
+            "be/test/format_v2/parquet/test_data/pyarrow-3.0.0-dictionary-null-count.parquet";
+    ASSERT_TRUE(std::filesystem::copy_file(fixture_path, _file_path));
+
+    const auto fixture_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto fixture_metadata = fixture_reader->metadata();
+    ASSERT_EQ(fixture_metadata->created_by(), "parquet-cpp version 1.5.1-SNAPSHOT");
+    const auto fixture_statistics = fixture_metadata->RowGroup(0)->ColumnChunk(0)->statistics();
+    ASSERT_NE(fixture_statistics, nullptr);
+    ASSERT_EQ(fixture_statistics->null_count(), 0);
+
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    auto conjunct = create_string_null_conjunct(0, true);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    ColumnInt32::Container actual;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto& ids = int32_data_column(*block.get_by_position(1).column).get_data();
+        actual.insert(actual.end(), ids.begin(), ids.end());
+    }
+    EXPECT_EQ(actual, (ColumnInt32::Container {0, 3, 6, 9, 12}));
+    conjunct->close();
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyDictionaryIntNullPredicatesUseDefinitionLevels) {
     for (const bool is_null : {true, false}) {
         write_dictionary_int_pair_parquet_file(_file_path);
@@ -3163,17 +4106,82 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterializati
     conjunct->close();
 }
 
+TEST_F(ParquetScanTest, DictionaryFiltersAreBuiltFromEachReaderSnapshot) {
+    struct ScanResult {
+        std::vector<int32_t> scores;
+        int64_t typed_compare_columns = 0;
+    };
+
+    auto scan = [&](int32_t lower_bound) {
+        RuntimeProfile profile("profile");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        auto reader = create_reader(0, -1, &profile);
+        EXPECT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        EXPECT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder request_builder(request.get());
+        EXPECT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        EXPECT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+        request->predicate_only_columns.push_back(format::LocalColumnId(0));
+        auto conjunct =
+                create_int32_function_conjunct(0, "gt", TExprOpcode::GT, lower_bound, false);
+        EXPECT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        EXPECT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        EXPECT_TRUE(reader->open(request).ok());
+
+        ScanResult result;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            EXPECT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+            for (size_t row = 0; row < rows; ++row) {
+                result.scores.push_back(score_column.get_element(row));
+            }
+        }
+        result.typed_compare_columns = counter_value(profile, "DictFilterTypedCompareColumns");
+        conjunct->close();
+        EXPECT_TRUE(reader->close().ok());
+        return result;
+    };
+
+    write_dictionary_int_pair_parquet_file(_file_path);
+    const auto first = scan(2);
+    EXPECT_EQ(first.scores, std::vector<int32_t>({30, 40, 50, 60}));
+    EXPECT_EQ(first.typed_compare_columns, 1);
+
+    const auto repeated = scan(2);
+    EXPECT_EQ(repeated.scores, first.scores);
+    EXPECT_EQ(repeated.typed_compare_columns, 1);
+
+    const auto changed_predicate = scan(3);
+    EXPECT_EQ(changed_predicate.scores, std::vector<int32_t>({40, 50, 60}));
+    EXPECT_EQ(changed_predicate.typed_compare_columns, 1);
+
+    write_dictionary_int_pair_parquet_file(_file_path, {7, 1, 8, 2, 9, 3});
+    const auto changed_dictionary = scan(2);
+    EXPECT_EQ(changed_dictionary.scores, std::vector<int32_t>({10, 30, 50, 60}));
+    EXPECT_EQ(changed_dictionary.typed_compare_columns, 1);
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
     write_dictionary_int_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
-    auto reader = create_reader(0, -1, &profile);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto prepared =
+            create_topn_conjunct(&state, 0, make_nullable(std::make_shared<DataTypeInt32>()),
+                                 Field::create_field<TYPE_INT>(3));
+    ASSERT_NE(state.get_query_ctx(), nullptr);
+    auto reader = create_reader(0, -1, &profile);
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    auto prepared =
-            create_topn_conjunct(&state, 0, schema[0].type, Field::create_field<TYPE_INT>(3));
+    ASSERT_TRUE(schema[0].type->equals(*prepared.conjunct->root()->children()[0]->data_type()));
     auto request = std::make_shared<format::FileScanRequest>();
     format::FileScanRequestBuilder request_builder(request.get());
     ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
@@ -4071,6 +5079,52 @@ TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
 }
 
+TEST_F(ParquetScanTest, MultiColumnOrUsesPageIndexAndResidualExpression) {
+    write_multi_column_page_index_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    const auto low_ascending = create_int32_function_conjunct(0, "lt", TExprOpcode::LT, 13);
+    const auto low_descending = create_int32_function_conjunct(1, "lt", TExprOpcode::LT, 13);
+    auto disjunction = create_compound_conjunct(TExprOpcode::COMPOUND_OR, low_ascending->root(),
+                                                low_descending->root());
+    ASSERT_TRUE(disjunction->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(disjunction->open(&state).ok());
+    request->conjuncts.push_back(disjunction);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> selected;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        const auto& values = int32_data_column(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            selected.push_back(values.get_element(row));
+        }
+    }
+
+    std::vector<int32_t> expected(13);
+    std::iota(expected.begin(), expected.end(), 0);
+    for (int32_t value = 115; value < 128; ++value) {
+        expected.push_back(value);
+    }
+    EXPECT_EQ(selected, expected);
+    EXPECT_GT(counter_value(profile, "FilteredRowsByPage"), 0);
+    EXPECT_LT(counter_value(profile, "RawRowsRead"), 128);
+    EXPECT_GT(counter_value(profile, "RowsFilteredByConjunct"), 0);
+    disjunction->close();
+}
+
 TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {
     write_multi_row_group_page_index_parquet_file(_file_path);
     RuntimeProfile profile("lazy_page_index_profile");
@@ -4094,6 +5148,303 @@ TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 128);
     EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 1);
+}
+
+TEST_F(ParquetScanTest, TopNReadsBestRowGroupBeforePublishingBound) {
+    constexpr int GROUP_ROWS = 128;
+    constexpr int GROUPS = 4;
+    constexpr int K = 3;
+    for (const bool ascending : {true, false}) {
+        _file_path = (_test_dir / (ascending ? "asc.parquet" : "desc.parquet")).string();
+        std::vector<int32_t> values;
+        for (int group = 0; group < GROUPS; ++group) {
+            const int base = (ascending ? GROUPS - group - 1 : group) * GROUP_ROWS;
+            for (int row = 0; row < GROUP_ROWS; ++row) {
+                values.push_back(base + row);
+            }
+        }
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array(values)});
+        // PLAIN, no dictionary or PageIndex: only Footer pruning can avoid reading later groups.
+        write_table(_file_path, table, GROUP_ROWS, false, false, true);
+        RuntimeProfile profile("topn_row_group_order");
+        const format::GlobalRowIdContext rowid_context {
+                .version = 1, .backend_id = 2, .file_id = 3};
+        auto reader = create_reader(0, -1, &profile, rowid_context);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        reader->set_batch_size(GROUP_ROWS);
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto prepared = create_topn_conjunct(&state, 0, schema[0].type, Field {}, false, ascending);
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        ASSERT_TRUE(builder.add_non_predicate_column(
+                                   format::LocalColumnId(format::GLOBAL_ROWID_COLUMN_ID))
+                            .ok());
+        request->conjuncts.push_back(prepared.conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> top;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& column = int32_data_column(*block.get_by_position(0).column);
+            for (size_t row = 0; row < rows; ++row) {
+                const int32_t value = column.get_element(row);
+                top.push_back(value);
+                const auto location =
+                        decode_rowid(string_data_column(*block.get_by_position(1).column), row);
+                const int expected_position =
+                        ascending ? (GROUPS - 1 - value / GROUP_ROWS) * GROUP_ROWS +
+                                            value % GROUP_ROWS
+                                  : value;
+                EXPECT_EQ(location.file_local.row_id, expected_position);
+                EXPECT_EQ(location.file_local.file_id, rowid_context.file_id);
+            }
+            std::ranges::sort(
+                    top, [ascending](int32_t a, int32_t b) { return ascending ? a < b : a > b; });
+            if (top.size() >= K) {
+                top.resize(K);
+                // Model the SortSink feedback after each block without replacing the scan request.
+                ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                    .update(Field::create_field<TYPE_INT>(top.back()))
+                                    .ok());
+            }
+        }
+        const std::vector<int32_t> expected =
+                ascending ? std::vector<int32_t> {0, 1, 2} : std::vector<int32_t> {511, 510, 509};
+        EXPECT_EQ(top, expected);
+        EXPECT_EQ(counter_value(profile, "RawRowsRead"), GROUP_ROWS);
+        EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), GROUPS - 1);
+        prepared.conjunct->close();
+    }
+}
+
+TEST_F(ParquetScanTest, TopNOrderUsesLocalizedSlotInsteadOfPhysicalColumnOrdinal) {
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("padding", arrow::int32(), false),
+                           arrow::field("k", arrow::int32(), false)}),
+            {build_int32_array({-1, -1, -1, -1, -1, -1}), build_int32_array({8, 9, 4, 5, 0, 1})});
+    write_table(_file_path, table, 2, false, false, true);
+    RuntimeProfile profile("localized_topn");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, &profile);
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(2);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    // The physical key is column 1, but the mapper binds it to slot 0 in the file-local block.
+    auto prepared = create_topn_conjunct(&state, 0, schema[1].type, Field {}, false);
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(prepared.conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+    Block block = build_file_block({schema[1]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {0, 1}));
+    ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                        .update(Field::create_field<TYPE_INT>(1))
+                        .ok());
+    block.clear_column_data();
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 2);
+    EXPECT_EQ(counter_value(profile, "RowGroupsFilteredByMinMax"), 2);
+    prepared.conjunct->close();
+}
+
+TEST_F(ParquetScanTest, TopNMissingStatisticsAndPruningFenceKeepPhysicalOrder) {
+    for (const int scenario : {0, 1, 2}) {
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array({8, 9, 4, 5, 0, 1})});
+        write_table(_file_path, table, 2, false, false, scenario != 0);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        auto reader = create_reader();
+        ASSERT_TRUE(reader->init(&state).ok());
+        reader->set_batch_size(2);
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto prepared = create_topn_conjunct(&state, 0, schema[0].type, Field {}, false);
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        request->conjuncts.push_back(prepared.conjunct);
+        if (scenario == 1) {
+            // A preceding evaluation-sensitive conjunct prevents metadata pruning and reordering.
+            request->metadata_pruning_safe_conjunct_count = 0;
+        } else if (scenario == 2) {
+            request->row_ids = std::vector<int64_t> {0, 3, 4};
+        }
+        ASSERT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> actual;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& column = int32_data_column(*block.get_by_position(0).column);
+            for (size_t row = 0; row < rows; ++row) {
+                actual.push_back(column.get_element(row));
+            }
+        }
+        EXPECT_EQ(actual, scenario == 2 ? (std::vector<int32_t> {8, 5, 0})
+                                        : (std::vector<int32_t> {8, 9, 4, 5, 0, 1}));
+        prepared.conjunct->close();
+    }
+}
+
+TEST_F(ParquetScanTest, TopNZoneMapObservesLateBoundsAndNullOrdering) {
+    for (const bool ascending : {true, false}) {
+        for (const bool nulls_first : {true, false}) {
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            auto type = make_nullable(std::make_shared<DataTypeInt32>());
+            auto prepared =
+                    create_topn_conjunct(&state, 0, type, Field {}, false, ascending, nulls_first);
+            auto zone = std::make_shared<segment_v2::ZoneMap>();
+            zone->has_not_null = true;
+            zone->min_value = Field::create_field<TYPE_INT>(10);
+            zone->max_value = Field::create_field<TYPE_INT>(20);
+            ZoneMapEvalContext ctx;
+            ctx.slots[0].data_type = type;
+            ctx.slots[0].zone_map = zone;
+            const auto& expression = prepared.conjunct->root();
+            EXPECT_TRUE(expression->can_evaluate_zonemap_filter());
+            EXPECT_NE(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kNoMatch);
+            ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                .update(Field::create_field<TYPE_INT>(ascending ? 9 : 21))
+                                .ok());
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kNoMatch);
+            // Equal leading keys may still win on a later ORDER BY key and must remain candidates.
+            if (ascending) {
+                zone->min_value = Field::create_field<TYPE_INT>(9);
+            } else {
+                zone->max_value = Field::create_field<TYPE_INT>(21);
+            }
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kMayMatch);
+            zone->min_value = Field::create_field<TYPE_INT>(10);
+            zone->max_value = Field::create_field<TYPE_INT>(20);
+            zone->has_null = true;
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx),
+                      nulls_first ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch);
+            zone->has_not_null = false;
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx),
+                      nulls_first ? ZoneMapFilterResult::kMayMatch : ZoneMapFilterResult::kNoMatch);
+            ctx.slots.clear();
+            EXPECT_EQ(expression->evaluate_zonemap_filter(ctx), ZoneMapFilterResult::kUnsupported);
+            prepared.conjunct->close();
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, TopNRowGroupOrderMicrobench) {
+    if (std::getenv("DORIS_TOPN_ROW_GROUP_BENCHMARK") == nullptr) {
+        GTEST_SKIP() << "Set DORIS_TOPN_ROW_GROUP_BENCHMARK=1 to run the reader microbenchmark";
+    }
+    constexpr int GROUPS = 128;
+    constexpr int GROUP_ROWS = 4096;
+    constexpr int K = 10;
+    constexpr int SAMPLES = 9;
+    constexpr int ITERATIONS = 32;
+    for (const bool ascending : {true, false}) {
+        _file_path = (_test_dir / (ascending ? "asc.parquet" : "desc.parquet")).string();
+        std::vector<int32_t> values;
+        values.reserve(GROUPS * GROUP_ROWS);
+        for (int group = 0; group < GROUPS; ++group) {
+            const int base = (ascending ? GROUPS - group - 1 : group) * GROUP_ROWS;
+            for (int row = 0; row < GROUP_ROWS; ++row) {
+                values.push_back(base + row);
+            }
+        }
+        auto table = arrow::Table::Make(arrow::schema({arrow::field("k", arrow::int32(), false)}),
+                                        {build_int32_array(values)});
+        // Fixture generation and the warmup are outside the reported reader-plus-TopK samples.
+        write_table(_file_path, table, GROUP_ROWS, false, false, true);
+        for (int sample = -1; sample < SAMPLES; ++sample) {
+            const std::string label = ascending ? "parquet_topn_asc" : "parquet_topn_desc";
+            if (sample >= 0) {
+                benchmark::wait_for_turn(label, sample);
+            }
+            uint64_t total_elapsed = 0;
+            int64_t total_checksum = 0;
+            int64_t total_rows = 0;
+            int64_t total_filtered = 0;
+            int64_t total_bytes = 0;
+            for (int iteration = 0; iteration < ITERATIONS; ++iteration) {
+                const auto bytes_before = DorisMetrics::instance()->local_bytes_read_total->value();
+                const auto start = std::chrono::steady_clock::now();
+                RuntimeProfile profile("topn_microbench");
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                auto reader = create_reader(0, -1, &profile);
+                ASSERT_TRUE(reader->init(&state).ok());
+                reader->set_batch_size(GROUP_ROWS);
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto prepared =
+                        create_topn_conjunct(&state, 0, schema[0].type, Field {}, false, ascending);
+                auto request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(request.get());
+                ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+                request->conjuncts.push_back(prepared.conjunct);
+                ASSERT_TRUE(reader->open(request).ok());
+                auto compare = [ascending](int32_t a, int32_t b) {
+                    return ascending ? a < b : a > b;
+                };
+                std::priority_queue<int32_t, std::vector<int32_t>, decltype(compare)> top(compare);
+                bool eof = false;
+                while (!eof) {
+                    Block block = build_file_block(schema);
+                    size_t rows = 0;
+                    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                    const auto& column = int32_data_column(*block.get_by_position(0).column);
+                    for (size_t row = 0; row < rows; ++row) {
+                        top.push(column.get_element(row));
+                        if (top.size() > K) {
+                            top.pop();
+                        }
+                    }
+                    if (top.size() == K) {
+                        ASSERT_TRUE(prepared.query_context->get_runtime_predicate(10)
+                                            .update(Field::create_field<TYPE_INT>(top.top()))
+                                            .ok());
+                    }
+                }
+                ASSERT_TRUE(reader->close().ok());
+                const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                             std::chrono::steady_clock::now() - start)
+                                             .count();
+                ASSERT_EQ(top.size(), K);
+                int64_t checksum = 0;
+                for (int rank = K - 1; rank >= 0; --rank) {
+                    EXPECT_EQ(top.top(), ascending ? rank : GROUPS * GROUP_ROWS - 1 - rank);
+                    checksum += top.top();
+                    top.pop();
+                }
+                total_elapsed += elapsed;
+                total_checksum += checksum;
+                total_rows += counter_value(profile, "RawRowsRead");
+                total_filtered += counter_value(profile, "RowGroupsFilteredByMinMax");
+                total_bytes +=
+                        DorisMetrics::instance()->local_bytes_read_total->value() - bytes_before;
+                prepared.conjunct->close();
+            }
+            if (sample >= 0) {
+                benchmark::report_sample(label, sample, ITERATIONS, total_elapsed, total_checksum,
+                                         true);
+                std::cout << "PARQUET_TOPN_WORK," << label << ',' << sample << ','
+                          << total_rows / ITERATIONS << ',' << total_filtered / ITERATIONS << ','
+                          << total_bytes / ITERATIONS << std::endl;
+            }
+        }
+    }
 }
 
 } // namespace

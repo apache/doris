@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToExprNameVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.AggregateType;
@@ -32,28 +31,25 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
-import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -77,6 +73,12 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     private <T extends Throwable> void checkThrow(Class<T> exception, Executable executable) {
         Assertions.assertThrows(exception, executable);
+    }
+
+    private static String getShowCreateTableDdl(OlapTable table) {
+        List<String> createTableStmt = new ArrayList<>();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+        return createTableStmt.get(0);
     }
 
     @Test
@@ -240,6 +242,286 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.NONE);
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getType(), Type.INT);
         Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
+    }
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormatRejectedInLocalMode() {
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "local";
+            Config.cloud_unique_id = "";
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> createTable("create table test.partition_inverted_index_storage_format_local\n"
+                            + "(k1 int, v1 varchar(10))\n"
+                            + "duplicate key(k1)\n"
+                            + "distributed by hash(k1) buckets 1\n"
+                            + "properties('replication_num' = '1', "
+                            + "'partition.inverted_index_storage_format' = 'SNII')"));
+            Assertions.assertTrue(exception.getMessage().contains("only supported in cloud mode"));
+        } finally {
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testCreateRowTtlTables() throws Exception {
+        createTable("create table test.row_ttl_dup (k int, event_time datetimev2(6), v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', "
+                + "'function_column.ttl'='1 day', 'function_column.ttl_time_zone'='UTC')");
+        createTable("create table test.row_ttl_mow (k int, event_time datetimev2(6), v int) "
+                + "unique key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_unique_key_merge_on_write'='true', "
+                + "'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='2h', "
+                + "'function_column.ttl_time_zone'='+08:00')");
+        createTable("create table test.row_ttl_mor (k int, event_time datetimev2(6), v int) "
+                + "unique key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_unique_key_merge_on_write'='false', "
+                + "'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='30', "
+                + "'function_column.ttl_time_zone'='-05:30')");
+        createTable("create table test.row_ttl_timestamptz (k int, event_time timestamptz(6), v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')");
+        createTable("create table test.row_ttl_date (k int, event_date date, v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_date', 'function_column.ttl'='1 day', "
+                + "'function_column.ttl_time_zone'='Z')");
+        createTable("create table test.row_ttl_quoted_col (k int, `event\"time` datetimev2(6), v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event\"time', 'function_column.ttl'='1 day', "
+                + "'function_column.ttl_time_zone'='+08:00')");
+        createTable("create table test.row_ttl_plain (k int, v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 "
+                + "properties('replication_num'='1', 'function_column.enable_row_ttl'='false')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable dup = (OlapTable) db.getTableOrDdlException("row_ttl_dup");
+        Assertions.assertTrue(dup.hasRowTtl());
+        Assertions.assertFalse(dup.getTtlColumn().isVisible());
+        Assertions.assertTrue(dup.getTtlColumn().isAllowNull());
+        Assertions.assertEquals(dup.getColumn("event_time").getType(), dup.getTtlColumn().getType());
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(6), dup.getTtlColumn().getType());
+        Assertions.assertEquals(AggregateType.NONE, dup.getTtlColumn().getAggregationType());
+        Assertions.assertEquals("event_time", dup.getRowTtlCol());
+        Assertions.assertEquals(86_400_000_000L, dup.getRowTtlDurationMicros());
+        Assertions.assertEquals("86400", dup.getTableProperty().getProperties()
+                .get("function_column.ttl"));
+        Assertions.assertEquals("+00:00", dup.getTableProperty().getProperties()
+                .get("function_column.ttl_time_zone"));
+        Assertions.assertEquals(0, dup.getRowTtlTimeZoneOffsetSeconds());
+        String dupShowCreate = getShowCreateTableDdl(dup);
+        Assertions.assertTrue(dupShowCreate.contains(
+                "\"function_column.enable_row_ttl\" = \"true\""));
+        Assertions.assertTrue(dupShowCreate.contains(
+                "\"function_column.ttl_col\" = \"event_time\""));
+        Assertions.assertTrue(dupShowCreate.contains(
+                "\"function_column.ttl\" = \"86400\""));
+        Assertions.assertTrue(dupShowCreate.contains(
+                "\"function_column.ttl_time_zone\" = \"+00:00\""));
+        Assertions.assertTrue(dupShowCreate.indexOf("\"function_column.enable_row_ttl\"")
+                < dupShowCreate.indexOf("\"function_column.ttl_col\""));
+        Assertions.assertTrue(dupShowCreate.indexOf("\"function_column.ttl_col\"")
+                < dupShowCreate.indexOf("\"function_column.ttl\""));
+        Assertions.assertTrue(dupShowCreate.indexOf("\"function_column.ttl\"")
+                < dupShowCreate.indexOf("\"function_column.ttl_time_zone\""));
+        // SHOW CREATE must recreate the hidden column from properties without exposing it.
+        Assertions.assertFalse(dupShowCreate.contains(Column.TTL_COL));
+
+        String rebuiltCreateTable = dupShowCreate.replace(
+                "CREATE TABLE `row_ttl_dup`", "CREATE TABLE `row_ttl_dup_rebuilt`");
+        Assertions.assertNotEquals(dupShowCreate, rebuiltCreateTable);
+        createTable(rebuiltCreateTable);
+        OlapTable rebuilt = (OlapTable) db.getTableOrDdlException("row_ttl_dup_rebuilt");
+        Assertions.assertTrue(rebuilt.hasRowTtl());
+        Assertions.assertFalse(rebuilt.getTtlColumn().isVisible());
+        Assertions.assertEquals(dup.getTtlColumn().getType(), rebuilt.getTtlColumn().getType());
+        Assertions.assertEquals(dup.getTtlColumn().getAggregationType(),
+                rebuilt.getTtlColumn().getAggregationType());
+        Assertions.assertEquals(dup.getRowTtlCol(), rebuilt.getRowTtlCol());
+        Assertions.assertEquals(dup.getRowTtlDurationMicros(), rebuilt.getRowTtlDurationMicros());
+        Assertions.assertEquals(dup.getRowTtlTimeZoneOffsetSeconds(),
+                rebuilt.getRowTtlTimeZoneOffsetSeconds());
+        Assertions.assertEquals(rebuiltCreateTable, getShowCreateTableDdl(rebuilt));
+
+        String dupTimeZone = dup.getTableProperty().getProperties().put(
+                "function_column.ttl_time_zone", "+15:00");
+        try {
+            Assertions.assertThrows(IllegalStateException.class, dup::getRowTtlTimeZoneOffsetSeconds);
+        } finally {
+            dup.getTableProperty().getProperties().put("function_column.ttl_time_zone", dupTimeZone);
+        }
+        String dupDuration = dup.getTableProperty().getProperties().remove("function_column.ttl");
+        try {
+            Assertions.assertThrows(IllegalStateException.class, () -> getShowCreateTableDdl(dup));
+        } finally {
+            dup.getTableProperty().getProperties().put("function_column.ttl", dupDuration);
+        }
+        DdlException streamException = Assertions.assertThrows(DdlException.class,
+                () -> dup.checkAsTableStreamBaseTable(BaseTableStream.StreamScanType.APPEND_ONLY));
+        Assertions.assertEquals("CREATE STREAM is not supported on tables with row TTL. Table "
+                + dup.getQualifiedName() + ".", streamException.getDetailMessage());
+        OlapTable restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(dup), OlapTable.class);
+        Assertions.assertEquals(dup.getRowTtlDurationMicros(), restored.getRowTtlDurationMicros());
+        Assertions.assertEquals(dup.getRowTtlTimeZoneOffsetSeconds(), restored.getRowTtlTimeZoneOffsetSeconds());
+
+        OlapTable mow = (OlapTable) db.getTableOrDdlException("row_ttl_mow");
+        Assertions.assertTrue(mow.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(AggregateType.REPLACE, mow.getTtlColumn().getAggregationType());
+        OlapTable mor = (OlapTable) db.getTableOrDdlException("row_ttl_mor");
+        Assertions.assertFalse(mor.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(AggregateType.REPLACE, mor.getTtlColumn().getAggregationType());
+        Assertions.assertEquals(-19_800, mor.getRowTtlTimeZoneOffsetSeconds());
+        OlapTable timestamptz = (OlapTable) db.getTableOrDdlException("row_ttl_timestamptz");
+        Assertions.assertEquals(ScalarType.createTimeStampTzType(6),
+                timestamptz.getTtlColumn().getType());
+        Assertions.assertEquals("+00:00", timestamptz.getTableProperty().getProperties()
+                .get("function_column.ttl_time_zone"));
+        Assertions.assertEquals(0, timestamptz.getRowTtlTimeZoneOffsetSeconds());
+        String timestamptzShowCreate = getShowCreateTableDdl(timestamptz);
+        Assertions.assertTrue(timestamptzShowCreate.contains(
+                "\"function_column.ttl_time_zone\" = \"+00:00\""));
+        Assertions.assertFalse(timestamptzShowCreate.contains(Column.TTL_COL));
+        OlapTable restoredTimestamp = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(timestamptz), OlapTable.class);
+        Assertions.assertEquals(0, restoredTimestamp.getRowTtlTimeZoneOffsetSeconds());
+        OlapTable date = (OlapTable) db.getTableOrDdlException("row_ttl_date");
+        Assertions.assertEquals(date.getColumn("event_date").getType(), date.getTtlColumn().getType());
+        OlapTable quotedCol = (OlapTable) db.getTableOrDdlException("row_ttl_quoted_col");
+        String quotedColShowCreate = getShowCreateTableDdl(quotedCol);
+        Assertions.assertTrue(quotedColShowCreate.contains(
+                "\"function_column.ttl_col\" = \"event\"\"time\""));
+        String quotedColRebuiltDdl = quotedColShowCreate.replace(
+                "CREATE TABLE `row_ttl_quoted_col`", "CREATE TABLE `row_ttl_quoted_col_rebuilt`");
+        Assertions.assertNotEquals(quotedColShowCreate, quotedColRebuiltDdl);
+        createTable(quotedColRebuiltDdl);
+        OlapTable quotedColRebuilt = (OlapTable) db.getTableOrDdlException("row_ttl_quoted_col_rebuilt");
+        Assertions.assertEquals(quotedCol.getRowTtlCol(), quotedColRebuilt.getRowTtlCol());
+        Assertions.assertEquals(quotedCol.getRowTtlDurationMicros(), quotedColRebuilt.getRowTtlDurationMicros());
+        Assertions.assertEquals(quotedCol.getRowTtlTimeZoneOffsetSeconds(),
+                quotedColRebuilt.getRowTtlTimeZoneOffsetSeconds());
+        Assertions.assertEquals(quotedColRebuiltDdl, getShowCreateTableDdl(quotedColRebuilt));
+        OlapTable plain = (OlapTable) db.getTableOrDdlException("row_ttl_plain");
+        Assertions.assertFalse(plain.hasRowTtl());
+        String plainShowCreate = getShowCreateTableDdl(plain);
+        Assertions.assertFalse(plainShowCreate.contains("\"function_column.enable_row_ttl\""));
+        Assertions.assertFalse(plainShowCreate.contains("\"function_column.ttl_col\""));
+        Assertions.assertFalse(plainShowCreate.contains("\"function_column.ttl\""));
+        Assertions.assertFalse(plainShowCreate.contains("\"function_column.ttl_time_zone\""));
+
+        createTable("create table test.row_ttl_direct (k int, v int) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'function_column.enable_row_ttl'='true')");
+        OlapTable direct = (OlapTable) db.getTableOrDdlException("row_ttl_direct");
+        Assertions.assertTrue(direct.isDirectRowTtl());
+        Assertions.assertTrue(direct.getTtlColumn().getType().isBigIntType());
+        Assertions.assertTrue(direct.getTtlColumn().isAllowNull());
+        Assertions.assertEquals(-1, direct.getRowTtlDurationMicros());
+        Assertions.assertEquals(0, direct.getRowTtlTimeZoneOffsetSeconds());
+        String directDdl = getShowCreateTableDdl(direct);
+        createTable(directDdl.replace("`row_ttl_direct`", "`row_ttl_direct_rebuilt`"));
+        OlapTable directRebuilt = (OlapTable) db.getTableOrDdlException("row_ttl_direct_rebuilt");
+        Assertions.assertTrue(directRebuilt.isDirectRowTtl());
+        Assertions.assertTrue(directRebuilt.getTtlColumn().getType().isBigIntType());
+
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_agg (k int, event_time datetimev2(6), v int sum) "
+                        + "aggregate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_without_switch (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.ttl_col'='event_time', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class,
+                "function_column.enable_row_ttl must be true when row ttl properties are specified",
+                () -> createTable("create table test.row_ttl_legacy_switch "
+                        + "(k int, event_time datetimev2(6)) duplicate key(k) "
+                        + "distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_missing_col (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_missing_ttl (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_not_exist (k int, v int) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_key (k int, event_time datetimev2(6), v int) "
+                        + "duplicate key(k, event_time) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_bad_type (k int, event_time int, v int) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, "row ttl column only supports DATE/DATETIME types: event_time",
+                () -> createTable("create table test.row_ttl_timestamp_ns_source "
+                        + "(k int, event_time timestamp_ns, v int) duplicate key(k) "
+                        + "distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day', "
+                        + "'function_column.ttl_time_zone'='+00:00')"));
+        checkThrow(Exception.class, "row ttl column does not support generated columns: event_time",
+                () -> createTable("create table test.row_ttl_generated_source "
+                        + "(k int, base_time datetimev2(6), "
+                        + "event_time datetimev2(6) generated always as (base_time), v int) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day', "
+                        + "'function_column.ttl_time_zone'='+08:00')"));
+        checkThrow(Exception.class, "function_column.ttl_time_zone is required",
+                () -> createTable("create table test.row_ttl_missing_time_zone "
+                        + "(k int, event_time datetimev2(6), v int) duplicate key(k) "
+                        + "distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, "must be UTC, Z, or a fixed UTC offset",
+                () -> createTable("create table test.row_ttl_invalid_time_zone "
+                        + "(k int, event_time datetimev2(6), v int) duplicate key(k) "
+                        + "distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day', "
+                        + "'function_column.ttl_time_zone'='Asia/Shanghai')"));
+        checkThrow(Exception.class, "TIMESTAMPTZ row ttl column only supports +00:00 time zone",
+                () -> createTable("create table test.row_ttl_timestamptz_non_utc "
+                        + "(k int, event_time timestamptz(6), v int) duplicate key(k) "
+                        + "distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day', "
+                        + "'function_column.ttl_time_zone'='+08:00')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_sequence_col (k int, event_time datetimev2(6), v int) "
+                        + "unique key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day', "
+                        + "'function_column.sequence_col'='event_time')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_sequence_mapping (k int, event_time datetimev2(6), "
+                        + "sequence_time datetimev2(6), v int) unique key(k) "
+                        + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                        + "'enable_unique_key_merge_on_write'='false', 'function_column.enable_row_ttl'='true', "
+                        + "'sequence_mapping.sequence_time'='event_time,v', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
     }
 
     @Test
@@ -758,57 +1040,31 @@ public class CreateTableCommandTest extends TestWithFeService {
                     e.getMessage());
         }
 
-        try {
-            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                    + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () "
-                    + "distributed by hash (id) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                            + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
-                    e.getMessage());
-        }
+        // NOTE: the iceberg DISTRIBUTE BY rejection moved off fe-core into IcebergConnectorMetadata.createTable
+        // (SPI cutover); it is covered by fe-connector-iceberg IcebergCreateTableValidationTest.
 
-        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
+        // Writing ENGINE=iceberg while sitting in the internal catalog used to be how a test reached the
+        // external analysis arm: the nine-name whitelist accepted the name wherever it was written, and the
+        // statement only failed at execution. The target catalog now judges the name, so that shortcut is a
+        // rejection -- assert it, and exercise the external partition conversion where it actually lives.
+        AnalysisException wrongTarget = Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table tb1 (id int) ENGINE=iceberg properties (\"a\"=\"b\")"));
+        Assertions.assertEquals("Engine 'iceberg' does not match catalog 'internal'.", wrongTarget.getMessage());
+
+        par = externalPartitionDesc("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                + "partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
         Assertions.assertEquals(
                 "PARTITION BY LIST(`id`, func1(`id2`, '1'), func('3', `id1`), `id3`)\n" + "(\n" + "\n" + ")",
                 par.toSql());
 
-        try {
-            getCreateTableStmt(
-                    "create table tb1 (id int) "
-                    + "engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "iceberg catalog doesn't support rollup tables.",
-                     e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "hive catalog doesn't support rollup tables.",
-                    e.getMessage());
-        }
-
         // test with empty partitions
-        LogicalPlan plan = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
-        createTableInfo.validate(connectContext);
-        Assertions.assertNull(createTableInfo.getPartitionDesc());
+        Assertions.assertNull(
+                externalPartitionDesc("create table tb1 (id int) properties (\"a\"=\"b\")"),
+                "no partition clause must convert to no partition descriptor");
 
         // test with multi partitions
-        LogicalPlan plan2 = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg "
+        PartitionDesc partitionDesc2 = externalPartitionDesc("create table tb1 (id int) "
                     + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) () properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan2 instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
-        createTableInfo2.validate(connectContext);
-        PartitionDesc partitionDesc2 = createTableInfo2.getPartitionDesc();
         List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
@@ -855,6 +1111,18 @@ public class CreateTableCommandTest extends TestWithFeService {
                 partitionDesc2.toSql());
     }
 
+    /**
+     * The partition descriptor an EXTERNAL target produces. Exercised directly rather than through a
+     * CREATE TABLE aimed at the internal catalog: {@code isExternal} is now derived from the target catalog,
+     * so an engine name can no longer stand in for one.
+     */
+    private PartitionDesc externalPartitionDesc(String sql) {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo info = ((CreateTableCommand) plan).getCreateTableInfo();
+        return info.getPartitionTableInfo().convertToPartitionDesc(true);
+    }
+
     private PartitionDesc getCreateTableStmt(String sql) {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
@@ -863,246 +1131,40 @@ public class CreateTableCommandTest extends TestWithFeService {
         return createTableInfo.getPartitionDesc();
     }
 
-    @Test
-    public void testPartitionCheckForHive() {
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("Cannot set all columns as partitioning columns.", e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int,\n"
-                    + "    `c1` bigint\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The partition field must be at the end of the schema.",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int,\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The order of partition fields in the schema "
-                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2, par3 ,par4\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("partition key par1 is not exists", e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par1` int,\n"
-                    + "    `par2` int,\n"
-                    + "    `par3` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
-        }
-    }
+    // NOTE: testPartitionCheckForHive removed. The hive external partition-column rules (not-all-columns,
+    // partition-fields-at-end, order-consistent, partition-key-exists, float/complex/nullable) moved off fe-core
+    // PartitionTableInfo.validatePartitionInfo into HiveConnectorMetadata.createTable (SPI cutover), and are now
+    // covered by fe-connector-hive HiveCreateTableValidationTest.
 
     @Test
-    public void testConvertToPartitionTableInfo() throws Exception {
-        testUnpartitionConvertToPartitionTableInfo();
-        testRangePartitionConvertToPartitionTableInfo();
-        testInPartitionConvertToPartitionTableInfo();
-        testLessThanPartitionConvertToPartitionTableInfo();
-    }
+    public void testRejectMaxValueInListPartition() {
+        // MAXVALUE can only be used in RANGE partition's VALUES LESS THAN, it is not a
+        // concrete LIST partition value, so creating a LIST partition with it must fail.
+        String invalidSql = "create table test.tbl_list_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by list(k) ("
+                + "  partition p1 values in (('1')),"
+                + "  partition p2 values in ((MAXVALUE))"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        AnalysisException ex = Assertions.assertThrows(
+                AnalysisException.class, () -> getCreateTableStmt(invalidSql));
+        Assertions.assertTrue(ex.getMessage().contains("MAXVALUE is not allowed in LIST partition"));
+        Assertions.assertTrue(ex.getMessage().contains("p2"));
 
-    private void testUnpartitionConvertToPartitionTableInfo() throws Exception {
-        String partitionTable = "CREATE TABLE aa1 (\n"
-                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
-                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
-                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
-                + " ) ENGINE=OLAP\n"
-                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
-                + " COMMENT 'OLAP'\n"
-                + " PARTITION BY RANGE(`date`)\n"
-                + " (\n"
-                + " PARTITION `p201701` VALUES [(\"2017-01-01\"),  (\"2017-02-01\")),\n"
-                + " PARTITION `p201702` VALUES [(\"2017-02-01\"), (\"2017-03-01\")),\n"
-                + " PARTITION `p201703` VALUES [(\"2017-03-01\"), (\"2017-04-01\"))\n"
-                + " )\n"
-                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1') ;\n";
-        createTable(partitionTable);
-
-        String mv = "CREATE MATERIALIZED VIEW mtmv5\n"
-                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
-                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS\n"
-                + " SELECT * FROM aa1;";
-
-        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo(mv);
-        Assertions.assertEquals(PartitionTableInfo.EMPTY, createMTMVInfo.getPartitionTableInfo());
-    }
-
-    private void testRangePartitionConvertToPartitionTableInfo() throws Exception {
-        String fixedRangePartitionTable = "CREATE TABLE mm1 (\n"
-                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
-                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
-                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
-                + " ) ENGINE=OLAP\n"
-                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
-                + " COMMENT 'OLAP'\n"
-                + " PARTITION BY RANGE(`date`)\n"
-                + " (\n"
-                + " PARTITION `p201701` VALUES [(\"2017-01-01\"),  (\"2017-02-01\")),\n"
-                + " PARTITION `p201702` VALUES [(\"2017-02-01\"), (\"2017-03-01\")),\n"
-                + " PARTITION `p201703` VALUES [(\"2017-03-01\"), (\"2017-04-01\"))\n"
-                + " )\n"
-                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1') ;\n";
-
-        String mv = "CREATE MATERIALIZED VIEW mtmv1\n"
-                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
-                + " partition by(`date`)\n"
-                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS\n"
-                + " SELECT * FROM mm1;";
-
-        check(fixedRangePartitionTable, mv);
-    }
-
-    private void testLessThanPartitionConvertToPartitionTableInfo() throws Exception {
-        String lessThanPartitionTable = "CREATE TABLE te2 (\n"
-                + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
-                + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
-                + " `num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
-                + " ) ENGINE=OLAP\n"
-                + " DUPLICATE KEY(`user_id`, `date`, `num`)\n"
-                + " COMMENT 'OLAP'\n"
-                + " PARTITION BY RANGE(`date`)\n"
-                + "(\n"
-                + " PARTITION `p201701` VALUES LESS THAN (\"2017-02-01\"),\n"
-                + " PARTITION `p201702` VALUES LESS THAN (\"2017-03-01\"),\n"
-                + " PARTITION `p201703` VALUES LESS THAN (\"2017-04-01\"),\n"
-                + " PARTITION `p2018` VALUES [(\"2018-01-01\"), (\"2019-01-01\")),\n"
-                + " PARTITION `other` VALUES LESS THAN (MAXVALUE)\n"
-                + ")\n"
-                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1') ;";
-
-        String mv = "CREATE MATERIALIZED VIEW mtmv2\n"
-                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
-                + " partition by(`date`)\n"
-                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS\n"
-                + " SELECT * FROM te2;";
-
-        check(lessThanPartitionTable, mv);
-    }
-
-    private void testInPartitionConvertToPartitionTableInfo() throws Exception {
-        String inPartitionTable = "CREATE TABLE cc1 (\n"
-                + "`user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
-                + "`date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
-                + "`num` SMALLINT NOT NULL COMMENT '\\\"数量\\\"'\n"
-                + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(`user_id`, `date`, `num`)\n"
-                + "COMMENT 'OLAP'\n"
-                + "PARTITION BY LIST(`date`,`num`)\n"
-                + "(\n"
-                + " PARTITION p201701_1000 VALUES IN (('2017-01-01',1), ('2017-01-01',2)),\n"
-                + " PARTITION p201702_2000 VALUES IN (('2017-02-01',3), ('2017-02-01',4))\n"
-                + " )\n"
-                + " DISTRIBUTED BY HASH(`user_id`) BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1') ;";
-
-        String mv = "CREATE MATERIALIZED VIEW mtmv\n"
-                + "BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
-                + "partition by(`date`)\n"
-                + "DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + "PROPERTIES ('replication_num' = '1')\n"
-                + "AS\n"
-                + "SELECT * FROM cc1;";
-
-        check(inPartitionTable, mv);
-    }
-
-    private void check(String sql, String mv) throws Exception {
-        createTable(sql);
-
-        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo(mv);
-        PartitionTableInfo partitionTableInfo = createMTMVInfo.getPartitionTableInfo();
-        PartitionDesc partitionDesc = createMTMVInfo.getPartitionDesc();
-
-        List<PartitionDefinition> partitionDefs = partitionTableInfo.getPartitionDefs();
-        List<SinglePartitionDesc> singlePartitionDescs = partitionDesc.getSinglePartitionDescs();
-
-        assertPartitionInfo(partitionDefs, singlePartitionDescs);
-    }
-
-    private void assertPartitionInfo(List<PartitionDefinition> partitionDefs, List<SinglePartitionDesc> singlePartitionDescs) {
-        Assertions.assertEquals(singlePartitionDescs.size(), partitionDefs.size());
-
-        for (int i = 0; i < singlePartitionDescs.size(); i++) {
-            PartitionDefinition partitionDefinition = partitionDefs.get(i);
-            SinglePartitionDesc singlePartitionDesc = singlePartitionDescs.get(i);
-
-            if (partitionDefinition instanceof InPartition) {
-                InPartition inPartition = (InPartition) partitionDefinition;
-
-                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
-                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "IN");
-                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getInValues().size(), inPartition.getValues().size());
-            } else if (partitionDefinition instanceof FixedRangePartition) {
-                FixedRangePartition fixedRangePartition = (FixedRangePartition) partitionDefinition;
-
-                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
-                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "FIXED");
-                Assertions.assertEquals(fixedRangePartition.getLowerBounds().size(), singlePartitionDesc.getPartitionKeyDesc().getLowerValues().size());
-                Assertions.assertEquals(fixedRangePartition.getUpperBounds().size(), singlePartitionDesc.getPartitionKeyDesc().getUpperValues().size());
-            } else if (partitionDefinition instanceof LessThanPartition) {
-                LessThanPartition lessThanPartition = (LessThanPartition) partitionDefinition;
-
-                Assertions.assertEquals(singlePartitionDesc.getPartitionName(), partitionDefinition.getPartitionName());
-                Assertions.assertEquals(singlePartitionDesc.getPartitionKeyDesc().getPartitionType().name(), "LESS_THAN");
-                Assertions.assertEquals(lessThanPartition.getValues().size(), singlePartitionDesc.getPartitionKeyDesc().getUpperValues().size());
-            }
-        }
-    }
-
-    private CreateMTMVInfo getPartitionTableInfo(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);
-        CreateMTMVCommand command = (CreateMTMVCommand) logicalPlan;
-        command.getCreateMTMVInfo().analyze(connectContext);
-
-        return command.getCreateMTMVInfo();
+        // RANGE partition's VALUES LESS THAN (MAXVALUE) stays allowed.
+        String validSql = "create table test.tbl_range_maxvalue ("
+                + "k int not null, v int) "
+                + "duplicate key(k) "
+                + "partition by range(k) ("
+                + "  partition p1 values less than ('10'),"
+                + "  partition p2 values less than (MAXVALUE)"
+                + ") "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1')";
+        Assertions.assertDoesNotThrow(() -> getCreateTableStmt(validSql));
     }
 
     @Test
@@ -1136,42 +1198,5 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
 
         Assertions.assertDoesNotThrow(() -> createTable(validSql));
-    }
-
-    @Test
-    public void testMTMVRejectVarbinary() throws Exception {
-        String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
-                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
-                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS SELECT X'AB' as vb;";
-
-        LogicalPlan plan = new NereidsParser().parseSingle(mv);
-        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
-        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
-
-        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
-                org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateMTMVInfo().analyze(connectContext));
-        System.out.println(ex.getMessage());
-        Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
-        Assertions.assertTrue(ex.getMessage().contains("vb"));
-    }
-
-    @Test
-    public void testVarBinaryModifyColumnRejected() throws Exception {
-        createTable("create table test.vb_alt (k1 int, v1 int)\n"
-                + "duplicate key(k1)\n"
-                + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1');");
-
-        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
-                new org.apache.doris.nereids.parser.NereidsParser()
-                        .parseSingle("alter table test.vb_alt modify column v1 VARBINARY");
-        Assertions.assertTrue(
-                plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
-        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd2 =
-                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
-        Assertions.assertThrows(Throwable.class, () -> cmd2.run(connectContext, null));
     }
 }

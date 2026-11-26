@@ -222,6 +222,16 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::set_multi_version_statu
     return {MetaServiceCode::UNDEFINED_ERR, "Not implemented"};
 }
 
+SnapshotRetainedAnalysisResult SnapshotManager::analyze_snapshot_retained(std::string_view) {
+    return {MetaServiceCode::UNDEFINED_ERR, "Snapshot retained analysis is not supported", {}};
+}
+
+SnapshotRetainedAnalysisResult SnapshotManager::get_snapshot_retained_analysis(std::string_view,
+                                                                               std::string_view,
+                                                                               std::string_view) {
+    return {MetaServiceCode::UNDEFINED_ERR, "Snapshot retained analysis is not supported", {}};
+}
+
 int SnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
     return 0;
 }

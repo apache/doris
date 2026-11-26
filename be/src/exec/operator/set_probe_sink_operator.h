@@ -133,4 +133,11 @@ private:
     using OperatorBase::_child;
 };
 
+/// Instantiated once in set_probe_sink_operator.cpp; suppresses per-TU implicit
+/// instantiation.
+extern template class SetProbeSinkLocalState<true>;
+extern template class SetProbeSinkLocalState<false>;
+extern template class SetProbeSinkOperatorX<true>;
+extern template class SetProbeSinkOperatorX<false>;
+
 } // namespace doris

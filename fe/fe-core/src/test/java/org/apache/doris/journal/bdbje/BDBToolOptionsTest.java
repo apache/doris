@@ -19,23 +19,23 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.common.FeConstants;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class BDBToolOptionsTest {
 
     @Test
     public void test() {
         BDBToolOptions options = new BDBToolOptions(true, "", false, "", "", 0);
-        Assert.assertFalse(options.hasFromKey());
-        Assert.assertFalse(options.hasEndKey());
-        Assert.assertEquals(FeConstants.meta_version, options.getMetaVersion());
+        Assertions.assertFalse(options.hasFromKey());
+        Assertions.assertFalse(options.hasEndKey());
+        Assertions.assertEquals(FeConstants.meta_version, options.getMetaVersion());
 
         options = new BDBToolOptions(false, "12345", false, "12345", "12456", 35);
-        Assert.assertTrue(options.hasFromKey());
-        Assert.assertTrue(options.hasEndKey());
-        Assert.assertNotSame(FeConstants.meta_version, options.getMetaVersion());
-        Assert.assertTrue(options.toString().contains("12345"));
+        Assertions.assertTrue(options.hasFromKey());
+        Assertions.assertTrue(options.hasEndKey());
+        Assertions.assertNotSame(FeConstants.meta_version, options.getMetaVersion());
+        Assertions.assertTrue(options.toString().contains("12345"));
     }
 
 }

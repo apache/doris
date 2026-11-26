@@ -33,21 +33,45 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Connector SPI</name>
     <description>
-        Service Provider Interface (SPI) for Doris FE connector abstraction.
-        Contains ConnectorProvider (ServiceLoader SPI entry point), ConnectorContext,
-        and ConnectorTypeMapper.
-        Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
+        The whole Doris FE connector plugin contract, in both directions.
+
+        What a connector implements and the engine consumes: ConnectorProvider (the
+        ServiceLoader entry point), Connector, the ConnectorMetadata sub-interfaces,
+        the scan / write / procedure providers, opaque handle types, pushdown and ddl
+        value objects, and the capability enums.
+
+        What the engine implements and a connector consumes: ConnectorContext,
+        ConnectorStorageContext, ConnectorSession, ConnectorConf, ConnectorBrokerAddress.
+
+        The two directions live in one module on purpose — the boundary is bidirectional
+        (ConnectorProvider.create takes a ConnectorContext; ConnectorContext hands back a
+        Connector), so splitting by "who implements" would be circular. Trino does the
+        same with trino-spi. Design rules for the whole surface are documented in this
+        module's org.apache.doris.connector.spi package-info.
+
+        The fe-thrift dependency (provided scope) allows connectors to construct typed
+        thrift payloads for the FE-BE protocol. At runtime the Thrift classes are supplied
+        by the parent classloader (fe-core).
     </description>
 
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
+            <artifactId>fe-thrift</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem-api: the connector storage contract (StorageProperties) that fe-core binds
+             and hands down via ConnectorContext.getStorageProperties(). This is the load-bearing
+             "fe-connector depends ONLY on fe-filesystem-api" edge (Doris-internal API, no third-party). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -59,6 +83,20 @@ under the License.
 
     <build>
         <finalName>doris-fe-connector-spi</finalName>
+        <resources>
+            <!-- Default resource root, restated because declaring <resources> replaces the default. -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              plugin API version file and can never rewrite a service descriptor by accident.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -90,12 +90,12 @@ ColumnPtr variant_column_from_refs(std::span<const VariantRef> values, ForcedNul
     return result;
 }
 
-Status finalize_collected_node(FunctionContext* context, const CollectedArrayNode& node,
+Status finalize_collected_node(RuntimeState* state, const CollectedArrayNode& node,
                                ColumnPtr* output) {
     const ForcedNulls nulls {node.nulls.data(), node.nulls.size()};
     if (node.child != nullptr) {
         ColumnPtr child;
-        RETURN_IF_ERROR(finalize_collected_node(context, *node.child, &child));
+        RETURN_IF_ERROR(finalize_collected_node(state, *node.child, &child));
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->get_data().insert(node.offsets.begin(), node.offsets.end());
         MutableColumnPtr mutable_child = IColumn::mutate(std::move(child));
@@ -118,12 +118,12 @@ Status finalize_collected_node(FunctionContext* context, const CollectedArrayNod
     if (primitive == TYPE_STRING || primitive == TYPE_CHAR || primitive == TYPE_VARCHAR ||
         primitive == TYPE_JSONB) {
         if (primitive == TYPE_JSONB) {
-            return cast_variant_refs_to_jsonb(context, node.values, nulls, output);
+            return cast_variant_refs_to_jsonb(state, node.values, nulls, output);
         }
-        return cast_variant_refs_to_string(context, node.values, nulls, output);
+        return cast_variant_refs_to_string(state, node.values, nulls, output);
     }
     if (is_supported_scalar_target(node.type)) {
-        return cast_variant_refs_to_scalar(context, node.values, node.type, nulls, output);
+        return cast_variant_refs_to_scalar(state, node.values, node.type, nulls, output);
     }
     *output = make_all_null_column(node.type, node.values.size());
     return Status::OK();
@@ -131,23 +131,77 @@ Status finalize_collected_node(FunctionContext* context, const CollectedArrayNod
 
 } // namespace
 
-Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& source,
+Status cast_variant_to_array(RuntimeState* state, const ColumnVariantV2& source,
                              const DataTypePtr& target_type, size_t rows, ForcedNulls forced_nulls,
                              ColumnPtr* output) {
     if (source.size() != rows || target_type->get_primitive_type() != TYPE_ARRAY ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for ARRAY CAST");
+        return Status::InternalError("Invalid Variant V2 input shape for ARRAY CAST");
     }
     if (source.is_typed()) {
-        *output = make_all_null_column(target_type, rows);
-        return Status::OK();
+        if (state == nullptr) {
+            // vexplode_v2 requests only already-encoded arrays. A typed Variant has no array
+            // representation to expose on that internal path.
+            *output = make_all_null_column(target_type, rows);
+            return Status::OK();
+        }
+        // The typed state already owns a concrete Doris column. Reuse the same non-strict CAST
+        // executor as scalar targets so typed strings such as "[]" retain the V1 String->Array
+        // behavior.
+        return cast_typed_variant_to_scalar(state, source, target_type, rows, forced_nulls, output);
     }
     std::unique_ptr<CollectedArrayNode> root = make_collected_node(target_type);
     for (size_t row_index = 0; row_index < rows; ++row_index) {
         append_collected_value(root.get(), source.get_value_ref(row_index),
                                !forced_nulls.empty() && forced_nulls[row_index] != 0);
     }
-    return finalize_collected_node(context, *root, output);
+    ColumnPtr direct;
+    RETURN_IF_ERROR(finalize_collected_node(state, *root, &direct));
+
+    // An encoded Variant string is allowed to contain the textual representation of an array.
+    // V1 delegates that case to the ordinary non-strict String->Array CAST. Parse only those
+    // rows through the shared executor; native Variant arrays keep the direct recursive path
+    // above, which is also required for ARRAY<VariantV2>.
+    if (state == nullptr) {
+        *output = std::move(direct);
+        return Status::OK();
+    }
+    DorisVector<size_t> string_rows;
+    DorisVector<VariantRef> string_values;
+    for (size_t row_index = 0; row_index < rows; ++row_index) {
+        if (!forced_nulls.empty() && forced_nulls[row_index] != 0) {
+            continue;
+        }
+        const VariantRef value = source.get_value_ref(row_index);
+        const VariantBasicType basic_type = value.basic_type();
+        if (basic_type == VariantBasicType::SHORT_STRING ||
+            (basic_type == VariantBasicType::PRIMITIVE &&
+             value.primitive_id() == VariantPrimitiveId::STRING)) {
+            string_rows.push_back(row_index);
+            string_values.push_back(value);
+        }
+    }
+    if (string_rows.empty()) {
+        *output = std::move(direct);
+        return Status::OK();
+    }
+
+    ColumnPtr parsed_strings;
+    RETURN_IF_ERROR(
+            cast_variant_refs_to_scalar(state, string_values, target_type, {}, &parsed_strings));
+    MutableColumnPtr merged = make_nullable(target_type)->create_column();
+    merged->reserve(rows);
+    size_t string_index = 0;
+    for (size_t row_index = 0; row_index < rows; ++row_index) {
+        if (string_index < string_rows.size() && string_rows[string_index] == row_index) {
+            merged->insert_from(*parsed_strings, string_index++);
+        } else {
+            merged->insert_from(*direct, row_index);
+        }
+    }
+    DCHECK_EQ(string_index, string_rows.size());
+    *output = std::move(merged);
+    return Status::OK();
 }
 
 } // namespace doris::CastWrapper::variant_v2_internal

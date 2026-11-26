@@ -18,6 +18,7 @@
 #pragma once
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {

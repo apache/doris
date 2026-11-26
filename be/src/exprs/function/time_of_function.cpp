@@ -20,6 +20,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_to_something.h"
 #include "exprs/function/simple_function_factory.h"
@@ -51,6 +52,19 @@ using FunctionDateTimeV2YearWeek =
 using FunctionDateTimeV2WeekDay =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_DATETIMEV2>>;
 
+using FunctionTimestampNsWeekOfYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekOfYearImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDayOfYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, DayOfYearImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDayOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfWeekImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDayOfMonth =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, DayOfMonthImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsYearWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsWeekDay =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<TYPE_TIMESTAMP_NS>>;
+
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeekV2>();
     factory.register_function<FunctionDayOfMonthV2>();
@@ -64,5 +78,11 @@ void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2DayOfMonth>();
     factory.register_function<FunctionDateTimeV2YearWeek>();
     factory.register_function<FunctionDateTimeV2WeekDay>();
+    factory.register_function<FunctionTimestampNsWeekOfYear>();
+    factory.register_function<FunctionTimestampNsDayOfYear>();
+    factory.register_function<FunctionTimestampNsDayOfWeek>();
+    factory.register_function<FunctionTimestampNsDayOfMonth>();
+    factory.register_function<FunctionTimestampNsYearWeek>();
+    factory.register_function<FunctionTimestampNsWeekDay>();
 }
 } // namespace doris

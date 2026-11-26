@@ -43,6 +43,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "storage/adaptive_thread_pool_controller.h"
 #include "storage/compaction/compaction_permit_limiter.h"
+#include "storage/compaction_task_types.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
@@ -92,7 +93,7 @@ extern bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap_version;
 // allocation/deallocation must be done outside.
 class BaseStorageEngine {
 protected:
-    enum Type : uint8_t {
+    enum class Type : uint8_t {
         LOCAL, // Shared-nothing integrated compute and storage architecture
         CLOUD, // Separating compute and storage architecture
     };
@@ -126,6 +127,10 @@ public:
     virtual Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
                                    bool force_use_only_cached = false) = 0;
 
+    void register_changelog_tablet(const BaseTabletSPtr& tablet);
+    // Catalog discovery refreshes cached Cloud metadata too, including tablets with no recent reads.
+    Status submit_changelog_ttl(int64_t tablet_id, bool refresh_cloud_meta = false);
+
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
@@ -151,10 +156,6 @@ public:
         return _calc_delete_bitmap_executor_for_load.get();
     }
 
-    void add_quering_rowset(RowsetSharedPtr rs);
-
-    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
-
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
     int get_disk_num() { return _disk_num; }
@@ -167,8 +168,8 @@ public:
 
 protected:
     void _start_adaptive_thread_controller();
-    void _evict_querying_rowset();
-    void _evict_quring_rowset_thread_callback();
+    void _gc_expired_id_file_map();
+    void _gc_expired_id_file_map_thread_callback();
     bool _should_delay_large_task();
 
     int32_t _effective_cluster_id = -1;
@@ -185,10 +186,15 @@ protected:
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
 
-    // Hold reference of quering rowsets
-    std::mutex _quering_rowsets_mutex;
-    std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
-    std::shared_ptr<Thread> _evict_quering_rowset_thread;
+    Status _start_changelog_ttl_scanner();
+    void _stop_changelog_ttl_scanner();
+    std::mutex _changelog_ttl_mutex;
+    std::map<int64_t, std::weak_ptr<BaseTablet>> _changelog_ttl_tablets;
+    std::unordered_set<int64_t> _changelog_ttl_pending;
+    std::unique_ptr<ThreadPool> _changelog_ttl_prepare_pool;
+    std::shared_ptr<Thread> _changelog_ttl_scan_thread;
+
+    std::shared_ptr<Thread> _id_file_map_gc_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
 
@@ -201,6 +207,7 @@ protected:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _changelog_compaction_thread_pool;
     int _cumu_compaction_thread_pool_used_threads {0};
     int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
@@ -232,7 +239,8 @@ public:
 
     std::vector<TabletCompactionContext> pick_topn_tablets_for_compaction(
             TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
+            const CumuCompactionPolicyTable& cumu_compaction_policies,
+            CompactionScoreStats* disk_score_stats);
 
 private:
     TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
@@ -241,7 +249,7 @@ private:
     Registry _tablet_submitted_cumu_compaction;
     Registry _tablet_submitted_base_compaction;
     Registry _tablet_submitted_full_compaction;
-    Registry _tablet_submitted_binlog_compaction;
+    Registry _tablet_submitted_changelog_compaction;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -351,7 +359,8 @@ public:
     void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force, bool eager = true, int trigger_method = 0);
+                                  bool force, bool eager = true,
+                                  TriggerMethod trigger_method = TriggerMethod::AUTO);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -376,6 +385,23 @@ public:
     std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
     int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
+
+#ifdef BE_TEST
+    std::vector<TabletSharedPtr> generate_compaction_tasks_for_test(
+            CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+        auto tablet_contexts = _generate_compaction_tasks(compaction_type, data_dirs, check_score);
+        std::vector<TabletSharedPtr> tablets;
+        tablets.reserve(tablet_contexts.size());
+        for (auto& context : tablet_contexts) {
+            tablets.emplace_back(std::move(context.tablet));
+        }
+        return tablets;
+    }
+
+    CompactionSubmitRegistry& compaction_submit_registry_for_test() {
+        return _compaction_submit_registry;
+    }
+#endif
 
 private:
     // Instance should be inited from `static open()`
@@ -435,21 +461,20 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
-    void _binlog_compaction_tasks_producer_callback();
+    void _changelog_compaction_tasks_producer_callback();
 
     std::vector<TabletCompactionContext> _generate_compaction_tasks(
             CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score);
     void _update_cumulative_compaction_policy();
     CumuCompactionPolicyTable _snapshot_cumulative_compaction_policy();
     std::shared_ptr<CumulativeCompactionPolicy> _get_cumulative_compaction_policy(
-            std::string_view compaction_policy);
+            std::string_view compaction_policy, int64_t tablet_id);
 
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force, int trigger_method = 0,
-                                   int8_t prefer_compaction_level = -1);
+                                   bool force, TriggerMethod trigger_method = TriggerMethod::AUTO);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,
@@ -520,7 +545,7 @@ private:
     std::shared_ptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
     std::shared_ptr<Thread> _compaction_tasks_producer_thread;
-    std::shared_ptr<Thread> _binlog_compaction_tasks_producer_thread;
+    std::shared_ptr<Thread> _changelog_compaction_tasks_producer_thread;
     std::shared_ptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<std::shared_ptr<Thread>> _path_gc_threads;
@@ -539,8 +564,6 @@ private:
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
-
-    std::unique_ptr<ThreadPool> _binlog_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;

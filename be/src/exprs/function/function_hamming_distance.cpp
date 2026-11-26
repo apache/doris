@@ -81,12 +81,11 @@ public:
 
         if (!has_nullable) {
             if (left_const) {
-                RETURN_IF_ERROR(scalar_vector(left_str_col->get_data_at(0).trim_tail_padding_zero(),
-                                              *right_str_col, res_data));
+                RETURN_IF_ERROR(
+                        scalar_vector(left_str_col->get_data_at(0), *right_str_col, res_data));
             } else if (right_const) {
-                RETURN_IF_ERROR(vector_scalar(
-                        *left_str_col, right_str_col->get_data_at(0).trim_tail_padding_zero(),
-                        res_data));
+                RETURN_IF_ERROR(
+                        vector_scalar(*left_str_col, right_str_col->get_data_at(0), res_data));
             } else {
                 RETURN_IF_ERROR(vector_vector(*left_str_col, *right_str_col, res_data));
             }
@@ -104,7 +103,7 @@ public:
                 return Status::OK();
             }
 
-            const auto left = left_str_col->get_data_at(0).trim_tail_padding_zero();
+            const auto left = left_str_col->get_data_at(0);
             RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col, right_null_map, res_data,
                                                    null_map));
         } else if (right_const) {
@@ -115,9 +114,8 @@ public:
                 return Status::OK();
             }
 
-            RETURN_IF_ERROR(vector_scalar_nullable(
-                    *left_str_col, right_str_col->get_data_at(0).trim_tail_padding_zero(),
-                    left_null_map, res_data, null_map));
+            RETURN_IF_ERROR(vector_scalar_nullable(*left_str_col, right_str_col->get_data_at(0),
+                                                   left_null_map, res_data, null_map));
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const bool left_is_null = left_null_map && (*left_null_map)[i];
@@ -128,9 +126,8 @@ public:
                     continue;
                 }
 
-                RETURN_IF_ERROR(hamming_distance(
-                        left_str_col->get_data_at(i).trim_tail_padding_zero(),
-                        right_str_col->get_data_at(i).trim_tail_padding_zero(), res_data[i], i));
+                RETURN_IF_ERROR(hamming_distance(left_str_col->get_data_at(i),
+                                                 right_str_col->get_data_at(i), res_data[i], i));
             }
         }
 
@@ -149,8 +146,8 @@ private:
         std::vector<size_t> left_offsets;
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
-            const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
+            const auto left = lcol.get_data_at(i);
+            const auto right = rcol.get_data_at(i);
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     left, left_offsets, false, simd::VStringFunctions::is_ascii(left), right,
                     right_offsets, false, simd::VStringFunctions::is_ascii(right), res[i], i));
@@ -167,7 +164,7 @@ private:
         simd::VStringFunctions::get_utf8_char_offsets(rdata, right_offsets);
         std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
-            const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
+            const auto left = lcol.get_data_at(i);
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     left, left_offsets, false, simd::VStringFunctions::is_ascii(left), rdata,
                     right_offsets, true, right_ascii, res[i], i));
@@ -184,7 +181,7 @@ private:
         simd::VStringFunctions::get_utf8_char_offsets(ldata, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
+            const auto right = rcol.get_data_at(i);
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     ldata, left_offsets, true, left_ascii, right, right_offsets, false,
                     simd::VStringFunctions::is_ascii(right), res[i], i));
@@ -208,7 +205,7 @@ private:
                 continue;
             }
 
-            const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
+            const auto left = lcol.get_data_at(i);
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     left, left_offsets, false, simd::VStringFunctions::is_ascii(left), rdata,
                     right_offsets, true, right_ascii, res[i], i));
@@ -232,7 +229,7 @@ private:
                 continue;
             }
 
-            const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
+            const auto right = rcol.get_data_at(i);
             RETURN_IF_ERROR(hamming_distance_with_offsets(
                     ldata, left_offsets, true, left_ascii, right, right_offsets, false,
                     simd::VStringFunctions::is_ascii(right), res[i], i));

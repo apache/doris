@@ -19,6 +19,7 @@
 #include <butil/guid.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
+#include <google/protobuf/util/message_differencer.h>
 
 #include <algorithm>
 #include <cctype>
@@ -31,6 +32,7 @@
 #include <tuple>
 #include <unordered_set>
 
+#include "common/auth/obj_credential.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -361,7 +363,14 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
         }
 
         if (role_arn.empty()) {
-            if (it.ak() == ak && it.sk() == sk) {
+            if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "nonempty access key and secret key are required to replace native "
+                      "credentials";
+                return -1;
+            }
+            // Resubmitting keys must also repair a previously persisted mixed auth state.
+            if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                 code = MetaServiceCode::OK;
                 msg = "ak/sk not changed";
                 return 1;
@@ -369,6 +378,7 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
             it.clear_role_arn();
             it.clear_external_id();
             it.clear_cred_provider_type();
+            it.clear_credential();
 
             it.set_ak(std::string(ak));
             it.set_sk(std::string(sk));
@@ -495,7 +505,13 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                           proto_to_json(*request);
                     return -1;
                 }
-                if (it.ak() == ak && it.sk() == sk) {
+                if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "nonempty access key and secret key are required to replace native "
+                          "credentials";
+                    return -1;
+                }
+                if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     msg = "ak sk eq original, please check it";
                     return -1;
@@ -504,6 +520,7 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_user_id(user_id);
                 it.set_ak(ak);
                 it.set_sk(sk);
+                it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
                 update_record << "update obj_info's ak sk without user_id, instance_id: "
                               << instance.instance_id() << " obj_info_id: " << it.id()
@@ -514,7 +531,13 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
             }
             if (it.user_id() == user_id) {
                 has_found_alter_obj_info = true;
-                if (it.ak() == ak && it.sk() == sk) {
+                if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "nonempty access key and secret key are required to replace native "
+                          "credentials";
+                    return -1;
+                }
+                if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     msg = "ak sk eq original, please check it";
                     return -1;
@@ -522,6 +545,7 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_mtime(time);
                 it.set_ak(ak);
                 it.set_sk(sk);
+                it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
                 update_record << "update obj_info's ak sk, instance_id: " << instance.instance_id()
                               << " obj_info_id: " << it.id() << " user_id: " << user_id
@@ -765,7 +789,7 @@ static bool has_non_empty_role_arn(const ObjectStoreInfoPB& obj) {
 }
 
 static bool use_credential_provider(const ObjectStoreInfoPB& obj) {
-    return obj.has_cred_provider_type() || has_non_empty_role_arn(obj);
+    return obj.has_cred_provider_type() || has_non_empty_role_arn(obj) || has_obj_credential(obj);
 }
 
 static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
@@ -781,13 +805,22 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
 
-    if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
+    if (has_obj_credential(*obj)) {
+        if (auto error = validate_and_normalize_obj_credential(obj); error.has_value()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = *error;
+            return;
+        }
+    } else if (obj->has_role_arn()) {
+        if (obj->role_arn().empty() || !obj->has_provider() ||
             obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
             region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
+        }
+        if (!obj->has_cred_provider_type()) {
+            obj->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
         }
     } else {
         // ATTN: prefix may be empty
@@ -1071,7 +1104,11 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         msg = ss.str();
         return -1;
     }
-    auto* storage_vault_names = instance.mutable_storage_vault_names();
+    // Apply all mutations to a candidate. The caller can safely abandon the
+    // transaction on any validation/serialization error without leaking a
+    // partial rename into the InstanceInfoPB it later persists.
+    InstanceInfoPB candidate_instance = instance;
+    auto* storage_vault_names = candidate_instance.mutable_storage_vault_names();
     auto* name_ptr = storage_vault_names->Mutable(pos);
     DCHECK(name_ptr != nullptr);
     const std::string old_name = *name_ptr;
@@ -1081,8 +1118,8 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
                           target_vault_id, name, old_name);
         return -1;
     }
-    std::string vault_id = instance.resource_ids().Get(pos);
-    auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
+    std::string vault_id = candidate_instance.resource_ids().Get(pos);
+    auto vault_key = storage_vault_key({candidate_instance.instance_id(), vault_id});
     std::string val;
 
     auto err = txn->get(vault_key, &val);
@@ -1118,7 +1155,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
             return -1;
         }
 
-        if (vault_exist(instance, vault.alter_name())) {
+        if (vault_exist(candidate_instance, vault.alter_name())) {
             code = MetaServiceCode::ALREADY_EXISTED;
             msg = fmt::format("vault_name={} already existed", vault.alter_name());
             return -1;
@@ -1126,14 +1163,16 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
 
         new_vault.set_name(vault.alter_name());
         *name_ptr = vault.alter_name();
-        if (instance.default_storage_vault_id() == vault_id) {
-            instance.set_default_storage_vault_name(vault.alter_name());
+        if (candidate_instance.default_storage_vault_id() == vault_id) {
+            candidate_instance.set_default_storage_vault_name(vault.alter_name());
         }
     }
 
-    if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
+    if ((obj_info.has_role_arn() || obj_info.has_cred_provider_type() ||
+         has_obj_credential(obj_info)) &&
+        (obj_info.has_ak() || obj_info.has_sk())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+        msg = "invalid argument, access keys cannot be combined with role or credentials";
         LOG(WARNING) << msg;
         return -1;
     }
@@ -1147,6 +1186,12 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
     }
 
     if (obj_info.has_ak()) {
+        if (has_obj_credential(new_vault.obj_info()) &&
+            (obj_info.ak().empty() || obj_info.sk().empty())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Replacing native credentials requires nonempty accesskey and secretkey";
+            return -1;
+        }
         EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
         AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
 
@@ -1162,26 +1207,70 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         new_vault.mutable_obj_info()->clear_role_arn();
         new_vault.mutable_obj_info()->clear_external_id();
         new_vault.mutable_obj_info()->clear_cred_provider_type();
+        new_vault.mutable_obj_info()->clear_credential();
 
         new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
         new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
         new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    if (obj_info.has_role_arn()) {
-        new_vault.mutable_obj_info()->clear_ak();
-        new_vault.mutable_obj_info()->clear_sk();
-        new_vault.mutable_obj_info()->clear_encryption_info();
+    if (obj_info.has_role_arn() || obj_info.has_cred_provider_type()) {
+        // Only selecting AWS authentication replaces other credentials. Clearing
+        // an unused role must preserve static keys and native GCP credentials.
+        if (!obj_info.role_arn().empty() || obj_info.has_cred_provider_type()) {
+            new_vault.mutable_obj_info()->clear_ak();
+            new_vault.mutable_obj_info()->clear_sk();
+            new_vault.mutable_obj_info()->clear_encryption_info();
+            new_vault.mutable_obj_info()->clear_credential();
+        }
 
-        new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
-        new_vault.mutable_obj_info()->set_cred_provider_type(get_cred_provider_type(obj_info));
-        if (obj_info.has_external_id()) {
+        if (obj_info.has_role_arn()) {
+            if (obj_info.role_arn().empty()) {
+                new_vault.mutable_obj_info()->clear_role_arn();
+                // An external ID has no meaning without a role. Clearing the role
+                // explicitly clears its dependent value as well.
+                new_vault.mutable_obj_info()->clear_external_id();
+            } else {
+                new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
+                if (!new_vault.obj_info().has_cred_provider_type() &&
+                    !obj_info.has_cred_provider_type()) {
+                    new_vault.mutable_obj_info()->set_cred_provider_type(
+                            CredProviderTypePB::INSTANCE_PROFILE);
+                }
+            }
+        }
+        if (obj_info.has_cred_provider_type()) {
+            new_vault.mutable_obj_info()->set_cred_provider_type(obj_info.cred_provider_type());
+        }
+    }
+
+    // external_id is an independent ALTER field. It may be changed without
+    // requiring FE to resend role_arn and cred_provider_type.
+    if (obj_info.has_external_id()) {
+        if (obj_info.external_id().empty()) {
+            new_vault.mutable_obj_info()->clear_external_id();
+        } else {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
+        }
+    }
+
+    if (has_obj_credential(obj_info)) {
+        if (auto error = apply_obj_credential(obj_info, new_vault.mutable_obj_info());
+            error.has_value()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = *error;
+            return -1;
         }
     }
 
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
+
+    if (auto error = validate_obj_authentication(new_vault.obj_info()); error.has_value()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = *error;
+        return -1;
     }
 
     auto now_time = std::chrono::system_clock::now();
@@ -1198,6 +1287,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
     }
 
     txn->put(vault_key, val);
+    instance.Swap(&candidate_instance);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << encryt_sk(hide_ak(origin_vault_info))
               << ", new vault=" << encryt_sk(hide_ak(new_vault_info));
@@ -1258,9 +1348,20 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
 
-    bool use_credential_provider_for_add_vault =
-            request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT && obj.has_cred_provider_type();
-    if (!obj.has_role_arn() && !use_credential_provider_for_add_vault) {
+    bool native_obj_add =
+            request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO && has_obj_credential(obj);
+    if (native_obj_add) {
+        if (auto error = validate_obj_credential(obj); error.has_value()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = *error;
+            return -1;
+        }
+    }
+    bool use_credential_provider_for_add =
+            (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT &&
+             use_credential_provider(obj)) ||
+            native_obj_add;
+    if (!obj.has_role_arn() && !use_credential_provider_for_add) {
         if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
@@ -1325,7 +1426,10 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
             last_item.set_role_arn(role_arn);
             last_item.set_external_id(external_id);
         }
-        last_item.set_cred_provider_type(get_cred_provider_type(obj));
+        if (obj.has_cred_provider_type() || has_non_empty_role_arn(obj)) {
+            last_item.set_cred_provider_type(get_cred_provider_type(obj));
+        }
+        copy_obj_credential(obj, &last_item);
     }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
@@ -1496,7 +1600,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (use_credential_provider(obj)) {
-            if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            bool valid_aws = (obj.has_cred_provider_type() || has_non_empty_role_arn(obj)) &&
+                             !has_obj_credential(obj) && obj.has_provider() &&
+                             obj.provider() == ObjectStoreInfoPB::S3;
+            bool valid_credential =
+                    has_obj_credential(obj) && !validate_obj_credential(obj).has_value();
+            if (!valid_aws && !valid_credential) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with credentials_provider_type, please check it";
                 return;
@@ -1507,7 +1616,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                obj.provider() == it.provider() && external_endpoint == it.external_endpoint() &&
+                obj.has_credential() == it.has_credential() &&
+                google::protobuf::util::MessageDifferencer::Equivalent(obj.credential(),
+                                                                       it.credential())) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "original obj infos has a same conf, please check it";
@@ -1620,7 +1732,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response);
+        if (alter_s3_storage_vault(instance, txn, request->vault(), code, msg, response) != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
@@ -1897,8 +2011,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
-            endpoint.empty() || region.empty() || prefix.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty() && !has_obj_credential(obj)) ||
+            bucket.empty() || endpoint.empty() || region.empty() || prefix.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
@@ -1908,7 +2022,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                obj.provider() == it.provider() && external_endpoint == it.external_endpoint() &&
+                obj.has_credential() == it.has_credential() &&
+                google::protobuf::util::MessageDifferencer::Equivalent(obj.credential(),
+                                                                       it.credential())) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "original obj infos has a same conf, please check it";
@@ -2562,6 +2679,11 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
 
     instance->set_status(InstanceInfoPB::DELETED);
     instance->set_mtime(duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    if (!instance->has_recycle_state()) {
+        instance->set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        instance->set_recycle_state_update_time_ms(
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    }
 
     std::string serialized = instance->SerializeAsString();
     if (serialized.empty()) {
@@ -2634,6 +2756,11 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     for (auto& instance : predecessors) {
         instance.set_status(InstanceInfoPB::DELETED);
         instance.set_mtime(now);
+        if (!instance.has_recycle_state()) {
+            instance.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+            instance.set_recycle_state_update_time_ms(
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+        }
         std::string serialized;
         if (!instance.SerializeToString(&serialized)) {
             std::string msg =
@@ -2647,6 +2774,11 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
 
     tail_instance->set_status(InstanceInfoPB::DELETED);
     tail_instance->set_mtime(now);
+    if (!tail_instance->has_recycle_state()) {
+        tail_instance->set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        tail_instance->set_recycle_state_update_time_ms(
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    }
     std::string serialized = tail_instance->SerializeAsString();
     if (serialized.empty()) {
         std::string msg = "failed to serialize";
@@ -2656,6 +2788,55 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     LOG(INFO) << "drop instance_id=" << tail_instance_id << " and " << predecessors.size()
               << " predecessor instances, json=" << proto_to_json(*tail_instance);
     return {MetaServiceCode::OK, std::move(serialized)};
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::check_instance_recycle_completed(
+        const std::string& instance_id, bool& finished, std::string& reason) {
+    reason.clear();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // The recycler only removes keys after cleanup is complete, so do not treat this as an
+        // incomplete or unknown state.
+        finished = true;
+        reason = fmt::format(
+                "instance recycling is considered completed because the instance key does not "
+                "exist, instance_id={}",
+                instance_id);
+        return {MetaServiceCode::OK, "OK"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+
+    finished = instance.recycle_state() ==
+               InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+    if (!finished) {
+        reason = fmt::format(
+                "instance has not completed recycling, instance_id={}, recycle_state={}",
+                instance_id, InstanceRecycleState_Name(instance.recycle_state()));
+        return {MetaServiceCode::OK, "OK"};
+    }
+    return {MetaServiceCode::OK, "OK"};
 }
 
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
@@ -2686,6 +2867,12 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
         ret = alter_instance(request, [&instance_id](Transaction* txn, InstanceInfoPB* instance) {
+            if (instance->status() == InstanceInfoPB::DELETED) {
+                std::string msg = "instance has already been recycled";
+                LOG(WARNING) << msg << " instance_id=" << instance_id;
+                return std::make_pair(MetaServiceCode::OK, instance->SerializeAsString());
+            }
+
             // check instance doesn't have any cluster.
             if (instance->clusters_size() != 0) {
                 std::string msg = "failed to drop instance, instance has clusters";
@@ -3484,13 +3671,30 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     if (!cloud_unique_id.empty() && instance_id.empty()) {
         auto [is_degraded_format, id] =
                 ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
-        if (config::enable_check_instance_id && is_degraded_format &&
-            !resource_mgr_->is_instance_id_registered(id)) {
-            msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
-                  cloud_unique_id;
-            LOG(WARNING) << msg;
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            return;
+        if (config::enable_check_instance_id && is_degraded_format) {
+            InstanceInfoPB instance;
+            auto [code1, get_msg] = resource_mgr_->get_instance(nullptr, id, &instance);
+            { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code1); }
+            if (code1 == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                msg = "use degrade cloud_unique_id, but instance_id is not registered, "
+                      "cloud_unique_id=" +
+                      cloud_unique_id;
+                LOG(WARNING) << msg;
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                return;
+            }
+            if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
+                msg = "instance status has been set delete, plz check it, recycle_state=" +
+                      InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
+                                "cloud_unique_id="
+                             << cloud_unique_id << " code=" << code1 << " info=" << get_msg
+                             << " status=" << instance.status() << " recycle_state="
+                             << InstanceRecycleState_Name(instance.recycle_state());
+                LOG(WARNING) << msg;
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                return;
+            }
         }
         instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (instance_id.empty()) {

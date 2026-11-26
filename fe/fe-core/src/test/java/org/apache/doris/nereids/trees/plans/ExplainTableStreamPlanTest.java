@@ -18,59 +18,77 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * UTs for table stream query plan, including
@@ -85,7 +103,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");
@@ -101,8 +119,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
                 + "\"enable_unique_key_merge_on_write\"=\"true\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
-                + "\"binlog.need_historical_value\"=\"true\")";
+                + "\"changelog.enable\"=\"true\","
+                // Offset/plan tests below deliberately use historical timestamps.
+                + "\"changelog.ttl_seconds\"=\"9223372036854775807\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
@@ -123,6 +143,21 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         createTable(createIncrementalStream);
         bumpPartitionsAndReplicas(baseTable, 2002L);
 
+        // A stream with a partition that has no consumption baseline: p2 is still empty when the stream is
+        // created, so it is recorded with the sentinel offset, and only gets data afterwards. p1 has data
+        // before and after, so it has a real offset and data after it.
+        createTable("create table test_stream.tbl_stream_unconsumed (k1 int, k2 int not null) unique key(k1)\n"
+                + "partition by range(k1) (partition p1 values less than (\"100\"),"
+                + " partition p2 values less than (\"200\"))\n"
+                + "distributed by hash(k1) buckets 1 properties(\"replication_num\"=\"1\","
+                + "\"enable_unique_key_merge_on_write\"=\"true\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"9223372036854775807\",\"changelog.need_historical_value\"=\"true\")");
+        OlapTable unconsumedBaseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_unconsumed");
+        bumpPartitionAndReplicas(unconsumedBaseTable.getPartition("p1"), 1001L);
+        createTable("create stream if not exists test_stream.s_unconsumed on table test_stream.tbl_stream_unconsumed"
+                + " properties('show_initial_rows' = 'false')");
+        bumpPartitionsAndReplicas(unconsumedBaseTable, 2002L);
+
         String createDuplicateBaseTable = "create table test_stream.tbl_dup_stream_base (\n"
                 + "  k1 int,\n"
                 + "  k2 int not null\n"
@@ -130,8 +165,12 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\")";
+                + "\"changelog.enable\"=\"true\")";
         createTable(createDuplicateBaseTable);
+        createTable("create table test_stream.tbl_dup_stream_ttl (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"10\")");
         OlapTable duplicateBaseTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
         bumpPartitionsAndReplicas(duplicateBaseTable, 1001L);
         String createDuplicateInitialStream =
@@ -143,22 +182,39 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 "create stream if not exists test_stream.s_dup on table test_stream.tbl_dup_stream_base\n"
                         + "properties('show_initial_rows' = 'false')";
         createTable(createDuplicateStream);
+
+        // A stream on a duplicate-key table with a TTL, and data after its offset. bumpPartitionsAndReplicas
+        // stamps a wall-clock millisecond as the partition TSO, far below a TSO composed from the current time,
+        // so under such a reference the offset is expired.
+        createTable("create table test_stream.tbl_dup_stream_ttl_offset (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"10\")");
+        OlapTable duplicateTtlTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_ttl_offset");
+        bumpPartitionsAndReplicas(duplicateTtlTable, 1001L);
+        createTable("create stream if not exists test_stream.s_dup_ttl"
+                + " on table test_stream.tbl_dup_stream_ttl_offset properties('show_initial_rows' = 'false')");
+        bumpPartitionsAndReplicas(duplicateTtlTable, 2002L);
     }
 
     private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
         for (Partition partition : table.getPartitions()) {
-            // Use the same timestamp value as both visibleVersionTime and tso to simulate a
-            // transactional commit advancing partition.tso (the dedicated commit-tso field).
-            // Without populating tso explicitly, non-transactional setters leave it as -1
-            // which would make the stream consider the partition fully consumed.
-            long ts = System.currentTimeMillis();
-            partition.setVisibleVersionAndTime(newVersion, ts, ts);
-            partition.setNextVersion(newVersion + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersion(newVersion);
-                    }
+            bumpPartitionAndReplicas(partition, newVersion);
+        }
+    }
+
+    private static void bumpPartitionAndReplicas(Partition partition, long newVersion) {
+        // Use the same timestamp value as both visibleVersionTime and tso to simulate a
+        // transactional commit advancing partition.tso (the dedicated commit-tso field).
+        // Without populating tso explicitly, non-transactional setters leave it as -1
+        // which would make the stream consider the partition fully consumed.
+        long ts = System.currentTimeMillis();
+        partition.setVisibleVersionAndTime(newVersion, ts, ts);
+        partition.setNextVersion(newVersion + 1);
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    replica.updateVersion(newVersion);
                 }
             }
         }
@@ -281,13 +337,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         // The history-partition scan now reads the base table directly; scan range version
         // is the partition visible version (the legacy stream-tso override was removed).
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
-        }
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
         Assertions.assertFalse(locations.isEmpty());
@@ -298,6 +348,59 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             String version = loc.getScanRange().getPaloScanRange().getVersion();
             Assertions.assertEquals(expectedVersion, version);
         }
+    }
+
+    @Test
+    public void testUserStreamReadsPartitionWithoutBaselineFromChangelog() throws Exception {
+        // A user stream reads every partition with data after its offset from the changelog, the one without a
+        // consumption baseline included: from the first retained TSO, which is what the stream retains.
+        OlapTable baseTable = (OlapTable) ((Database) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("test_stream")).getTableOrMetaException("tbl_stream_unconsumed");
+        Plan plan = normalizeStreamRead("select * from test_stream.s_unconsumed",
+                TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()), Optional.empty());
+
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p1").getId(),
+                baseTable.getPartition("p2").getId()), scannedPartitionIds(plan, true));
+        Assertions.assertEquals(ImmutableSet.of(), scannedPartitionIds(plan, false));
+    }
+
+    @Test
+    public void testIvmReadsPartitionWithoutBaselineFromBaseTable() throws Exception {
+        // The same read inside an IVM refresh takes the partition without a consumption baseline from the base
+        // table: none of its rows are in the MV yet, and its changelog may no longer reach back to its first row.
+        // The partition with an offset is still read from the changelog.
+        OlapTable baseTable = (OlapTable) ((Database) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("test_stream")).getTableOrMetaException("tbl_stream_unconsumed");
+        Plan plan = normalizeStreamRead("select * from test_stream.s_unconsumed",
+                TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()),
+                Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class))));
+
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p1").getId()),
+                scannedPartitionIds(plan, true));
+        Assertions.assertEquals(ImmutableSet.of(baseTable.getPartition("p2").getId()),
+                scannedPartitionIds(plan, false));
+    }
+
+    // The partitions the plan reads from the changelog, or from the base table itself.
+    private static Set<Long> scannedPartitionIds(Plan plan, boolean changelog) {
+        Set<LogicalOlapScan> scans = plan.collect(node -> node instanceof LogicalOlapScan
+                && (changelog ? ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper
+                        : !(((LogicalOlapScan) node).getTable() instanceof OlapTableWrapper)));
+        ImmutableSet.Builder<Long> partitionIds = ImmutableSet.builder();
+        scans.forEach(scan -> partitionIds.addAll(scan.getSelectedPartitionIds()));
+        return partitionIds.build();
+    }
+
+    private Plan normalizeStreamRead(String sql, long referenceTso, Optional<IvmRewriteContext> ivmRewriteContext) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        StatementContext statementContext = checker.getCascadesContext().getStatementContext();
+        // Direct rewrite tests bypass the planner's statement reference initialization.
+        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
+        checker.analyze();
+        // Installed after the analysis, whose IVM rules would rewrite the query as an MV's: only how the stream
+        // read treats its offset inside an IVM statement is under test.
+        statementContext.setIvmRewriteContext(ivmRewriteContext);
+        return checker.applyTopDown(new NormalizeOlapTableStreamScan()).getCascadesContext().getRewritePlan();
     }
 
     @Test
@@ -351,18 +454,12 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
         Assertions.assertFalse(scanNodes.isEmpty());
 
-        TBinlogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
-        }
+        TChangelogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
@@ -371,16 +468,17 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long tabletId = range.getTabletId();
                 long pid = tabletIdToPartitionId.get(tabletId);
-                long expectedStart = stream.getStreamUpdate(pid).first;
-                Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
-                        "binlog scan type should match stream consume type");
+                // BE reads [startTso, endTso), so the recorded offset is shifted to its next TSO.
+                long expectedStart = TSOTimestamp.nextTso(stream.getStreamUpdate(pid).first);
+                Assertions.assertEquals(expectedScanType, range.getChangelogScanType(),
+                        "changelog scan type should match stream consume type");
                 Assertions.assertEquals(expectedStart, range.getStartTso(),
-                        "startTSO should equal stream partitionOffset (last committed binlog TSO)");
+                        "startTSO should equal stream partitionOffset (last committed changelog TSO) + 1");
                 assertedAtLeastOne = true;
             }
         }
         Assertions.assertTrue(assertedAtLeastOne,
-                "expected at least one incremental scan range to assert binlog TSO bounds against");
+                "expected at least one incremental scan range to assert changelog TSO bounds against");
     }
 
     @Test
@@ -402,17 +500,20 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         collectOlapScanNodes(fragment1.getPlanRoot(), scanNodes1);
         OlapScanNode incrementalScan1 = null;
         for (OlapScanNode scanNode : scanNodes1) {
-            if (scanNode.getOlapTable() instanceof RowBinlogTableWrapper) {
+            if (scanNode.getOlapTable() instanceof OlapChangelogTableWrapper) {
                 incrementalScan1 = scanNode;
                 break;
             }
         }
         Assertions.assertNotNull(incrementalScan1);
-        OlapTableWrapper wrapper = (OlapTableWrapper) incrementalScan1.getOlapTable();
         Map<Long, Long> prevOffsets = new java.util.HashMap<>();
         Map<Long, Long> nextOffsets = new java.util.HashMap<>();
         for (Long pid : incrementalScan1.getSelectedPartitionIds()) {
-            Pair<Long, Long> off = wrapper.getPartitionOffset(pid);
+            // Use the raw (un-shifted) stream offsets, mirroring what the production
+            // StreamConsumptionInfoExtractor commits. Reading them back from the scan node's
+            // OlapChangelogTableWrapper would return the already +1-shifted scan-range bounds and
+            // introduce a spurious double shift into this closed-loop check.
+            Pair<Long, Long> off = stream.getStreamUpdate(pid);
             if (off.first != null) {
                 prevOffsets.put(pid, off.first);
             }
@@ -442,28 +543,49 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         List<OlapScanNode> scanNodes2 = new ArrayList<>();
         collectOlapScanNodes(fragment2.getPlanRoot(), scanNodes2);
 
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
-        }
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes2) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
             for (TScanRangeLocations loc : locations) {
                 TPaloScanRange range = loc.getScanRange().getPaloScanRange();
                 long pid = tabletIdToPartitionId.get(range.getTabletId());
-                Assertions.assertEquals(nextOffsets.get(pid), range.getStartTso(),
-                        "after offset commit, new startTSO must equal the previously committed next TSO");
+                // BE reads [startTso, endTso), so the stream wrapper shifts the recorded offset by +1.
+                Assertions.assertEquals(TSOTimestamp.nextTso(nextOffsets.get(pid)), range.getStartTso(),
+                        "after offset commit, new startTSO must equal the previously committed next TSO + 1");
                 assertedAtLeastOne = true;
             }
         }
         Assertions.assertTrue(assertedAtLeastOne);
+    }
+
+    @Test
+    public void testStreamReadModesRejectArgumentsWithoutChangingOffsets() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        for (String streamName : new String[] {"s2", "s_dup"}) {
+            OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName);
+            OlapTable baseTable = stream.getBaseTableNullable();
+            Map<Long, Pair<Long, Long>> offsets = new java.util.HashMap<>();
+            for (Partition partition : baseTable.getPartitions()) {
+                offsets.put(partition.getId(), stream.getStreamUpdate(partition.getId()));
+            }
+            for (String mode : new String[] {"snapshot", "reset"}) {
+                for (String arguments : new String[] {"'unknown'='x'", "x", "`x`", "x,y"}) {
+                    String sql = "select * from test_stream." + streamName + "@" + mode + "(" + arguments + ")";
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> PlanChecker.from(connectContext).analyze(sql));
+                    Assertions.assertTrue(error.getMessage().contains(mode + " does not accept parameters"),
+                            sql + ": " + error.getMessage());
+                    for (Partition partition : baseTable.getPartitions()) {
+                        Assertions.assertEquals(offsets.get(partition.getId()),
+                                stream.getStreamUpdate(partition.getId()));
+                    }
+                }
+            }
+        }
     }
 
     @Test
@@ -524,7 +646,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testIncrementalStreamScanForcesValueColumnsNullable() throws Exception {
         // s2 is an incremental (INCREMENTAL read mode) stream over a unique-key table
         // (k1 key, k2 value). computeOutput must force non-key value columns to nullable so the
-        // scan output stays consistent with the row-binlog after/before value columns, while key
+        // scan output stays consistent with the changelog after/before value columns, while key
         // columns keep their original nullability (forceNullable is skipped for keys).
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable base = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
@@ -599,13 +721,14 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testIncrTimestampRangePropagatesToScanRangeTso() throws Exception {
         // An @incr('startTimestamp'=..., 'endTimestamp'=...) query on the MOW base table goes
         // through makeUniformedTimestampRangeMap in BindRelation, which seeds a per-partition
-        // (start, end) offset on the RowBinlogTableWrapper. OlapScanNode.getScanRangeLocations then
+        // (start, end) offset on the OlapChangelogTableWrapper. OlapScanNode.getScanRangeLocations then
         // stamps those offsets onto every scan range as startTso/endTso. Verify the whole chain by
         // asserting every incremental scan range carries the composed start/end TSO for its partition.
         String startTs = "2026-05-25 20:51:28";
         String endTs = "2026-05-25 21:51:28";
-        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
-        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
+        // @incr is left-closed right-open [start, end): BE uses GE/LT on the composed bounds directly.
+        long expectedStartTso = TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
 
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
@@ -621,7 +744,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
@@ -637,6 +760,95 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(assertedAtLeastOne,
                 "expected at least one incremental scan range to assert TSO bounds against");
+    }
+
+    @Test
+    public void testChangelogTtlCutoffPropagatesToScanRanges() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl"
+                + "@incr('incrementType' = 'DETAIL')";
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis() + 60_000);
+        long expectedStartTso = TSOTimestamp.nextTso(TSOTimestamp.calculateCutoff(referenceTso, 10));
+
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+        PhysicalPlan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
+        PlanFragment fragment = new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext()))
+                .translatePlan(plan);
+
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
+        List<TPaloScanRange> ranges = scanNodes.stream()
+                .filter(scan -> scan.getOlapTable() instanceof OlapChangelogTableWrapper)
+                .flatMap(scan -> scan.getScanRangeLocations(Long.MAX_VALUE).stream())
+                .map(location -> location.getScanRange().getPaloScanRange())
+                .collect(java.util.stream.Collectors.toList());
+        Assertions.assertFalse(ranges.isEmpty());
+        ranges.forEach(range -> Assertions.assertEquals(expectedStartTso, range.getStartTso()));
+    }
+
+    @Test
+    public void testChangelogTtlRejectsExpiredMinDeltaOffset() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl@incr("
+                + "'startTimestamp' = '1971-01-01 00:00:00', 'incrementType' = 'MIN_DELTA')";
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterChangelogReferenceTso(
+                () -> TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+
+        org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> planner.planWithLock(logicalPlan, PhysicalProperties.ANY));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
+    }
+
+    @Test
+    public void testChangelogTtlClipsExpiredAppendOnlyStreamOffset() {
+        // A user stream on a duplicate-key table is read APPEND_ONLY: its expired offset is clipped to the first
+        // retained TSO, and the read goes on from there.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis());
+        long firstRetainedTso = TSOTimestamp.nextTso(TSOTimestamp.calculateCutoff(referenceTso, 10));
+        Plan plan = normalizeStreamRead("select * from test_stream.s_dup_ttl", referenceTso, Optional.empty());
+
+        Set<LogicalOlapScan> changelogScans = plan.collect(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper);
+        Assertions.assertEquals(1, changelogScans.size());
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) changelogScans.iterator().next().getTable();
+        Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
+        for (Long partitionId : wrapper.getPartitionIds()) {
+            Assertions.assertEquals(firstRetainedTso, wrapper.getPartitionOffset(partitionId).first);
+        }
+    }
+
+    @Test
+    public void testChangelogTtlRejectsExpiredAppendOnlyStreamOffsetForIvm() {
+        // The same read inside an IVM refresh is rejected: clipped, it would leave out the rows written between
+        // the offset and the cutoff while the refresh succeeds.
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis());
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> normalizeStreamRead("select * from test_stream.s_dup_ttl", referenceTso,
+                        Optional.of(IvmRewriteContext.incremental(Mockito.mock(MTMV.class)))));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testChangelogTtlDisablesQueryCache() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        PlanFragment fragment = getFragment(ctx, "explain select count(*) "
+                + "from test_stream.tbl_dup_stream_ttl@incr('incrementType' = 'DETAIL')");
+
+        Assertions.assertTrue(new QueryCacheNormalizer(fragment, new DescriptorTable())
+                .normalize(ctx).isEmpty());
     }
 
     @Test
@@ -671,19 +883,92 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testDupTimeTravelIncludesExactTimestamp() {
+        assertTimeTravelBoundary("tbl_dup_stream_base", "time as of '0'", 1L, false);
+        String timestamp = TimeUtils.longToTimeString(1700000000000L);
+        // (1700000000000 ms, logical 0) is inclusive; logical 1 is the exclusive upper bound.
+        assertTimeTravelBoundary("tbl_dup_stream_base", "time as of '" + timestamp + "'",
+                445644800000000001L, false);
+    }
+
+    @Test
+    public void testMowTimeTravelIncludesExactTimestamp() {
+        assertTimeTravelBoundary("tbl_stream_base", "time as of '0'", 1L, true);
+        String timestamp = TimeUtils.longToTimeString(1700000000000L);
+        assertTimeTravelBoundary("tbl_stream_base", "time as of '" + timestamp + "'",
+                445644800000000001L, true);
+    }
+
+    private void assertTimeTravelBoundary(String table, String snapshot, long exclusiveBound, boolean mow) {
+        Plan plan = analyzeTimeTravel("select * from test_stream." + table + " for " + snapshot)
+                .getCascadesContext().getRewritePlan();
+        Set<LogicalFilter<?>> filters = plan.collect(node -> node instanceof LogicalFilter);
+        List<Expression> commitPredicates = new ArrayList<>();
+        for (LogicalFilter<?> filter : filters) {
+            for (Expression conjunct : filter.getConjuncts()) {
+                if (conjunct instanceof LessThan && conjunct.child(0) instanceof SlotReference
+                        && ((SlotReference) conjunct.child(0)).getName().equals(Column.COMMIT_TSO_COL)) {
+                    commitPredicates.add(conjunct);
+                }
+            }
+        }
+        Assertions.assertEquals(1, commitPredicates.size());
+        Assertions.assertEquals(new BigIntLiteral(exclusiveBound), commitPredicates.get(0).child(1));
+
+        Set<LogicalOlapScan> changelogScans = plan.collect(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper);
+        Assertions.assertEquals(mow ? 1 : 0, changelogScans.size());
+        for (LogicalOlapScan scan : changelogScans) {
+            OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scan.getTable();
+            Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
+            for (Long partitionId : wrapper.getPartitionIds()) {
+                Assertions.assertEquals(Pair.of(exclusiveBound, null), wrapper.getPartitionOffset(partitionId));
+            }
+        }
+    }
+
+    @Test
+    public void testMowTimeTravelBranchProjectionPreservesQualifier() {
+        Plan plan = analyzeTimeTravel("select * from test_stream.tbl_stream_base for version as of 1001")
+                .getCascadesContext().getRewritePlan();
+        Set<LogicalUnion> unions = plan.collect(node -> node instanceof LogicalUnion);
+        Assertions.assertEquals(1, unions.size());
+
+        List<String> expectedQualifier = java.util.Arrays.asList(
+                "internal", "test_stream", "tbl_stream_base");
+        LogicalUnion union = unions.iterator().next();
+        Assertions.assertEquals(2, union.children().size());
+        for (Plan branch : union.children()) {
+            Assertions.assertInstanceOf(LogicalProject.class, branch);
+            LogicalProject<?> projection = (LogicalProject<?>) branch;
+            Assertions.assertFalse(projection.getProjects().isEmpty());
+            for (NamedExpression output : projection.getProjects()) {
+                Assertions.assertEquals(expectedQualifier, output.getQualifier(),
+                        "MOW time-travel branch aliases must keep the scan qualifier");
+            }
+        }
+    }
+
+    @Test
     public void testMowTimeTravelQualifiedColumnCanBind() {
         // MOW time-travel goes through a union whose outputs are rebuilt with empty qualifiers.
         // The union must be wrapped in a subquery alias so qualified columns still bind.
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.k1, tbl_stream_base.k2 "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.k1, tbl_stream_base.k2 "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
     }
 
     @Test
     public void testMowTimeTravelQualifiedStarCanBind() {
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.* "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.* "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
+    }
+
+    private PlanChecker analyzeTimeTravel(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        // Direct analyzer tests bypass the planner's statement reference initialization.
+        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(
+                () -> TSOTimestamp.composePhysicalTimestamp(1700000000001L));
+        return checker.analyze();
     }
 
     @Test
@@ -692,6 +977,18 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
                 .analyze("select tbl_dup_stream_base.k1, tbl_dup_stream_base.* "
                         + "from test_stream.tbl_dup_stream_base for version as of 1001"));
+    }
+
+    private Map<Long, Long> buildTabletIdToPartitionId(OlapTable baseTable) {
+        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
+        for (Partition partition : baseTable.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tabletIdToPartitionId.put(tablet.getId(), partition.getId());
+                }
+            }
+        }
+        return tabletIdToPartitionId;
     }
 
     private void collectOlapScanNodes(PlanNode node, List<OlapScanNode> result) {

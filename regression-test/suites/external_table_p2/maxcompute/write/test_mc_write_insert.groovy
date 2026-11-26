@@ -47,7 +47,7 @@ suite("test_mc_write_insert", "p2,external") {
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Test 1: Basic INSERT INTO with VALUES
@@ -94,6 +94,24 @@ suite("test_mc_write_insert", "p2,external") {
         """
         sql """INSERT INTO ${tb3} (id, name) VALUES (1, 'test1'), (2, 'test2')"""
         order_qt_partial_insert """ SELECT * FROM ${tb3} """
+
+        // Test 3b: INSERT with a REORDERED explicit column list. MaxCompute's writer maps data
+        // positionally against the full table schema, so the bind layer must project the reordered
+        // user columns back to full-schema order (FIX-BIND-STATIC-PARTITION / P0-3). A cols-order
+        // projection would land values in the wrong columns (e.g. 'name' value into id). Both the
+        // VALUES and SELECT forms are exercised.
+        String tb3b = "reordered_insert_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb3b}"""
+        sql """
+        CREATE TABLE ${tb3b} (
+            id INT,
+            name STRING,
+            score INT
+        )
+        """
+        sql """INSERT INTO ${tb3b} (name, score, id) VALUES ('alice', 35, 7), ('bob', 15, 9)"""
+        sql """INSERT INTO ${tb3b} (score, id, name) SELECT 25, 11, 'carol'"""
+        qt_reordered_insert """ SELECT id, name, score FROM ${tb3b} ORDER BY id """
 
         // Test 4: INSERT multiple batches and verify accumulation
         String tb4 = "multi_batch_${uuid}"

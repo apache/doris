@@ -123,6 +123,10 @@ public class BeLoadRebalancer extends Rebalancer {
                 .collect(Collectors.toList());
 
         boolean hasCandidateTablet = false;
+        // Only for logging. This counts scanned tablets, not balance attempts, so it is summarized
+        // once per round here instead of going into TabletSchedulerStat: when every replica size is
+        // still unreported, every tablet of every high load backend hits it on every round.
+        int zeroSizeTabletNum = 0;
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
@@ -225,6 +229,18 @@ public class BeLoadRebalancer extends Rebalancer {
                         continue;
                     }
 
+                    // A tablet with no data relocates nothing, so moving it can not improve the disk usage
+                    // difference that triggered this balance. It only shifts the replica count term of the
+                    // load score, which destroys the round-robin distribution a newly created table got
+                    // from createTablets(). Zero also means the size has not been reported yet: replica
+                    // data size is not persisted in the image (see LocalTablet), so it remains zero after
+                    // an FE restart until the next tablet stat update, and balancing on an unknown size is
+                    // guesswork. This is the same rule as DiskRebalancer.completeSchedCtx().
+                    if (replicaDataSize <= 0) {
+                        zeroSizeTabletNum++;
+                        continue;
+                    }
+
                     hasCandidateTablet = true;
 
                     // for urgent disk, pick tablets order by size,
@@ -273,11 +289,16 @@ public class BeLoadRebalancer extends Rebalancer {
         } // end for high backends
 
         if (!alternativeTablets.isEmpty()) {
-            LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {}, detail: {}",
-                    medium, isUrgent, alternativeTablets.size(), alternativeTabletInfos);
+            LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {},"
+                            + " skip {} tablets whose size is zero, detail: {}",
+                    medium, isUrgent, alternativeTablets.size(), zeroSizeTabletNum, alternativeTabletInfos);
         } else if (isUrgent && !hasCandidateTablet) {
-            LOG.info("urgent balance cann't found candidate tablets. medium: {}, tag: {}",
-                    medium, clusterStat.getTag());
+            LOG.info("urgent balance cann't found candidate tablets. medium: {}, tag: {},"
+                            + " skip {} tablets whose size is zero",
+                    medium, clusterStat.getTag(), zeroSizeTabletNum);
+        } else if (zeroSizeTabletNum > 0) {
+            LOG.info("no alternative tablet, {} tablets are skipped because their size is zero."
+                            + " medium: {}, tag: {}", zeroSizeTabletNum, medium, clusterStat.getTag());
         }
         return alternativeTablets;
     }
@@ -332,6 +353,16 @@ public class BeLoadRebalancer extends Rebalancer {
         if (replicaHighBEs.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                     "no replica on high load backend" + isUrgentInfo);
+        }
+
+        // Recheck because selection and scheduling can be far apart. Zero also means the size has not been
+        // reported yet: replica data size is not persisted in the image (see LocalTablet), so it remains zero
+        // after an FE restart until the next tablet stat update. Balancing on an unknown size is guesswork.
+        // This is the same rule as DiskRebalancer.completeSchedCtx().
+        if (tabletCtx.getTabletSize() <= 0) {
+            schedulerStat.counterBalanceRejectByZeroDataSize.incrementAndGet();
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "size of src replica is zero");
         }
 
         // select a replica as source

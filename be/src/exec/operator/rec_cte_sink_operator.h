@@ -97,4 +97,7 @@ private:
     VExprContextSPtrs _child_expr;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXSinkLocalState<RecCTESharedState>;
+
 } // namespace doris

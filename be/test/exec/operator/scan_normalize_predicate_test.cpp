@@ -19,10 +19,12 @@
 #include <limits>
 #include <memory>
 
+#include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -30,6 +32,7 @@
 #include "exec/operator/mock_scan_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exprs/function/in.h"
+#include "storage/olap_scan_common.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_fn_call.h"
@@ -43,7 +46,32 @@ struct ScanNormalizePredicate : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
         op = std::make_shared<MockScanOperatorX>();
+        // Predicate column ids are ordinals in the operator's pre-projection descriptor, which is
+        // what the scanner reads (ScanOperatorX::operator_row_desc_before_projection).
+        op->_row_descriptor = MockRowDescriptor {
+                std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>()}, &pool};
+        op->_output_tuple_desc = op->_row_descriptor.tuple_descriptors()[0];
     }
+    void check_nullable_constant_conjunct(bool wrap_const, uint8_t is_null, bool value) {
+        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        local_state->_scan_dependency = Dependency::create_shared(0, 0, "DEPENDENCY");
+        ColumnPtr column = ColumnHelper::create_nullable_column<DataTypeBool>({value}, {is_null});
+        if (wrap_const) {
+            column = ColumnConst::create(column, 1);
+        }
+        auto fn = MockFnCall::create("eq");
+        fn->_mock_is_constant = true;
+        fn->set_const_expr_col(std::move(column));
+        auto ctx = VExprContext::create_shared(fn);
+        auto pdt = PushDownType::UNACCEPTABLE;
+        auto st = local_state->_eval_const_conjuncts(ctx.get(), &pdt);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        const bool rejects_rows = is_null || !value;
+        EXPECT_EQ(local_state->_eos, rejects_rows);
+        EXPECT_EQ(local_state->_scan_dependency->ready(), rejects_rows);
+        EXPECT_EQ(pdt == PushDownType::ACCEPTABLE, rejects_rows);
+    }
+    ObjectPool pool;
     std::shared_ptr<MockRuntimeState> state;
     std::shared_ptr<MockScanOperatorX> op;
 };
@@ -119,51 +147,14 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
     EXPECT_TRUE(local_state->_eos);
 }
 
-TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
-    // case
-    // Predicate false and xxx and xxx ....
-    // The returned column is not a constant column, but the size is not equal to 1
-    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
-
-    auto fn_eq = MockFnCall::create("eq");
-    fn_eq->_mock_is_constant = true;
-    fn_eq->set_const_expr_col(ColumnHelper::create_column<DataTypeBool>({false, false}));
-    EXPECT_TRUE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    VExprSPtr new_root;
-    auto conjunct_expr_root = ctx;
-    // There is a DCHECK in the code to ensure size must be equal to 1, wait for this part of the code to be removed later
-    // auto st = local_state->_normalize_predicate(
-    //                                             conjunct_expr_root.get(), new_root);
-    // EXPECT_FALSE(st.ok());
-    // std::cout << st.msg() << std::endl;
-}
-
-TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
-    // case
-    // Predicate false and xxx and xxx ....
-    // The returned column is neither a constant column nor a boolean column
-    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
-
-    auto fn_eq = MockFnCall::create("eq");
-    fn_eq->_mock_is_constant = true;
-    fn_eq->set_const_expr_col(ColumnHelper::create_column<DataTypeInt32>({false, false}));
-    EXPECT_TRUE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-
-    VExprSPtr new_root;
-    auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
-                                                conjunct_expr_root->root(), new_root);
-    EXPECT_TRUE(st.ok());
-    std::cout << st.msg() << std::endl;
+TEST_F(ScanNormalizePredicate, NullableConstantConjuncts) {
+    for (bool wrap_const : {false, true}) {
+        for (uint8_t is_null : {0, 1}) {
+            for (bool value : {false, true}) {
+                check_nullable_constant_conjunct(wrap_const, is_null, value);
+            }
+        }
+    }
 }
 
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
@@ -206,6 +197,10 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
                                                     conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
+
+        const auto& predicates = local_state->_slot_id_to_predicates[SlotId];
+        ASSERT_EQ(predicates.size(), 1);
+        EXPECT_EQ(predicates.front()->column_id(), 0);
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -502,7 +497,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = false;
 
@@ -560,7 +555,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = true;
         state->hybrid_set->insert(nullptr, 0);
@@ -1240,8 +1235,9 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                             EXPECT_TRUE(arg.is_empty_value_range());
                         } else {
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::SQLFilterOp::FILTER_LESS);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1296,8 +1292,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1357,8 +1355,9 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(), doris::SQLFilterOp::FILTER_LARGER);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1413,8 +1412,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1726,8 +1727,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                             EXPECT_TRUE(arg.is_empty_value_range());
                         } else {
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::SQLFilterOp::FILTER_LESS);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1782,8 +1784,10 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1843,8 +1847,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(), doris::SQLFilterOp::FILTER_LARGER);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1899,8 +1904,10 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1910,5 +1917,92 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 },
                 output_range);
     }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
+TEST_F(ScanNormalizePredicate, TimestampNsInPredicateBuildsPointScanKeys) {
+    constexpr int kSlotId = 0;
+    const std::vector<TimeStampNsValue> values = {
+            TimeStampNsValue(std::numeric_limits<int64_t>::min()), TimeStampNsValue(-1),
+            TimeStampNsValue(0), TimeStampNsValue(1),
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())};
+
+    SlotDescriptor slot_desc;
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMP_NS, false);
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+    local_state->_slot_id_to_value_range[kSlotId] = ColumnValueRange<TYPE_TIMESTAMP_NS>(
+            "dt", false, 0, TimeStampNsValue::FRACTIONAL_DIGITS);
+    local_state->_slot_id_to_predicates[kSlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[kSlotId] = &slot_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(kSlotId, std::make_shared<DataTypeTimeStampNs>());
+    auto context =
+            MockInExpr::create_with_ctx(ColumnHelper::create_column<DataTypeTimeStampNs>(values));
+    auto in_predicate = context->root();
+    in_predicate->add_child(slot_ref);
+    in_predicate->_node_type = TExprNodeType::IN_PRED;
+    slot_ref->_slot_id = kSlotId;
+    context->_prepared = true;
+    context->_opened = true;
+
+    VExprSPtr new_root;
+    EXPECT_TRUE(local_state->_normalize_predicate(context.get(), context->root(), new_root));
+    EXPECT_EQ(new_root, nullptr);
+    ASSERT_EQ(local_state->_slot_id_to_predicates[kSlotId].size(), 1);
+
+    auto* normalized_range = std::get_if<ColumnValueRange<TYPE_TIMESTAMP_NS>>(
+            &local_state->_slot_id_to_value_range[kSlotId]);
+    ASSERT_NE(normalized_range, nullptr);
+    ASSERT_TRUE(normalized_range->is_fixed_value_range());
+    ASSERT_EQ(normalized_range->get_fixed_value_size(), values.size());
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(scan_keys.extend_scan_key<TYPE_TIMESTAMP_NS>(*normalized_range, 1024, &exact_value,
+                                                             &eos, &should_break));
+    EXPECT_TRUE(exact_value);
+    EXPECT_FALSE(eos);
+    EXPECT_FALSE(should_break);
+    EXPECT_FALSE(scan_keys.has_range_value());
+    ASSERT_EQ(scan_keys.size(), values.size());
+
+    std::vector<std::unique_ptr<OlapScanRange>> key_ranges;
+    EXPECT_TRUE(scan_keys.get_key_range(&key_ranges));
+    ASSERT_EQ(key_ranges.size(), values.size());
+    for (size_t row = 0; row < values.size(); ++row) {
+        const auto& key_range = *key_ranges[row];
+        EXPECT_TRUE(key_range.has_lower_bound);
+        EXPECT_TRUE(key_range.has_upper_bound);
+        EXPECT_TRUE(key_range.begin_include);
+        EXPECT_TRUE(key_range.end_include);
+        ASSERT_EQ(key_range.begin_scan_range.size(), 1);
+        ASSERT_EQ(key_range.end_scan_range.size(), 1);
+        EXPECT_EQ(key_range.begin_scan_range.get_field(0).get<TYPE_TIMESTAMP_NS>(), values[row]);
+        EXPECT_EQ(key_range.end_scan_range.get_field(0).get<TYPE_TIMESTAMP_NS>(), values[row]);
+    }
+}
+
+TEST_F(ScanNormalizePredicate, TimestampNsSlotInitializesValueRange) {
+    constexpr int kSlotId = 0;
+    SlotDescriptor slot_desc;
+    slot_desc._id = kSlotId;
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMP_NS, false);
+    slot_desc._col_name = "dt";
+
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+    local_state->_init_slot_value_range(local_state->_slot_id_to_value_range, &slot_desc,
+                                        slot_desc.type());
+
+    ASSERT_TRUE(local_state->_slot_id_to_value_range.contains(kSlotId));
+    auto* range = std::get_if<ColumnValueRange<TYPE_TIMESTAMP_NS>>(
+            &local_state->_slot_id_to_value_range[kSlotId]);
+    ASSERT_NE(range, nullptr);
+    EXPECT_EQ(range->column_name(), "dt");
+    EXPECT_TRUE(range->is_whole_value_range());
+    EXPECT_EQ(range->scale(), TimeStampNsValue::FRACTIONAL_DIGITS);
 }
 } // namespace doris

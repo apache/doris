@@ -408,6 +408,7 @@ public class TxnUtil {
                 commitTime,
                 finishTime
         );
+        transactionState.setCommitTSO(txnInfo.hasCommitTso() ? txnInfo.getCommitTso() : -1);
         if (LOG.isDebugEnabled()) {
             LOG.debug("transactionState={}", transactionState);
         }

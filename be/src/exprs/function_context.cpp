@@ -46,7 +46,7 @@ std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
 }
 
 void FunctionContext::set_constant_cols(
-        const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& constant_cols) {
+        const std::vector<std::shared_ptr<doris::ConstantExprResult>>& constant_cols) {
     _constant_cols = constant_cols;
 }
 
@@ -56,6 +56,7 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     new_context->_fragment_local_fn_state = _fragment_local_fn_state;
     new_context->_check_overflow_for_decimal = _check_overflow_for_decimal;
     new_context->_enable_strict_mode = _enable_strict_mode;
+    new_context->_is_auto_partition_boundary_context = _is_auto_partition_boundary_context;
     new_context->_string_as_jsonb_string = _string_as_jsonb_string;
     new_context->_jsonb_string_as_string = _jsonb_string_as_string;
     return new_context;
@@ -63,15 +64,15 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
 
 void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
     switch (scope) {
-    case THREAD_LOCAL:
+    case FunctionStateScope::THREAD_LOCAL:
         _thread_local_fn_state = std::move(ptr);
         break;
-    case FRAGMENT_LOCAL:
+    case FunctionStateScope::FRAGMENT_LOCAL:
         _fragment_local_fn_state = std::move(ptr);
         break;
     default:
         std::stringstream ss;
-        ss << "Unknown FunctionStateScope: " << scope;
+        ss << "Unknown FunctionStateScope: " << static_cast<int>(scope);
         set_error(ss.str().c_str());
     }
 }
@@ -118,7 +119,7 @@ bool FunctionContext::is_col_constant(int i) const {
     return _constant_cols[i] != nullptr;
 }
 
-doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+doris::ConstantExprResult* FunctionContext::get_constant_col(int i) const {
     if (i < 0 || i >= _constant_cols.size()) {
         return nullptr;
     }
@@ -135,9 +136,9 @@ const DataTypePtr FunctionContext::get_return_type() const {
 
 void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     switch (scope) {
-    case THREAD_LOCAL:
+    case FunctionStateScope::THREAD_LOCAL:
         return _thread_local_fn_state.get();
-    case FRAGMENT_LOCAL:
+    case FunctionStateScope::FRAGMENT_LOCAL:
         return _fragment_local_fn_state.get();
     default:
         // TODO: signal error somehow

@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -40,8 +42,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
           _limit(limit),
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
-          _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
+          _has_projection(_local_state->_parent->has_projection()),
           _has_prepared(false) {
+    if (_has_projection) {
+        _projection_output_row_descriptor.emplace(
+                _local_state->_parent->operator_row_desc_after_projection());
+    }
     _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
@@ -83,60 +89,89 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     return Status::OK();
 }
 
+// Keep the single-use padding loop inline with its projection and LIMIT accounting.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
-    auto& row_descriptor = _local_state->_parent->row_descriptor();
-    if (_output_row_descriptor) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-        const auto block_max_bytes = state->preferred_block_size_bytes();
-        while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
-               !*eos) {
-            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
-            if (*eos) {
-                // For the final block, merge any padding directly and return eos in this call.
-                // The merged tail can be larger than the target batch, but each source block is
-                // already bounded by the lower scanner.
-                RETURN_IF_ERROR(_merge_padding_block());
-                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-                break;
-            }
-            if (_origin_block.rows() >= min_batch_size) {
-                break;
-            }
-
-            if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
-                _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
-                RETURN_IF_ERROR(_merge_padding_block());
-                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-            } else {
-                if (_origin_block.rows() < _padding_block.rows()) {
-                    _padding_block.swap(_origin_block);
-                }
-                break;
-            }
-        }
-
-        if (_origin_block.empty() && !_padding_block.empty()) {
-            _padding_block.swap(_origin_block);
-        }
-        return _do_projections(&_origin_block, block);
-    } else {
-        return get_block(state, block, eos);
+    // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
+    // scheduled. Admission does not look at the LIMIT, so the scanner returns an empty block
+    // instead of reading on. It does not report EOS: the operator already holds enough rows and
+    // stops the scanners after cutting the LIMIT itself, and ScannerContext parks the scanner
+    // rather than resubmitting it while the outstanding work drains.
+    if (_shared_scan_limit_exhausted()) {
+        return Status::OK();
     }
+    const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
+    if (_has_projection) {
+        _origin_block.clear_column_data(row_descriptor.num_slots());
+        if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
+            DORIS_CHECK(_padding_block.empty())
+                    << "padding policy must remain stable for one scanner";
+            // Some physical columns carry file-local state that an upper projection must consume
+            // before the next split is read. Padding those blocks first would make correctness
+            // depend on whether two file tails happen to share one output batch.
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+        } else {
+            auto min_batch_size = std::max(state->batch_size() / 2, 1);
+            if (_shared_scan_limit) {
+                // Pending padding is not charged until it is returned. Bound this call's batch
+                // target by the shared remaining rows to avoid reading on just to fill a batch.
+                min_batch_size = cast_set<int>(std::clamp<int64_t>(
+                        _shared_scan_limit->load(std::memory_order_acquire), 0, min_batch_size));
+            }
+            const auto block_max_bytes = state->preferred_block_size_bytes();
+            // Stop reading as soon as peers exhaust the shared LIMIT; the rows already held are
+            // still returned below.
+            while (_padding_block.rows() < min_batch_size &&
+                   _padding_block.bytes() < block_max_bytes && !*eos &&
+                   !_shared_scan_limit_exhausted()) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (*eos) {
+                    // For the final block, merge any padding directly and return eos in this call.
+                    // The merged tail can be larger than the target batch, but each source block
+                    // is already bounded by the lower scanner.
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_slots());
+                    break;
+                }
+                if (_origin_block.rows() >= min_batch_size) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+
+            if (_origin_block.empty() && !_padding_block.empty()) {
+                _padding_block.swap(_origin_block);
+            }
+        }
+        RETURN_IF_ERROR(_do_projections(&_origin_block, block));
+    } else {
+        RETURN_IF_ERROR(get_block(state, block, eos));
+    }
+
+    // Only rows actually produced by this call consume the shared LIMIT. In particular, padding
+    // kept for a later call must not make the context finish before that call can return it.
+    // Exhausting the counter is not EOS either: the next call returns an empty block, and the
+    // scan operator stops this scanner once it has cut the LIMIT.
+    if (_shared_scan_limit != nullptr && block->rows() > 0) {
+        _shared_scan_limit->fetch_sub(cast_set<int64_t>(block->rows()), std::memory_order_acq_rel);
+    }
+    return Status::OK();
 }
 
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-
-    // Stop early if other scanners have already collected enough rows
-    // for the SQL LIMIT. Skipped when _shared_scan_limit is null (topn
-    // path or no LIMIT).
-    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
-        *eof = true;
-        return Status::OK();
-    }
 
     // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
@@ -144,8 +179,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                slot_desc->get_data_type_ptr(),
-                                                slot_desc->col_name()));
+                                                slot_desc->type(), slot_desc->col_name()));
         }
     }
 
@@ -171,13 +205,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
-            // Publish progress to the shared counter so peer scanners can
-            // observe it. The counter may go negative when several scanners
-            // subtract concurrently; that is harmless because the operator's
-            // reached_limit() makes the final cut.
-            if (_shared_scan_limit && block->rows() > 0) {
-                _shared_scan_limit->fetch_sub(block->rows(), std::memory_order_acq_rel);
-            }
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -190,7 +217,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
-    *eof = *eof || (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0);
 
     return Status::OK();
 }
@@ -205,46 +231,56 @@ Status Scanner::_filter_output_block(Block* block) {
 Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     SCOPED_RAW_TIMER(&_projection_timer);
+    DORIS_CHECK(_projection_output_row_descriptor.has_value());
 
     const size_t rows = origin_block->rows();
     if (rows == 0) {
         return Status::OK();
     }
-    Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
-    for (auto& projections : _intermediate_projections) {
-        result_column_ids.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+    {
+        Block input_block = *origin_block;
+
+        std::vector<int> result_column_ids;
+        for (auto& projections : _intermediate_projections) {
+            result_column_ids.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            }
+            input_block.shuffle_columns(result_column_ids);
         }
-        input_block.shuffle_columns(result_column_ids);
+
+        DCHECK_EQ(rows, input_block.rows());
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                output_block, _projection_output_row_descriptor->get());
+        auto& mutable_columns = scoped_mutable_block.mutable_columns();
+        DCHECK_EQ(mutable_columns.size(), _projections.size());
+        Columns shared_columns(mutable_columns.size());
+
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            ColumnPtr column_ptr;
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
+            if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
+            }
+            if (column_ptr->is_exclusive()) {
+                mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
+            } else {
+                shared_columns[i] = std::move(column_ptr);
+            }
+        }
+
+        scoped_mutable_block.restore();
+        for (int i = 0; i < shared_columns.size(); ++i) {
+            if (shared_columns[i]) {
+                output_block->replace_by_position(i, std::move(shared_columns[i]));
+            }
+        }
     }
 
-    DCHECK_EQ(rows, input_block.rows());
-    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-            output_block, *_output_row_descriptor);
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-
-    auto& mutable_columns = mutable_block.mutable_columns();
-
-    DCHECK_EQ(mutable_columns.size(), _projections.size());
-
-    for (int i = 0; i < mutable_columns.size(); ++i) {
-        ColumnPtr column_ptr;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
-        }
-        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
-    }
-
-    scoped_mutable_block.restore();
-
-    // origin columns was moved into output_block, so we need to set origin_block to empty columns
-    auto empty_columns = origin_block->clone_empty_columns();
-    origin_block->set_columns(std::move(empty_columns));
+    origin_block->clear_column_data(
+            _local_state->_parent->operator_row_desc_before_projection().num_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();

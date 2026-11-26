@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,6 +37,23 @@ class EsMajorVersionTest {
     void testParseVersion8() {
         EsMajorVersion v = EsMajorVersion.parse("8.0.0");
         Assertions.assertEquals(8, v.major);
+    }
+
+    @Test
+    void testParseVersion9() {
+        for (String version : new String[]{"9.0.0", "9.5.5"}) {
+            EsMajorVersion parsed = EsMajorVersion.parse(version);
+            Assertions.assertEquals(9, parsed.major);
+            Assertions.assertEquals(version, parsed.toString());
+            Assertions.assertTrue(parsed.after(EsMajorVersion.V_8_X));
+            Assertions.assertTrue(parsed.onOrAfter(EsMajorVersion.V_8_X));
+            Assertions.assertTrue(EsMajorVersion.V_8_X.before(parsed));
+            Assertions.assertTrue(EsMajorVersion.V_8_X.onOrBefore(parsed));
+            Assertions.assertFalse(parsed.before(EsMajorVersion.V_8_X));
+        }
+        Assertions.assertEquals(EsMajorVersion.parse("9.0.0"), EsMajorVersion.parse("9.5.5"));
+        Assertions.assertEquals(EsMajorVersion.parse("9.0.0").hashCode(),
+                EsMajorVersion.parse("9.5.5").hashCode());
     }
 
     @Test
@@ -61,7 +78,7 @@ class EsMajorVersionTest {
     @Test
     void testParseUnsupportedVersionThrows() {
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> EsMajorVersion.parse("9.0.0"));
+                () -> EsMajorVersion.parse("10.0.0"));
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> EsMajorVersion.parse("3.0.0"));
     }
@@ -123,7 +140,10 @@ class EsMajorVersionTest {
     }
 
     @Test
-    void testLatestIsV8() {
-        Assertions.assertEquals(EsMajorVersion.V_8_X, EsMajorVersion.LATEST);
+    void testLatestIsV9() {
+        Assertions.assertEquals(EsMajorVersion.parse("9.0.0"), EsMajorVersion.LATEST);
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> EsMajorVersion.parse("10.0.0"));
+        Assertions.assertTrue(failure.getMessage().contains("Highest supported version is [9.x]"));
     }
 }

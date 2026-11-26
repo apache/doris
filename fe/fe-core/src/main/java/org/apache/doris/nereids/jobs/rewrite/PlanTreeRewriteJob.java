@@ -23,7 +23,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
-import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
@@ -61,7 +60,6 @@ public abstract class PlanTreeRewriteJob extends Job {
                 }
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
-                    NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
                     String traceBefore = null;
                     if (showPlanProcess) {
                         traceBefore = getCurrentPlanTreeString(rewriteJobContext, null);

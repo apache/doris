@@ -18,8 +18,8 @@
 package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -34,35 +34,39 @@ public class ShowResultSetTest {
         rows.add(Lists.newArrayList("col1-0", "col2-0"));
         rows.add(Lists.newArrayList("123", "456"));
         ShowResultSet resultSet = new ShowResultSet(metaData, rows);
-        Assert.assertEquals(rows, resultSet.getResultRows());
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("col1-0", resultSet.getString(0));
-        Assert.assertEquals("col2-0", resultSet.getString(1));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals(123, resultSet.getInt(0));
-        Assert.assertEquals(456, resultSet.getLong(1));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertEquals(rows, resultSet.getResultRows());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("col1-0", resultSet.getString(0));
+        Assertions.assertEquals("col2-0", resultSet.getString(1));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals(123, resultSet.getInt(0));
+        Assertions.assertEquals(456, resultSet.getLong(1));
+        Assertions.assertFalse(resultSet.next());
     }
 
-    @Test(expected = IndexOutOfBoundsException.class)
+    @Test
     public void testOutOfBound() {
-        List<List<String>> rows = Lists.newArrayList();
+        Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+            List<List<String>> rows = Lists.newArrayList();
 
-        rows.add(Lists.newArrayList("col1-0", "col2-0"));
-        rows.add(Lists.newArrayList("123", "456"));
-        ShowResultSet resultSet = new ShowResultSet(metaData, rows);
-        resultSet.getString(0);
-        Assert.fail("No exception throws.");
+            rows.add(Lists.newArrayList("col1-0", "col2-0"));
+            rows.add(Lists.newArrayList("123", "456"));
+            ShowResultSet resultSet = new ShowResultSet(metaData, rows);
+            resultSet.getString(0);
+            Assertions.fail("No exception throws.");
+        });
     }
 
-    @Test(expected = NumberFormatException.class)
+    @Test
     public void testBadNumber() {
-        List<List<String>> rows = Lists.newArrayList();
+        Assertions.assertThrows(NumberFormatException.class, () -> {
+            List<List<String>> rows = Lists.newArrayList();
 
-        rows.add(Lists.newArrayList(" 123", "456"));
-        ShowResultSet resultSet = new ShowResultSet(metaData, rows);
-        resultSet.next();
-        resultSet.getInt(0);
-        Assert.fail("No exception throws.");
+            rows.add(Lists.newArrayList(" 123", "456"));
+            ShowResultSet resultSet = new ShowResultSet(metaData, rows);
+            resultSet.next();
+            resultSet.getInt(0);
+            Assertions.fail("No exception throws.");
+        });
     }
 }

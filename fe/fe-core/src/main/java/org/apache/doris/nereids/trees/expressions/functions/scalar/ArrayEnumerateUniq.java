@@ -65,12 +65,24 @@ public class ArrayEnumerateUniq extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+        boolean useSerializedKeys = getArguments().size() > 1;
         for (Expression arg : getArguments()) {
             DataType argType = arg.getDataType();
             if (argType.isArrayType()) {
                 DataType itemType = ((ArrayType) argType).getItemType();
                 if (itemType.isComplexType()) {
                     throw new AnalysisException("array_enumerate_uniq does not support types: " + toSql());
+                }
+                if (useSerializedKeys
+                        && !ArrayFunctionUtils.isSupportedByArraySerializedKeyFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
+                }
+                if (!useSerializedKeys
+                        && !ArrayFunctionUtils.isSupportedByArrayEqualityFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
                 }
             }
         }

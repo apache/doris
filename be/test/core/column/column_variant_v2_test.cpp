@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
@@ -51,18 +52,26 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/common/sip_hash.h"
+#include "exec/sort/hybrid_sorter.h"
+#include "exec/sort/sort_block.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/thread_context.h"
+#include "util/json/path_in_data.h"
 #include "util/jsonb_writer.h"
 #include "util/variant/variant_test_utils.h"
 
@@ -72,9 +81,7 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -92,6 +99,18 @@ std::string empty_metadata_bytes() {
             static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
     metadata.push_back(0);
     metadata.push_back(0);
+    return metadata;
+}
+
+std::string single_key_metadata_bytes(std::string_view key) {
+    EXPECT_LE(key.size(), std::numeric_limits<uint8_t>::max());
+    std::string metadata;
+    metadata.push_back(
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK));
+    metadata.push_back(1);
+    metadata.push_back(0);
+    metadata.push_back(static_cast<char>(key.size()));
+    metadata.append(key);
     return metadata;
 }
 
@@ -218,6 +237,157 @@ struct OwnedEncodedData {
     }
 };
 
+class MaterializableShreddedState final : public VariantShreddedState {
+public:
+    explicit MaterializableShreddedState(ColumnPtr materialized)
+            : _materialized(std::move(materialized)) {}
+
+    size_t size() const override { return _materialized->size(); }
+    size_t byte_size() const override { return _materialized->byte_size(); }
+    size_t allocated_bytes() const override { return _materialized->allocated_bytes(); }
+    void sanity_check() const override { _materialized->sanity_check(); }
+    void for_each_subcolumn(IColumn::ColumnCallback callback) const override {
+        callback(*_materialized);
+    }
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t result_size_hint) const override {
+        return std::make_shared<MaterializableShreddedState>(
+                _materialized->filter(filter, result_size_hint));
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
+        return std::make_shared<MaterializableShreddedState>(_materialized->cut(start, length));
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        MutableColumnPtr selected = _materialized->clone_empty();
+        selected->insert_indices_from(*_materialized, indices_begin, indices_end);
+        return std::make_shared<MaterializableShreddedState>(std::move(selected));
+    }
+    bool can_materialize() const override { return true; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        return assert_cast<const ColumnVariantV2&>(*_materialized);
+    }
+    const ColumnVariantV2& serialized_column() const override { return materialized_column(); }
+
+private:
+    ColumnPtr _materialized;
+};
+
+OwnedEncodedData late_invalid_encoded_rows() {
+    const VariantField first = encode_json("1");
+    const VariantField second = encode_json("2");
+    OwnedEncodedData invalid;
+    const uint32_t metadata_id = invalid.add_metadata(first.ref().metadata);
+    invalid.add_value(first.ref(), metadata_id);
+    invalid.add_value(second.ref(), metadata_id);
+    invalid.value_bytes.push_back('\0');
+    ++invalid.value_offsets.back();
+    return invalid;
+}
+
+class CountingShreddedState final : public VariantShreddedState {
+public:
+    CountingShreddedState(size_t rows, std::shared_ptr<size_t> size_calls)
+            : _rows(rows),
+              _size_calls(std::move(size_calls)),
+              _serialized(ColumnVariantV2::create()) {
+        _serialized->insert_many_defaults(rows);
+    }
+
+    size_t size() const override {
+        ++*_size_calls;
+        return _rows;
+    }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(IColumn::ColumnCallback) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t) const override {
+        return std::make_shared<CountingShreddedState>(
+                std::count(filter.begin(), filter.end(), UInt8 {1}), _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t length) const override {
+        return std::make_shared<CountingShreddedState>(length, _size_calls);
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        return std::make_shared<CountingShreddedState>(indices_end - indices_begin, _size_calls);
+    }
+    bool can_materialize() const override { return false; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "counting shredded state cannot materialize");
+    }
+    const ColumnVariantV2& serialized_column() const override { return *_serialized; }
+
+private:
+    size_t _rows;
+    std::shared_ptr<size_t> _size_calls;
+    ColumnVariantV2::MutablePtr _serialized;
+};
+
+// A complete shredded state over known rows that counts how often its canonical rows are asked for.
+class MaterializingShreddedState final : public VariantShreddedState {
+public:
+    MaterializingShreddedState(ColumnPtr rows, std::shared_ptr<size_t> materialized_calls)
+            : _rows(std::move(rows)), _materialized_calls(std::move(materialized_calls)) {}
+
+    size_t size() const override { return _rows->size(); }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(IColumn::ColumnCallback) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter&, ssize_t) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(const uint32_t*,
+                                                         const uint32_t*) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    bool can_materialize() const override { return true; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        ++*_materialized_calls;
+        return assert_cast<const ColumnVariantV2&>(*_rows);
+    }
+    const ColumnVariantV2& serialized_column() const override {
+        return assert_cast<const ColumnVariantV2&>(*_rows);
+    }
+
+private:
+    ColumnPtr _rows;
+    std::shared_ptr<size_t> _materialized_calls;
+};
+
 template <typename Function>
 void expect_not_implemented(Function&& function, std::string_view marker) {
     try {
@@ -319,10 +489,6 @@ uint32_t canonical_crc32c_hash(VariantRef value, uint32_t seed) {
     return sink.digest();
 }
 
-void replace_subcolumn(ColumnVariantV2& column, size_t target, ColumnPtr replacement) {
-    ColumnVariantV2::TestAccess::replace_encoded_subcolumn(column, target, std::move(replacement));
-}
-
 ColumnPtr nullable_int32(std::span<const int32_t> values, std::span<const uint8_t> null_map) {
     EXPECT_EQ(values.size(), null_map.size());
     auto nested = ColumnInt32::create();
@@ -402,10 +568,45 @@ void validate_encoded_column(const ColumnVariantV2& column) {
     }
 }
 
+// The encoded twin of a typed column. insert_range_from() into an empty column keeps the source's
+// typed state, so a test that wants the other representation has to encode explicitly; both
+// physical states are asserted so a variable name cannot stand in for coverage.
+ColumnVariantV2::MutablePtr encoded_copy_of(const ColumnVariantV2& typed) {
+    EXPECT_TRUE(typed.is_typed());
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_range_from(typed, 0, typed.size());
+    encoded->ensure_encoded();
+    EXPECT_FALSE(encoded->is_typed());
+    EXPECT_FALSE(encoded->is_shredded());
+    EXPECT_EQ(encoded->size(), typed.size());
+    return encoded;
+}
+
+void ensure_typed_fields_match_direct_encoding(ColumnVariantV2& column) {
+    ASSERT_TRUE(column.is_typed());
+    std::vector<Field> fields(column.size());
+    for (size_t row = 0; row < column.size(); ++row) {
+        column.get(row, fields[row]);
+        ASSERT_EQ(fields[row].get_type(), TYPE_VARIANT) << row;
+    }
+
+    column.ensure_encoded();
+    for (size_t row = 0; row < column.size(); ++row) {
+        const VariantField& field = fields[row].get<TYPE_VARIANT>();
+        const VariantMetadataRef metadata = field.metadata();
+        const StringRef value = field.value();
+        const VariantRef direct = column.get_value_ref(row);
+        EXPECT_EQ(std::string_view(metadata.data, metadata.size),
+                  std::string_view(direct.metadata.data, direct.metadata.size))
+                << row;
+        EXPECT_EQ(as_view(value), as_view(direct.value)) << row;
+    }
+}
+
 template <typename CheckValue>
 void expect_single_typed_encoding(ColumnPtr nullable, DataTypePtr type, CheckValue&& check_value) {
     auto column = ColumnVariantV2::create_typed(std::move(nullable), std::move(type));
-    column->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*column);
     EXPECT_FALSE(column->is_typed());
     ASSERT_EQ(column->size(), 1);
     EXPECT_EQ(metadata_count(*column), 1);
@@ -723,6 +924,42 @@ void expect_et_cross_check_distinct(std::string_view group, const ETCrossCheckRe
     EXPECT_NE(left_observation.arena_serialized, right_observation.arena_serialized);
 }
 
+template <typename CopyRows>
+void expect_copied_metadata_owned_by_destination(CopyRows&& copy_rows) {
+    const auto source_tracker = std::make_shared<MemTracker>("variant-v2-copy-source");
+    const auto destination_tracker = std::make_shared<MemTracker>("variant-v2-copy-destination");
+    ColumnVariantV2::MutablePtr source;
+    ColumnVariantV2::MutablePtr destination;
+
+    {
+        SCOPED_CONSUME_MEM_TRACKER(source_tracker);
+        source = ColumnVariantV2::create();
+        insert_encoded_field(*source, encode_json(R"({"alpha":1,"beta":"two"})"));
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GT(source_tracker->consumption(), 0);
+    }
+    {
+        SCOPED_CONSUME_MEM_TRACKER(destination_tracker);
+        destination = ColumnVariantV2::create();
+        copy_rows(*destination, *source);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GT(destination_tracker->consumption(), 0);
+        EXPECT_NE(subcolumn_address(*destination, 0), subcolumn_address(*source, 0));
+    }
+    {
+        SCOPED_CONSUME_MEM_TRACKER(source_tracker);
+        source.reset();
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    }
+    {
+        SCOPED_CONSUME_MEM_TRACKER(destination_tracker);
+        destination.reset();
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    }
+    EXPECT_EQ(source_tracker->consumption(), 0);
+    EXPECT_EQ(destination_tracker->consumption(), 0);
+}
+
 } // namespace
 
 TEST(ColumnVariantV2Test, EmptySkeleton) {
@@ -781,6 +1018,44 @@ TEST(ColumnVariantV2Test, EncodedScalarObjectAndArray) {
     column->sanity_check();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
+TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
+    const std::string raw = noncanonical_object_field_bytes();
+    const VariantField noncanonical = VariantField::from_bytes({raw.data(), raw.size()});
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, noncanonical);
+
+    Field encoded_field_value = (*encoded)[0];
+    ASSERT_EQ(encoded_field_value.get_type(), TYPE_VARIANT);
+    const VariantField& owned = encoded_field_value.get<TYPE_VARIANT>();
+    EXPECT_EQ(as_view(owned.bytes()), raw);
+
+    encoded->clear();
+    auto encoded_destination = ColumnVariantV2::create();
+    encoded_destination->insert(encoded_field_value);
+    ASSERT_EQ(encoded_destination->size(), 1);
+    const VariantField inserted = VariantField::from_ref(encoded_destination->get_value_ref(0));
+    EXPECT_EQ(as_view(inserted.bytes()), raw);
+
+    constexpr std::array<int32_t, 2> VALUES {7, 0};
+    constexpr std::array<uint8_t, 2> NULLS {0, 1};
+    auto typed = typed_int32(VALUES, NULLS);
+    auto typed_destination = ColumnVariantV2::create();
+    for (size_t row = 0; row < typed->size(); ++row) {
+        Field field;
+        typed->get(row, field);
+        typed_destination->insert(field);
+    }
+    expect_int32_rows(*typed_destination, VALUES, NULLS);
+
+    auto sql_null_destination = ColumnVariantV2::create();
+    sql_null_destination->insert(Field());
+    ASSERT_EQ(sql_null_destination->size(), 1);
+    EXPECT_TRUE(sql_null_destination->get_value_ref(0).is_null());
+
+    EXPECT_THROW(typed->get(typed->size(), encoded_field_value), Exception);
+}
+
 TEST(ColumnVariantV2Test, PreservesLegalNoncanonicalBytes) {
     const std::string raw = noncanonical_object_field_bytes();
     const VariantField noncanonical = VariantField::from_bytes({raw.data(), raw.size()});
@@ -829,6 +1104,222 @@ TEST(ColumnVariantV2Test, InsertRejectsMalformedMetadataAndTrailingValueBytes) {
     EXPECT_THROW(value_column->insert_encoded_rows(trailing_value.view()), Exception);
 }
 
+TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotChangeTypedState) {
+    constexpr std::array<int32_t, 1> TYPED_VALUES {7};
+    constexpr std::array<uint8_t, 1> TYPED_NULLS {0};
+    const OwnedEncodedData invalid = late_invalid_encoded_rows();
+    for (const bool omit_single_metadata_ids : {false, true}) {
+        SCOPED_TRACE(omit_single_metadata_ids ? "compact metadata" : "explicit metadata ids");
+        auto typed = typed_int32(TYPED_VALUES, TYPED_NULLS);
+        const IColumn* typed_storage = subcolumns(*typed).front().get();
+        EXPECT_THROW(typed->insert_encoded_rows(invalid.view(omit_single_metadata_ids)), Exception);
+        EXPECT_TRUE(typed->is_typed());
+        if (typed->is_typed()) {
+            EXPECT_EQ(subcolumns(*typed).front().get(), typed_storage);
+            expect_int32_rows(*typed, TYPED_VALUES, TYPED_NULLS);
+            typed->sanity_check();
+        }
+    }
+}
+
+TEST(ColumnVariantV2Test, InvalidEncodedRowsAppenderDoesNotChangeTypedState) {
+    constexpr std::array<int32_t, 1> TYPED_VALUES {7};
+    constexpr std::array<uint8_t, 1> TYPED_NULLS {0};
+    const VariantField first = encode_json("1");
+    const VariantField second = encode_json("2");
+    std::string invalid_value(second.ref().value.data, second.ref().value.size);
+    invalid_value.push_back('\0');
+    const std::array<VariantRef, 2> invalid_rows {
+            first.ref(), VariantRef {.metadata = second.ref().metadata,
+                                     .value = {invalid_value.data(), invalid_value.size()}}};
+
+    auto typed = typed_int32(TYPED_VALUES, TYPED_NULLS);
+    const IColumn* typed_storage = subcolumns(*typed).front().get();
+    auto appender = typed->create_encoded_rows_appender();
+    EXPECT_THROW(appender.append(invalid_rows), Exception);
+    ASSERT_TRUE(typed->is_typed());
+    EXPECT_EQ(subcolumns(*typed).front().get(), typed_storage);
+    expect_int32_rows(*typed, TYPED_VALUES, TYPED_NULLS);
+    typed->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderRejectsSameEncodedColumnBorrow) {
+    auto column = ColumnVariantV2::create();
+    insert_encoded_field(*column, encode_json(R"({"old":"value-that-must-remain-owned"})"));
+    const std::string expected = json_at(*column, 0);
+    const VariantRef borrowed = column->get_value_ref(0);
+    // Repeating the borrowed value makes the requested append exceed the existing value capacity,
+    // covering the reserve-induced invalidation that this API must reject before mutation.
+    const std::vector<VariantRef> borrowed_rows(4096, borrowed);
+
+    auto appender = column->create_encoded_rows_appender();
+    try {
+        appender.append(borrowed_rows);
+        FAIL() << "expected same-column encoded rows to be rejected";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(exception.message().find("must not alias"), std::string::npos)
+                << exception.message();
+    }
+
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(json_at(*column, 0), expected);
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderRejectsSameShreddedColumnBorrow) {
+    auto materialized = ColumnVariantV2::create();
+    insert_encoded_field(*materialized, encode_json(R"({"old":7})"));
+    auto column = ColumnVariantV2::create_shredded(
+            std::make_shared<MaterializableShreddedState>(std::move(materialized)));
+    const VariantRef borrowed = column->get_value_ref(0);
+
+    auto appender = column->create_encoded_rows_appender();
+    try {
+        appender.append(std::span<const VariantRef>(&borrowed, 1));
+        FAIL() << "expected same-column shredded rows to be rejected";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(exception.message().find("must not alias"), std::string::npos)
+                << exception.message();
+    }
+
+    EXPECT_TRUE(column->is_shredded());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(json_at(*column, 0), R"({"old":7})");
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderInternsHighCardinalityMetadataAcrossChunks) {
+    constexpr size_t ROWS = 4097;
+    std::vector<std::string> metadata_storage;
+    metadata_storage.reserve(ROWS);
+    for (size_t row = 0; row < ROWS; ++row) {
+        metadata_storage.push_back(single_key_metadata_bytes("unused-" + std::to_string(row)));
+    }
+    const std::string value = integer_value_bytes(7, 1);
+    std::vector<VariantRef> encoded_rows;
+    encoded_rows.reserve(ROWS);
+    for (const std::string& metadata : metadata_storage) {
+        encoded_rows.push_back({.metadata = {.data = metadata.data(), .size = metadata.size()},
+                                .value = {value.data(), value.size()}});
+    }
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    appender.append(std::span<const VariantRef>(encoded_rows.data(), 4096));
+    appender.append(std::span<const VariantRef>(encoded_rows.data() + 4096, 1));
+
+    ASSERT_EQ(column->size(), ROWS);
+    ASSERT_EQ(metadata_count(*column), ROWS);
+    // A hash collision may require a byte comparison, but lookups must not scan the growing
+    // destination dictionary as the old O(U^2) implementation did.
+    EXPECT_LT(appender.metadata_comparisons_for_test(), ROWS * 4);
+    for (const size_t row : {size_t {0}, size_t {4095}, size_t {4096}}) {
+        const VariantRef imported = column->get_value_ref(row);
+        EXPECT_EQ(as_view({imported.metadata.data, imported.metadata.size}), metadata_storage[row]);
+        EXPECT_EQ(imported.value, StringRef(value));
+        EXPECT_EQ(imported.get_int(), 7);
+    }
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, EncodedRowsAppenderReusesValidationScratchAcrossChunks) {
+    constexpr size_t FIELDS = 64;
+    constexpr size_t ROWS = 4096;
+    std::string json = R"({"nested":{"x":1,"y":[{"z":2}]})";
+    for (size_t field = 0; field < FIELDS; ++field) {
+        json += ",\"k" + std::to_string(field) + "\":" + std::to_string(field);
+    }
+    json.push_back('}');
+    const VariantField wide = encode_json(json);
+    const std::vector<VariantRef> rows(ROWS, wide.ref());
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), 0);
+    appender.append(rows);
+    const size_t capacity = appender.validation_scratch_capacity_for_test();
+    EXPECT_GE(capacity, FIELDS + 1);
+    appender.append(rows);
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), capacity);
+
+    ASSERT_EQ(column->size(), 2 * ROWS);
+    JsonWriter expected;
+    to_json(wide.ref(), expected);
+    EXPECT_EQ(json_at(*column, 0), expected.value);
+    EXPECT_EQ(json_at(*column, 2 * ROWS - 1), expected.value);
+    column->sanity_check();
+}
+
+TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotPartiallyAppendEncodedState) {
+    const OwnedEncodedData invalid = late_invalid_encoded_rows();
+    for (const bool omit_single_metadata_ids : {false, true}) {
+        SCOPED_TRACE(omit_single_metadata_ids ? "compact metadata" : "explicit metadata ids");
+        auto encoded = ColumnVariantV2::create();
+        insert_encoded_field(*encoded, encode_json(R"({"old":9})"));
+        const std::vector<ColumnPtr> old_subcolumns = subcolumns(*encoded);
+        const size_t old_size = encoded->size();
+        const size_t old_metadata_count = metadata_count(*encoded);
+        std::vector<size_t> old_subcolumn_sizes;
+        old_subcolumn_sizes.reserve(old_subcolumns.size());
+        for (const auto& subcolumn : old_subcolumns) {
+            old_subcolumn_sizes.push_back(subcolumn->size());
+        }
+        const std::string old_value = json_at(*encoded, 0);
+
+        EXPECT_THROW(encoded->insert_encoded_rows(invalid.view(omit_single_metadata_ids)),
+                     Exception);
+        const std::vector<ColumnPtr> new_subcolumns = subcolumns(*encoded);
+        EXPECT_EQ(encoded->size(), old_size);
+        EXPECT_EQ(metadata_count(*encoded), old_metadata_count);
+        ASSERT_EQ(new_subcolumns.size(), old_subcolumns.size());
+        for (size_t index = 0; index < old_subcolumns.size(); ++index) {
+            EXPECT_EQ(new_subcolumns[index]->size(), old_subcolumn_sizes[index]) << index;
+        }
+        EXPECT_EQ(json_at(*encoded, 0), old_value);
+        encoded->sanity_check();
+    }
+}
+
+TEST(ColumnVariantV2Test, EmptyEncodedAppendsPreserveTypedState) {
+    constexpr std::array<int32_t, 1> VALUES {7};
+    constexpr std::array<uint8_t, 1> NULLS {0};
+
+    auto rows_destination = typed_int32(VALUES, NULLS);
+    const IColumn* rows_storage = subcolumns(*rows_destination).front().get();
+    OwnedEncodedData empty;
+    empty.add_metadata(encode_json("1").ref().metadata);
+    rows_destination->insert_encoded_rows(empty.view(true));
+    ASSERT_TRUE(rows_destination->is_typed());
+    EXPECT_EQ(subcolumns(*rows_destination).front().get(), rows_storage);
+    expect_int32_rows(*rows_destination, VALUES, NULLS);
+
+    auto batch_destination = typed_int32(VALUES, NULLS);
+    const IColumn* batch_storage = subcolumns(*batch_destination).front().get();
+    JsonStringToVariantEncoder encoder;
+    VariantBatchBuilder empty_batch = encoder.finish_batch();
+    batch_destination->insert_encoded_batch(empty_batch);
+    ASSERT_TRUE(batch_destination->is_typed());
+    EXPECT_EQ(subcolumns(*batch_destination).front().get(), batch_storage);
+    expect_int32_rows(*batch_destination, VALUES, NULLS);
+
+    auto borrowed_destination = typed_int32(VALUES, NULLS);
+    const IColumn* borrowed_storage = subcolumns(*borrowed_destination).front().get();
+    auto borrowed_appender = borrowed_destination->create_encoded_rows_appender();
+    borrowed_appender.append(std::span<const VariantRef> {});
+    ASSERT_TRUE(borrowed_destination->is_typed());
+    EXPECT_EQ(subcolumns(*borrowed_destination).front().get(), borrowed_storage);
+    expect_int32_rows(*borrowed_destination, VALUES, NULLS);
+
+    auto size_calls = std::make_shared<size_t>(0);
+    auto shredded_destination = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+    auto shredded_appender = shredded_destination->create_encoded_rows_appender();
+    shredded_appender.append(std::span<const VariantRef> {});
+    EXPECT_TRUE(shredded_destination->is_shredded());
+}
+
 TEST(ColumnVariantV2Test, ReadViewBorrowsValidatedEncodedState) {
     auto column = ColumnVariantV2::create();
     insert_encoded_field(*column, encode_json(R"({"a":1})"));
@@ -854,7 +1345,7 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsValidatedEncodedState) {
     EXPECT_EQ(original_children, final_children);
 }
 
-TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
+TEST(ColumnVariantV2Test, CopyInterfacesKeepIndependentMetadataOwnership) {
     auto source = ColumnVariantV2::create();
     insert_encoded_field(*source, encode_json(R"({"a":1})"));
     insert_encoded_field(*source, encode_json(R"({"b":2})"));
@@ -862,7 +1353,7 @@ TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
 
     auto destination = ColumnVariantV2::create();
     destination->insert_range_from(*source, 0, source->size());
-    EXPECT_EQ(subcolumn_address(*destination, 0), subcolumn_address(*source, 0));
+    EXPECT_NE(subcolumn_address(*destination, 0), subcolumn_address(*source, 0));
     const size_t dictionaries = metadata_count(*destination);
 
     destination->insert_from(*source, 1);
@@ -913,6 +1404,21 @@ TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
     EXPECT_EQ(metadata_count(*destination), 0);
     EXPECT_EQ(source->size(), 3);
     EXPECT_EQ(metadata_count(*source), dictionaries);
+}
+
+TEST(ColumnVariantV2Test, RangeCopyBalancesIndependentMemTrackers) {
+    expect_copied_metadata_owned_by_destination(
+            [](ColumnVariantV2& destination, const ColumnVariantV2& source) {
+                destination.insert_range_from(source, 0, source.size());
+            });
+}
+
+TEST(ColumnVariantV2Test, IndexedCopyBalancesIndependentMemTrackers) {
+    expect_copied_metadata_owned_by_destination([](ColumnVariantV2& destination,
+                                                   const ColumnVariantV2& source) {
+        const std::array<uint32_t, 1> indices {0};
+        destination.insert_indices_from(source, indices.data(), indices.data() + indices.size());
+    });
 }
 
 TEST(ColumnVariantV2Test, RemapsDistinctAndDuplicateMetadataBlobs) {
@@ -973,9 +1479,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         encoder.add_json(StringRef("7", 1));
         VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
@@ -985,9 +1490,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         constexpr std::string_view FIRST = R"({"a":[1,{"b":true}]})";
         constexpr std::string_view SECOND = R"({"b":2,"a":[]})";
         encoder.add_json({FIRST.data(), FIRST.size()});
@@ -1140,6 +1644,17 @@ TEST(ColumnVariantV2Test, DefaultRowsUseCanonicalEmptyObjectAndReuseMetadata) {
     EXPECT_EQ(metadata_count(*column), 1);
 }
 
+TEST(ColumnVariantV2Test, ProjectedShreddedDefaultsUseSerializedProjection) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto column = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+
+    ASSERT_NO_THROW(column->insert_many_defaults(1));
+    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(json_at(*column, 0), "{}");
+    EXPECT_EQ(json_at(*column, 1), "{}");
+}
+
 TEST(ColumnVariantV2Test, ConstFiltersMatchColumnStringAndKeepMetadataReadOnly) {
     auto source = ColumnVariantV2::create();
     auto reference = ColumnString::create();
@@ -1246,6 +1761,64 @@ TEST(ColumnVariantV2Test, PermuteMatchesColumnStringAndRejectsInvalidInputs) {
     IColumn::Permutation out_of_range {0, 1, 2, 3, 5};
     EXPECT_THROW(source->permute(out_of_range, 0), Exception);
     expect_values_match(*source, *reference);
+}
+
+TEST(ColumnVariantV2Test, CompositeShreddedSizeDoesNotRecountSegments) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto first = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(2, size_calls));
+    auto second = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(3, size_calls));
+    auto composite = ColumnVariantV2::create();
+    composite->insert_range_from(*first, 0, first->size());
+    composite->insert_range_from(*second, 0, second->size());
+
+    *size_calls = 0;
+    for (size_t iteration = 0; iteration < 32; ++iteration) {
+        EXPECT_EQ(composite->size(), 5);
+    }
+    EXPECT_EQ(*size_calls, 0);
+}
+
+TEST(ColumnVariantV2Test, EraseRemovesRowsInEveryState) {
+    // Encoded rows with two metadata dictionaries: the ids of the remaining rows stay valid.
+    auto encoded = ColumnVariantV2::create();
+    for (const char* json : {R"({"a":1})", "2", R"({"b":3})", "4", R"("five")"}) {
+        insert_encoded_field(*encoded, encode_json(json));
+    }
+    encoded->erase(0, 2);
+    ASSERT_EQ(encoded->size(), 3);
+    EXPECT_EQ(json_at(*encoded, 0), R"({"b":3})");
+    EXPECT_EQ(json_at(*encoded, 2), R"("five")");
+    encoded->erase(1, 1);
+    ASSERT_EQ(encoded->size(), 2);
+    EXPECT_EQ(json_at(*encoded, 1), R"("five")");
+    encoded->erase(2, 0);
+    EXPECT_EQ(encoded->size(), 2);
+    validate_encoded_column(*encoded);
+
+    constexpr std::array<int32_t, 4> VALUES {7, 8, 9, 10};
+    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
+    auto typed = typed_int32(VALUES, NULLS);
+    typed->erase(0, 2);
+    EXPECT_TRUE(typed->is_typed());
+    constexpr std::array<int32_t, 2> REMAINING {9, 10};
+    constexpr std::array<uint8_t, 2> REMAINING_NULLS {0, 0};
+    expect_int32_rows(*typed, REMAINING, REMAINING_NULLS);
+
+    auto rows = ColumnVariantV2::create();
+    for (const char* json : {"1", "2", "3"}) {
+        insert_encoded_field(*rows, encode_json(json));
+    }
+    auto calls = std::make_shared<size_t>(0);
+    auto shredded = ColumnVariantV2::create_shredded(
+            std::make_shared<MaterializingShreddedState>(rows->get_ptr(), calls));
+    shredded->erase(0, 1);
+    EXPECT_FALSE(shredded->is_shredded());
+    ASSERT_EQ(shredded->size(), 2);
+    EXPECT_EQ(json_at(*shredded, 0), "2");
+    EXPECT_EQ(json_at(*shredded, 1), "3");
+    EXPECT_EQ(rows->size(), 3);
 }
 
 TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
@@ -1788,12 +2361,37 @@ TEST(ColumnVariantV2Test, CowDetachAndClear) {
     EXPECT_EQ(a.num_elements(), 2);
 }
 
+TEST(ColumnVariantV2Test, BlockClearDetachesSharedEncodedSubcolumns) {
+    for (bool clear_selected_only : {false, true}) {
+        SCOPED_TRACE(clear_selected_only);
+        auto column = ColumnVariantV2::create();
+        insert_encoded_field(*column, encode_json(R"({"a":[1,2]})"));
+        const std::vector<ColumnPtr> shared_subcolumns = subcolumns(*column);
+
+        Block block;
+        block.insert({std::move(column), std::make_shared<DataTypeVariantV2>(), "v"});
+        ASSERT_TRUE(block.get_by_position(0).column->is_exclusive());
+
+        if (clear_selected_only) {
+            block.clear_column_data(std::vector<uint32_t> {0});
+        } else {
+            block.clear_column_data();
+        }
+
+        EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+        ASSERT_EQ(shared_subcolumns.size(), 3);
+        EXPECT_EQ(shared_subcolumns[0]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[1]->size(), 1);
+        EXPECT_EQ(shared_subcolumns[2]->size(), 1);
+    }
+}
+
 TEST(ColumnVariantV2Test, EncodedRowCountInvariant) {
     EXPECT_DEATH(
             {
                 auto column = ColumnVariantV2::create();
                 insert_encoded_field(*column, encode_json("1"));
-                replace_subcolumn(*column, 2, ColumnString::create());
+                ColumnVariantV2::TestAccess::replace_values(*column, ColumnString::create());
                 column->sanity_check();
             },
             "encoded row counts differ");
@@ -1806,7 +2404,7 @@ TEST(ColumnVariantV2Test, MetadataIdInvariant) {
                 insert_encoded_field(*column, encode_json("1"));
                 auto invalid_ids = MetaIdsColumn::create();
                 invalid_ids->insert_value(9);
-                replace_subcolumn(*column, 1, invalid_ids->get_ptr());
+                ColumnVariantV2::TestAccess::replace_metadata_ids(*column, std::move(invalid_ids));
                 column->sanity_check();
             },
             "metadata id is out of range");
@@ -1933,7 +2531,7 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsTypedStateWithoutMaterializingIt) {
 TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     auto booleans = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnUInt8, UInt8>({0, 1}, {0, 0}), std::make_shared<DataTypeBool>());
-    booleans->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*booleans);
     EXPECT_EQ(booleans->get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
     EXPECT_EQ(booleans->get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
     validate_encoded_column(*booleans);
@@ -1971,7 +2569,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
             nullable_fixed<ColumnInt128, Int128>(
                     {decimal38_max, outside_decimal38, -outside_decimal38}, {0, 0, 0}),
             std::make_shared<DataTypeInt128>());
-    largeints->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*largeints);
     EXPECT_EQ(largeints->get_value_ref(0).primitive_id(), VariantPrimitiveId::DECIMAL16);
     EXPECT_EQ(largeints->get_value_ref(0).get_decimal(), (VariantDecimal {decimal38_max, 0, 16}));
     EXPECT_EQ(largeints->get_value_ref(1).get_string(),
@@ -2070,7 +2668,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
         auto strings =
                 ColumnVariantV2::create_typed(nullable_strings(STRINGS, STRING_NULLS),
                                               std::make_shared<DataTypeString>(64, primitive));
-        strings->ensure_encoded();
+        ensure_typed_fields_match_direct_encoding(*strings);
         EXPECT_EQ(strings->get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING);
         EXPECT_EQ(strings->get_value_ref(0).get_string(), StringRef(short_text));
         EXPECT_EQ(strings->get_value_ref(1).primitive_id(), VariantPrimitiveId::STRING);
@@ -2092,7 +2690,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     constexpr std::array<int32_t, 3> NULL_VALUES {1, 0, -2};
     constexpr std::array<uint8_t, 3> INNER_NULLS {0, 0, 1};
     auto nulls = typed_int32(NULL_VALUES, INNER_NULLS);
-    nulls->ensure_encoded();
+    ensure_typed_fields_match_direct_encoding(*nulls);
     EXPECT_EQ(nulls->get_value_ref(0).get_int(), 1);
     EXPECT_EQ(nulls->get_value_ref(1).get_int(), 0);
     EXPECT_TRUE(nulls->get_value_ref(2).is_null());
@@ -2130,6 +2728,30 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     ASSERT_EQ(zero_dates.size(), 2);
     EXPECT_EQ(zero_dates.get_data()[0], valid_date);
     EXPECT_EQ(zero_dates.get_data()[1], invalid_date);
+
+    // validate_typed_rows() is the check CAST runs on arbitrary scalars. It reads the rows the
+    // typed null map leaves visible and nothing else.
+    EXPECT_THROW(zero_date->validate_typed_rows(), Exception);
+    auto masked_nested = ColumnDateV2::create();
+    masked_nested->insert_value(valid_date);
+    masked_nested->insert_value(invalid_date);
+    auto masked_nulls = ColumnUInt8::create();
+    masked_nulls->insert_value(0);
+    masked_nulls->insert_value(1);
+    auto masked = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(masked_nested), std::move(masked_nulls)),
+            std::make_shared<DataTypeDateV2>());
+    EXPECT_NO_THROW(masked->validate_typed_rows());
+    masked->ensure_encoded();
+    validate_encoded_column(*masked);
+    EXPECT_TRUE(masked->get_value_ref(1).is_null());
+
+    constexpr std::array<std::string_view, 2> INVALID_UTF8_ROWS {"ok", "\xFF"};
+    constexpr std::array<uint8_t, 2> INVALID_UTF8_VISIBLE {0, 0};
+    constexpr std::array<uint8_t, 2> INVALID_UTF8_HIDDEN {0, 1};
+    EXPECT_THROW(typed_strings(INVALID_UTF8_ROWS, INVALID_UTF8_VISIBLE)->validate_typed_rows(),
+                 Exception);
+    EXPECT_NO_THROW(typed_strings(INVALID_UTF8_ROWS, INVALID_UTF8_HIDDEN)->validate_typed_rows());
 }
 
 TEST(ColumnVariantV2Test, TypedRowTransformsCloneAndCow) {
@@ -2267,6 +2889,8 @@ TEST(ColumnVariantV2Test, TypedMutatorsDetachSharedNestedColumn) {
     constexpr std::array<uint8_t, 2> FIRST_TWO_NULLS {};
     exercise([](ColumnVariantV2& column) { column.pop_back(1); }, FIRST_TWO, FIRST_TWO_NULLS);
     exercise([](ColumnVariantV2& column) { column.resize(2); }, FIRST_TWO, FIRST_TWO_NULLS);
+    constexpr std::array<int32_t, 2> LAST_TWO {2, 3};
+    exercise([](ColumnVariantV2& column) { column.erase(0, 1); }, LAST_TWO, FIRST_TWO_NULLS);
     constexpr std::array<int32_t, 2> FILTERED {1, 3};
     constexpr std::array<uint8_t, 2> FILTERED_NULLS {};
     exercise(
@@ -2414,6 +3038,53 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     expect_int32_rows(*source, SOURCE_VALUES, SOURCE_NULLS);
 }
 
+TEST(ColumnVariantV2Test, EmptyDestinationPreservesTypedBulkCopies) {
+    constexpr std::array<int32_t, 3> SOURCE_VALUES {1, 2, 3};
+    constexpr std::array<uint8_t, 3> SOURCE_NULLS {0, 1, 0};
+    auto source = typed_int32(SOURCE_VALUES, SOURCE_NULLS);
+
+    auto range = ColumnVariantV2::create();
+    range->insert_range_from(*source, 0, source->size());
+    EXPECT_TRUE(range->is_typed());
+    expect_int32_rows(*range, SOURCE_VALUES, SOURCE_NULLS);
+
+    auto repeated = ColumnVariantV2::create();
+    repeated->insert_many_from(*source, 2, 4);
+    EXPECT_TRUE(repeated->is_typed());
+    constexpr std::array<int32_t, 4> REPEATED_VALUES {3, 3, 3, 3};
+    constexpr std::array<uint8_t, 4> REPEATED_NULLS {0, 0, 0, 0};
+    expect_int32_rows(*repeated, REPEATED_VALUES, REPEATED_NULLS);
+
+    constexpr std::array<uint32_t, 4> SELECTED {2, 0, 1, 2};
+    auto gathered = ColumnVariantV2::create();
+    gathered->insert_indices_from(*source, SELECTED.data(), SELECTED.data() + SELECTED.size());
+    EXPECT_TRUE(gathered->is_typed());
+    constexpr std::array<int32_t, 4> GATHERED_VALUES {3, 1, 0, 3};
+    constexpr std::array<uint8_t, 4> GATHERED_NULLS {0, 0, 1, 0};
+    expect_int32_rows(*gathered, GATHERED_VALUES, GATHERED_NULLS);
+
+    auto nullable_source = ColumnNullable::create(std::move(source), ColumnUInt8::create(3, 0));
+    auto nullable_destination =
+            ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+    nullable_destination->insert_many_from(*nullable_source, 0, 4);
+    const auto& nullable_variant =
+            assert_cast<const ColumnVariantV2&>(nullable_destination->get_nested_column());
+    EXPECT_TRUE(nullable_variant.is_typed());
+    constexpr std::array<int32_t, 4> NULLABLE_VALUES {1, 1, 1, 1};
+    constexpr std::array<uint8_t, 4> NULLABLE_NULLS {0, 0, 0, 0};
+    expect_int32_rows(nullable_variant, NULLABLE_VALUES, NULLABLE_NULLS);
+
+    const std::array<std::string_view, 1> STRING_VALUE {"x"};
+    constexpr std::array<uint8_t, 1> STRING_NULL {0};
+    auto strings = typed_strings(STRING_VALUE, STRING_NULL);
+    range->insert_range_from(*strings, 0, 1);
+    EXPECT_FALSE(range->is_typed());
+    EXPECT_EQ(range->get_value_ref(0).get_int(), 1);
+    EXPECT_TRUE(range->get_value_ref(1).is_null());
+    EXPECT_EQ(range->get_value_ref(2).get_int(), 3);
+    EXPECT_EQ(range->get_value_ref(3).get_string(), StringRef("x"));
+}
+
 TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) {
     constexpr std::array<int32_t, 4> VALUES {1, 2, 3, 4};
     constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
@@ -2435,10 +3106,10 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) 
     EXPECT_EQ(encoded_inplace->filter(keep), 3);
     expect_canonical_rows_equal(*typed_inplace, *encoded_inplace);
 
-    auto encoded_range = ColumnVariantV2::create();
-    encoded_range->insert_range_from(*typed, 0, typed->size());
-    EXPECT_FALSE(encoded_range->is_typed());
-    expect_canonical_rows_equal(*encoded_range, *encoded);
+    auto selected_typed = ColumnVariantV2::create();
+    selected_typed->insert_range_from(*typed, 0, typed->size());
+    EXPECT_TRUE(selected_typed->is_typed());
+    expect_canonical_rows_equal(*selected_typed, *encoded);
 
     constexpr std::array<int32_t, 0> NO_VALUES {};
     constexpr std::array<uint8_t, 0> NO_NULLS {};
@@ -2489,7 +3160,79 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedInsertAndGatherPreserveCanonicalRows)
     expect_canonical_rows_equal(*typed, *encoded);
 }
 
+TEST(ColumnVariantV2Test, NullableBatchSerializationMatchesRowSerialization) {
+    constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
+    constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};
+    auto typed = typed_int32(VALUES, NULLS);
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, encoded_integer(42, 4));
+    insert_encoded_field(*encoded, encode_json("null"));
+    insert_encoded_field(*encoded, encoded_integer(-7, 4));
+    for (const auto* column : {typed.get(), encoded.get()}) {
+        for (const bool has_null : {false, true}) {
+            std::array<std::string, 3> buffers;
+            std::array<StringRef, 3> keys;
+            for (size_t row = 0; row < 3; ++row) {
+                buffers[row].assign(8 + column->get_max_row_byte_size(), '\0');
+                buffers[row][0] = 'x';
+                keys[row] = {buffers[row].data(), 1};
+            }
+            constexpr std::array<uint8_t, 3> NO_NULLS {0, 0, 0};
+            column->serialize_with_nullable(keys.data(), 3, has_null,
+                                            has_null ? NULLS.data() : NO_NULLS.data());
+            for (size_t row = 0; row < 3; ++row) {
+                std::string expected = "x";
+                const bool is_null = has_null && NULLS[row];
+                expected.push_back(is_null ? 1 : 0);
+                if (!is_null) {
+                    std::string cell(column->serialize_size_at(row), '\0');
+                    column->serialize_impl(cell.data(), row);
+                    expected += cell;
+                }
+                EXPECT_EQ(std::string(keys[row].data, keys[row].size), expected);
+            }
+        }
+    }
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive E/T adapter matrix.
+TEST(ColumnVariantV2Test, TypedUuidMatchesNativeEncodingAndNulls) {
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto values = ColumnUUID::create();
+    values->insert_value(UUIDValue::from_big_endian(bytes.data()));
+    values->insert_default();
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(nulls)),
+            std::make_shared<DataTypeUUID>());
+    VariantBatchBuilder builder;
+    auto uuid_row = builder.begin_row();
+    uuid_row.add_uuid(bytes);
+    uuid_row.finish();
+    auto null_row = builder.begin_row();
+    null_row.add_null();
+    null_row.finish();
+    auto native = builder.finish_batch();
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(0)));
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(1)));
+    for (size_t row = 0; row < 2; ++row) {
+        SipHash typed_hash;
+        SipHash encoded_hash;
+        typed->update_hash_with_value(row, typed_hash);
+        encoded->update_hash_with_value(row, encoded_hash);
+        EXPECT_EQ(typed_hash.get64(), encoded_hash.get64());
+        EXPECT_EQ(typed->serialize_size_at(row), encoded->serialize_size_at(row));
+    }
+    ensure_typed_fields_match_direct_encoding(*typed);
+    EXPECT_EQ(typed->get_value_ref(0).primitive_id(), VariantPrimitiveId::UUID);
+    EXPECT_EQ(typed->get_value_ref(0).get_uuid(), bytes);
+    EXPECT_EQ(typed->get_value_ref(1).primitive_id(), VariantPrimitiveId::NULL_VALUE);
+}
+
 TEST(ColumnVariantV2Test, TypedCanonicalHashCrcAndArenaMatchEncoded) {
     constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
     constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};
@@ -2847,23 +3590,307 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
                                    ntz_representations[2], 0);
 }
 
-TEST(ColumnVariantV2Test, TypedUnsupportedInterfacesStayUnsupported) {
-    constexpr std::array<int32_t, 1> VALUES {1};
-    constexpr std::array<uint8_t, 1> NULLS {0};
+TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializing) {
+    auto check = [](const ColumnVariantV2::MutablePtr& typed) {
+        ASSERT_TRUE(typed->is_typed());
+        const auto* original = &typed->typed_column();
+        auto encoded = encoded_copy_of(*typed);
+        ASSERT_FALSE(encoded->is_typed());
+        for (size_t right = 0; right < typed->size(); ++right) {
+            for (int hint : {-1, 1}) {
+                for (size_t left = 0; left < typed->size(); ++left) {
+                    const int expected = encoded->compare_at(left, right, *encoded, hint);
+                    EXPECT_EQ(typed->compare_at(left, right, *typed, hint), expected);
+                    EXPECT_EQ(typed->compare_at(left, right, *encoded, hint), expected);
+                    EXPECT_EQ(encoded->compare_at(left, right, *typed, hint), expected);
+                }
+                for (int direction : {-1, 1}) {
+                    std::vector<uint8_t> typed_cmp(typed->size(), 0);
+                    std::vector<uint8_t> encoded_cmp(typed->size(), 0);
+                    IColumn::Filter typed_filter(typed->size(), 0);
+                    IColumn::Filter encoded_filter(typed->size(), 0);
+                    typed->compare_internal(right, *typed, hint, direction, typed_cmp,
+                                            typed_filter.data());
+                    encoded->compare_internal(right, *encoded, hint, direction, encoded_cmp,
+                                              encoded_filter.data());
+                    EXPECT_EQ(typed_cmp, encoded_cmp);
+                    EXPECT_EQ(typed_filter, encoded_filter);
+                }
+            }
+        }
+        // Prove the tested input did not silently become encoded during comparison.
+        EXPECT_TRUE(typed->is_typed());
+        EXPECT_EQ(&typed->typed_column(), original);
+    };
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt64, Int64>({0, -1, 9007199254740993LL, 0}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeInt64>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>(
+                    {-std::numeric_limits<double>::infinity(), -0.0, 0.0, 1.5,
+                     std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN(),
+                     std::bit_cast<double>(uint64_t {0xfff8000000000001ULL}), 0.0},
+                    {0, 0, 0, 0, 0, 0, 0, 1}),
+            std::make_shared<DataTypeFloat64>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_decimal<ColumnDecimal64, Decimal64>(
+                    2, {Decimal64 {-150}, Decimal64 {0}, Decimal64 {150}, Decimal64 {0}},
+                    {0, 0, 0, 1}),
+            std::make_shared<DataTypeDecimal64>(18, 2)));
+    const auto date =
+            DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(2024, 2, 29));
+    const auto next =
+            DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(2024, 3, 1));
+    check(ColumnVariantV2::create_typed(nullable_fixed<ColumnDateV2, DateV2Value<DateV2ValueType>>(
+                                                {date, next, date}, {0, 0, 1}),
+                                        std::make_shared<DataTypeDateV2>()));
+    // Address order differs from textual Variant order for these values.
+    IPv4 ip4_a {}, ip4_b {};
+    ASSERT_TRUE(IPv4Value::from_string(ip4_a, "10.0.0.2"));
+    ASSERT_TRUE(IPv4Value::from_string(ip4_b, "10.0.0.10"));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnIPv4, IPv4>({ip4_a, ip4_b, ip4_a}, {0, 0, 1}),
+            std::make_shared<DataTypeIPv4>()));
+    IPv6 ip6_a {}, ip6_b {};
+    ASSERT_TRUE(IPv6Value::from_string(ip6_a, "2001:db8::2"));
+    ASSERT_TRUE(IPv6Value::from_string(ip6_b, "2001:db8::10"));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnIPv6, IPv6>({ip6_a, ip6_b, ip6_a}, {0, 0, 1}),
+            std::make_shared<DataTypeIPv6>()));
+    // LARGEINT magnitudes above 10^38 - 1 are represented as Variant strings.
+    const __int128 limit = power_of_ten_i128(38);
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt128, Int128>(
+                    {-limit, Int128 {0}, limit - 1, limit, -(limit - 1), Int128 {0}},
+                    {0, 0, 0, 0, 0, 1}),
+            std::make_shared<DataTypeInt128>()));
+    check(ColumnVariantV2::create_typed(nullable_fixed<ColumnUInt8, UInt8>({1, 0, 1}, {0, 0, 1}),
+                                        std::make_shared<DataTypeBool>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnInt8, Int8>({-1, 0, 127, 0}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeInt8>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat32, Float32>(
+                    {-1.25F, 0.5F, std::numeric_limits<float>::quiet_NaN(), 0.0F}, {0, 0, 0, 1}),
+            std::make_shared<DataTypeFloat32>()));
+    check(ColumnVariantV2::create_typed(
+            nullable_decimal<ColumnDecimal128V3, Decimal128V3>(
+                    4,
+                    {Decimal128V3 {Int128 {-15000}}, Decimal128V3 {Int128 {0}},
+                     Decimal128V3 {Int128 {15000}}, Decimal128V3 {Int128 {0}}},
+                    {0, 0, 0, 1}),
+            std::make_shared<DataTypeDecimal128>(38, 4)));
+    const auto datetime_a =
+            DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(19700101000001ULL);
+    const auto datetime_b =
+            DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(20240229123456ULL);
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>(
+                    {datetime_b, datetime_a, datetime_b}, {0, 0, 1}),
+            std::make_shared<DataTypeDateTimeV2>(6)));
+    // Bytes at or above 0x80 pin the unsigned string order.
+    constexpr std::array<std::string_view, 4> STRINGS {"a", "\xC3\xA9", "z", ""};
+    constexpr std::array<uint8_t, 4> STRING_NULLS {0, 0, 0, 1};
+    check(typed_strings(STRINGS, STRING_NULLS));
+}
+
+TEST(ColumnVariantV2Test, TypedComparisonAcrossTypeParametersMatchesEncoded) {
+    // DECIMAL(18,2) and DECIMAL(18,3) share a column type but not a scale.
+    auto left = ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                      2, {Decimal64 {150}, Decimal64 {-5}}, {0, 0}),
+                                              std::make_shared<DataTypeDecimal64>(18, 2));
+    auto right =
+            ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                  3, {Decimal64 {1400}, Decimal64 {-50}}, {0, 0}),
+                                          std::make_shared<DataTypeDecimal64>(18, 3));
+    auto left_encoded = encoded_copy_of(*left);
+    auto right_encoded = encoded_copy_of(*right);
+    for (size_t right_row = 0; right_row < right->size(); ++right_row) {
+        for (size_t left_row = 0; left_row < left->size(); ++left_row) {
+            EXPECT_EQ(left->compare_at(left_row, right_row, *right, 1),
+                      left_encoded->compare_at(left_row, right_row, *right_encoded, 1));
+        }
+        for (int direction : {-1, 1}) {
+            std::vector<uint8_t> typed_cmp(left->size(), 0);
+            std::vector<uint8_t> encoded_cmp(left->size(), 0);
+            IColumn::Filter typed_filter(left->size(), 0);
+            IColumn::Filter encoded_filter(left->size(), 0);
+            left->compare_internal(right_row, *right, 1, direction, typed_cmp, typed_filter.data());
+            left_encoded->compare_internal(right_row, *right_encoded, 1, direction, encoded_cmp,
+                                           encoded_filter.data());
+            EXPECT_EQ(typed_cmp, encoded_cmp);
+            EXPECT_EQ(typed_filter, encoded_filter);
+        }
+    }
+}
+
+TEST(ColumnVariantV2Test, TypedAgainstEncodedRootsMatchesEncoded) {
+    // The encoded side holds every kind of root a typed scalar can meet, including containers and
+    // canonical peers of the typed values (2 and 2.0, 1.5 as a decimal).
+    auto encoded_roots = ColumnVariantV2::create();
+    for (const char* json :
+         {"null", "true", "1", "2", "2.0", "1.5", R"("a")", R"("2")", "[2]", R"({"k":2})"}) {
+        insert_encoded_field(*encoded_roots, encode_json(json));
+    }
+    ASSERT_FALSE(encoded_roots->is_typed());
+
+    auto check = [&](const ColumnVariantV2::MutablePtr& typed) {
+        auto encoded = encoded_copy_of(*typed);
+        const auto* original = &typed->typed_column();
+        for (size_t row = 0; row < typed->size(); ++row) {
+            for (size_t root = 0; root < encoded_roots->size(); ++root) {
+                const int expected = encoded->compare_at(row, root, *encoded_roots, 1);
+                EXPECT_EQ(typed->compare_at(row, root, *encoded_roots, 1), expected)
+                        << "row=" << row << " root=" << root;
+                EXPECT_EQ(encoded_roots->compare_at(root, row, *typed, 1), -expected)
+                        << "row=" << row << " root=" << root;
+            }
+        }
+        for (size_t root = 0; root < encoded_roots->size(); ++root) {
+            for (int direction : {-1, 1}) {
+                std::vector<uint8_t> typed_cmp(typed->size(), 0);
+                std::vector<uint8_t> encoded_cmp(typed->size(), 0);
+                IColumn::Filter typed_filter(typed->size(), 0);
+                IColumn::Filter encoded_filter(typed->size(), 0);
+                typed->compare_internal(root, *encoded_roots, 1, direction, typed_cmp,
+                                        typed_filter.data());
+                encoded->compare_internal(root, *encoded_roots, 1, direction, encoded_cmp,
+                                          encoded_filter.data());
+                EXPECT_EQ(typed_cmp, encoded_cmp);
+                EXPECT_EQ(typed_filter, encoded_filter);
+            }
+        }
+        // Comparing must not change the state of the typed column.
+        EXPECT_TRUE(typed->is_typed());
+        EXPECT_EQ(&typed->typed_column(), original);
+    };
+    constexpr std::array<int32_t, 4> INTEGERS {1, 2, 3, 0};
+    constexpr std::array<uint8_t, 4> INTEGER_NULLS {0, 0, 0, 1};
+    check(typed_int32(INTEGERS, INTEGER_NULLS));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>({1.5, 2.0, std::numeric_limits<double>::quiet_NaN()},
+                                          {0, 0, 0}),
+            std::make_shared<DataTypeFloat64>()));
+    check(ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                1, {Decimal64 {15}, Decimal64 {20}}, {0, 0}),
+                                        std::make_shared<DataTypeDecimal64>(18, 1)));
+    constexpr std::array<std::string_view, 3> STRINGS {"a", "2", "b"};
+    constexpr std::array<uint8_t, 3> STRING_NULLS {0, 0, 0};
+    check(typed_strings(STRINGS, STRING_NULLS));
+}
+
+TEST(ColumnVariantV2Test, ShreddedComparisonMatchesEncodedAndStaysShredded) {
+    auto encoded = ColumnVariantV2::create();
+    for (const char* json : {"2", "1.5", R"("a")", R"({"k":1})", "null"}) {
+        insert_encoded_field(*encoded, encode_json(json));
+    }
+    auto materialized_calls = std::make_shared<size_t>(0);
+    auto shredded = ColumnVariantV2::create_shredded(
+            std::make_shared<MaterializingShreddedState>(encoded->get_ptr(), materialized_calls));
+    ASSERT_TRUE(shredded->is_shredded());
+    constexpr std::array<int32_t, 3> INTEGERS {1, 2, 3};
+    constexpr std::array<uint8_t, 3> NOT_NULL {0, 0, 0};
+    auto typed = typed_int32(INTEGERS, NOT_NULL);
+    auto typed_encoded = encoded_copy_of(*typed);
+
+    for (size_t left = 0; left < encoded->size(); ++left) {
+        for (size_t right = 0; right < encoded->size(); ++right) {
+            const int expected = encoded->compare_at(left, right, *encoded, 1);
+            EXPECT_EQ(shredded->compare_at(left, right, *shredded, 1), expected);
+            EXPECT_EQ(shredded->compare_at(left, right, *encoded, 1), expected);
+            EXPECT_EQ(encoded->compare_at(left, right, *shredded, 1), expected);
+        }
+        for (size_t right = 0; right < typed->size(); ++right) {
+            const int expected = encoded->compare_at(left, right, *typed_encoded, 1);
+            EXPECT_EQ(shredded->compare_at(left, right, *typed, 1), expected);
+            EXPECT_EQ(typed->compare_at(right, left, *shredded, 1), -expected);
+        }
+    }
+    // Comparison reads the rows the state materializes (a real state caches them); the column
+    // itself stays shredded, and the typed peer stays typed.
+    EXPECT_GT(*materialized_calls, 0);
+    EXPECT_TRUE(shredded->is_shredded());
+    EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(ColumnVariantV2Test, TypedNaNOrderingIgnoresNullDirectionHint) {
+    auto typed = ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>({1.0, std::numeric_limits<double>::quiet_NaN()}, {0, 0}),
+            std::make_shared<DataTypeFloat64>());
+    auto encoded = encoded_copy_of(*typed);
+    for (int hint : {-1, 1}) {
+        for (size_t left = 0; left < typed->size(); ++left) {
+            for (size_t right = 0; right < typed->size(); ++right) {
+                EXPECT_EQ(typed->compare_at(left, right, *typed, hint),
+                          encoded->compare_at(left, right, *encoded, hint));
+            }
+        }
+    }
+}
+
+TEST(ColumnVariantV2Test, TypedPhysicalInterfacesStayUnsupportedAndOrderingWorks) {
+    constexpr std::array<int32_t, 4> VALUES {2, 99, 1, 3};
+    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
     auto typed = typed_int32(VALUES, NULLS);
-    Field field;
-    expect_not_implemented([&] { static_cast<void>((*typed)[0]); }, "T1.7b");
-    expect_not_implemented([&] { typed->get(0, field); }, "T1.7b");
-    expect_not_implemented([&] { typed->insert(field); }, "T1.7b");
     expect_not_implemented([&] { static_cast<void>(typed->get_data_at(0)); },
                            "intentionally unsupported");
+    auto encoded = encoded_copy_of(*typed);
+    for (size_t left = 0; left < typed->size(); ++left) {
+        for (size_t right = 0; right < typed->size(); ++right) {
+            for (int nan_direction_hint : {-1, 1}) {
+                EXPECT_EQ(typed->compare_at(left, right, *typed, nan_direction_hint),
+                          encoded->compare_at(left, right, *encoded, nan_direction_hint));
+            }
+        }
+    }
+    for (size_t right = 0; right < typed->size(); ++right) {
+        for (int direction : {-1, 1}) {
+            std::vector<uint8_t> typed_cmp(typed->size(), 0);
+            std::vector<uint8_t> encoded_cmp(encoded->size(), 0);
+            IColumn::Filter typed_filter(typed->size(), 0);
+            IColumn::Filter encoded_filter(encoded->size(), 0);
+            typed->compare_internal(right, *typed, 1, direction, typed_cmp, typed_filter.data());
+            encoded->compare_internal(right, *encoded, 1, direction, encoded_cmp,
+                                      encoded_filter.data());
+            EXPECT_EQ(typed_cmp, encoded_cmp);
+            EXPECT_EQ(typed_filter, encoded_filter);
+        }
+    }
     HybridSorter sorter;
     IColumn::Permutation result;
-    expect_not_implemented([&] { typed->get_permutation(false, 0, 0, sorter, result); },
-                           "intentionally unsupported");
+    typed->get_permutation(false, 0, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {1, 2, 0, 3}));
+    typed->get_permutation(true, 2, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {3, 0}));
     expect_not_implemented([&] { typed->replace_column_data(*typed, 0); },
                            "intentionally unsupported");
     EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(ColumnVariantV2Test, PermutationLimitSwitchesBetweenPartialAndFullSort) {
+    // get_permutation only uses std::partial_sort while the limit stays small relative to the row
+    // count, the threshold ColumnVector applies as well; a larger limit falls back to the full
+    // sort. Both branches must order the leading rows the same way.
+    constexpr std::array<int32_t, 16> VALUES {9, 3, 14, 7, 1, 12, 5, 15, 2, 11, 6, 13, 4, 10, 8, 0};
+    constexpr std::array<uint8_t, 16> NULLS {};
+    auto typed = typed_int32(VALUES, NULLS);
+
+    HybridSorter sorter;
+    IColumn::Permutation result;
+    // limit 2 of 16 rows sits exactly on the threshold and still takes the partial_sort branch.
+    // Pin the whole prefix that branch must produce rather than only its first entry: the values 0
+    // and 1 live at rows 15 and 4. The two branches cannot be told apart through the public API, so
+    // this pins the contract both of them owe, not the branch itself.
+    typed->get_permutation(false, 2, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {15, 4}));
+
+    // limit 12 of 16 rows exceeds the threshold, so the whole permutation comes out ordered.
+    typed->get_permutation(false, 12, 0, sorter, result);
+    ASSERT_EQ(result.size(), VALUES.size());
+    for (size_t index = 1; index < result.size(); ++index) {
+        EXPECT_LT(typed->compare_at(result[index - 1], result[index], *typed, 1), 0);
+    }
 }
 
 TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
@@ -2888,25 +3915,90 @@ TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
     EXPECT_EQ(json_at(*typed, 2), "{}");
 }
 
-TEST(ColumnVariantV2Test, DeferredAndUnsupportedInterfaces) {
+TEST(ColumnVariantV2Test, EncodedPhysicalInterfacesStayUnsupportedAndOrderingWorks) {
     auto column = ColumnVariantV2::create();
-    auto source = ColumnVariantV2::create();
-    insert_encoded_field(*source, encode_json("1"));
-    Field field;
-
-    expect_not_implemented([&] { static_cast<void>((*column)[0]); }, "T1.7b");
-    expect_not_implemented([&] { column->get(0, field); }, "T1.7b");
-    expect_not_implemented([&] { column->insert(field); }, "T1.7b");
-    expect_not_implemented([&] { column->insert_duplicate_fields(field, 1); }, "T1.7b");
+    insert_encoded_field(*column, encode_json(R"("text")"));
+    insert_encoded_field(*column, encode_json("2"));
+    insert_encoded_field(*column, encode_json("1.5"));
+    insert_encoded_field(*column, encode_json("true"));
 
     expect_not_implemented([&] { static_cast<void>(column->get_data_at(0)); },
                            "intentionally unsupported");
     HybridSorter sorter;
     IColumn::Permutation result;
-    expect_not_implemented([&] { column->get_permutation(false, 0, 0, sorter, result); },
+    column->get_permutation(false, 0, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.end()), (std::vector<size_t> {3, 2, 1, 0}));
+    expect_not_implemented([&] { column->replace_column_data(*column, 0); },
                            "intentionally unsupported");
-    expect_not_implemented([&] { column->replace_column_data(*source, 0); },
-                           "intentionally unsupported");
+}
+
+TEST(ColumnVariantV2Test, NullableMultiKeyOrderingWorks) {
+    auto variant = ColumnVariantV2::create();
+    insert_encoded_field(*variant, encode_json("2"));
+    insert_encoded_field(*variant, encode_json("1"));
+    insert_encoded_field(*variant, encode_json("1"));
+    auto nullable = ColumnNullable::create(std::move(variant), ColumnUInt8::create(3, 0));
+
+    auto tie = ColumnInt32::create();
+    tie->insert_value(0);
+    tie->insert_value(2);
+    tie->insert_value(1);
+    auto ids = ColumnInt32::create();
+    ids->insert_value(1);
+    ids->insert_value(2);
+    ids->insert_value(3);
+
+    Block source;
+    source.insert({std::move(nullable), make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+    source.insert({std::move(tie), std::make_shared<DataTypeInt32>(), "tie"});
+    source.insert({std::move(ids), std::make_shared<DataTypeInt32>(), "id"});
+    SortDescription description;
+    description.emplace_back(0, 1, 1);
+    description.emplace_back(1, 1, 1);
+    Block sorted = source.clone_empty();
+    HybridSorter sorter;
+    sort_block(source, sorted, description, sorter);
+
+    const auto& sorted_ids = assert_cast<const ColumnInt32&>(*sorted.get_by_position(2).column);
+    EXPECT_EQ(sorted_ids.get_data()[0], 3);
+    EXPECT_EQ(sorted_ids.get_data()[1], 2);
+    EXPECT_EQ(sorted_ids.get_data()[2], 1);
+}
+
+TEST(ColumnVariantV2Test, NullableTypedSortMatchesEncoded) {
+    constexpr std::array<int32_t, 5> VALUES {3, 0, 1, 7, 1};
+    // Row 1 is a Variant null inside the value; row 2 is a SQL NULL in the outer column.
+    constexpr std::array<uint8_t, 5> VARIANT_NULLS {0, 1, 0, 0, 0};
+    constexpr std::array<uint8_t, 5> SQL_NULLS {0, 0, 1, 0, 0};
+    auto sorted_ids = [&](const ColumnPtr& variant, int direction, int nulls_direction) {
+        auto nulls = ColumnUInt8::create();
+        nulls->get_data().assign(SQL_NULLS.begin(), SQL_NULLS.end());
+        auto ids = ColumnInt32::create();
+        for (int32_t id = 0; id < static_cast<int32_t>(VALUES.size()); ++id) {
+            ids->insert_value(id);
+        }
+        Block source;
+        source.insert({ColumnNullable::create(variant, std::move(nulls)),
+                       make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+        source.insert({std::move(ids), std::make_shared<DataTypeInt32>(), "id"});
+        SortDescription description;
+        description.emplace_back(0, direction, nulls_direction);
+        description.emplace_back(1, 1, 1);
+        Block sorted = source.clone_empty();
+        HybridSorter sorter;
+        sort_block(source, sorted, description, sorter);
+        const auto& output = assert_cast<const ColumnInt32&>(*sorted.get_by_position(1).column);
+        return std::vector<int32_t>(output.get_data().begin(), output.get_data().end());
+    };
+    auto typed = typed_int32(VALUES, VARIANT_NULLS);
+    auto encoded = encoded_copy_of(*typed);
+    for (int direction : {-1, 1}) {
+        for (int nulls_direction : {-1, 1}) {
+            EXPECT_EQ(sorted_ids(typed->get_ptr(), direction, nulls_direction),
+                      sorted_ids(encoded->get_ptr(), direction, nulls_direction))
+                    << "direction=" << direction << " nulls_direction=" << nulls_direction;
+        }
+    }
 }
 
 } // namespace doris

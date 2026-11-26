@@ -34,9 +34,10 @@ AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::strin
                                                                 const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr) {
-    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
-                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
-                                           TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256>;
+    using creator =
+            creator_with_type_list<TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                   TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
+                                   TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256>;
     bool has_offset = (argument_types.size() == 3);
     if (has_offset) {
         return creator::create<HistogramWithInputParam, AggregateFunctionLinearHistogramData>(

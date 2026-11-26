@@ -59,7 +59,8 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-        std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info) {
+        std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
+        ChangelogTxnInfo* attach_changelog) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -79,6 +80,9 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *partial_update_info = iter->second.partial_update_info;
         *publish_status = iter->second.publish_status;
         *previous_publish_info = iter->second.publish_info;
+        if (attach_changelog != nullptr) {
+            *attach_changelog = iter->second.attach_changelog;
+        }
     }
 
     auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
@@ -186,7 +190,8 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
 void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids, RowsetSharedPtr rowset, int64_t txn_expiration,
-        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
+        std::shared_ptr<PartialUpdateInfo> partial_update_info,
+        const ChangelogTxnInfo& attach_changelog) {
     int64_t txn_expiration_min =
             duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                     .count() +
@@ -198,7 +203,7 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         std::shared_ptr<PublishStatus> publish_status =
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info),
-                                   std::move(publish_status));
+                                   std::move(publish_status), attach_changelog);
         _expiration_txn.emplace(txn_expiration, txn_key);
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);

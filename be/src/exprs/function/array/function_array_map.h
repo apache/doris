@@ -24,6 +24,7 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/function/array/function_array_hash.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
 
@@ -54,7 +55,7 @@ template <MapOperation operation, typename ColumnType>
 struct OpenMapImpl {
     using Element = typename ColumnType::value_type;
     using ElementNativeType = typename NativeType<Element>::Type;
-    using Map = phmap::flat_hash_map<ElementNativeType, size_t>;
+    using Map = phmap::flat_hash_map<ElementNativeType, size_t, ArraySetHash<ElementNativeType>>;
     using Action = typename MapActionImpl<Map, ColumnType, operation>::Action;
 
     Action action;

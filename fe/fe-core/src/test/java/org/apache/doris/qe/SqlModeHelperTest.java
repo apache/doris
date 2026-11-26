@@ -19,40 +19,44 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.DdlException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class SqlModeHelperTest {
 
     @Test
     public void testNormal() throws DdlException {
         String sqlMode = "PIPES_AS_CONCAT";
-        Assert.assertEquals(new Long(2L), SqlModeHelper.encode(sqlMode));
+        Assertions.assertEquals(new Long(2L), SqlModeHelper.encode(sqlMode));
 
         sqlMode = "";
-        Assert.assertEquals(new Long(0L), SqlModeHelper.encode(sqlMode));
+        Assertions.assertEquals(new Long(0L), SqlModeHelper.encode(sqlMode));
 
         sqlMode = "0,1, PIPES_AS_CONCAT";
-        Assert.assertEquals(new Long(3L), SqlModeHelper.encode(sqlMode));
+        Assertions.assertEquals(new Long(3L), SqlModeHelper.encode(sqlMode));
 
         long sqlModeValue = 2L;
-        Assert.assertEquals("PIPES_AS_CONCAT", SqlModeHelper.decode(sqlModeValue));
+        Assertions.assertEquals("PIPES_AS_CONCAT", SqlModeHelper.decode(sqlModeValue));
 
         sqlModeValue = 0L;
-        Assert.assertEquals("", SqlModeHelper.decode(sqlModeValue));
+        Assertions.assertEquals("", SqlModeHelper.decode(sqlModeValue));
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testInvalidSqlMode() throws DdlException {
-        String sqlMode = "PIPES_AS_CONCAT, WRONG_MODE";
-        SqlModeHelper.encode(sqlMode);
-        Assert.fail("No exception throws");
+        Assertions.assertThrows(DdlException.class, () -> {
+            String sqlMode = "PIPES_AS_CONCAT, WRONG_MODE";
+            SqlModeHelper.encode(sqlMode);
+            Assertions.fail("No exception throws");
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testInvalidDecode() throws DdlException {
-        long sqlMode = SqlModeHelper.MODE_LAST;
-        SqlModeHelper.decode(sqlMode);
-        Assert.fail("No exception throws");
+        Assertions.assertThrows(DdlException.class, () -> {
+            long sqlMode = SqlModeHelper.MODE_LAST;
+            SqlModeHelper.decode(sqlMode);
+            Assertions.fail("No exception throws");
+        });
     }
 }

@@ -42,7 +42,9 @@ public abstract class AbstractTask implements Task {
     private Long taskId;
 
     @SerializedName(value = "st")
-    private TaskStatus status;
+    // Written by the cancel (command) thread and read by the executing thread, so it
+    // must be volatile to guarantee cross-thread visibility without a happens-before edge.
+    private volatile TaskStatus status;
     @SerializedName(value = "ctm")
     private Long createTimeMs;
     @SerializedName(value = "stm")
@@ -71,6 +73,7 @@ public abstract class AbstractTask implements Task {
             return false;
         }
         status = TaskStatus.FAILED;
+        setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
             return false;
         }
@@ -158,6 +161,13 @@ public abstract class AbstractTask implements Task {
         } finally {
             closeOrReleaseResources();
         }
+    }
+
+    /**
+     * Called when the executor turns this task away because its queue is full, so the task never runs. The caller
+     * goes on to fail or cancel it as it would any other task.
+     */
+    public void onRejected() {
     }
 
     /**

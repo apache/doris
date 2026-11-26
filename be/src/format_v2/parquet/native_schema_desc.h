@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -37,7 +38,10 @@ namespace doris::format::parquet {
 
 // Constant for unassigned column IDs
 constexpr uint64_t NATIVE_UNASSIGNED_COLUMN_ID = UINT64_MAX;
-constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 100;
+// Paimon and Iceberg cap automatic Variant shredding at 50 logical levels, but each nested array
+// can add three Parquet groups. 192 also covers Doris's nine enclosing nested-type levels while
+// keeping footer recursion bounded for untrusted files.
+constexpr size_t MAX_NATIVE_SCHEMA_DEPTH = 192;
 
 struct NativeFieldSchema {
     std::string name;
@@ -47,6 +51,10 @@ struct NativeFieldSchema {
 
     // Used to identify whether this field is a nested field.
     DataTypePtr data_type;
+
+    // VARIANT is logically exposed as DataTypeVariantV2, while native page readers still need the
+    // physical STRUCT shape formed by metadata/value/typed_value.
+    DataTypePtr variant_physical_type;
     // Schema construction keeps a physical fallback so unprojected columns and metadata-only
     // queries remain readable, while projection validation reports the original logical failure.
     std::string unsupported_reason;
@@ -82,6 +90,9 @@ struct NativeFieldSchema {
     uint64_t get_max_column_id() const;
 };
 
+Status validate_variant_layout(const NativeFieldSchema& group_field,
+                               std::optional<int8_t> specification_version = std::nullopt);
+
 // V2 owns this schema tree and parser so footer/schema planning never invokes the V1 reader path.
 class NativeFieldDescriptor {
 private:
@@ -96,6 +107,7 @@ private:
     // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
     bool _enable_mapping_varbinary = false;
     bool _enable_mapping_timestamp_tz = false;
+    bool _preserve_binary_uuid = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -178,6 +190,7 @@ public:
     const NativeFieldSchema* find_column_by_id(uint64_t column_id) const;
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
     void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
+    void set_preserve_binary_uuid(bool preserve) { _preserve_binary_uuid = preserve; }
 };
 
 } // namespace doris::format::parquet

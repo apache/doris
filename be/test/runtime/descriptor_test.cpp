@@ -15,12 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "common/exception.h"
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "runtime/descriptors.h"
+#include "testutil/desc_tbl_builder.h"
 
 namespace doris {
 
@@ -82,6 +91,37 @@ TEST_F(SlotDescriptorTest, BasicConstructor) {
         EXPECT_FALSE(slot_desc.is_key());
         EXPECT_EQ(slot_desc.get_virtual_column_expr(), nullptr);
     });
+}
+
+TEST_F(SlotDescriptorTest, CanonicalTypesWithoutPostConstructionConversion) {
+    auto tdesc = create_basic_slot_descriptor();
+    auto& scalar = tdesc.slotType.types[0].scalar_type;
+    scalar.__set_type(TPrimitiveType::DECIMALV2);
+    scalar.__set_precision(18);
+    scalar.__set_scale(2);
+    SlotDescriptor slot(tdesc);
+    auto type = slot.type();
+    ASSERT_TRUE(type->is_nullable());
+    const auto& decimal = assert_cast<const DataTypeDecimalV2&>(*remove_nullable(type));
+    EXPECT_EQ(decimal.get_precision(), 27);
+    EXPECT_EQ(decimal.get_scale(), 9);
+    EXPECT_EQ(decimal.get_original_precision(), 18);
+    EXPECT_EQ(decimal.get_original_scale(), 2);
+
+    PSlotDescriptor pdesc;
+    slot.to_protobuf(&pdesc);
+    SlotDescriptor restored(pdesc);
+    EXPECT_TRUE(restored.type()->equals(*type));
+
+    scalar.__set_type(TPrimitiveType::BINARY);
+    SlotDescriptor binary(tdesc);
+    EXPECT_EQ(binary.type()->get_primitive_type(), TYPE_STRING);
+    EXPECT_TRUE(binary.type()->is_nullable());
+
+    scalar.__set_type(TPrimitiveType::VARBINARY);
+    scalar.__set_len(32);
+    SlotDescriptor varbinary(tdesc);
+    EXPECT_EQ(varbinary.type()->get_primitive_type(), TYPE_VARBINARY);
 }
 
 TEST_F(SlotDescriptorTest, VirtualColumnExprValid) {
@@ -194,6 +234,99 @@ TEST_F(SlotDescriptorTest, DebugString) {
     std::string debug_str2 = slot_desc2.debug_string();
     EXPECT_TRUE(debug_str2.find("virtual_col") != std::string::npos);
     EXPECT_TRUE(debug_str2.find("is_virtual=true") != std::string::npos);
+}
+
+TEST(TupleDescriptorTest, GetColumnId) {
+    ObjectPool pool;
+    DescriptorTblBuilder builder(&pool);
+    builder.declare_tuple() << std::make_shared<DataTypeInt32>()
+                            << std::make_shared<DataTypeInt64>();
+    auto* desc_tbl = builder.build();
+    auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+
+    ASSERT_EQ(tuple_desc->slots().size(), 2);
+    EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[0]->id()), 0);
+    EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[1]->id()), 1);
+    EXPECT_EQ(tuple_desc->get_column_id(100), -1);
+}
+
+TEST(RowDescriptorTest, MultiTupleLayoutAndSingleTupleCount) {
+    ObjectPool pool;
+    DescriptorTblBuilder builder(&pool);
+    builder.declare_tuple() << std::make_shared<DataTypeInt32>();
+    builder.declare_tuple() << std::make_shared<DataTypeInt64>()
+                            << std::make_shared<DataTypeInt32>();
+    auto* desc_tbl = builder.build();
+
+    RowDescriptor single(desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(single.num_slots(), 2);
+
+    RowDescriptor row(*desc_tbl, {0, 1});
+    EXPECT_EQ(row.num_slots(), 3);
+    ASSERT_EQ(row.tuple_descriptors().size(), 2);
+    EXPECT_EQ(row.tuple_descriptors()[0], desc_tbl->get_tuple_descriptor(0));
+    EXPECT_EQ(row.tuple_descriptors()[1], desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[0]->id()), 1);
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[1]->id()), 2);
+
+    RowDescriptor copied(row);
+    EXPECT_EQ(copied.num_slots(), row.num_slots());
+    EXPECT_EQ(copied.tuple_descriptors(), row.tuple_descriptors());
+}
+
+TEST_F(SlotDescriptorTest, AccessPathsPreservedThroughProtobuf) {
+    TColumnAccessPath data_path;
+    data_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    data_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_payload;
+    data_payload.__set_path({"s", "field"});
+    data_path.__set_data_access_path(data_payload);
+
+    TColumnAccessPath meta_path;
+    meta_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    meta_path.__set_type(TAccessPathType::META);
+    TMetaAccessPath meta_payload;
+    meta_payload.__set_path({"s", "field", "NULL"});
+    meta_path.__set_meta_access_path(meta_payload);
+
+    TColumnAccessPath legacy_path;
+    legacy_path.__set_type(TAccessPathType::DATA);
+    data_payload.__set_path({"s", "legacy", "NULL"});
+    legacy_path.__set_data_access_path(data_payload);
+
+    TColumnAccessPath explicit_legacy_path;
+    explicit_legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    explicit_legacy_path.__set_type(TAccessPathType::DATA);
+    data_payload.__set_path({"s", "legacy", "VALUES"});
+    explicit_legacy_path.__set_data_access_path(data_payload);
+
+    TSlotDescriptor thrift_descriptor = create_basic_slot_descriptor();
+    thrift_descriptor.__set_all_access_paths(
+            {data_path, meta_path, legacy_path, explicit_legacy_path});
+    thrift_descriptor.__set_predicate_access_paths({meta_path});
+
+    SlotDescriptor original(thrift_descriptor);
+    PSlotDescriptor protobuf_descriptor;
+    original.to_protobuf(&protobuf_descriptor);
+    ASSERT_EQ(protobuf_descriptor.all_access_paths_size(), 4);
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(0).has_version());
+    EXPECT_EQ(protobuf_descriptor.all_access_paths(0).version(),
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(1).has_version());
+    EXPECT_FALSE(protobuf_descriptor.all_access_paths(2).has_version());
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(3).has_version());
+    EXPECT_EQ(protobuf_descriptor.all_access_paths(3).version(),
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    SlotDescriptor round_trip(protobuf_descriptor);
+
+    EXPECT_EQ(round_trip.all_access_paths(), thrift_descriptor.all_access_paths);
+    EXPECT_EQ(round_trip.predicate_access_paths(), thrift_descriptor.predicate_access_paths);
+    EXPECT_FALSE(round_trip.all_access_paths()[1].__isset.data_access_path);
+    EXPECT_FALSE(round_trip.predicate_access_paths()[0].__isset.data_access_path);
+    EXPECT_FALSE(round_trip.all_access_paths()[2].__isset.version);
+    EXPECT_TRUE(round_trip.all_access_paths()[3].__isset.version);
+    EXPECT_EQ(round_trip.all_access_paths()[3].version,
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
 }
 
 } // namespace doris

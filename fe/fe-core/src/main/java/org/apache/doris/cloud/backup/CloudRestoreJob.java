@@ -53,6 +53,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -427,8 +428,12 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                    localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
-                                    localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
+                                    localTbl.getRowTtlConfig(),
+                                    localTbl.getRowTtlTimeZoneOffsetSeconds(),
+                                    !indexMeta.isChangelogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
+                                    localTbl.storeRowColumn(),
+                                    localTbl.getBaseSchemaVersion(), localTbl.getTabletBinlogConfig(),
+                                    localTbl.getCompactionPolicy(),
                                     localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     localTbl.getTimeSeriesCompactionFileCountThreshold(),
                                     localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -441,10 +446,14 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
                                     localTbl.storageDictPageSize(), false,
                                     localTbl.getColumnSeqMapping(),
-                                    localTbl.getVerticalCompactionNumColumnsPerGroup()));
+                                    localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    indexMeta.isChangelogIndex()
+                                            ? OlapFile.TabletRolePB.TABLET_ROLE_CHANGELOG
+                                            : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD,
+                                indexMeta.isChangelogIndex());
                         Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
                                 restoreTablet.getReplicaByBackendId(-1));

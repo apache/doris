@@ -21,11 +21,12 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
@@ -34,18 +35,26 @@ public class MTMVUtilTest {
     public void testGetExprTimeSec() throws AnalysisException {
         LiteralExpr expr = new DateLiteral(2020, 1, 1);
         long exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
-        Assert.assertEquals(1577808000L, exprTimeSec);
+        Assertions.assertEquals(1577808000L, exprTimeSec);
 
         expr = new StringLiteral("2020-01-01");
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.of("%Y-%m-%d"));
-        Assert.assertEquals(1577808000L, exprTimeSec);
+        Assertions.assertEquals(1577808000L, exprTimeSec);
 
         expr = new IntLiteral(20200101);
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.of("%Y%m%d"));
-        Assert.assertEquals(1577808000L, exprTimeSec);
+        Assertions.assertEquals(1577808000L, exprTimeSec);
 
         expr = new DateLiteral(Type.DATE, true);
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
-        Assert.assertEquals(253402185600L, exprTimeSec);
+        Assertions.assertEquals(253402185600L, exprTimeSec);
+
+        expr = new TimeStampNsLiteral(2020, 1, 1, 0, 0, 0, 1);
+        exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
+        Assertions.assertEquals(1577808000L, exprTimeSec);
+
+        expr = TimeStampNsLiteral.createMinValue();
+        exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
+        Assertions.assertEquals(Long.MIN_VALUE, exprTimeSec);
     }
 }

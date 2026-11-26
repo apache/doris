@@ -26,10 +26,10 @@ import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.meta.MetaHeader;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -49,14 +49,14 @@ public class EnvTest {
 
     private MockedStatic<MetaContext> mockedMetaContext;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MetaContext metaContext = new MetaContext();
         mockedMetaContext = Mockito.mockStatic(MetaContext.class);
         mockedMetaContext.when(MetaContext::get).thenReturn(metaContext);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedMetaContext != null) {
             mockedMetaContext.close();
@@ -148,7 +148,7 @@ public class EnvTest {
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         env = Env.getCurrentEnv();
         long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
-        Assert.assertEquals(checksum1, checksum2);
+        Assertions.assertEquals(checksum1, checksum2);
         dis.close();
 
         deleteDir(dir);
@@ -171,7 +171,7 @@ public class EnvTest {
 
             env.setMutableConfigWithCallback("ldap_default_roles", "role1,role2");
 
-            Assert.assertArrayEquals(new String[] {"role1", "role2"}, LdapConfig.ldap_default_roles);
+            Assertions.assertArrayEquals(new String[] {"role1", "role2"}, LdapConfig.ldap_default_roles);
             Mockito.verify(ldapManager).refresh(true, null);
         } finally {
             ConfigBase.confFields = oldConfFields;

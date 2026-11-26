@@ -30,6 +30,8 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/packed_file_manager.h"
+#include "io/fs/packed_file_writer.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
@@ -130,6 +132,7 @@ public:
     void set_file_size(int64_t size) { _file_size = size; }
 
     MockFileWriterForMerge* last_writer() const { return _last_writer; }
+    const std::string& last_opened_path() const { return _last_opened_path; }
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
@@ -148,6 +151,7 @@ protected:
         if (!_open_status.ok()) {
             return _open_status;
         }
+        _last_opened_path = file.native();
         // Create a mock reader with some content
         auto mock_reader = std::make_shared<MockFileReader>("mock_content");
         *reader = std::move(mock_reader);
@@ -195,6 +199,7 @@ private:
     bool _exists_result = true;
     int64_t _file_size = 0;
     MockFileWriterForMerge* _last_writer = nullptr;
+    std::string _last_opened_path;
 };
 
 // Test fixture for PackedFileSystem
@@ -247,7 +252,7 @@ TEST_F(PackedFileSystemTest, FirstSegmentDataFileUsesPackedWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
-    EXPECT_TRUE(writer->is_in_packed_file());
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
 }
 
 TEST_F(PackedFileSystemTest, LaterSegmentDataFileUsesDirectWriter) {
@@ -264,7 +269,7 @@ TEST_F(PackedFileSystemTest, LaterSegmentDataFileUsesDirectWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
-    EXPECT_FALSE(writer->is_in_packed_file());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
 }
 
 TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
@@ -281,7 +286,74 @@ TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
 
     ASSERT_NE(_inner_fs->last_writer(), nullptr);
     EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
-    EXPECT_FALSE(writer->is_in_packed_file());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(writer.get()), nullptr);
+}
+
+TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
+    _append_info.first_segment_id = 10;
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    Path first_segment_path("rowset_1_10.dat");
+    FileWriterPtr first_segment_writer;
+    ASSERT_TRUE(merge_fs.create_file(first_segment_path, &first_segment_writer, nullptr).ok());
+    ASSERT_NE(first_segment_writer, nullptr);
+
+    std::string data = "test";
+    Slice data_slice(data);
+    ASSERT_TRUE(first_segment_writer->appendv(&data_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(first_segment_writer.get()), nullptr);
+
+    Path segment_zero_path("rowset_1_0.dat");
+    FileWriterPtr segment_zero_writer;
+    ASSERT_TRUE(merge_fs.create_file(segment_zero_path, &segment_zero_writer, nullptr).ok());
+    ASSERT_NE(segment_zero_writer, nullptr);
+    ASSERT_TRUE(segment_zero_writer->appendv(&data_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
+    EXPECT_EQ(dynamic_cast<PackedFileWriter*>(segment_zero_writer.get()), nullptr);
+
+    Path first_segment_index_path("rowset_1_10.idx");
+    FileWriterPtr first_segment_index_writer;
+    ASSERT_TRUE(merge_fs.create_file(first_segment_index_path, &first_segment_index_writer, nullptr)
+                        .ok());
+    ASSERT_NE(first_segment_index_writer, nullptr);
+
+    std::string index = "idx";
+    Slice index_slice(index);
+    ASSERT_TRUE(first_segment_index_writer->appendv(&index_slice, 1).ok());
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
+    EXPECT_NE(dynamic_cast<PackedFileWriter*>(first_segment_index_writer.get()), nullptr);
+}
+
+TEST_F(PackedFileSystemTest, CreateFileFollowsWriteFileCacheOption) {
+    ASSERT_FALSE(config::enable_file_cache_write_index_file_only);
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    // A load with disable_file_cache=true must not write packed small files to file cache.
+    FileWriterOptions no_cache_opts {.write_file_cache = false};
+    FileWriterPtr no_cache_writer;
+    ASSERT_TRUE(
+            merge_fs.create_file(Path("rowset_1_0.dat"), &no_cache_writer, &no_cache_opts).ok());
+    auto* packed_writer = dynamic_cast<PackedFileWriter*>(no_cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_FALSE(packed_writer->_append_info.write_file_cache);
+
+    FileWriterOptions cache_opts {.write_file_cache = true};
+    FileWriterPtr cache_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.idx"), &cache_writer, &cache_opts).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
+
+    // Without options, keep the write_file_cache from append context.
+    FileWriterPtr default_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.dat"), &default_writer, nullptr).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(default_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
 }
 
 TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {
@@ -310,6 +382,52 @@ TEST_F(PackedFileSystemTest, OpenFileInMergeFile) {
     EXPECT_TRUE(st.ok());
     EXPECT_NE(reader, nullptr);
     EXPECT_EQ(reader->size(), index.size);
+}
+
+// A file of the rowset being written is not in any index map yet, so the writer side file
+// system has to find its slice through the manager
+TEST_F(PackedFileSystemTest, OpenFileOfRowsetBeingWrittenUsesManagerLocation) {
+    PackedSliceLocation location;
+    location.packed_file_path = "packed_file_being_written";
+    location.offset = 4;
+    location.size = 6;
+    auto& global_locations = PackedFileManager::instance()->global_slice_locations_for_test();
+    global_locations["being_written"] = std::make_shared<PackedSliceHandle>(location);
+
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    FileReaderSPtr reader;
+    Status st = merge_fs.open_file(Path("being_written"), &reader, nullptr);
+    global_locations.erase("being_written");
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(_inner_fs->last_opened_path(), location.packed_file_path);
+    EXPECT_EQ(reader->size(), location.size);
+}
+
+// The index map of a rowset opened from its meta holds every packed slice of the rowset, so a
+// file missing from it is a regular file, whatever the manager still remembers about the path
+TEST_F(PackedFileSystemTest, OpenRegularFileOfOpenedRowsetIgnoresManager) {
+    PackedSliceLocation stale_location;
+    stale_location.packed_file_path = "stale_packed_file";
+    stale_location.offset = 4;
+    stale_location.size = 6;
+    auto& global_locations = PackedFileManager::instance()->global_slice_locations_for_test();
+    global_locations["regular_file"] = std::make_shared<PackedSliceHandle>(stale_location);
+
+    std::unordered_map<std::string, PackedSliceLocation> index_map;
+    PackedSliceLocation index;
+    index.packed_file_path = "packed_file_path";
+    index.offset = 10;
+    index.size = 20;
+    index_map["packed_file"] = index;
+    PackedFileSystem merge_fs(_inner_fs, index_map, _append_info);
+
+    FileReaderSPtr reader;
+    Status st = merge_fs.open_file(Path("regular_file"), &reader, nullptr);
+    global_locations.erase("regular_file");
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(_inner_fs->last_opened_path(), "regular_file");
+    EXPECT_EQ(reader->size(), std::string("mock_content").size());
 }
 
 TEST_F(PackedFileSystemTest, ExistsForMergeFile) {

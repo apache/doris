@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
@@ -45,36 +46,25 @@ class CountTest {
     }
 
     @Test
-    void testCountDistinctRejectsLegacyVariant() {
+    void testCountDistinctAcceptsVariant() {
         Count count = new Count(true, SlotReference.of("v", VariantType.INSTANCE));
-
-        AnalysisException exception = Assertions.assertThrows(
-                AnalysisException.class, count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
-    }
-
-    @Test
-    void testCountDistinctAllowsVariantV2WithDedicatedState() {
-        Count count = new Count(true, SlotReference.of("v", VariantType.COMPUTE_V2_INSTANCE));
-
         Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testMultiDistinctCountRejectsLegacyVariant() {
+    void testMultiDistinctCountAcceptsVariant() {
         MultiDistinctCount count = new MultiDistinctCount(SlotReference.of("v", VariantType.INSTANCE));
-
-        AnalysisException exception = Assertions.assertThrows(
-                AnalysisException.class, count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testMultiDistinctCountAllowsVariantV2WithDedicatedState() {
-        MultiDistinctCount count = new MultiDistinctCount(
-                SlotReference.of("v", VariantType.COMPUTE_V2_INSTANCE));
-
+    void testConnectorComputeVariantDistinctWorks() {
+        Count count = new Count(true,
+                SlotReference.of("connector_variant", ConnectorComputeVariantType.INSTANCE));
+        MultiDistinctCount multiDistinctCount = new MultiDistinctCount(
+                SlotReference.of("connector_variant", ConnectorComputeVariantType.INSTANCE));
         Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
+        Assertions.assertDoesNotThrow(multiDistinctCount::checkLegalityAfterRewrite);
     }
 
     @Test

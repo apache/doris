@@ -42,6 +42,97 @@ suite("eliminate_group_by_key_by_uniform") {
     qt_empty_tranform_multi_column "select a, min(a), sum(a), count(a) from eli_gbk_by_uniform_t where a = 1 group by a, b,'abc' order by 1,2,3,4"
     qt_tranform_to_scalar_agg_not_null_column "select b, min(a), sum(a), count(a) from eli_gbk_by_uniform_t where b = 1 group by a, b order by 1,2,3,4"
 
+    sql "drop table if exists uniform_agg_witness"
+    sql """
+        create table uniform_agg_witness (
+            pk int not null,
+            b int not null,
+            v int null
+        ) unique key(pk)
+        distributed by hash(pk) buckets 1
+        properties("replication_num"="1")
+    """
+    sql "insert into uniform_agg_witness values (1, 7, null), (2, 7, 9)"
+
+    def nullableCountPlan = sql("""
+        explain select b, c, count(*) as n, sum(h) as sh
+        from (
+            select pk, b, count(v) as c, ndv(v) as h
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, c
+    """).collect { it[0] }.join("\n")
+    assertTrue((nullableCountPlan =~ /group by: b\[#\d+\], c\[#\d+\]/).find(),
+            "nullable COUNT must remain in the outer group keys:\n${nullableCountPlan}")
+
+    def nullableNdvPlan = sql("""
+        explain select b, h, count(*) as n, sum(c) as sc
+        from (
+            select pk, b, count(v) as c, ndv(v) as h
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, h
+    """).collect { it[0] }.join("\n")
+    assertTrue((nullableNdvPlan =~ /group by: b\[#\d+\], h\[#\d+\]/).find(),
+            "nullable NDV must remain in the outer group keys:\n${nullableNdvPlan}")
+
+    def nonNullableCountPlan = sql("""
+        explain select b, c, count(*) as n
+        from (
+            select pk, b, count(b) as c
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, c
+    """).collect { it[0] }.join("\n")
+    assertTrue((nonNullableCountPlan =~ /group by: b\[#\d+\]/).find(),
+            "non-null COUNT should keep the safe group-key elimination:\n${nonNullableCountPlan}")
+    assertFalse((nonNullableCountPlan =~ /group by: b\[#\d+\], c\[#\d+\]/).find(),
+            "non-null COUNT should not remain in the outer group keys:\n${nonNullableCountPlan}")
+
+    order_qt_nullable_count_not_uniform """
+        select b, c, count(*) as n, sum(h) as sh
+        from (
+            select pk, b, count(v) as c, ndv(v) as h
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, c
+        order by b, c
+    """
+    order_qt_nullable_ndv_not_uniform """
+        select b, h, count(*) as n, sum(c) as sc
+        from (
+            select pk, b, count(v) as c, ndv(v) as h
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, h
+        order by b, h
+    """
+    order_qt_multi_argument_count_not_uniform """
+        select b, c, count(*) as n
+        from (
+            select pk, b, count(distinct b, v) as c
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, c
+        order by b, c
+    """
+    order_qt_non_nullable_count_uniform """
+        select b, c, count(*) as n
+        from (
+            select pk, b, count(b) as c
+            from uniform_agg_witness
+            group by pk, b
+        ) s
+        group by b, c
+        order by b, c
+    """
+
     qt_project_const "select sum(c1), c2 from (select a c1,1 c2, d c3 from eli_gbk_by_uniform_t) t group by c2,c3 order by 1,2;"
     qt_project_slot_uniform "select max(c3), c1,c2,c3 from (select a c1,1 c2, d c3 from eli_gbk_by_uniform_t where a=1) t group by c1,c2,c3 order by 1,2,3,4;"
 

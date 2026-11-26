@@ -160,6 +160,18 @@ public final class PluginRegistry {
     }
 
     /**
+     * Why {@code name} cannot be a plugin identity, or null when it can be one.
+     *
+     * <p>The same rule {@link #register} applies, exposed because a family that keeps a table of its own
+     * keyed by the name has to refuse the same names this registry refuses - otherwise a plugin the registry
+     * has no row for is still selectable out of that table, and {@code information_schema.extensions} stops
+     * being the answer to "which plugins can this FE use".
+     */
+    public static String rejectionReasonFor(String name) {
+        return PluginNames.validate(name);
+    }
+
+    /**
      * Registers a classpath built-in factory. Snapshots {@code name()} and
      * {@code description()} now; the version comes from the Implementation-Version
      * of the jar that bundles the factory class, when available.

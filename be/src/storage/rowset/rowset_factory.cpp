@@ -55,14 +55,14 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
         return ResultError(Status::Error<ROWSET_INVALID>("invalid rowset_type"));
     }
 
-    if (context.write_binlog_opt().enable) {
+    if (context.write_changelog_opt().enable) {
         std::unique_ptr<RowsetWriter> writer;
         if (is_vertical) {
-            writer = std::make_unique<VerticalBetaRowsetWriter<RowBinlogRowsetWriter>>(engine);
+            writer = std::make_unique<VerticalBetaRowsetWriter<ChangelogRowsetWriter>>(engine);
             RETURN_IF_ERROR_RESULT(writer->init(context));
             return writer;
         } else {
-            writer = std::make_unique<RowBinlogRowsetWriter>(engine);
+            writer = std::make_unique<ChangelogRowsetWriter>(engine);
             RETURN_IF_ERROR_RESULT(writer->init(context));
             return writer;
         }

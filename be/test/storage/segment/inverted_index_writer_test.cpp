@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
@@ -28,23 +28,44 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "core/value/timestamp_ns_value.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/clucene_terms.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/iterator/olap_data_convertor.h"
+#include "storage/index/inverted/snii/query/bm25_scorer.h"
+#include "storage/index/inverted/snii/snii_index_writer.h"
+#include "storage/index/inverted/snii/snii_query_oracle.h"
+#include "storage/index/inverted/snii/stats/snii_stats_provider.h"
+#include "storage/segment/array_index_input_helper.h"
+#include "storage/segment/column_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -56,6 +77,84 @@ namespace doris::segment_v2 {
 // Define InvertedIndexDirectoryMap
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
+
+class GappedTokenStream final : public lucene::analysis::TokenStream {
+public:
+    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
+        if (_emitted) {
+            return nullptr;
+        }
+        _emitted = true;
+        token->clear();
+        token->setTextNoCopy(_term.data(), static_cast<int32_t>(_term.size()));
+        token->setPositionIncrement(2);
+        return token;
+    }
+
+    void close() override {}
+    void reset() override { _emitted = false; }
+
+private:
+    std::string _term = "gapped";
+    bool _emitted = false;
+};
+
+class GappedTokenAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        return new GappedTokenStream();
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        _reusable = std::make_unique<GappedTokenStream>();
+        return _reusable.get();
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        return new GappedTokenStream();
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        _reusable = std::make_unique<GappedTokenStream>();
+        return _reusable.get();
+    }
+
+private:
+    std::unique_ptr<GappedTokenStream> _reusable;
+};
+
+class ImmediateFailureAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+};
 
 class InvertedIndexWriterTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -153,8 +252,19 @@ public:
         _CLLDELETE(r);
     }
 
+    template <PrimitiveType primitive_type, typename StorageType>
+    Field create_bkd_query_field(StorageType value) {
+        if constexpr (primitive_type == TYPE_TIMESTAMP_NS) {
+            return Field::create_field<primitive_type>(TimeStampNsValue(value));
+        } else {
+            return Field::create_field<primitive_type>(value);
+        }
+    }
+
+    template <PrimitiveType primitive_type, typename StorageType>
     void check_bkd_index(std::string index_prefix, const TabletIndex* index_meta,
-                         const std::vector<int32_t>& values, const std::vector<int>& doc_ids) {
+                         const std::string& column_name, const std::vector<StorageType>& values,
+                         const std::vector<int>& doc_ids, StorageType range_value) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
@@ -178,8 +288,8 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            Field qp = Field::create_field<TYPE_INT>(values[i]);
-            auto status = bkd_reader->query(context, "c1", qp,
+            Field qp = create_bkd_query_field<primitive_type>(values[i]);
+            auto status = bkd_reader->query(context, column_name, qp,
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -200,45 +310,69 @@ public:
         // Test range queries
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
-        int32_t test_value = 200;
         auto context = std::make_shared<segment_v2::IndexQueryContext>();
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        Field test_qp = Field::create_field<TYPE_INT>(test_value);
-        auto status = bkd_reader->query(context, "c1", test_qp,
+        Field test_qp = create_bkd_query_field<primitive_type>(range_value);
+        auto status = bkd_reader->query(context, column_name, test_qp,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values less than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] < test_value) {
+            if (values[i] < range_value) {
                 EXPECT_TRUE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be less than " << test_value;
+                        << "Value " << values[i] << " should be less than " << range_value;
             } else {
                 EXPECT_FALSE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be less than " << test_value;
+                        << "Value " << values[i] << " should not be less than " << range_value;
             }
         }
 
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", test_qp,
+        status = bkd_reader->query(context, column_name, test_qp,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values greater than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] > test_value) {
+            if (values[i] > range_value) {
                 EXPECT_TRUE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be greater than " << test_value;
+                        << "Value " << values[i] << " should be greater than " << range_value;
             } else {
                 EXPECT_FALSE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be greater than " << test_value;
+                        << "Value " << values[i] << " should not be greater than " << range_value;
             }
+        }
+    }
+
+    void check_bkd_null_bitmap(const std::string& index_prefix, const TabletIndex* index_meta,
+                               const std::vector<int>& null_doc_ids) {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(reader->init().ok());
+        auto bkd_reader = BkdIndexReader::create_shared(index_meta, reader);
+        ASSERT_NE(bkd_reader, nullptr);
+
+        auto context = std::make_shared<IndexQueryContext>();
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        InvertedIndexQueryCacheHandle cache_handle;
+        ASSERT_TRUE(bkd_reader->read_null_bitmap(context, &cache_handle).ok());
+
+        const auto null_bitmap = cache_handle.get_bitmap();
+        ASSERT_NE(null_bitmap, nullptr);
+        EXPECT_EQ(null_bitmap->cardinality(), null_doc_ids.size());
+        for (const auto doc_id : null_doc_ids) {
+            EXPECT_TRUE(null_bitmap->contains(doc_id))
+                    << "Document " << doc_id << " should be NULL";
         }
     }
 
@@ -310,6 +444,151 @@ public:
         return fmt::format("{}/{}_{}.dat", base, rowset_id, seg_id);
     }
 
+    template <typename FeedValues>
+    void write_snii_keyword_index(
+            const TabletColumn& column, std::string_view rowset_id, uint32_t ignore_above,
+            FeedValues&& feed_values, std::unique_ptr<IndexFileReader>* file_reader,
+            std::unique_ptr<snii::reader::LogicalIndexReader>* logical_reader) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("idx_keyword");
+        index_pb.add_col_unique_id(column.unique_id());
+        index_pb.mutable_properties()->insert({"parser", "none"});
+        index_pb.mutable_properties()->insert({"ignore_above", std::to_string(ignore_above)});
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_pb);
+
+        const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, 0))};
+        const std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        io::FileWriterPtr compound_file;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        ASSERT_TRUE(fs->create_file(index_path, &compound_file, &opts).ok());
+        IndexFileWriter index_file_writer(fs, index_path_prefix, std::string(rowset_id), 0,
+                                          InvertedIndexStorageFormatPB::SNII,
+                                          std::move(compound_file));
+
+        std::unique_ptr<IndexColumnWriter> writer;
+        ASSERT_TRUE(
+                IndexColumnWriter::create(&column, &writer, &index_file_writer, &index_meta).ok());
+        feed_values(writer.get());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(index_file_writer.begin_close().ok());
+        ASSERT_TRUE(index_file_writer.finish_close().ok());
+
+        *file_reader = std::make_unique<IndexFileReader>(fs, index_path_prefix,
+                                                         InvertedIndexStorageFormatPB::SNII);
+        ASSERT_TRUE((*file_reader)->init().ok());
+        auto logical_result = (*file_reader)->open_snii_index(&index_meta);
+        ASSERT_TRUE(logical_result.has_value()) << logical_result.error();
+        *logical_reader = std::move(logical_result.value());
+    }
+
+    // A CLucene keyword index on `column` that ignores values longer than `ignore_above`, in
+    // the V2 file format, holding what `write` writes through the index file writer.
+    template <typename Write>
+    void write_clucene_keyword_index(const TabletColumn& column, std::string_view rowset_id,
+                                     uint32_t ignore_above, Write&& write, TabletIndex* index_meta,
+                                     std::string* index_path_prefix) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("idx_keyword");
+        index_pb.add_col_unique_id(column.unique_id());
+        index_pb.mutable_properties()->insert({"ignore_above", std::to_string(ignore_above)});
+        index_meta->init_from_pb(index_pb);
+
+        *index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, 0));
+        const std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(*index_path_prefix);
+        io::FileWriterPtr compound_file;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        ASSERT_TRUE(fs->create_file(index_path, &compound_file, &opts).ok());
+        IndexFileWriter index_file_writer(fs, *index_path_prefix, std::string(rowset_id), 0,
+                                          InvertedIndexStorageFormatPB::V2,
+                                          std::move(compound_file));
+        write(&index_file_writer);
+        ASSERT_TRUE(index_file_writer.begin_close().ok());
+        ASSERT_TRUE(index_file_writer.finish_close().ok());
+    }
+
+    // Writes `batches` of `rows`, each a (row_pos, num_rows) pair, through a column writer of
+    // `column` that builds the index `index_meta`, as a segment writer does.
+    void write_through_column_writer(const TabletColumn& column, ColumnMetaPB meta,
+                                     std::string_view rowset_id, const IColumn& rows,
+                                     const std::vector<std::pair<size_t, size_t>>& batches,
+                                     IndexFileWriter* index_file_writer,
+                                     const TabletIndex* index_meta) {
+        io::FileWriterPtr data_file;
+        ASSERT_TRUE(io::global_local_filesystem()
+                            ->create_file(local_segment_path(kTestDir, rowset_id, 0), &data_file)
+                            .ok());
+        ColumnWriterOptions opts;
+        opts.meta = &meta;
+        opts.need_inverted_index = true;
+        opts.inverted_indexes = {index_meta};
+        opts.index_file_writer = index_file_writer;
+        std::unique_ptr<ColumnWriter> writer;
+        ASSERT_TRUE(ColumnWriter::create(opts, &column, data_file.get(), &writer).ok());
+        ASSERT_TRUE(writer->init().ok());
+        for (const auto& [row_pos, num_rows] : batches) {
+            const Status st = writer->append(rows, row_pos, num_rows);
+            ASSERT_TRUE(st.ok()) << st;
+        }
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(writer->write_inverted_index().ok());
+        ASSERT_TRUE(data_file->close().ok());
+    }
+
+    static ColumnMetaPB char_column_meta(int32_t column_id, int32_t length) {
+        ColumnMetaPB meta;
+        meta.set_column_id(column_id);
+        meta.set_unique_id(column_id);
+        meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_CHAR));
+        meta.set_length(length);
+        meta.set_encoding(DICT_ENCODING);
+        meta.set_compression(segment_v2::CompressionTypePB::LZ4F);
+        meta.set_is_nullable(true);
+        return meta;
+    }
+
+    // An ARRAY<Nullable(STRING)> column holding `rows`, std::nullopt for a NULL item.
+    static MutableColumnPtr string_array_column(
+            const std::vector<std::vector<std::optional<std::string>>>& rows) {
+        DataTypePtr array_type =
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        MutableColumnPtr column = array_type->create_column();
+        for (const auto& row : rows) {
+            Array array;
+            for (const auto& item : row) {
+                array.push_back(item ? Field::create_field<TYPE_STRING>(*item) : Field());
+            }
+            column->insert(Field::create_field<TYPE_ARRAY>(array));
+        }
+        return column;
+    }
+
+    // An ARRAY<VARCHAR> column whose items may be NULL.
+    static TabletColumn string_array_tablet_column() {
+        TabletColumn array_column;
+        array_column.set_name("arr_str");
+        array_column.set_unique_id(1);
+        array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+        array_column.set_is_nullable(false);
+        TabletColumn item_column;
+        item_column.set_name("item");
+        item_column.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        item_column.set_length(10);
+        item_column.set_is_nullable(true);
+        array_column.add_sub_column(item_column);
+        return array_column;
+    }
+
     // Check if .nrm file exists in the inverted index
     // Norms files store normalization factors for scoring, typically created when field is tokenized
     bool check_norms_file_exists(const std::string& index_prefix, const TabletIndex* index_meta) {
@@ -362,7 +641,9 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                const std::string& index_suffix = "",
+                                const std::map<std::string, std::string>& extra_properties = {}) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -383,9 +664,15 @@ public:
             // This will make should_analyzer() return true
             (*properties)["parser"] = "standard";
         }
+        for (const auto& [key, value] : extra_properties) {
+            (*properties)[key] = value;
+        }
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        if (!index_suffix.empty()) {
+            idx_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
 
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -416,7 +703,8 @@ public:
         std::vector<Slice> values = {Slice("hello world"), Slice("testing value"),
                                      Slice("sample data")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -473,7 +761,8 @@ public:
                                      Slice("apple"), // Duplicate to test frequency
                                      Slice("date")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -539,7 +828,8 @@ public:
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Add more nulls
@@ -611,7 +901,8 @@ public:
         // Add integer values
         std::vector<int32_t> values = {42, 100, 42, 200, 300};
 
-        status = column_writer->add_values("c1", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -628,7 +919,7 @@ public:
         std::vector<int> doc_ids = {0, 1, 2, 3, 4};
 
         // Verify the BKD index using the appropriate method
-        check_bkd_index(index_path_prefix, &idx_meta, values, doc_ids);
+        check_bkd_index<TYPE_INT>(index_path_prefix, &idx_meta, "c1", values, doc_ids, 200);
     }
 
     void test_unicode_string_write(std::string_view rowset_id, int seg_id,
@@ -678,7 +969,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
-        // U+10000 (𐀀) LINEAR B SYLLABLE B008 A
+        // U+10000 (U+10000) LINEAR B SYLLABLE B008 A
         // U+1F600 (😀) GRINNING FACE
         // U+1F914 (🤔) THINKING FACE
         std::vector<Slice> values = {
@@ -689,7 +980,8 @@ public:
                 Slice("regular")      // Duplicate to test frequency
         };
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -790,6 +1082,55 @@ TEST_F(InvertedIndexWriterTest, NumericWrite) {
     test_numeric_write("test_rowset_3", 0);
 }
 
+TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
+    TabletColumn field;
+    field.set_name("dt");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    field.set_is_nullable(true);
+
+    TabletIndexPB index_meta_pb;
+    index_meta_pb.set_index_type(IndexType::INVERTED);
+    index_meta_pb.set_index_id(1);
+    index_meta_pb.set_index_name("test_timestamp_ns");
+    index_meta_pb.add_col_unique_id(0);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_meta_pb);
+
+    const std::string rowset_id = "test_timestamp_ns";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(index_path, &file_writer).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            io::global_local_filesystem(), index_path_prefix, rowset_id, 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(
+            IndexColumnWriter::create(&field, &column_writer, index_file_writer.get(), &index_meta)
+                    .ok());
+    const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                         std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
+    ASSERT_TRUE(column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), 2).ok());
+    ASSERT_TRUE(column_writer->add_nulls(1).ok());
+    ASSERT_TRUE(
+            column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data() + 2), 3).ok());
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+
+    const std::vector<int> doc_ids = {2, 3, 5, 6, 7};
+    const std::vector<int> null_doc_ids = {0, 1, 4, 8, 9};
+    check_bkd_index<TYPE_TIMESTAMP_NS>(index_path_prefix, &index_meta, "dt", values, doc_ids,
+                                       int64_t {0});
+    check_bkd_null_bitmap(index_path_prefix, &index_meta, null_doc_ids);
+}
+
 // Test case for Unicode string values with enable_correct_term_write=true
 TEST_F(InvertedIndexWriterTest, UnicodeStringWriteEnabled) {
     test_unicode_string_write("test_rowset_4", 0, true);
@@ -869,7 +1210,7 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF
-    // U+10000 (𐀀) LINEAR B SYLLABLE B008 A
+    // U+10000 (U+10000) LINEAR B SYLLABLE B008 A
     // U+1F600 (😀) GRINNING FACE
     // U+1F914 (🤔) THINKING FACE
     std::vector<Slice> values = {
@@ -879,10 +1220,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     };
 
     // Add values to both writers
-    status = column_writer_enabled->add_values("c2", values.data(), values.size());
+    status = column_writer_enabled->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                               values.size());
     EXPECT_TRUE(status.ok()) << status;
 
-    status = column_writer_disabled->add_values("c2", values.data(), values.size());
+    status = column_writer_disabled->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                                values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and close both writers
@@ -1021,14 +1364,15 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
 
     // Test with empty values array to trigger certain error paths
     std::vector<Slice> empty_values;
-    status = column_writer->add_values("c2", empty_values.data(), 0);
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(empty_values.data()), 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with very large strings that might trigger ignore_above behavior
     std::vector<Slice> large_values;
     std::string large_string(100000, 'a'); // Very large string
     large_values.push_back(Slice(large_string));
-    status = column_writer->add_values("c2", large_values.data(), large_values.size());
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(large_values.data()),
+                                       large_values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1041,14 +1385,83 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     EXPECT_TRUE(status.ok()) << status;
 }
 
+TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+}
+
+TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_array_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_array_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    const uint64_t offsets[] = {0, 1};
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_array_values(sizeof(Slice),
+                                                     reinterpret_cast<const uint8_t*>(&value),
+                                                     nullptr, offsets, 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+}
+
 // Test case for array values with mixed null and non-null elements
 TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
-    // Create TabletSchema with array column (reference inverted_index_array_test.cpp)
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema_pb.set_keys_type(DUP_KEYS);
-    tablet_schema->init_from_pb(tablet_schema_pb);
-
     TabletColumn array_column;
     array_column.set_name("arr1");
     array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
@@ -1061,7 +1474,6 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     child_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     child_column.set_length(INT_MAX);
     array_column.add_sub_column(child_column);
-    tablet_schema->append_column(array_column);
 
     // Create index meta for array
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -1127,33 +1539,8 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     Block block;
     block.insert(type_and_name);
 
-    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-    convertor.set_source_content(&block, 0, block.rows());
-    auto [st, accessor] = convertor.convert_column_data(0);
-    EXPECT_EQ(st, Status::OK());
-
-    // The conversion result is an array of 4 pointers:
-    //   [0]: Total number of elements (elem_cnt)
-    //   [1]: Offsets array pointer
-    //   [2]: Nested item data pointer
-    //   [3]: Nested nullmap pointer
-    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-    // Get the length of the subfield
-    auto field_size = field_type_size(field->get_sub_column(0).type());
-
-    // Call the inverted index writing interface
-    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
-                                             block.rows());
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Add array nulls
-    const auto* null_map = accessor->get_nullmap();
-    status = column_writer->add_array_nulls(null_map, block.rows());
+    status = feed_array_rows(*column_writer, child_column.type(), *block.get_by_position(0).column,
+                             block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1168,12 +1555,6 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
 
 // Test case for numeric array values with error conditions
 TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
-    // Create TabletSchema with numeric array column (reference inverted_index_array_test.cpp)
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema_pb.set_keys_type(DUP_KEYS);
-    tablet_schema->init_from_pb(tablet_schema_pb);
-
     TabletColumn array_column;
     array_column.set_name("arr_num");
     array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
@@ -1186,7 +1567,6 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     child_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     child_column.set_length(4);
     array_column.add_sub_column(child_column);
-    tablet_schema->append_column(array_column);
 
     // Create index meta for numeric BKD
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -1258,37 +1638,12 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     Block block;
     block.insert(type_and_name);
 
-    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-    convertor.set_source_content(&block, 0, block.rows());
-    auto [st, accessor] = convertor.convert_column_data(0);
-    EXPECT_EQ(st, Status::OK());
-
-    // The conversion result is an array of 4 pointers:
-    //   [0]: Total number of elements (elem_cnt)
-    //   [1]: Offsets array pointer
-    //   [2]: Nested item data pointer
-    //   [3]: Nested nullmap pointer
-    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-    // Get the length of the subfield
-    auto field_size = field_type_size(field->get_sub_column(0).type());
-
-    // Call the inverted index writing interface
-    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
-                                             block.rows());
+    status = feed_array_rows(*column_writer, child_column.type(), *block.get_by_position(0).column,
+                             block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
-    // Add array nulls
-    const auto* null_map = accessor->get_nullmap();
-    status = column_writer->add_array_nulls(null_map, block.rows());
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Test with zero count to trigger specific branch
-    status = column_writer->add_array_values(field_size, item_data, nullptr, offsets_ptr, 0);
+    // A zero-row batch returns before reading its items or offsets.
+    status = column_writer->add_array_values(sizeof(int32_t), nullptr, nullptr, nullptr, 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1299,6 +1654,133 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     EXPECT_TRUE(status.ok()) << status;
     status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
+}
+
+// The array conversion boundary reads the block's whole item column and the
+// index of the batch's first element; the elements before it belong to earlier
+// batches.
+TEST_F(InvertedIndexWriterTest, NumericArrayBatchStartsAtFirstItem) {
+    TabletColumn array_column;
+    array_column.set_name("arr_num");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn child_column;
+    child_column.set_name("arr_sub_int");
+    child_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    child_column.set_length(4);
+    array_column.add_sub_column(child_column);
+
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(0);
+    (*index_meta_pb->mutable_properties())["type"] = "bkd";
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_numeric_array_first_item", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            fs, index_path_prefix, "test_numeric_array_first_item", 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(IndexColumnWriter::create(&array_column, &column_writer, index_file_writer.get(),
+                                          &idx_meta)
+                        .ok());
+
+    // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 4).
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    MutableColumnPtr col = array_type->create_column();
+    for (const auto& row : std::vector<std::vector<int32_t>> {{1, 2}, {3}, {10, 20}, {30}}) {
+        Array arr;
+        for (int32_t value : row) {
+            arr.push_back(Field::create_field<TYPE_INT>(value));
+        }
+        col->insert(Field::create_field<TYPE_ARRAY>(arr));
+    }
+    const auto& col_array = assert_cast<const ColumnArray&>(*col);
+    auto offsets = ColumnOffset64::create();
+    rebase_offsets(col_array.get_offsets(), 2, 2, 0, offsets.get());
+    StorageBuffers buffer;
+    auto status = feed_array_index(column_writer.get(), child_column.type(), col_array.get_data(),
+                                   col_array.get_offsets()[1], *offsets, nullptr, buffer);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+
+    check_bkd_index<TYPE_INT>(index_path_prefix, &idx_meta, "arr_num",
+                              std::vector<int32_t> {10, 20, 30}, {0, 0, 1}, 25);
+}
+
+// A batch's items start at first_item, and their NULL flags are read from there too.
+TEST_F(InvertedIndexWriterTest, StringArrayBatchStartsAtFirstItem) {
+    // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 4).
+    const auto column = string_array_column({{"x", "y"}, {"z"}, {"a", std::nullopt, "b"}, {"c"}});
+    const auto& col_array = assert_cast<const ColumnArray&>(*column);
+    auto offsets = ColumnOffset64::create();
+    rebase_offsets(col_array.get_offsets(), 2, 2, 0, offsets.get());
+
+    const TabletColumn tablet_column = string_array_tablet_column();
+    TabletIndex index_meta;
+    std::string index_path_prefix;
+    write_clucene_keyword_index(
+            tablet_column, "clucene_string_array_first_item", 256,
+            [&](IndexFileWriter* index_file_writer) {
+                std::unique_ptr<IndexColumnWriter> writer;
+                ASSERT_TRUE(IndexColumnWriter::create(&tablet_column, &writer, index_file_writer,
+                                                      &index_meta)
+                                    .ok());
+                StorageBuffers buffer;
+                ASSERT_TRUE(feed_array_index(writer.get(), FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                             col_array.get_data(), col_array.get_offsets()[1],
+                                             *offsets, nullptr, buffer)
+                                    .ok());
+                ASSERT_TRUE(writer->finish().ok());
+            },
+            &index_meta, &index_path_prefix);
+
+    using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
+    EXPECT_EQ(clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta),
+              (Terms {{"a", {0}}, {"b", {0}}, {"c", {1}}}));
+}
+
+TEST_F(InvertedIndexWriterTest, SniiStringArrayBatchStartsAtFirstItem) {
+    // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 4).
+    const auto column = string_array_column({{"x", "y"}, {"z"}, {"a", std::nullopt, "b"}, {"c"}});
+    const auto& col_array = assert_cast<const ColumnArray&>(*column);
+    auto offsets = ColumnOffset64::create();
+    rebase_offsets(col_array.get_offsets(), 2, 2, 0, offsets.get());
+
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            string_array_tablet_column(), "snii_string_array_first_item", 32,
+            [&](IndexColumnWriter* writer) {
+                StorageBuffers buffer;
+                ASSERT_TRUE(feed_array_index(writer, FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                             col_array.get_data(), col_array.get_offsets()[1],
+                                             *offsets, nullptr, buffer)
+                                    .ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "a", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "b", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "c", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {1}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "x", &docids).ok());
+    EXPECT_TRUE(docids.empty());
 }
 
 // Test case for copy file error handling
@@ -1344,7 +1826,8 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
 
     // Add some values to create index files
     std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
-    status = column_writer->add_values("c2", values.data(), values.size());
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                       values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1406,7 +1889,8 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     std::vector<int32_t> values = {std::numeric_limits<int32_t>::min(), 0,
                                    std::numeric_limits<int32_t>::max()};
 
-    status = column_writer->add_values("c1", values.data(), values.size());
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                       values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some nulls to test null handling in BKD
@@ -1466,7 +1950,8 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
 
     // Add some values to ensure files are created
     std::vector<Slice> values = {Slice("test1"), Slice("test2")};
-    status = column_writer->add_values("c2", values.data(), values.size());
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                       values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Force close on error to test error handling paths
@@ -1476,6 +1961,183 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     status = column_writer->finish();
     // The finish might succeed or fail depending on implementation,
     // but it should not crash
+}
+
+TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
+    TabletColumn column;
+    column.set_name("c_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    column.set_length(10);
+    column.set_is_nullable(false);
+
+    std::string padded_value = "abc";
+    padded_value.resize(column.length(), '\0');
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            column, "snii_char_keyword_logical_value", 3,
+            [&](IndexColumnWriter* writer) {
+                const Slice value(padded_value);
+                ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1).ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, padded_value, &docids).ok());
+    EXPECT_TRUE(docids.empty());
+}
+
+TEST_F(InvertedIndexWriterTest, SniiArrayCharKeywordUsesLogicalValue) {
+    TabletColumn array_column;
+    array_column.set_name("c_array_char");
+    array_column.set_unique_id(1);
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column;
+    item_column.set_name("item");
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    item_column.set_length(10);
+    item_column.set_is_nullable(false);
+    array_column.add_sub_column(item_column);
+
+    std::vector<std::string> padded_values {"abc", "xyz"};
+    std::vector<Slice> values;
+    values.reserve(padded_values.size());
+    for (auto& value : padded_values) {
+        value.resize(item_column.length(), '\0');
+        values.emplace_back(value);
+    }
+    const std::vector<uint64_t> offsets {0, values.size()};
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            array_column, "snii_array_char_keyword_logical_value", 3,
+            [&](IndexColumnWriter* writer) {
+                ASSERT_TRUE(
+                        writer->add_array_values(field_type_size(item_column.type()),
+                                                 reinterpret_cast<const uint8_t*>(values.data()),
+                                                 nullptr, offsets.data(), 1)
+                                .ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "xyz", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+}
+
+TEST_F(InvertedIndexWriterTest, SniiVarcharKeywordPreservesNulBytes) {
+    TabletColumn column;
+    column.set_name("c_varchar");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    column.set_length(32);
+    column.set_is_nullable(false);
+
+    const std::string value_with_nul("abc\0tail", 8);
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            column, "snii_varchar_keyword_preserves_nul", 32,
+            [&](IndexColumnWriter* writer) {
+                const Slice value(value_with_nul);
+                ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1).ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, value_with_nul, &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_TRUE(docids.empty());
+}
+
+// A column writer pads CHAR to its length before the index sees it, so a CHAR(4) value is
+// held to ignore_above as 4 bytes, whatever its own length; its term reads back up to its
+// first '\0'. The value under a NULL is longer than the CHAR, as load lets it be, and is not
+// read.
+TEST_F(InvertedIndexWriterTest, ColumnWriterIndexesCharPaddedToItsLength) {
+    TabletColumn column;
+    column.set_name("c_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    column.set_length(4);
+    column.set_is_nullable(true);
+    auto values = ColumnString::create();
+    for (const std::string value : {"ab", "longer than four", "cd", "efgh"}) {
+        values->insert_data(value.data(), value.size());
+    }
+    auto null_map = ColumnUInt8::create();
+    for (const uint8_t is_null : {0, 1, 0, 0}) {
+        null_map->insert_value(is_null);
+    }
+    const auto rows = ColumnNullable::create(std::move(values), std::move(null_map));
+
+    using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
+    auto terms = [&](uint32_t ignore_above) {
+        const std::string rowset_id = fmt::format("clucene_char_padded_{}", ignore_above);
+        TabletIndex index_meta;
+        std::string index_path_prefix;
+        write_clucene_keyword_index(
+                column, rowset_id, ignore_above,
+                [&](IndexFileWriter* index_file_writer) {
+                    write_through_column_writer(column, char_column_meta(0, 4), rowset_id, *rows,
+                                                {{0, 1}, {1, 2}, {3, 1}}, index_file_writer,
+                                                &index_meta);
+                },
+                &index_meta, &index_path_prefix);
+        return clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta);
+    };
+    EXPECT_EQ(terms(4), (Terms {{"ab", {0}}, {"cd", {2}}, {"efgh", {3}}}));
+    EXPECT_EQ(terms(3), Terms {});
+}
+
+// The items of an ARRAY<CHAR> are padded once for the item writer and the index, from the
+// batch's first item on.
+TEST_F(InvertedIndexWriterTest, ArrayColumnWriterIndexesCharItemsPaddedToTheirLength) {
+    TabletColumn column;
+    column.set_name("c_array_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(false);
+    TabletColumn item_column;
+    item_column.set_name("item");
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    item_column.set_length(4);
+    item_column.set_is_nullable(true);
+    column.add_sub_column(item_column);
+    ColumnMetaPB meta;
+    meta.set_column_id(0);
+    meta.set_unique_id(1);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(segment_v2::CompressionTypePB::LZ4F);
+    meta.set_is_nullable(false);
+    *meta.add_children_columns() = char_column_meta(1, 4);
+    const auto rows = string_array_column({{"x"}, {"ab", std::nullopt}, {"abcd"}});
+
+    using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
+    auto terms = [&](uint32_t ignore_above) {
+        const std::string rowset_id = fmt::format("clucene_array_char_padded_{}", ignore_above);
+        TabletIndex index_meta;
+        std::string index_path_prefix;
+        write_clucene_keyword_index(
+                column, rowset_id, ignore_above,
+                [&](IndexFileWriter* index_file_writer) {
+                    write_through_column_writer(column, meta, rowset_id, *rows, {{0, 1}, {1, 2}},
+                                                index_file_writer, &index_meta);
+                },
+                &index_meta, &index_path_prefix);
+        return clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta);
+    };
+    EXPECT_EQ(terms(4), (Terms {{"ab", {1}}, {"abcd", {2}}, {"x", {0}}}));
+    EXPECT_EQ(terms(3), Terms {});
 }
 
 // Test case to verify .nrm file creation behavior with different tokenization settings
@@ -1542,6 +2204,100 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
             << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
             << "because setOmitNorms(false) is not called. This validates the fix in "
             << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
+}
+
+// Norms take one byte per segment row for every indexed path, so an index on a variant path (a
+// field_pattern index, or the copy inherited by one extracted subcolumn, which carries the path as
+// its index suffix) writes none by default. The "norms" property overrides that per index.
+TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
+    auto make_index_meta = [](const std::string& index_suffix,
+                              const std::map<std::string, std::string>& extra_properties) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1); // c2 column id
+        (*index_meta_pb.mutable_properties())["parser"] = "standard";
+        for (const auto& [key, value] : extra_properties) {
+            (*index_meta_pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_meta_pb);
+        if (!index_suffix.empty()) {
+            index_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
+        return index_meta;
+    };
+    auto path_prefix = [this](const std::string& rowset_id, int seg_id) {
+        return std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+    };
+
+    bool original_skip_norms_for_variant = config::inverted_index_skip_norms_for_variant;
+
+    // an analyzed index writes norms wherever it sits, and only "norms" = "false" drops them
+    config::inverted_index_skip_norms_for_variant = false;
+
+    create_tokenized_index("plain_column_default", 0, true, "");
+    TabletIndex plain_default = make_index_meta("", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("plain_column_default", 0), &plain_default))
+            << "an analyzed index must write .nrm by default";
+
+    create_tokenized_index("plain_column_norms_off", 1, true, "", {{"norms", "false"}});
+    TabletIndex plain_norms_off = make_index_meta("", {{"norms", "false"}});
+    EXPECT_FALSE(
+            check_norms_file_exists(path_prefix("plain_column_norms_off", 1), &plain_norms_off))
+            << "norms = false must drop .nrm for an ordinary column index";
+
+    create_tokenized_index("variant_subcolumn_default", 2, true, "v.s_host");
+    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 2),
+                                        &subcolumn_default))
+            << "a variant subcolumn index must write .nrm by default too";
+
+    create_tokenized_index("variant_subcolumn_norms_off", 3, true, "v.s_host",
+                           {{"norms", "false"}});
+    TabletIndex subcolumn_norms_off = make_index_meta("v.s_host", {{"norms", "false"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_off", 3),
+                                         &subcolumn_norms_off))
+            << "norms = false must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_default", 4, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("field_pattern_default", 4),
+                                        &field_pattern_default))
+            << "a field_pattern index must write .nrm by default too";
+
+    // the config drops norms for a variant path index whatever its property says, and leaves every
+    // other index alone
+    config::inverted_index_skip_norms_for_variant = true;
+
+    create_tokenized_index("variant_subcolumn_skipped", 5, true, "v.s_host");
+    TabletIndex subcolumn_skipped = make_index_meta("v.s_host", {});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_skipped", 5),
+                                         &subcolumn_skipped))
+            << "the config must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("variant_subcolumn_norms_on_skipped", 6, true, "v.s_host",
+                           {{"norms", "true"}});
+    TabletIndex subcolumn_norms_on_skipped = make_index_meta("v.s_host", {{"norms", "true"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on_skipped", 6),
+                                         &subcolumn_norms_on_skipped))
+            << "the config must win over norms = true on a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_skipped", 7, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_skipped = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_skipped", 7),
+                                         &field_pattern_skipped))
+            << "the config must drop .nrm for a field_pattern index";
+
+    create_tokenized_index("plain_column_not_skipped", 8, true, "");
+    TabletIndex plain_not_skipped = make_index_meta("", {});
+    EXPECT_TRUE(
+            check_norms_file_exists(path_prefix("plain_column_not_skipped", 8), &plain_not_skipped))
+            << "the config must leave an ordinary column index alone";
+
+    config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 } // namespace doris::segment_v2

@@ -26,9 +26,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -89,14 +89,14 @@ public class TableAddOrDropColumnsInfoTest {
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo2 = GsonUtils.GSON.fromJson(readJson,
                 TableAddOrDropColumnsInfo.class);
 
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getDbId(), tableAddOrDropColumnsInfo2.getDbId());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getTableId(), tableAddOrDropColumnsInfo2.getTableId());
-        Assert.assertEquals(tableAddOrDropColumnsInfo1.getIndexSchemaMap(),
+        Assertions.assertEquals(tableAddOrDropColumnsInfo1.getDbId(), tableAddOrDropColumnsInfo2.getDbId());
+        Assertions.assertEquals(tableAddOrDropColumnsInfo1.getTableId(), tableAddOrDropColumnsInfo2.getTableId());
+        Assertions.assertEquals(tableAddOrDropColumnsInfo1.getIndexSchemaMap(),
                 tableAddOrDropColumnsInfo2.getIndexSchemaMap());
 
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();

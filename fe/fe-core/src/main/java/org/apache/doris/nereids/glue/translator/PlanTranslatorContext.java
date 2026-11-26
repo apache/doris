@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -111,6 +112,18 @@ public class PlanTranslatorContext {
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
+
     // Per-node "is there a serial operator between me and the pipeline's sink" flag.
     // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
     // _add_local_exchange / need_to_local_exchange to skip LE insertion when an ancestor
@@ -120,6 +133,12 @@ public class PlanTranslatorContext {
     // skip) and by child overrides that compute their require.  Reset to false at fragment
     // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
     private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Per-node "does this pipeline have a serial parent pipeline" flag. Mirrors BE's
+    // Pipeline::num_tasks_of_parent() gate in _add_local_exchange: a pipeline whose parent
+    // has one task must not be split by another local exchange, because that would raise only
+    // the new source side to N tasks while the paired sink/source operators stay one-to-one.
+    private final Map<PlanNodeId, Boolean> serialParentPipelineMap = Maps.newHashMap();
 
     // Per-node "is there a downstream operator that depends on hash distribution for
     // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
@@ -153,27 +172,22 @@ public class PlanTranslatorContext {
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
-        this.connectContext = ctx.getConnectContext();
-        this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
-        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
-        this.topnFilterContext = ctx.getTopnFilterContext();
-        this.descTable = new DescriptorTable();
+        this(ctx, new DescriptorTable());
     }
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
+        ScanContext.Builder scanContextBuilder = ScanContext.builder();
+        if (statementContext.hasBeExecVersion()) {
+            scanContextBuilder.beExecVersion(statementContext.getBeExecVersion());
+        }
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            scanContextBuilder.clusterName(
+                    connectContext.getSessionVariable().resolveCloudClusterName(connectContext));
+        }
+        this.scanContext = scanContextBuilder.build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.descTable = descTable;
@@ -184,12 +198,22 @@ public class PlanTranslatorContext {
      */
     @VisibleForTesting
     public PlanTranslatorContext() {
+        this(Config.be_exec_version);
+    }
+
+    @VisibleForTesting
+    PlanTranslatorContext(int beExecVersion) {
         this.connectContext = null;
         this.statementContext = new StatementContext();
-        this.scanContext = ScanContext.EMPTY;
+        this.statementContext.initializeBeExecVersion(beExecVersion);
+        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         this.descTable = new DescriptorTable();
+    }
+
+    public int getBeExecVersion() {
+        return statementContext.getBeExecVersion();
     }
 
     /**
@@ -280,6 +304,14 @@ public class PlanTranslatorContext {
         return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
     }
 
+    public void setHasSerialParentPipeline(PlanNode node, boolean value) {
+        serialParentPipelineMap.put(node.getId(), value);
+    }
+
+    public boolean hasSerialParentPipeline(PlanNode node) {
+        return serialParentPipelineMap.getOrDefault(node.getId(), false);
+    }
+
     public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
         shuffledAncestorMap.put(node.getId(), value);
     }
@@ -323,6 +355,35 @@ public class PlanTranslatorContext {
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
+    }
+
+    /**
+     * A distribute is an exchange boundary: the plan below it is translated into fragments
+     * of its own, so a fragment-merging ancestor (join / set operation / recursive union)
+     * cannot absorb a scan that sits below the exchange. Clears the fragment-merge child
+     * context while the child of the distribute is translated and returns the previous
+     * depth, which {@link #exitExchangeBoundary(int)} restores.
+     */
+    public int enterExchangeBoundary() {
+        int savedDepth = fragmentMergeChildDepth;
+        fragmentMergeChildDepth = 0;
+        return savedDepth;
+    }
+
+    public void exitExchangeBoundary(int savedDepth) {
+        fragmentMergeChildDepth = savedDepth;
     }
 
     /**

@@ -36,12 +36,18 @@ public class LogicalConnectorTableSinkToPhysicalConnectorTableSink extends OneIm
             return new PhysicalConnectorTableSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
+                    sink.getBoundTargetSchema(),
+                    sink.getBoundPartitionColumns(),
+                    sink.getBoundWriteMetadataIdentity(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,
                     null,
+                    sink.isRewrite(),
+                    sink.getDmlCommandType(),
+                    sink.hasRowOperationColumn(),
                     sink.child());
         }).toRule(RuleType.LOGICAL_CONNECTOR_TABLE_SINK_TO_PHYSICAL_CONNECTOR_TABLE_SINK_RULE);
     }

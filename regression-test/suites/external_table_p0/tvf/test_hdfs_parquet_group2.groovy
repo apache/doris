@@ -25,7 +25,12 @@ suite("test_hdfs_parquet_group2", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
+            // Pin the display timezone so the golden results do not depend on the FE default.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/decimal32-written-as-64-bit.snappy.parquet"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -194,6 +199,7 @@ suite("test_hdfs_parquet_group2", "p0,external") {
                         "format" = "parquet") limit 10; """
 
 
+            // V2 schema discovery honors logical annotations instead of exposing raw BYTE_ARRAY.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/parquet-thrift-compat.snappy.parquet"
             order_qt_test_24 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -282,11 +288,13 @@ suite("test_hdfs_parquet_group2", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/before_1582_timestamp_int96_dict_v2_4_6.snappy.parquet"
+            // The fixture stores the golden's INT96 wall-clock values; a catalog timezone would shift them.
             order_qt_test_36 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

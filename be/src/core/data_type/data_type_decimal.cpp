@@ -22,6 +22,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <streamvbyte.h>
 #include <sys/types.h>
 
@@ -35,11 +36,6 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "core/string_buffer.hpp"
 #include "core/typeid_cast.h"
 #include "core/types.h"
@@ -49,61 +45,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-
-DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
-    auto transform = [&](DataTypePtr t) -> DataTypePtr {
-        if (t->get_primitive_type() == PrimitiveType::TYPE_DECIMALV2) {
-            auto not_nullable_t = remove_nullable(t);
-            const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(not_nullable_t.get());
-            // should keep the original precision and scale
-            DataTypePtr res = std::make_shared<DataTypeDecimalV2>(
-                    BeConsts::MAX_DECIMALV2_PRECISION, BeConsts::MAX_DECIMALV2_SCALE,
-                    real_type_t->get_original_precision(), real_type_t->get_original_scale());
-
-            // keep nullable property
-            if (t->is_nullable()) {
-                res = make_nullable(res);
-            }
-
-            DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
-
-            return res;
-        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY) {
-            return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
-        } else {
-            return t;
-        }
-    };
-    // FIXME(gabriel): DECIMALV2 should be processed in a more general way.
-    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-        auto nested = std::make_shared<DataTypeArray>(get_data_type_with_default_argument(
-                assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type()));
-        return type->is_nullable() ? make_nullable(nested) : nested;
-    } else if (type->get_primitive_type() == PrimitiveType::TYPE_MAP) {
-        auto nested = std::make_shared<DataTypeMap>(
-                get_data_type_with_default_argument(
-                        assert_cast<const DataTypeMap*>(remove_nullable(type).get())
-                                ->get_key_type()),
-                get_data_type_with_default_argument(
-                        assert_cast<const DataTypeMap*>(remove_nullable(type).get())
-                                ->get_value_type()));
-        return type->is_nullable() ? make_nullable(nested) : nested;
-    } else if (type->get_primitive_type() == PrimitiveType::TYPE_STRUCT) {
-        std::vector<DataTypePtr> data_types;
-        std::vector<std::string> names;
-        const auto* type_struct = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        data_types.reserve(type_struct->get_elements().size());
-        names.reserve(type_struct->get_elements().size());
-        for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
-            data_types.push_back(get_data_type_with_default_argument(type_struct->get_element(i)));
-            names.push_back(type_struct->get_element_name(i));
-        }
-        auto nested = std::make_shared<DataTypeStruct>(data_types, names);
-        return type->is_nullable() ? make_nullable(nested) : nested;
-    } else {
-        return transform(type);
-    }
-}
 
 template <PrimitiveType T>
 std::string DataTypeDecimal<T>::do_get_name() const {
@@ -274,6 +215,14 @@ FieldWithDataType DataTypeDecimal<T>::get_field_with_data_type(const IColumn& co
 }
 
 /// Explicit template instantiations.
+
+template <PrimitiveType T>
+void DataTypeDecimal<T>::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                     PScalarType* scalar_type) const {
+    scalar_type->set_precision(precision);
+    scalar_type->set_scale(scale);
+}
+
 template class DataTypeDecimal<TYPE_DECIMAL32>;
 template class DataTypeDecimal<TYPE_DECIMAL64>;
 template class DataTypeDecimal<TYPE_DECIMALV2>;

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -75,6 +77,9 @@ public class TableScanParams {
         if (!VALID_OLAP_TABLE_STREAM_PARAM_TYPES.contains(paramType)) {
             throw new IllegalArgumentException("Invalid param type for olap table stream : " + paramType);
         }
+        if (!mapParams.isEmpty() || !listParams.isEmpty()) {
+            throw new AnalysisException(paramType + " does not accept parameters");
+        }
     }
 
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
@@ -118,6 +123,16 @@ public class TableScanParams {
 
     public Optional<Map<String, String>> getResolvedMapParams() {
         return Optional.ofNullable(resolvedMapParams);
+    }
+
+    public synchronized void reuseResolvedMapParams(Map<String, String> canonicalParams) {
+        Map<String, String> immutableParams = ImmutableMap.copyOf(canonicalParams);
+        // Aliases sharing one MVCC key must also share its dynamic selector; otherwise the cached
+        // snapshot and the later scan can silently resolve different external snapshots.
+        if (resolvedMapParams != null && !resolvedMapParams.equals(immutableParams)) {
+            throw new IllegalStateException("Conflicting resolved table scan parameters");
+        }
+        resolvedMapParams = immutableParams;
     }
 
     public synchronized void resetResolvedMapParams() {

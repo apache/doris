@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -80,6 +81,17 @@ import java.util.stream.Collectors;
  * Test for PushDownVirtualColumnsIntoOlapScan rule.
  */
 public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchSupported {
+
+    @Test
+    void testTimeStampNsVirtualColumnTypeIsSupported() throws Exception {
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        Method typeCheckMethod = rule.getClass()
+                .getDeclaredMethod("isSupportedVirtualColumnType", Expression.class);
+        typeCheckMethod.setAccessible(true);
+
+        SlotReference timestampNs = new SlotReference("ts", TimeStampNsType.INSTANCE, true);
+        Assertions.assertTrue((boolean) typeCheckMethod.invoke(rule, timestampNs));
+    }
 
     @Test
     public void testExtractRepeatedSubExpressions() {

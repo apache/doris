@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
@@ -27,13 +28,16 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.Optional;
 
 /**
  * explain command.
@@ -79,48 +83,61 @@ public class ExplainCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LogicalPlan explainPlan;
         if (!(logicalPlan instanceof Explainable)) {
             throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
         }
+        ConnectContext previousCtx = ConnectContext.get();
         Explainable explainable = (Explainable) logicalPlan;
-        if (explainable instanceof InsertIntoTableCommand
-                || explainable instanceof InsertOverwriteTableCommand
-                || explainable instanceof UpdateCommand) {
-            ctx.getStatementContext().setIsInsert(true);
-        }
-        if (explainable instanceof DeleteFromCommand) {
-            ctx.getStatementContext().setIsDelete(true);
-        }
-        explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
-        NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
-            new NereidsPlanner(ctx.getStatementContext())
-        );
-
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ConnectContext explainCtx = null;
+        long previousTargetTableId = -1;
         boolean resetTargetTableId = false;
-        if (explainPlan instanceof LogicalIcebergDeleteSink) {
-            if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
-                resetTargetTableId = true;
-            }
-        } else if (explainPlan instanceof LogicalIcebergMergeSink) {
-            if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
-                resetTargetTableId = true;
-            }
-        }
         try {
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
+            explainCtx = explainable.getExplainConnectContext(ctx);
+            if (explainCtx != ctx) {
+                // A context of its own (EXPLAIN REFRESH MATERIALIZED VIEW plans on an MTMV context) is a statement
+                // of its own, which the cleanup at the end of this one does not reach. Give it a query id for its
+                // scans to register their query-finish cleanup under, which the finally below runs: without one
+                // they register under "" (ConnectorSessionBuilder), a key every such context shares.
+                explainCtx.setQueryId(UniqueIdUtils.fastUniqueId());
+            }
+            if (explainable instanceof InsertIntoTableCommand
+                    || explainable instanceof InsertOverwriteTableCommand
+                    || explainable instanceof UpdateCommand) {
+                explainCtx.getStatementContext().setIsInsert(true);
+            }
+            if (explainable instanceof DeleteFromCommand) {
+                explainCtx.getStatementContext().setIsDelete(true);
+            }
+            LogicalPlan explainPlan = ((LogicalPlan) explainable.getExplainPlan(explainCtx));
+            Optional<NereidsPlanner> explainPlanner =
+                    explainable.getExplainPlanner(explainPlan, explainCtx.getStatementContext());
+            NereidsPlanner planner = explainPlanner.isPresent()
+                    ? explainPlanner.get()
+                    : new NereidsPlanner(explainCtx.getStatementContext());
+
+            previousTargetTableId = explainCtx.getSyntheticWriteColTargetTableId();
+            if (explainPlan instanceof LogicalExternalRowLevelDeleteSink) {
+                if (previousTargetTableId < 0) {
+                    explainCtx.setSyntheticWriteColTargetTableId(
+                            ((LogicalExternalRowLevelDeleteSink<?>) explainPlan).getTargetTable().getId());
+                    resetTargetTableId = true;
+                }
+            } else if (explainPlan instanceof LogicalExternalRowLevelMergeSink) {
+                if (previousTargetTableId < 0) {
+                    explainCtx.setSyntheticWriteColTargetTableId(
+                            ((LogicalExternalRowLevelMergeSink<?>) explainPlan).getTargetTable().getId());
+                    resetTargetTableId = true;
+                }
+            }
+            LogicalPlanAdapter logicalPlanAdapter =
+                    new LogicalPlanAdapter(explainPlan, explainCtx.getStatementContext());
             ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
             logicalPlanAdapter.setIsExplain(explainOptions);
             executor.setParsedStmt(logicalPlanAdapter);
-            if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+            if (explainCtx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                explainCtx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
-            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
             executor.setPlanner(planner);
             // Skip SQL block rules check for EXPLAIN statements since they only show
             // the execution plan without actually executing the query
@@ -133,9 +150,32 @@ public class ExplainCommand extends Command implements NoForward {
                 scanNode.stop();
             }
         } finally {
-            if (resetTargetTableId) {
-                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            try {
+                if (resetTargetTableId) {
+                    explainCtx.setSyntheticWriteColTargetTableId(previousTargetTableId);
+                }
+                if (explainCtx != null && explainCtx != ctx) {
+                    closeExplainConnectContext(explainCtx);
+                }
+            } finally {
+                if (ConnectContext.get() != previousCtx) {
+                    ConnectContext.remove();
+                    if (previousCtx != null) {
+                        previousCtx.setThreadLocalInfo();
+                    }
+                }
             }
+        }
+    }
+
+    // Ends the statement of an explain context of its own as MTMVTask ends a refresh's: runs the query-finish
+    // cleanup its scans registered (which stops their split producers and closes their connector scope), then
+    // closes its statement context. It has no coordinator, so only the callbacks are left to finish.
+    private static void closeExplainConnectContext(ConnectContext explainCtx) {
+        try {
+            QeProcessorImpl.INSTANCE.finishQueryCallbacks(explainCtx.queryId());
+        } finally {
+            explainCtx.getStatementContext().close();
         }
     }
 

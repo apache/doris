@@ -109,7 +109,7 @@ public class AlterLightSchChangeHelper {
         Map<Long, Map<Long, Set<Long>>> beIdToRequestInfo = new HashMap<>();
         final Collection<Partition> partitions = olapTable.getAllPartitions();
         for (Partition partition : partitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     buildParams(index.getId(), tablet, beIdToRequestInfo);
                 }

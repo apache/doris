@@ -5,12 +5,6 @@ v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2","variant_enable_typed
 v.a	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
--- !sql_2 --
-k	bigint	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
-v.a	bigint	Yes	false	\N	NONE
-v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
-
 -- !sql_3 --
 k	bigint	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE

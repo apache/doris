@@ -19,18 +19,21 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
@@ -60,16 +63,42 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         && expression.child(1).isLiteral());
     }
 
-    private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
-        if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
+    @VisibleForTesting
+    boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (!connectContext.getSessionVariable().isEnableShortCircuitQuery()) {
+            return false;
+        }
+        // A protocol whose client pulls the result from the backend has no result to pull for a
+        // short circuit (see FlightProtocolAdapter.supportsShortCircuitPointQuery). This has to be
+        // decided here at plan time rather than when picking the executor: OlapScanNode.computeTabletInfo
+        // and several rewrite and property rules read StatementContext.isShortCircuitQuery() while
+        // building the plan. See #67368.
+        if (!connectContext.getProtocolAdapter().supportsShortCircuitPointQuery()) {
+            return false;
+        }
+        // Lazy point-query pruning does not preserve explicit PARTITION/TABLET restrictions.
+        // Keep these queries on the normal execution path so the physical scan enforces them.
+        if (!olapScan.getManuallySpecifiedPartitions().isEmpty()
+                || !olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
             return false;
         }
         OlapTable olapTable = olapScan.getTable();
-        if (olapTable.hasVariantColumns()) {
+        // Remote Doris metadata refresh replaces the RemoteOlapTable instance. A prepared context retains the old
+        // instance, so its table-local topology version cannot observe remote partition changes.
+        if (olapTable instanceof RemoteOlapTable) {
+            return false;
+        }
+        if (olapTable.hasVariantColumns() || olapTable.hasRowTtl()) {
             return false;
         }
         return olapTable.getEnableLightSchemaChange() && olapTable.getEnableUniqueKeyMergeOnWrite()
                         && olapTable.storeRowColumn();
+    }
+
+    // Queries reading hidden columns do not use the short circuit.
+    private boolean readsHiddenColumn(Set<Slot> slots) {
+        return slots.stream().anyMatch(slot -> !((SlotReference) slot).isVisible());
     }
 
     // set short circuit flag and return the original plan
@@ -96,7 +125,8 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                 RuleType.SHOR_CIRCUIT_POINT_QUERY.build(
                         logicalResultSink(logicalProject(logicalFilter(logicalOlapScan()
                             .when(this::scanMatchShortCircuitCondition)
-                    ).when(this::filterMatchShortCircuitCondition)))
+                    ).when(this::filterMatchShortCircuitCondition))
+                        .when(project -> !readsHiddenColumn(project.getInputSlots())))
                         .thenApply(ctx -> {
                             return shortCircuit(ctx.root, ctx.root.child().child().child().getTable(),
 
@@ -106,6 +136,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         logicalResultSink(logicalFilter(logicalOlapScan()
                                 .when(this::scanMatchShortCircuitCondition)
                         ).when(this::filterMatchShortCircuitCondition))
+                                .when(sink -> !readsHiddenColumn(sink.getInputSlots()))
                                 .thenApply(ctx -> {
                                     return shortCircuit(ctx.root, ctx.root.child().child().getTable(),
                                             ctx.root.child().getConjuncts(), ctx.statementContext);

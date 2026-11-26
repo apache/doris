@@ -23,6 +23,7 @@
 #include <ctype.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <string.h>
 
@@ -245,6 +246,19 @@ size_t DataTypeStruct::get_size_of_value_in_memory() const {
         res += elem->get_size_of_value_in_memory();
     }
     return res;
+}
+
+void DataTypeStruct::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                 PScalarType* scalar_type) const {
+    node->set_type(TTypeNodeType::STRUCT);
+    for (size_t i = 0; i < elems.size(); ++i) {
+        auto field = node->add_struct_fields();
+        field->set_name(get_element_name(i));
+        field->set_contains_null(elems[i]->is_nullable());
+    }
+    for (const auto& child : elems) {
+        child->to_protobuf(ptype);
+    }
 }
 
 } // namespace doris

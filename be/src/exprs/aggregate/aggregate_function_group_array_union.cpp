@@ -36,7 +36,7 @@ AggregateFunctionPtr create_aggregate_function_group_array_union(
     }
     return create_aggregate_function_group_array_impl<GroupArrayNumericUnionData,
                                                       GroupArrayStringUnionData>(
-            {argument_type}, result_is_nullable, attr);
+            argument_types, result_is_nullable, attr);
 }
 
 } // namespace doris

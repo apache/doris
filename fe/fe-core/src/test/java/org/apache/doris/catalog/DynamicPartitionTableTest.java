@@ -30,25 +30,24 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.apache.logging.log4j.Level;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -70,40 +69,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.TreeMap;
-import java.util.UUID;
 
-public class DynamicPartitionTableTest {
-    private static String runningDir = "fe/mocked/DynamicPartitionTableTest/" + UUID.randomUUID().toString() + "/";
+public class DynamicPartitionTableTest extends TestWithFeService {
 
-    private static ConnectContext connectContext;
-
-    @Rule
-    public ExpectedException expectedException = ExpectedException.none();
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
         Config.disable_storage_medium_check = true;
         Config.dynamic_partition_enable = false; // disable auto create dynamic partition
-
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        // create database
-        String createDbStmtStr = "create database test;";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
     }
 
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
     }
 
     private static void changeBeDisk(TStorageMedium storageMedium) throws UserException {
@@ -115,7 +94,7 @@ public class DynamicPartitionTableTest {
         }
     }
 
-    private static void createTable(String sql) throws Exception {
+    private void createTableStmt(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -124,12 +103,105 @@ public class DynamicPartitionTableTest {
         }
     }
 
-    private static void alterTable(String sql) throws Exception {
+    private void alterTable(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof AlterTableCommand) {
             ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    private void setDynamicPartitionDropProtection(boolean enabled) throws DdlException {
+        VariableMgr.setGlobalSessionVariableForImage(
+                SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, Boolean.toString(enabled));
+    }
+
+    @Test
+    public void testDynamicPartitionDropProtection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_drop_protection` (\n"
+                + "  `k1` date NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE (`k1`) ()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"false\",\n"
+                + "\"dynamic_partition.start\" = \"-1\",\n"
+                + "\"dynamic_partition.end\" = \"1\",\n"
+                + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + ");";
+        createTableStmt(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_drop_protection");
+        alterTable("ALTER TABLE test.dynamic_partition_drop_protection ADD PARTITION p_old "
+                + "VALUES [('2000-01-01'), ('2000-01-02'))");
+
+        try {
+            setDynamicPartitionDropProtection(true);
+            alterTable("ALTER TABLE test.dynamic_partition_drop_protection SET "
+                    + "('dynamic_partition.enable' = 'true')");
+            try (TestLogAppender appender = TestLogAppender.attach(DynamicPartitionScheduler.class, Level.WARN)) {
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
+                        .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+                Assertions.assertTrue(appender.contains(Level.WARN,
+                        "table [" + table.getId() + "-" + table.getName()
+                                + "] because global session variable '"
+                                + SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION + "' is enabled"));
+            }
+
+            Assertions.assertTrue(table.getPartitionNames().contains("p_old"));
+            Assertions.assertTrue(table.getPartitionNames().size() > 1,
+                    "Dynamic partition creation should continue while drop protection is enabled");
+
+            setDynamicPartitionDropProtection(false);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assertions.assertFalse(table.getPartitionNames().contains("p_old"));
+        } finally {
+            setDynamicPartitionDropProtection(false);
+        }
+    }
+
+    @Test
+    public void testAutoPartitionRetentionDropProtection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`auto_partition_drop_protection` (\n"
+                + "  `k1` datetime NOT NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(k1, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"partition.retention_count\" = \"1\"\n"
+                + ");";
+        createTableStmt(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("auto_partition_drop_protection");
+        alterTable("ALTER TABLE test.auto_partition_drop_protection ADD PARTITION p_old "
+                + "VALUES [('2000-01-01'), ('2000-01-02'))");
+        alterTable("ALTER TABLE test.auto_partition_drop_protection ADD PARTITION p_new "
+                + "VALUES [('2020-01-01'), ('2020-01-02'))");
+
+        try {
+            setDynamicPartitionDropProtection(true);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assertions.assertTrue(table.getPartitionNames().contains("p_old"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_new"));
+
+            setDynamicPartitionDropProtection(false);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assertions.assertFalse(table.getPartitionNames().contains("p_old"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_new"));
+        } finally {
+            setDynamicPartitionDropProtection(false);
         }
     }
 
@@ -148,11 +220,11 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.start\" = \"-3\",\n" + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n" + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n" + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_normal");
-        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
+        Assertions.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
 
         // test only set dynamic_partition.replication_num
         createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal2` (\n"
@@ -174,7 +246,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.start\" = \"-3\"\n"
                 + ");\n"
                 + "\n";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
     }
 
     @Test
@@ -203,9 +275,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.prefix properties");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Must assign dynamic_partition.prefix properties",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -234,9 +306,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.time_unit properties");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Must assign dynamic_partition.time_unit properties",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -265,7 +337,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
     }
 
     @Test
@@ -294,9 +366,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.end properties");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Must assign dynamic_partition.end properties",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -325,11 +397,10 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_miss_buckets");
-        Assert.assertEquals("Default buckets should come from table distribution (BUCKETS 32)",
-                32, table.getTableProperty().getDynamicPartitionProperty().getBuckets());
+        Assertions.assertEquals(32, table.getTableProperty().getDynamicPartitionProperty().getBuckets(), "Default buckets should come from table distribution (BUCKETS 32)");
     }
 
     @Test
@@ -353,9 +424,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Only support dynamic partition properties on range partition table");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Only support dynamic partition properties on range partition table",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -385,9 +456,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Dynamic partition only support single-column range partition");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Dynamic partition only support single-column range partition",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -417,13 +488,11 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"3\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_miss_time_zone");
         String expectedTz = TimeUtils.getSystemTimeZone().getID();
-        Assert.assertEquals("Default timezone should be system timezone",
-                expectedTz,
-                table.getTableProperty().getDynamicPartitionProperty().getTimeZone().getID());
+        Assertions.assertEquals(expectedTz, table.getTableProperty().getDynamicPartitionProperty().getTimeZone().getID(), "Default timezone should be system timezone");
     }
 
     @Test
@@ -454,7 +523,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
     }
 
     @Test
@@ -485,9 +554,9 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_zone\" = \"invalid\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Unknown or incorrect time zone: 'invalid'");
-        createTable(createOlapTblStmt);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Unknown or incorrect time zone: 'invalid'",
+                () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -507,17 +576,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.start\" = \"-3\",\n" + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n" + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\",\n" + "\"dynamic_partition.replication_num\" = \"1\"\n" + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
-        Assert.assertEquals(1,
+        Assertions.assertEquals(1,
                 table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
 
         String alter1 =
                 "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '0')";
         ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alter1));
-        Assert.assertEquals(1,
+        Assertions.assertEquals(1,
                 table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 
@@ -544,11 +613,11 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("empty_dynamic_partition");
-        Assert.assertTrue(emptyDynamicTable.getAllPartitions().size() == 4);
+        Assertions.assertTrue(emptyDynamicTable.getAllPartitions().size() == 4);
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         List<String> partNames = Lists.newArrayList();
@@ -569,9 +638,9 @@ public class DynamicPartitionTableTest {
             calendar.add(calendar.DATE, partitionCount);
             date = calendar.getTime();
 
-            Assert.assertEquals(partitionDate.getYear(), date.getYear());
-            Assert.assertEquals(partitionDate.getMonth(), date.getMonth());
-            Assert.assertEquals(partitionDate.getDay(), date.getDay());
+            Assertions.assertEquals(partitionDate.getYear(), date.getYear());
+            Assertions.assertEquals(partitionDate.getMonth(), date.getMonth());
+            Assertions.assertEquals(partitionDate.getDay(), date.getDay());
 
             partitionCount++;
         }
@@ -601,11 +670,11 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("histo_dynamic_partition");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         List<String> partNames = Lists.newArrayList();
@@ -626,15 +695,15 @@ public class DynamicPartitionTableTest {
             calendar.add(calendar.DATE, partitionCount);
             date = calendar.getTime();
 
-            Assert.assertEquals(partitionDate.getYear(), date.getYear());
-            Assert.assertEquals(partitionDate.getMonth(), date.getMonth());
-            Assert.assertEquals(partitionDate.getDay(), date.getDay());
+            Assertions.assertEquals(partitionDate.getYear(), date.getYear());
+            Assertions.assertEquals(partitionDate.getMonth(), date.getMonth());
+            Assertions.assertEquals(partitionDate.getDay(), date.getDay());
 
             partitionCount++;
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testFillHistoryDynamicPartition2() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`histo_dynamic_partition2` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
@@ -660,7 +729,7 @@ public class DynamicPartitionTableTest {
                 + ");";
         // exceed the max dynamic partition limit
         Config.max_dynamic_partition_num = 1000;
-        createTable(createOlapTblStmt);
+        Assertions.assertThrows(DdlException.class, () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -684,7 +753,7 @@ public class DynamicPartitionTableTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Provide start or history_partition_num property when create_history_partition=true. "
                         + "Otherwise set create_history_partition=false",
-                () -> createTable(createOlapTblStmt));
+                () -> createTableStmt(createOlapTblStmt));
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition3` (\n"
                 + "  `k1` date NULL COMMENT \"\"\n"
@@ -703,7 +772,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
         // start is not set, but history_partition_num is set too large, can not create history partition
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt2));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTableStmt(createOlapTblStmt2));
 
         String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition3` (\n"
                 + "  `k1` date NULL COMMENT \"\"\n"
@@ -722,7 +791,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
         // start is set but too small,history_partition_num is not set, can not create history partition
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt3));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTableStmt(createOlapTblStmt3));
 
         String createOlapTblStmt4 =
                 "CREATE TABLE test.`dynamic_partition3` (\n" + "  `k1` date NULL COMMENT \"\"\n" + ")\n"
@@ -734,11 +803,11 @@ public class DynamicPartitionTableTest {
                         + "\"dynamic_partition.history_partition_num\" = \"5\",\n"
                         + "\"dynamic_partition.create_history_partition\" = \"true\"\n" + ");";
         // start and history_partition_num are set, create ok
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt4));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt4));
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("dynamic_partition3");
-        Assert.assertEquals(9, tbl.getPartitionNames().size());
+        Assertions.assertEquals(9, tbl.getPartitionNames().size());
 
         // alter dynamic partition property of table dynamic_partition3
         // start too small
@@ -756,13 +825,13 @@ public class DynamicPartitionTableTest {
         String alter3 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '1000')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter3));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
-        Assert.assertEquals(14, tbl.getPartitionNames().size());
+        Assertions.assertEquals(14, tbl.getPartitionNames().size());
 
         // set start and history_partition_num properly.
         String alter4 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '100', 'dynamic_partition.start' = '-20')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter4));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
-        Assert.assertEquals(24, tbl.getPartitionNames().size());
+        Assertions.assertEquals(24, tbl.getPartitionNames().size());
 
         String createOlapTblStmt5 =
                 "CREATE TABLE test.`dynamic_partition4` (\n" + "  `k1` datetime NULL COMMENT \"\"\n" + ")\n"
@@ -774,17 +843,17 @@ public class DynamicPartitionTableTest {
                         + "\"dynamic_partition.history_partition_num\" = \"5\",\n"
                         + "\"dynamic_partition.create_history_partition\" = \"true\"\n" + ");";
         // start and history_partition_num are set, create ok
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt5));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt5));
         OlapTable tbl4 = (OlapTable) db.getTableOrAnalysisException("dynamic_partition4");
-        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+        Assertions.assertEquals(9, tbl4.getPartitionNames().size());
 
         String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
-        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+        Assertions.assertEquals(9, tbl4.getPartitionNames().size());
         String dropPartitionErr = Env.getCurrentEnv().getDynamicPartitionScheduler()
                 .getRuntimeInfo(tbl4.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG);
-        Assert.assertTrue(dropPartitionErr.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+        Assertions.assertTrue(dropPartitionErr.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
                 + "can use alter table sql to increase it."));
     }
 
@@ -807,14 +876,14 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("history_dynamic_partition_day");
         Map<String, String> tableProperties = emptyDynamicTable.getTableProperty().getProperties();
-        Assert.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
         // never delete the old partitions
-        Assert.assertEquals(Integer.parseInt(tableProperties.get("dynamic_partition.start")), Integer.MIN_VALUE);
+        Assertions.assertEquals(Integer.parseInt(tableProperties.get("dynamic_partition.start")), Integer.MIN_VALUE);
     }
 
     @Test
@@ -829,22 +898,22 @@ public class DynamicPartitionTableTest {
                 + "\"replication_num\" = \"1\",\n"
                 + "\"partition.retention_count\" = \"3\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("auto_partition_retention_init");
         DynamicPartitionScheduler scheduler = Env.getCurrentEnv().getDynamicPartitionScheduler();
 
-        Assert.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
+        Assertions.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
 
         scheduler.removeDynamicPartitionTable(db.getId(), tbl.getId());
-        Assert.assertFalse(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
+        Assertions.assertFalse(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
 
         Method initDynamicPartitionTable = DynamicPartitionScheduler.class
                 .getDeclaredMethod("initDynamicPartitionTable");
         initDynamicPartitionTable.setAccessible(true);
         initDynamicPartitionTable.invoke(scheduler);
-        Assert.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
+        Assertions.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
     }
 
     @Test
@@ -866,15 +935,15 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test").getTableOrAnalysisException("hour_dynamic_partition");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(11, partitionName.length());
+            Assertions.assertEquals(11, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`week_dynamic_partition` (\n"
@@ -894,15 +963,15 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test").getTableOrAnalysisException("week_dynamic_partition");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(8, partitionName.length());
+            Assertions.assertEquals(8, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`month_dynamic_partition` (\n"
@@ -922,16 +991,16 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("month_dynamic_partition");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(7, partitionName.length());
+            Assertions.assertEquals(7, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`year_dynamic_partition` (\n"
@@ -951,16 +1020,16 @@ public class DynamicPartitionTableTest {
             + "\"dynamic_partition.prefix\" = \"p\",\n"
             + "\"dynamic_partition.buckets\" = \"1\"\n"
             + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
             .getDbOrAnalysisException("test")
             .getTableOrAnalysisException("year_dynamic_partition");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(5, partitionName.length());
+            Assertions.assertEquals(5, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_day` (\n"
@@ -980,16 +1049,16 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("int_dynamic_partition_day");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(9, partitionName.length());
+            Assertions.assertEquals(9, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_week` (\n"
@@ -1009,16 +1078,16 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("int_dynamic_partition_week");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(8, partitionName.length());
+            Assertions.assertEquals(8, partitionName.length());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_month` (\n"
@@ -1038,20 +1107,20 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("int_dynamic_partition_month");
-        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+        Assertions.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
         while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            Assert.assertEquals(7, partitionName.length());
+            Assertions.assertEquals(7, partitionName.length());
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testHourDynamicPartitionWithIntType() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_hour` (\n"
                 + "  `k1` int NULL COMMENT \"\",\n"
@@ -1070,7 +1139,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        Assertions.assertThrows(DdlException.class, () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -1098,17 +1167,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_hour_tbl1");
         RangePartitionInfo partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         Map<Long, DataProperty> idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(7, idToDataProperty.size());
+        Assertions.assertEquals(7, idToDataProperty.size());
         int count = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
             if (count < 3) {
-                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
             } else {
-                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
             }
             ++count;
         }
@@ -1131,13 +1200,13 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"0\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_hour_tbl2");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(7, idToDataProperty.size());
+        Assertions.assertEquals(7, idToDataProperty.size());
         for (DataProperty dataProperty : idToDataProperty.values()) {
-            Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
         }
 
         createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl3` (\n"
@@ -1158,17 +1227,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"3\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_hour_tbl3");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(7, idToDataProperty.size());
+        Assertions.assertEquals(7, idToDataProperty.size());
         count = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
             if (count < 1) {
-                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
             } else {
-                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
             }
             ++count;
         }
@@ -1192,17 +1261,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"2\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_day_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(7, idToDataProperty.size());
+        Assertions.assertEquals(7, idToDataProperty.size());
         int dayCount = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
             if (dayCount < 2) {
-                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
             } else {
-                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
             }
             ++dayCount;
         }
@@ -1225,17 +1294,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"2\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_day_tbl2");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(8, idToDataProperty.size());
+        Assertions.assertEquals(8, idToDataProperty.size());
         count = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
             if (count < 2) {
-                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
             } else {
-                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
             }
             ++count;
         }
@@ -1258,17 +1327,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_week_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(8, idToDataProperty.size());
+        Assertions.assertEquals(8, idToDataProperty.size());
         count = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
             if (count < 3) {
-                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
             } else {
-                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+                Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
             }
             ++count;
         }
@@ -1291,17 +1360,17 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"4\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_month_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(8, idToDataProperty.size());
+        Assertions.assertEquals(8, idToDataProperty.size());
         for (DataProperty dataProperty : idToDataProperty.values()) {
-            Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            Assertions.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testHotPartitionNumAbnormalLT0() throws Exception {
         changeBeDisk(TStorageMedium.SSD);
 
@@ -1324,10 +1393,10 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"-1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        Assertions.assertThrows(DdlException.class, () -> createTableStmt(createOlapTblStmt));
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testHotPartitionNumAbnormalMissSSD() throws Exception {
         changeBeDisk(TStorageMedium.HDD);
 
@@ -1350,7 +1419,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        Assertions.assertThrows(DdlException.class, () -> createTableStmt(createOlapTblStmt));
     }
 
     @Test
@@ -1364,16 +1433,16 @@ public class DynamicPartitionTableTest {
         // add
         scheduler.createOrUpdateRuntimeInfo(tableId, key1, value1);
         scheduler.createOrUpdateRuntimeInfo(tableId, key2, value2);
-        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value1);
+        Assertions.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value1);
 
         // modify
         String value3 = "value2";
         scheduler.createOrUpdateRuntimeInfo(tableId, key1, value3);
-        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value3);
+        Assertions.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value3);
 
         // remove
         scheduler.removeRuntimeInfo(tableId);
-        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == FeConstants.null_string);
+        Assertions.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == FeConstants.null_string);
     }
 
     @Test
@@ -1403,11 +1472,11 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("dynamic_partition_miss_reserved_history_periods");
-        Assert.assertEquals("NULL", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assertions.assertEquals("NULL", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
     }
 
     @Test
@@ -1446,12 +1515,12 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.reserved_history_periods\" = \"[2020-06-01,2020-06-20],[2020-10-25,2020-11-15],[2021-06-01,2021-06-20]\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
         OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods");
-        Assert.assertEquals("[2020-06-01,2020-06-20],[2020-10-25,2020-11-15],[2021-06-01,2021-06-20]", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
-        Assert.assertEquals(table.getAllPartitions().size(), 9);
+        Assertions.assertEquals("[2020-06-01,2020-06-20],[2020-10-25,2020-11-15],[2021-06-01,2021-06-20]", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assertions.assertEquals(table.getAllPartitions().size(), 9);
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_normal_reserved_history_periods2` (\n"
                 + "  `k1` datetime NULL COMMENT \"\",\n"
@@ -1481,12 +1550,12 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.reserved_history_periods\" = \"[2014-01-01 00:00:00,2014-01-01 03:00:00]\"\n"
                 + ");";
-        createTable(createOlapTblStmt2);
+        createTableStmt(createOlapTblStmt2);
         OlapTable table2 = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods2");
-        Assert.assertEquals("[2014-01-01 00:00:00,2014-01-01 03:00:00]", table2.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
-        Assert.assertEquals(table2.getAllPartitions().size(), 6);
+        Assertions.assertEquals("[2014-01-01 00:00:00,2014-01-01 03:00:00]", table2.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assertions.assertEquals(table2.getAllPartitions().size(), 6);
 
         String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_normal_reserved_history_periods3` (\n"
                 + "  `k1` int NULL COMMENT \"\",\n"
@@ -1512,12 +1581,12 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.reserved_history_periods\" = \"[2020-06-01,2020-06-30]\"\n"
                 + ");";
-        createTable(createOlapTblStmt3);
+        createTableStmt(createOlapTblStmt3);
         OlapTable table3 = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods3");
-        Assert.assertEquals("[2020-06-01,2020-06-30]", table3.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
-        Assert.assertEquals(table3.getAllPartitions().size(), 5);
+        Assertions.assertEquals("[2020-06-01,2020-06-30]", table3.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assertions.assertEquals(table3.getAllPartitions().size(), 5);
     }
 
     @Test
@@ -1552,7 +1621,7 @@ public class DynamicPartitionTableTest {
                 "errCode = 2, detailMessage = Invalid \" dynamic_partition.reserved_history_periods \" value [20210101,2021-10-10]. "
                         + "It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH or "
                         + "\"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
-                () -> createTable(createOlapTblStmt1));
+                () -> createTableStmt(createOlapTblStmt1));
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_invalid_reserved_history_periods2` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
@@ -1585,7 +1654,7 @@ public class DynamicPartitionTableTest {
                         + "It must be like "
                         + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH or "
                         + "\"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
-                () -> createTable(createOlapTblStmt2));
+                () -> createTableStmt(createOlapTblStmt2));
     }
 
     @Test
@@ -1621,7 +1690,7 @@ public class DynamicPartitionTableTest {
                         + "It must be like "
                         + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH "
                         + "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
-                () -> createTable(createOlapTblStmt1));
+                () -> createTableStmt(createOlapTblStmt1));
 
         String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_reserved_history_periods_validate2` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
@@ -1654,7 +1723,7 @@ public class DynamicPartitionTableTest {
                         + "It must be like "
                         + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH or "
                         + "\"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
-                () -> createTable(createOlapTblStmt2));
+                () -> createTableStmt(createOlapTblStmt2));
 
         String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_reserved_history_periods_validate3` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
@@ -1684,7 +1753,7 @@ public class DynamicPartitionTableTest {
                 + ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "errCode = 2, detailMessage = The first date is larger than the second date, [2021-10-01,2021-09-01] is invalid.",
-                () -> createTable(createOlapTblStmt3));
+                () -> createTableStmt(createOlapTblStmt3));
 
         String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition_reserved_history_periods_validate4` (\n"
                 + "  `k1` datetime NULL COMMENT \"\",\n"
@@ -1718,7 +1787,7 @@ public class DynamicPartitionTableTest {
                         + "It must be like "
                         + "\"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH "
                         + "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.",
-                () -> createTable(createOlapTblStmt4));
+                () -> createTableStmt(createOlapTblStmt4));
     }
 
     @Test
@@ -1737,15 +1806,15 @@ public class DynamicPartitionTableTest {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ");";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt));
         OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test")
                 .getTableOrAnalysisException("no_partition");
         Collection<Partition> partitions = table.getPartitions();
-        Assert.assertTrue(partitions.isEmpty());
+        Assertions.assertTrue(partitions.isEmpty());
         OlapTable copiedTable = table.selectiveCopy(Collections.emptyList(), IndexExtState.VISIBLE, true);
         partitions = copiedTable.getPartitions();
-        Assert.assertTrue(partitions.isEmpty());
+        Assertions.assertTrue(partitions.isEmpty());
     }
 
     @Test
@@ -1764,7 +1833,7 @@ public class DynamicPartitionTableTest {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
 
         String alterStmt = "ALTER TABLE test.`non_dynamic_storage_medium` "
                 + "SET (\"dynamic_partition.storage_medium\" = \"hdd\")";
@@ -1774,10 +1843,10 @@ public class DynamicPartitionTableTest {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("non_dynamic_storage_medium");
-        Assert.assertFalse(table.dynamicPartitionExists());
-        Assert.assertFalse(table.getTableProperty().getProperties()
+        Assertions.assertFalse(table.dynamicPartitionExists());
+        Assertions.assertFalse(table.getTableProperty().getProperties()
                 .containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
-        Assert.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
+        Assertions.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
     }
 
     @Test
@@ -1796,7 +1865,7 @@ public class DynamicPartitionTableTest {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
 
         String alterStmt = "ALTER TABLE test.`non_dynamic_storage_policy` "
                 + "SET (\"dynamic_partition.storage_policy\" = \"test_policy\")";
@@ -1806,10 +1875,10 @@ public class DynamicPartitionTableTest {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("non_dynamic_storage_policy");
-        Assert.assertFalse(table.dynamicPartitionExists());
-        Assert.assertFalse(table.getTableProperty().getProperties()
+        Assertions.assertFalse(table.dynamicPartitionExists());
+        Assertions.assertFalse(table.getTableProperty().getProperties()
                 .containsKey(DynamicPartitionProperty.STORAGE_POLICY));
-        Assert.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
+        Assertions.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
     }
 
     @Test
@@ -1830,7 +1899,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
-        createTable(createOlapTblStmt);
+        createTableStmt(createOlapTblStmt);
 
         String alterStmt = "ALTER TABLE test.`dynamic_storage_medium` "
                 + "SET (\"dynamic_partition.storage_medium\" = \"hdd\")";
@@ -1838,10 +1907,10 @@ public class DynamicPartitionTableTest {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_storage_medium");
-        Assert.assertTrue(table.dynamicPartitionExists());
-        Assert.assertEquals("hdd", table.getTableProperty().getDynamicPartitionProperty().getStorageMedium());
-        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
-        Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getBuckets());
+        Assertions.assertTrue(table.dynamicPartitionExists());
+        Assertions.assertEquals("hdd", table.getTableProperty().getDynamicPartitionProperty().getStorageMedium());
+        Assertions.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assertions.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getBuckets());
     }
 
     @Test
@@ -1870,7 +1939,7 @@ public class DynamicPartitionTableTest {
                 + ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "could not be HOUR when type of partition column days is DATE or DATEV2",
-                () -> createTable(createOlapTblStmt));
+                () -> createTableStmt(createOlapTblStmt));
 
         String createOlapTblStmt2 = "CREATE TABLE if not exists test.hour_with_date2 (\n"
                 + "  `days` DATETIMEV2 NOT NULL,\n"
@@ -1894,7 +1963,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"2\",\n"
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt2));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt2));
 
         connectContext.getSessionVariable().setTimeZone("Asia/Tokyo");
         String createOlapTblStmt3 = "CREATE TABLE if not exists test.hour_with_date3 (\n"
@@ -1920,7 +1989,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.storage_medium\" = \"HDD\", \n"
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt3));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt3));
     }
 
     @Test
@@ -1937,13 +2006,13 @@ public class DynamicPartitionTableTest {
                 + " \"dynamic_partition.prefix\" = \"p\",\n"
                 + " \"replication_allocation\" = \"tag.location.default: 1\"\n"
                 + ")";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createOlapTblStmt));
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("test_autobucket_dynamic_partition");
         List<Partition> partitions = Lists.newArrayList(table.getAllPartitions());
-        Assert.assertEquals(52, partitions.size());
+        Assertions.assertEquals(52, partitions.size());
         for (Partition partition : partitions) {
-            Assert.assertEquals(FeConstants.default_bucket_num, partition.getDistributionInfo().getBucketNum());
+            Assertions.assertEquals(FeConstants.default_bucket_num, partition.getDistributionInfo().getBucketNum());
             partition.setVisibleVersionAndTime(2L, System.currentTimeMillis());
         }
         RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
@@ -1957,8 +2026,8 @@ public class DynamicPartitionTableTest {
 
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
-        Assert.assertEquals(53, partitions.size());
-        Assert.assertEquals(3, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Assertions.assertEquals(53, partitions.size());
+        Assertions.assertEquals(3, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
         Config.autobucket_out_of_bounds_percent_threshold = 0.5;
 
         table.readLock();
@@ -1969,7 +2038,7 @@ public class DynamicPartitionTableTest {
                 partition.updateVisibleVersion(2L);
                 for (MaterializedIndex idx : partition.getMaterializedIndices(
                         MaterializedIndex.IndexExtState.VISIBLE)) {
-                    Assert.assertEquals(10, idx.getTablets().size());
+                    Assertions.assertEquals(10, idx.getTablets().size());
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
                             replica.updateVersion(2L);
@@ -1980,7 +2049,7 @@ public class DynamicPartitionTableTest {
                 }
                 if (i >= 40) {
                     // first 52 partitions are 10 buckets(FeConstants.default_bucket_num)
-                    Assert.assertEquals(10 * (10L << 30), partition.getAllDataSize(true));
+                    Assertions.assertEquals(10 * (10L << 30), partition.getAllDataSize(true));
                 }
             }
         } finally {
@@ -1994,9 +2063,9 @@ public class DynamicPartitionTableTest {
 
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
-        Assert.assertEquals(54, partitions.size());
+        Assertions.assertEquals(54, partitions.size());
         // 100GB total, 5GB per bucket, should 20 buckets.
-        Assert.assertEquals(20, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Assertions.assertEquals(20, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
 
         // mock partition size eq 0, use back-to-back logic
         table.readLock();
@@ -2008,11 +2077,11 @@ public class DynamicPartitionTableTest {
                 for (MaterializedIndex idx : partition.getMaterializedIndices(
                         MaterializedIndex.IndexExtState.VISIBLE)) {
                     if (i < 52) {
-                        Assert.assertEquals(10, idx.getTablets().size());
+                        Assertions.assertEquals(10, idx.getTablets().size());
                     } else if (i == 52) {
-                        Assert.assertEquals(3, idx.getTablets().size());
+                        Assertions.assertEquals(3, idx.getTablets().size());
                     } else if (i == 53) {
-                        Assert.assertEquals(20, idx.getTablets().size());
+                        Assertions.assertEquals(20, idx.getTablets().size());
                     }
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -2023,7 +2092,7 @@ public class DynamicPartitionTableTest {
                         }
                     }
                 }
-                Assert.assertEquals(0, partition.getAllDataSize(true));
+                Assertions.assertEquals(0, partition.getAllDataSize(true));
             }
         } finally {
             table.readUnlock();
@@ -2037,9 +2106,9 @@ public class DynamicPartitionTableTest {
 
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
-        Assert.assertEquals(55, partitions.size());
+        Assertions.assertEquals(55, partitions.size());
         // due to partition size eq 0, use previous partition's(54th) bucket num
-        Assert.assertEquals(53, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Assertions.assertEquals(53, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
     }
 
     @Test
@@ -2069,11 +2138,11 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_partition");
-            Assert.assertTrue(table.dynamicPartitionExists());
+            Assertions.assertTrue(table.dynamicPartitionExists());
 
             // Execute dynamic partition scheduling
             Env.getCurrentEnv().getDynamicPartitionScheduler()
@@ -2081,7 +2150,7 @@ public class DynamicPartitionTableTest {
 
             // Verify total partitions (7 = start(-3) to end(3), inclusive)
             int partitionCount = table.getPartitionNames().size();
-            Assert.assertEquals(7, partitionCount);
+            Assertions.assertEquals(7, partitionCount);
 
             // Verify partition names use configured timezone, boundaries are UTC
             RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
@@ -2090,39 +2159,32 @@ public class DynamicPartitionTableTest {
 
                 // Verify the partition name is clean
                 String partitionName = table.getPartition(entry.getKey()).getName();
-                Assert.assertTrue("Partition name should start with 'p': " + partitionName,
-                        partitionName.startsWith("p"));
-                Assert.assertEquals("Partition name should be exactly 9 chars (p + yyyyMMdd): " + partitionName,
-                        9, partitionName.length());
+                Assertions.assertTrue(partitionName.startsWith("p"), "Partition name should start with 'p': " + partitionName);
+                Assertions.assertEquals(9, partitionName.length(), "Partition name should be exactly 9 chars (p + yyyyMMdd): " + partitionName);
 
                 // Verify the range endpoints are valid and correctly ordered
                 Range<PartitionKey> range = item.getItems();
                 PartitionKey lower = range.lowerEndpoint();
                 PartitionKey upper = range.upperEndpoint();
-                Assert.assertTrue("lower must be < upper: " + range,
-                        lower.compareTo(upper) < 0);
+                Assertions.assertTrue(lower.compareTo(upper) < 0, "lower must be < upper: " + range);
 
                 // Verify partition keys are UTC timestamps (with +00:00 suffix)
                 List<LiteralExpr> lowerKeys = lower.getKeys();
-                Assert.assertEquals(1, lowerKeys.size());
+                Assertions.assertEquals(1, lowerKeys.size());
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC with +00:00 suffix: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC with +00:00 suffix: " + lowerStr);
 
                 List<LiteralExpr> upperKeys = upper.getKeys();
-                Assert.assertEquals(1, upperKeys.size());
+                Assertions.assertEquals(1, upperKeys.size());
                 String upperStr = upperKeys.get(0).getStringValue();
-                Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
-                        upperStr.contains("+00:00"));
+                Assertions.assertTrue(upperStr.contains("+00:00"), "Upper key must be UTC with +00:00 suffix: " + upperStr);
 
                 // Partition boundaries must be at UTC midnight (hour=00)
                 // regardless of time_zone.
                 String lowerHour = lowerStr.substring(11, 13);
-                Assert.assertEquals("Lower bound must be UTC midnight (00): " + lowerStr,
-                        "00", lowerHour);
+                Assertions.assertEquals("00", lowerHour, "Lower bound must be UTC midnight (00): " + lowerStr);
                 String upperHour = upperStr.substring(11, 13);
-                Assert.assertEquals("Upper bound must be UTC midnight (00): " + upperStr,
-                        "00", upperHour);
+                Assertions.assertEquals("00", upperHour, "Upper bound must be UTC midnight (00): " + upperStr);
             }
 
             // Identify the current partition (idx=0) by its stored range
@@ -2136,7 +2198,7 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem bi = (RangePartitionItem) b.getValue();
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
-            Assert.assertEquals(7, sorted.size());
+            Assertions.assertEquals(7, sorted.size());
             // idx=0 is the 4th partition (index 3) for start=-3,end=3.
             RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
             String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
@@ -2146,14 +2208,12 @@ public class DynamicPartitionTableTest {
             String expectedCurrentName = "p"
                     + DateTimeFormatter.ofPattern("yyyyMMdd").format(currentLower);
             String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
-            Assert.assertEquals("Current partition (idx=0) name must match its UTC lower bound",
-                    expectedCurrentName, actualCurrentName);
-            Assert.assertEquals("Current partition lower bound must be UTC midnight",
-                    "00", currentLowerStr.substring(11, 13));
+            Assertions.assertEquals(expectedCurrentName, actualCurrentName, "Current partition (idx=0) name must match its UTC lower bound");
+            Assertions.assertEquals("00", currentLowerStr.substring(11, 13), "Current partition lower bound must be UTC midnight");
 
             for (Partition partition : table.getPartitions()) {
                 RangePartitionItem item = (RangePartitionItem) partitionInfo.getItem(partition.getId());
-                Assert.assertNotNull("Each partition should have a range item", item);
+                Assertions.assertNotNull(item, "Each partition should have a range item");
             }
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
@@ -2187,17 +2247,17 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Tokyo\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_week");
-            Assert.assertTrue(table.dynamicPartitionExists());
+            Assertions.assertTrue(table.dynamicPartitionExists());
 
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int partitionCount = table.getPartitionNames().size();
-            Assert.assertEquals(7, partitionCount);
+            Assertions.assertEquals(7, partitionCount);
 
             // Verify partition boundaries are UTC midnight and names use
             // configured timezone (Asia/Tokyo).
@@ -2205,38 +2265,31 @@ public class DynamicPartitionTableTest {
             for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 String partitionName = table.getPartition(entry.getKey()).getName();
-                Assert.assertTrue("Partition name should start with 'p': " + partitionName,
-                        partitionName.startsWith("p"));
+                Assertions.assertTrue(partitionName.startsWith("p"), "Partition name should start with 'p': " + partitionName);
                 // Week partition name should be like "p2026_26" (year_week)
-                Assert.assertFalse("Partition name must not contain timezone: " + partitionName,
-                        partitionName.contains("Asia") || partitionName.contains("Tokyo"));
+                Assertions.assertFalse(partitionName.contains("Asia") || partitionName.contains("Tokyo"), "Partition name must not contain timezone: " + partitionName);
 
                 // Verify range validity
                 Range<PartitionKey> range = item.getItems();
-                Assert.assertTrue("lower must be < upper",
-                        range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+                Assertions.assertTrue(range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0, "lower must be < upper");
 
                 // Partition boundaries must be at UTC midnight (hour=00)
                 // regardless of time_zone.
                 List<LiteralExpr> lowerKeys = range.lowerEndpoint().getKeys();
-                Assert.assertEquals(1, lowerKeys.size());
+                Assertions.assertEquals(1, lowerKeys.size());
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC with +00:00 suffix: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC with +00:00 suffix: " + lowerStr);
 
                 List<LiteralExpr> upperKeys = range.upperEndpoint().getKeys();
-                Assert.assertEquals(1, upperKeys.size());
+                Assertions.assertEquals(1, upperKeys.size());
                 String upperStr = upperKeys.get(0).getStringValue();
-                Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
-                        upperStr.contains("+00:00"));
+                Assertions.assertTrue(upperStr.contains("+00:00"), "Upper key must be UTC with +00:00 suffix: " + upperStr);
 
                 // UTC midnight (00:00), regardless of time_zone.
                 String lowerHour = lowerStr.substring(11, 13);
-                Assert.assertEquals("Lower bound must be UTC midnight (00): " + lowerStr,
-                        "00", lowerHour);
+                Assertions.assertEquals("00", lowerHour, "Lower bound must be UTC midnight (00): " + lowerStr);
                 String upperHour = upperStr.substring(11, 13);
-                Assert.assertEquals("Upper bound must be UTC midnight (00): " + upperStr,
-                        "00", upperHour);
+                Assertions.assertEquals("00", upperHour, "Upper bound must be UTC midnight (00): " + upperStr);
             }
 
             // Identify the current partition (idx=0) by its stored range.
@@ -2247,7 +2300,7 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem bi = (RangePartitionItem) b.getValue();
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
-            Assert.assertEquals(7, sorted.size());
+            Assertions.assertEquals(7, sorted.size());
             RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
             String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
                     .getStringValue();
@@ -2264,8 +2317,7 @@ public class DynamicPartitionTableTest {
             String expectedWeekName = "p" + DynamicPartitionUtil.getFormattedPartitionName(
                     utcTz, border, prop.getTimeUnit());
             String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
-            Assert.assertEquals("Current partition (idx=0) week name must match its UTC lower bound",
-                    expectedWeekName, actualCurrentName);
+            Assertions.assertEquals(expectedWeekName, actualCurrentName, "Current partition (idx=0) week name must match its UTC lower bound");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2304,17 +2356,17 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Kathmandu\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_hour");
-            Assert.assertTrue(table.dynamicPartitionExists());
+            Assertions.assertTrue(table.dynamicPartitionExists());
 
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int partitionCount = table.getPartitionNames().size();
-            Assert.assertEquals(7, partitionCount);
+            Assertions.assertEquals(7, partitionCount);
 
             // Hour partition boundaries must be at whole UTC hours
             // regardless of time_zone. Names use configured timezone.
@@ -2332,28 +2384,23 @@ public class DynamicPartitionTableTest {
             for (Map.Entry<Long, PartitionItem> entry : sortedEntries) {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 String partitionName = table.getPartition(entry.getKey()).getName();
-                Assert.assertTrue("Partition name should start with 'p': " + partitionName,
-                        partitionName.startsWith("p"));
+                Assertions.assertTrue(partitionName.startsWith("p"), "Partition name should start with 'p': " + partitionName);
                 // Hour partition names: p + yyyyMMddHH → length 11 (p + 10 digits)
-                Assert.assertEquals("Hour partition name length: " + partitionName,
-                        11, partitionName.length());
+                Assertions.assertEquals(11, partitionName.length(), "Hour partition name length: " + partitionName);
 
                 // Verify range validity
                 Range<PartitionKey> range = item.getItems();
-                Assert.assertTrue("lower must be < upper",
-                        range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+                Assertions.assertTrue(range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0, "lower must be < upper");
 
                 List<LiteralExpr> lowerKeys = range.lowerEndpoint().getKeys();
-                Assert.assertEquals(1, lowerKeys.size());
+                Assertions.assertEquals(1, lowerKeys.size());
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must have +00:00 suffix: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must have +00:00 suffix: " + lowerStr);
 
                 List<LiteralExpr> upperKeys = range.upperEndpoint().getKeys();
-                Assert.assertEquals(1, upperKeys.size());
+                Assertions.assertEquals(1, upperKeys.size());
                 String upperStr = upperKeys.get(0).getStringValue();
-                Assert.assertTrue("Upper key must have +00:00 suffix: " + upperStr,
-                        upperStr.contains("+00:00"));
+                Assertions.assertTrue(upperStr.contains("+00:00"), "Upper key must have +00:00 suffix: " + upperStr);
 
                 // Partition boundaries must be at whole UTC hours (minute=second=00).
                 // A configured timezone with a fractional offset (Asia/Kathmandu,
@@ -2361,29 +2408,23 @@ public class DynamicPartitionTableTest {
                 // old configured-timezone flooring were used instead of UTC-first.
                 String lowerMinutes = lowerStr.substring(14, 16);
                 String lowerSeconds = lowerStr.substring(17, 19);
-                Assert.assertEquals("Lower bound minutes must be 00: " + lowerStr,
-                        "00", lowerMinutes);
-                Assert.assertEquals("Lower bound seconds must be 00: " + lowerStr,
-                        "00", lowerSeconds);
+                Assertions.assertEquals("00", lowerMinutes, "Lower bound minutes must be 00: " + lowerStr);
+                Assertions.assertEquals("00", lowerSeconds, "Lower bound seconds must be 00: " + lowerStr);
                 String upperMinutes = upperStr.substring(14, 16);
                 String upperSeconds = upperStr.substring(17, 19);
-                Assert.assertEquals("Upper bound minutes must be 00: " + upperStr,
-                        "00", upperMinutes);
-                Assert.assertEquals("Upper bound seconds must be 00: " + upperStr,
-                        "00", upperSeconds);
+                Assertions.assertEquals("00", upperMinutes, "Upper bound minutes must be 00: " + upperStr);
+                Assertions.assertEquals("00", upperSeconds, "Upper bound seconds must be 00: " + upperStr);
 
                 // Verify adjacency using full timestamps (handles midnight crossing)
                 if (prevLower != null) {
                     ZonedDateTime expectedNext = prevLower.plusHours(1);
                     ZonedDateTime actual = ZonedDateTime.parse(lowerStr,
                             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
-                    Assert.assertEquals("Adjacent partitions' lower bounds must differ by 1 hour",
-                            expectedNext, actual);
+                    Assertions.assertEquals(expectedNext, actual, "Adjacent partitions' lower bounds must differ by 1 hour");
                     ZonedDateTime expectedUpper = prevUpper.plusHours(1);
                     ZonedDateTime actualUpper = ZonedDateTime.parse(upperStr,
                             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
-                    Assert.assertEquals("Adjacent partitions' upper bounds must differ by 1 hour",
-                            expectedUpper, actualUpper);
+                    Assertions.assertEquals(expectedUpper, actualUpper, "Adjacent partitions' upper bounds must differ by 1 hour");
                 }
                 prevLower = ZonedDateTime.parse(lowerStr,
                         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
@@ -2401,14 +2442,11 @@ public class DynamicPartitionTableTest {
             String expectedCurrentName = "p"
                     + DateTimeFormatter.ofPattern("yyyyMMddHH").format(currentLower);
             String actualCurrentName = table.getPartition(sortedEntries.get(3).getKey()).getName();
-            Assert.assertEquals("Current partition (idx=0) hour name must match its UTC lower bound",
-                    expectedCurrentName, actualCurrentName);
+            Assertions.assertEquals(expectedCurrentName, actualCurrentName, "Current partition (idx=0) hour name must match its UTC lower bound");
             // With a fractional-offset timezone, only the UTC-first approach
             // guarantees minute=second=00 on every bound.
-            Assert.assertEquals("Current partition lower bound must end :00:00: " + currentLowerStr,
-                    "00", currentLowerStr.substring(14, 16)); // minutes
-            Assert.assertEquals("Current partition lower bound must end :00:00: " + currentLowerStr,
-                    "00", currentLowerStr.substring(17, 19)); // seconds
+            Assertions.assertEquals("00", currentLowerStr.substring(14, 16), "Current partition lower bound must end :00:00: " + currentLowerStr); // minutes
+            Assertions.assertEquals("00", currentLowerStr.substring(17, 19), "Current partition lower bound must end :00:00: " + currentLowerStr); // seconds
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2471,7 +2509,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_drop_cutoff");
@@ -2485,7 +2523,7 @@ public class DynamicPartitionTableTest {
                     + "('dynamic_partition.enable' = 'false')");
             alterTable("ALTER TABLE test.tstz_drop_cutoff ADD PARTITION p_old VALUES "
                     + "[('" + oldLower + "'), ('" + oldUpper + "'))");
-            Assert.assertTrue("p_old should be added", table.getPartitionNames().contains("p_old"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_old"), "p_old should be added");
             alterTable("ALTER TABLE test.tstz_drop_cutoff SET "
                     + "('dynamic_partition.enable' = 'true')");
 
@@ -2495,14 +2533,12 @@ public class DynamicPartitionTableTest {
             // p_old must be dropped by the start=-1 cutoff.
             // With the fix, the cutoff is at UTC midnight of the previous day,
             // and p_old (two days ago) is entirely before it.
-            Assert.assertFalse("p_old should be dropped — drop cutoff must be at UTC midnight,"
-                    + " not timezone-offset midnight",
-                    table.getPartitionNames().contains("p_old"));
+            Assertions.assertFalse(table.getPartitionNames().contains("p_old"), "p_old should be dropped — drop cutoff must be at UTC midnight,"
+                    + " not timezone-offset midnight");
 
             // idx=0 (today) and idx=1 (tomorrow) should remain (start=-1, end=1,
             // create_history_partition=false only creates idx>=0)
-            Assert.assertEquals("Should have idx=0 and idx=1 partitions after drop",
-                    2, table.getPartitionNames().size());
+            Assertions.assertEquals(2, table.getPartitionNames().size(), "Should have idx=0 and idx=1 partitions after drop");
 
             // Verify remaining partitions have UTC midnight boundaries
             RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
@@ -2510,10 +2546,8 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 List<LiteralExpr> lowerKeys = item.getItems().lowerEndpoint().getKeys();
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC: " + lowerStr,
-                        lowerStr.contains("+00:00"));
-                Assert.assertEquals("Boundary must be at UTC midnight: " + lowerStr,
-                        "00", lowerStr.substring(11, 13));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC: " + lowerStr);
+                Assertions.assertEquals("00", lowerStr.substring(11, 13), "Boundary must be at UTC midnight: " + lowerStr);
             }
         } finally {
             schedulerField.set(Env.getCurrentEnv(), scheduler);
@@ -2545,7 +2579,7 @@ public class DynamicPartitionTableTest {
                     + "\"replication_num\" = \"1\",\n"
                     + "\"partition.retention_count\" = \"1\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("auto_retention_tstz");
@@ -2564,7 +2598,7 @@ public class DynamicPartitionTableTest {
             String recentUpper = utcNow.plusHours(4).format(fmt) + "+00:00";
             alterTable("ALTER TABLE test.auto_retention_tstz ADD PARTITION p_recent VALUES "
                     + "[('" + recentLower + "'), ('" + recentUpper + "'))");
-            Assert.assertEquals(3, tbl.getPartitionNames().size());
+            Assertions.assertEquals(3, tbl.getPartitionNames().size());
 
             // Simulate the scheduler thread: remove ConnectContext and set
             // JVM default to a non-UTC zone. DateUtils.getTimeZone() now
@@ -2587,12 +2621,9 @@ public class DynamicPartitionTableTest {
             // p_old (2000, oldest history) → dropped by retention_count=1.
             // p_mid (2020, latest history) → kept.
             // Total: 2 partitions survive.
-            Assert.assertEquals("After retention, 2 partitions should remain", 2,
-                    tbl.getPartitionNames().size());
-            Assert.assertTrue("p_mid should be kept as the latest history partition",
-                    tbl.getPartitionNames().contains("p_mid"));
-            Assert.assertTrue("p_recent should survive (not history)",
-                    tbl.getPartitionNames().contains("p_recent"));
+            Assertions.assertEquals(2, tbl.getPartitionNames().size(), "After retention, 2 partitions should remain");
+            Assertions.assertTrue(tbl.getPartitionNames().contains("p_mid"), "p_mid should be kept as the latest history partition");
+            Assertions.assertTrue(tbl.getPartitionNames().contains("p_recent"), "p_recent should survive (not history)");
         } finally {
             TimeZone.setDefault(originalJvmTz);
             connectContext.getSessionVariable().setTimeZone(originalSessionTz);
@@ -2629,7 +2660,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                 + ");";
-        createTable(createSql);
+        createTableStmt(createSql);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_hist_parts");
@@ -2638,7 +2669,7 @@ public class DynamicPartitionTableTest {
                 .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
         int totalPartitions = table.getPartitionNames().size();
-        Assert.assertEquals(7, totalPartitions);
+        Assertions.assertEquals(7, totalPartitions);
 
         RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
         DynamicPartitionProperty prop = table.getTableProperty().getDynamicPartitionProperty();
@@ -2665,9 +2696,8 @@ public class DynamicPartitionTableTest {
                 break;
             }
         }
-        Assert.assertTrue("Name-based should fail to exclude current partition: "
-                + "nowPartitionName='" + wrongNowPartitionName + "' does not match any partition",
-                currentFoundByName);
+        Assertions.assertTrue(currentFoundByName, "Name-based should fail to exclude current partition: "
+                + "nowPartitionName='" + wrongNowPartitionName + "' does not match any partition");
 
         // 2. With the correct nowPartitionName matching the current partition's
         //    actual name, name-based exclusion correctly removes it.
@@ -2680,7 +2710,7 @@ public class DynamicPartitionTableTest {
                 break;
             }
         }
-        Assert.assertNotNull("Should find the current partition", currentPartitionName);
+        Assertions.assertNotNull(currentPartitionName, "Should find the current partition");
         List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
                 table, currentPartitionName);
         boolean currentFoundByName2 = false;
@@ -2692,10 +2722,8 @@ public class DynamicPartitionTableTest {
                 break;
             }
         }
-        Assert.assertFalse("Name-based should exclude the current partition when name matches",
-                currentFoundByName2);
-        Assert.assertEquals("Should exclude exactly the current partition",
-                totalPartitions - 1, historicalWithName.size());
+        Assertions.assertFalse(currentFoundByName2, "Name-based should exclude the current partition when name matches");
+        Assertions.assertEquals(totalPartitions - 1, historicalWithName.size(), "Should exclude exactly the current partition");
     }
 
     @Test
@@ -2726,17 +2754,17 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_month");
-            Assert.assertTrue(table.dynamicPartitionExists());
+            Assertions.assertTrue(table.dynamicPartitionExists());
 
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int partitionCount = table.getPartitionNames().size();
-            Assert.assertEquals(7, partitionCount);
+            Assertions.assertEquals(7, partitionCount);
 
             // Verify partition boundaries are UTC midnight and names use
             // configured timezone (Asia/Shanghai).
@@ -2744,41 +2772,33 @@ public class DynamicPartitionTableTest {
             for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 String partitionName = table.getPartition(entry.getKey()).getName();
-                Assert.assertTrue("Partition name should start with 'p': " + partitionName,
-                        partitionName.startsWith("p"));
+                Assertions.assertTrue(partitionName.startsWith("p"), "Partition name should start with 'p': " + partitionName);
                 // Month partition names: p + yyyyMM → length 7
-                Assert.assertEquals("Month partition name length: " + partitionName,
-                        7, partitionName.length());
+                Assertions.assertEquals(7, partitionName.length(), "Month partition name length: " + partitionName);
 
                 // Verify range validity
                 Range<PartitionKey> range = item.getItems();
-                Assert.assertTrue("lower must be < upper",
-                        range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+                Assertions.assertTrue(range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0, "lower must be < upper");
 
                 // Partition boundaries must be UTC timestamps with +00:00 suffix.
                 List<LiteralExpr> lowerKeys = range.lowerEndpoint().getKeys();
-                Assert.assertEquals(1, lowerKeys.size());
+                Assertions.assertEquals(1, lowerKeys.size());
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC with +00:00 suffix: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC with +00:00 suffix: " + lowerStr);
 
                 List<LiteralExpr> upperKeys = range.upperEndpoint().getKeys();
-                Assert.assertEquals(1, upperKeys.size());
+                Assertions.assertEquals(1, upperKeys.size());
                 String upperStr = upperKeys.get(0).getStringValue();
-                Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
-                        upperStr.contains("+00:00"));
+                Assertions.assertTrue(upperStr.contains("+00:00"), "Upper key must be UTC with +00:00 suffix: " + upperStr);
 
                 // Partition boundaries must be at UTC midnight (hour=00)
                 // regardless of time_zone. Day should be 01 (first of month).
                 String lowerDay = lowerStr.substring(8, 10);
-                Assert.assertEquals("Lower bound must be day 01 for month unit: " + lowerStr,
-                        "01", lowerDay);
+                Assertions.assertEquals("01", lowerDay, "Lower bound must be day 01 for month unit: " + lowerStr);
                 String lowerHour = lowerStr.substring(11, 13);
-                Assert.assertEquals("Lower bound must be UTC midnight (00): " + lowerStr,
-                        "00", lowerHour);
+                Assertions.assertEquals("00", lowerHour, "Lower bound must be UTC midnight (00): " + lowerStr);
                 String upperHour = upperStr.substring(11, 13);
-                Assert.assertEquals("Upper bound must be UTC midnight (00): " + upperStr,
-                        "00", upperHour);
+                Assertions.assertEquals("00", upperHour, "Upper bound must be UTC midnight (00): " + upperStr);
             }
 
             // Identify the current partition (idx=0) by its stored range.
@@ -2789,7 +2809,7 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem bi = (RangePartitionItem) b.getValue();
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
-            Assert.assertEquals(7, sorted.size());
+            Assertions.assertEquals(7, sorted.size());
             RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
             String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
                     .getStringValue();
@@ -2798,12 +2818,9 @@ public class DynamicPartitionTableTest {
             String expectedCurrentName = "p"
                     + DateTimeFormatter.ofPattern("yyyyMM").format(currentLower);
             String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
-            Assert.assertEquals("Current partition (idx=0) month name must match its UTC lower bound",
-                    expectedCurrentName, actualCurrentName);
-            Assert.assertEquals("Current partition lower bound must be UTC midnight",
-                    "00", currentLowerStr.substring(11, 13));
-            Assert.assertEquals("Current partition lower bound day must be 01",
-                    "01", currentLowerStr.substring(8, 10));
+            Assertions.assertEquals(expectedCurrentName, actualCurrentName, "Current partition (idx=0) month name must match its UTC lower bound");
+            Assertions.assertEquals("00", currentLowerStr.substring(11, 13), "Current partition lower bound must be UTC midnight");
+            Assertions.assertEquals("01", currentLowerStr.substring(8, 10), "Current partition lower bound day must be 01");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2837,17 +2854,17 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                     + ");";
-            createTable(createOlapTblStmt);
+            createTableStmt(createOlapTblStmt);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_year");
-            Assert.assertTrue(table.dynamicPartitionExists());
+            Assertions.assertTrue(table.dynamicPartitionExists());
 
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int partitionCount = table.getPartitionNames().size();
-            Assert.assertEquals(7, partitionCount);
+            Assertions.assertEquals(7, partitionCount);
 
             // Verify partition boundaries are UTC midnight and names use
             // configured timezone (Asia/Shanghai).
@@ -2855,44 +2872,35 @@ public class DynamicPartitionTableTest {
             for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 String partitionName = table.getPartition(entry.getKey()).getName();
-                Assert.assertTrue("Partition name should start with 'p': " + partitionName,
-                        partitionName.startsWith("p"));
+                Assertions.assertTrue(partitionName.startsWith("p"), "Partition name should start with 'p': " + partitionName);
                 // Year partition names: p + yyyy → length 5
-                Assert.assertEquals("Year partition name length: " + partitionName,
-                        5, partitionName.length());
+                Assertions.assertEquals(5, partitionName.length(), "Year partition name length: " + partitionName);
 
                 // Verify range validity
                 Range<PartitionKey> range = item.getItems();
-                Assert.assertTrue("lower must be < upper",
-                        range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+                Assertions.assertTrue(range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0, "lower must be < upper");
 
                 // Partition boundaries must be UTC timestamps with +00:00 suffix.
                 List<LiteralExpr> lowerKeys = range.lowerEndpoint().getKeys();
-                Assert.assertEquals(1, lowerKeys.size());
+                Assertions.assertEquals(1, lowerKeys.size());
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC with +00:00 suffix: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC with +00:00 suffix: " + lowerStr);
 
                 List<LiteralExpr> upperKeys = range.upperEndpoint().getKeys();
-                Assert.assertEquals(1, upperKeys.size());
+                Assertions.assertEquals(1, upperKeys.size());
                 String upperStr = upperKeys.get(0).getStringValue();
-                Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
-                        upperStr.contains("+00:00"));
+                Assertions.assertTrue(upperStr.contains("+00:00"), "Upper key must be UTC with +00:00 suffix: " + upperStr);
 
                 // Partition boundaries must be at UTC midnight (hour=00)
                 // regardless of time_zone. Month should be 01, day should be 01.
                 String lowerMonth = lowerStr.substring(5, 7);
-                Assert.assertEquals("Lower bound must be month 01 for year unit: " + lowerStr,
-                        "01", lowerMonth);
+                Assertions.assertEquals("01", lowerMonth, "Lower bound must be month 01 for year unit: " + lowerStr);
                 String lowerDay = lowerStr.substring(8, 10);
-                Assert.assertEquals("Lower bound must be day 01 for year unit: " + lowerStr,
-                        "01", lowerDay);
+                Assertions.assertEquals("01", lowerDay, "Lower bound must be day 01 for year unit: " + lowerStr);
                 String lowerHour = lowerStr.substring(11, 13);
-                Assert.assertEquals("Lower bound must be UTC midnight (00): " + lowerStr,
-                        "00", lowerHour);
+                Assertions.assertEquals("00", lowerHour, "Lower bound must be UTC midnight (00): " + lowerStr);
                 String upperHour = upperStr.substring(11, 13);
-                Assert.assertEquals("Upper bound must be UTC midnight (00): " + upperStr,
-                        "00", upperHour);
+                Assertions.assertEquals("00", upperHour, "Upper bound must be UTC midnight (00): " + upperStr);
             }
 
             // Identify the current partition (idx=0) by its stored range.
@@ -2903,7 +2911,7 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem bi = (RangePartitionItem) b.getValue();
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
-            Assert.assertEquals(7, sorted.size());
+            Assertions.assertEquals(7, sorted.size());
             RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
             String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
                     .getStringValue();
@@ -2912,14 +2920,10 @@ public class DynamicPartitionTableTest {
             String expectedCurrentName = "p"
                     + DateTimeFormatter.ofPattern("yyyy").format(currentLower);
             String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
-            Assert.assertEquals("Current partition (idx=0) year name must match its UTC lower bound",
-                    expectedCurrentName, actualCurrentName);
-            Assert.assertEquals("Current partition lower bound must be UTC midnight",
-                    "00", currentLowerStr.substring(11, 13));
-            Assert.assertEquals("Current partition lower bound month must be 01",
-                    "01", currentLowerStr.substring(5, 7));
-            Assert.assertEquals("Current partition lower bound day must be 01",
-                    "01", currentLowerStr.substring(8, 10));
+            Assertions.assertEquals(expectedCurrentName, actualCurrentName, "Current partition (idx=0) year name must match its UTC lower bound");
+            Assertions.assertEquals("00", currentLowerStr.substring(11, 13), "Current partition lower bound must be UTC midnight");
+            Assertions.assertEquals("01", currentLowerStr.substring(5, 7), "Current partition lower bound month must be 01");
+            Assertions.assertEquals("01", currentLowerStr.substring(8, 10), "Current partition lower bound day must be 01");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2958,7 +2962,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\",\n"
                     + "\"dynamic_partition.reserved_history_periods\" = \"[2019-06-01,2020-08-01]\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_reserved_hist");
@@ -2982,12 +2986,9 @@ public class DynamicPartitionTableTest {
             alterTable("ALTER TABLE test.tstz_reserved_hist ADD PARTITION p_boundary VALUES "
                     + "[('2020-07-31 17:00:00+00:00'), ('2020-07-31 18:00:00+00:00'))");
 
-            Assert.assertTrue("p_202001 should exist before scheduling",
-                    table.getPartitionNames().contains("p_202001"));
-            Assert.assertTrue("p_old should exist before scheduling",
-                    table.getPartitionNames().contains("p_old"));
-            Assert.assertTrue("p_boundary should exist before scheduling",
-                    table.getPartitionNames().contains("p_boundary"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_202001"), "p_202001 should exist before scheduling");
+            Assertions.assertTrue(table.getPartitionNames().contains("p_old"), "p_old should exist before scheduling");
+            Assertions.assertTrue(table.getPartitionNames().contains("p_boundary"), "p_boundary should exist before scheduling");
 
             // Re-enable dynamic partition and run the scheduler.
             alterTable("ALTER TABLE test.tstz_reserved_hist SET "
@@ -2998,18 +2999,15 @@ public class DynamicPartitionTableTest {
 
             // p_202001 falls within the reserved period in both old and new
             // interpretations — kept regardless.
-            Assert.assertTrue("p_202001 should be kept",
-                    table.getPartitionNames().contains("p_202001"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_202001"), "p_202001 should be kept");
             // p_old is before the start=-3 cutoff and outside the reserved
             // period — dropped regardless.
-            Assert.assertFalse("p_old should be dropped",
-                    table.getPartitionNames().contains("p_old"));
+            Assertions.assertFalse(table.getPartitionNames().contains("p_old"), "p_old should be dropped");
             // p_boundary is the discriminating case: only kept when the
             // reserved period is interpreted in UTC rather than shifted by
             // the configured timezone (Asia/Shanghai, UTC+8).
-            Assert.assertTrue("p_boundary should be kept — reserved period is UTC-aligned,"
-                    + " not shifted by the configured timezone",
-                    table.getPartitionNames().contains("p_boundary"));
+            Assertions.assertTrue(table.getPartitionNames().contains("p_boundary"), "p_boundary should be kept — reserved period is UTC-aligned,"
+                    + " not shifted by the configured timezone");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3047,7 +3045,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_zone\" = \"America/Chicago\",\n"
                     + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_hot_part_cooldown");
@@ -3065,7 +3063,7 @@ public class DynamicPartitionTableTest {
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
 
-            Assert.assertEquals(7, sortedEntries.size());
+            Assertions.assertEquals(7, sortedEntries.size());
 
             // Partitions idx=-3,-2,-1 are before the hot range → HDD.
             // Partitions idx=0..3 (4 partitions) are within hot_partition_num=1:
@@ -3085,19 +3083,16 @@ public class DynamicPartitionTableTest {
 
                 if (i < 3) {
                     // Historical partitions: HDD
-                    Assert.assertEquals("Historical partition should be HDD: idx=" + (i - 3),
-                            TStorageMedium.HDD, dp.getStorageMedium());
+                    Assertions.assertEquals(TStorageMedium.HDD, dp.getStorageMedium(), "Historical partition should be HDD: idx=" + (i - 3));
                 } else {
                     // Hot partitions: SSD
-                    Assert.assertEquals("Hot partition should be SSD: idx=" + (i - 3),
-                            TStorageMedium.SSD, dp.getStorageMedium());
+                    Assertions.assertEquals(TStorageMedium.SSD, dp.getStorageMedium(), "Hot partition should be SSD: idx=" + (i - 3));
 
                     // Every hot partition must have a finite cooldown equal to
                     // that partition's upper endpoint (offset + hotPartitionNum).
                     // Assert it is NOT the MAX fallback, which would indicate
                     // the TIMESTAMPTZ lifecycle string was rejected during parse.
-                    Assert.assertNotEquals("Hot partition must have a finite cooldown: idx=" + (i - 3),
-                            DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+                    Assertions.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "Hot partition must have a finite cooldown: idx=" + (i - 3));
 
                     ZonedDateTime cooldownUtc = ZonedDateTime.ofInstant(
                             java.time.Instant.ofEpochMilli(dp.getCooldownTimeMs()),
@@ -3108,18 +3103,15 @@ public class DynamicPartitionTableTest {
                     ZonedDateTime upperUtc = ZonedDateTime.parse(upperStr,
                             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
 
-                    Assert.assertEquals("Cooldown must equal the partition upper bound ("
-                            + upperUtc + "): idx=" + (i - 3),
-                            upperUtc.toInstant(), cooldownUtc.toInstant());
+                    Assertions.assertEquals(upperUtc.toInstant(), cooldownUtc.toInstant(), "Cooldown must equal the partition upper bound ("
+                            + upperUtc + "): idx=" + (i - 3));
                 }
 
                 // Verify partition boundaries are UTC midnight.
                 List<LiteralExpr> lowerKeys = item.getItems().lowerEndpoint().getKeys();
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC: " + lowerStr,
-                        lowerStr.contains("+00:00"));
-                Assert.assertEquals("Lower bound must be at UTC midnight: " + lowerStr,
-                        "00", lowerStr.substring(11, 13));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC: " + lowerStr);
+                Assertions.assertEquals("00", lowerStr.substring(11, 13), "Lower bound must be at UTC midnight: " + lowerStr);
             }
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
@@ -3165,7 +3157,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_zone\" = \"America/Chicago\",\n"
                     + "\"dynamic_partition.hot_partition_num\" = \"6\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_cooldown_dst_month");
@@ -3182,7 +3174,7 @@ public class DynamicPartitionTableTest {
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
 
-            Assert.assertEquals(7, sortedEntries.size());
+            Assertions.assertEquals(7, sortedEntries.size());
 
             // idx=-3,-2,-1: offset+6=3,2,1 >0 → SSD (hot)
             // idx=0..3: offset+6=6,7,8,9 >0 → SSD (hot)
@@ -3203,10 +3195,8 @@ public class DynamicPartitionTableTest {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
                 DataProperty dp = partitionInfo.getDataProperty(entry.getKey());
 
-                Assert.assertEquals("All partitions should be SSD with hot_partition_num=6",
-                        TStorageMedium.SSD, dp.getStorageMedium());
-                Assert.assertNotEquals("Hot partition must have a finite cooldown",
-                        DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+                Assertions.assertEquals(TStorageMedium.SSD, dp.getStorageMedium(), "All partitions should be SSD with hot_partition_num=6");
+                Assertions.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "Hot partition must have a finite cooldown");
 
                 // Cooldown is the lower bound of the (idx + hotPartitionNum)-th
                 // partition. Derive it from the current partition's lower bound
@@ -3215,20 +3205,16 @@ public class DynamicPartitionTableTest {
                         java.time.Instant.ofEpochMilli(dp.getCooldownTimeMs()),
                         ZoneOffset.UTC);
                 ZonedDateTime expectedUtc = currentLower.plusMonths(idx + 6);
-                Assert.assertEquals("Cooldown must equal lower bound of partition at offset "
-                        + (idx + 6) + " (" + expectedUtc + "): idx=" + idx,
-                        expectedUtc.toInstant(), cooldownUtc.toInstant());
+                Assertions.assertEquals(expectedUtc.toInstant(), cooldownUtc.toInstant(), "Cooldown must equal lower bound of partition at offset "
+                        + (idx + 6) + " (" + expectedUtc + "): idx=" + idx);
 
                 // Verify partition boundaries are UTC midnight, day=01.
                 List<LiteralExpr> lowerKeys = item.getItems().lowerEndpoint().getKeys();
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC: " + lowerStr,
-                        lowerStr.contains("+00:00"));
-                Assert.assertEquals("Lower bound must be at UTC midnight: " + lowerStr,
-                        "00", lowerStr.substring(11, 13));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC: " + lowerStr);
+                Assertions.assertEquals("00", lowerStr.substring(11, 13), "Lower bound must be at UTC midnight: " + lowerStr);
                 // Month boundaries must fall on the first day of the month.
-                Assert.assertEquals("Month lower bound day must be 01: " + lowerStr,
-                        "01", lowerStr.substring(8, 10));
+                Assertions.assertEquals("01", lowerStr.substring(8, 10), "Month lower bound day must be 01: " + lowerStr);
             }
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
@@ -3271,7 +3257,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_zone\" = \"America/Chicago\",\n"
                     + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_cooldown_dst_fallback");
@@ -3288,7 +3274,7 @@ public class DynamicPartitionTableTest {
                 return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
             });
 
-            Assert.assertEquals(7, sortedEntries.size());
+            Assertions.assertEquals(7, sortedEntries.size());
 
             // Derive the expected cooldown from the current partition's
             // stored lower bound rather than sampling ZonedDateTime.now(),
@@ -3308,15 +3294,12 @@ public class DynamicPartitionTableTest {
                 // idx=-3,-2,-1: offset+1 ≤ 0 → HDD (MAX_COOLDOWN_TIME_MS)
                 // idx=0,1,2,3: offset+1 > 0 → SSD (finite cooldown)
                 if (idx + 1 <= 0) {
-                    Assert.assertEquals("Historical partition should be HDD: idx=" + idx,
-                            TStorageMedium.HDD, dp.getStorageMedium());
+                    Assertions.assertEquals(TStorageMedium.HDD, dp.getStorageMedium(), "Historical partition should be HDD: idx=" + idx);
                     continue;
                 }
 
-                Assert.assertEquals("Hot partition should be SSD: idx=" + idx,
-                        TStorageMedium.SSD, dp.getStorageMedium());
-                Assert.assertNotEquals("Hot partition must have a finite cooldown: idx=" + idx,
-                        DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+                Assertions.assertEquals(TStorageMedium.SSD, dp.getStorageMedium(), "Hot partition should be SSD: idx=" + idx);
+                Assertions.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "Hot partition must have a finite cooldown: idx=" + idx);
 
                 // Cooldown is the lower bound of the (idx + hotPartitionNum)-th
                 // partition. Derive it from the current partition's lower bound
@@ -3325,18 +3308,15 @@ public class DynamicPartitionTableTest {
                         java.time.Instant.ofEpochMilli(dp.getCooldownTimeMs()),
                         ZoneOffset.UTC);
                 ZonedDateTime expectedUtc = currentLower.plusHours(idx + 1);
-                Assert.assertEquals("Cooldown must equal lower bound of partition at offset "
-                        + (idx + 1) + " (" + expectedUtc + "): idx=" + idx,
-                        expectedUtc.toInstant(), cooldownUtc.toInstant());
+                Assertions.assertEquals(expectedUtc.toInstant(), cooldownUtc.toInstant(), "Cooldown must equal lower bound of partition at offset "
+                        + (idx + 1) + " (" + expectedUtc + "): idx=" + idx);
 
                 // Hour boundaries must be at whole UTC hours.
                 List<LiteralExpr> lowerKeys = item.getItems().lowerEndpoint().getKeys();
                 String lowerStr = lowerKeys.get(0).getStringValue();
-                Assert.assertTrue("Lower key must be UTC: " + lowerStr,
-                        lowerStr.contains("+00:00"));
+                Assertions.assertTrue(lowerStr.contains("+00:00"), "Lower key must be UTC: " + lowerStr);
                 int lowerHour = Integer.parseInt(lowerStr.substring(11, 13));
-                Assert.assertTrue("Lower bound hour must be 0-23: " + lowerStr,
-                        lowerHour >= 0 && lowerHour <= 23);
+                Assertions.assertTrue(lowerHour >= 0 && lowerHour <= 23, "Lower bound hour must be 0-23: " + lowerStr);
             }
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
@@ -3383,7 +3363,7 @@ public class DynamicPartitionTableTest {
                         + "\"dynamic_partition.time_zone\" = \"America/Chicago\",\n"
                         + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                         + ");";
-                createTable(createSql);
+                createTableStmt(createSql);
 
                 Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
                 OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
@@ -3400,8 +3380,7 @@ public class DynamicPartitionTableTest {
                     return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
                 });
 
-                Assert.assertEquals("TIMESTAMPTZ(" + precision + "): partition count",
-                        7, sortedEntries.size());
+                Assertions.assertEquals(7, sortedEntries.size(), "TIMESTAMPTZ(" + precision + "): partition count");
 
                 // Hot partitions must have finite cooldown, not
                 // MAX_COOLDOWN_TIME_MS (which would mean the cooldown
@@ -3419,16 +3398,13 @@ public class DynamicPartitionTableTest {
                     DataProperty dp = partitionInfo.getDataProperty(entry.getKey());
 
                     if (i < 3) {
-                        Assert.assertEquals("TIMESTAMPTZ(" + precision
-                                + ") historical partition should be HDD: idx=" + idx,
-                                TStorageMedium.HDD, dp.getStorageMedium());
+                        Assertions.assertEquals(TStorageMedium.HDD, dp.getStorageMedium(), "TIMESTAMPTZ(" + precision
+                                + ") historical partition should be HDD: idx=" + idx);
                     } else {
-                        Assert.assertEquals("TIMESTAMPTZ(" + precision
-                                + ") hot partition should be SSD: idx=" + idx,
-                                TStorageMedium.SSD, dp.getStorageMedium());
-                        Assert.assertNotEquals("TIMESTAMPTZ(" + precision
-                                + ") cooldown must be finite (not MAX): idx=" + idx,
-                                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+                        Assertions.assertEquals(TStorageMedium.SSD, dp.getStorageMedium(), "TIMESTAMPTZ(" + precision
+                                + ") hot partition should be SSD: idx=" + idx);
+                        Assertions.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs(), "TIMESTAMPTZ(" + precision
+                                + ") cooldown must be finite (not MAX): idx=" + idx);
 
                         ZonedDateTime cooldownUtc = ZonedDateTime.ofInstant(
                                 java.time.Instant.ofEpochMilli(dp.getCooldownTimeMs()),
@@ -3436,9 +3412,8 @@ public class DynamicPartitionTableTest {
                         String upperStr = item.getItems().upperEndpoint().getKeys().get(0)
                                 .getStringValue();
                         ZonedDateTime upperUtc = ZonedDateTime.parse(upperStr, boundFmt);
-                        Assert.assertEquals("TIMESTAMPTZ(" + precision
-                                + ") cooldown must equal partition upper bound: idx=" + idx,
-                                upperUtc.toInstant(), cooldownUtc.toInstant());
+                        Assertions.assertEquals(upperUtc.toInstant(), cooldownUtc.toInstant(), "TIMESTAMPTZ(" + precision
+                                + ") cooldown must equal partition upper bound: idx=" + idx);
                     }
                 }
             }
@@ -3476,7 +3451,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"America/Chicago\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_hist_scaled");
@@ -3485,15 +3460,14 @@ public class DynamicPartitionTableTest {
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int totalPartitions = table.getPartitionNames().size();
-            Assert.assertEquals(7, totalPartitions);
+            Assertions.assertEquals(7, totalPartitions);
 
             RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
             // Verify that stored lower keys actually have .000000 fractional part.
             for (PartitionItem item : info.getIdToItem(false).values()) {
                 RangePartitionItem rItem = (RangePartitionItem) item;
                 String lowerStr = rItem.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
-                Assert.assertTrue("TIMESTAMPTZ(6) lower key must include .000000: " + lowerStr,
-                        lowerStr.contains(".000000"));
+                Assertions.assertTrue(lowerStr.contains(".000000"), "TIMESTAMPTZ(6) lower key must include .000000: " + lowerStr);
             }
 
             // Compute currentUtcBorder (no fractional seconds).
@@ -3502,8 +3476,8 @@ public class DynamicPartitionTableTest {
                     info.getPartitionColumns().get(0));
             String currentUtcBorder = DynamicPartitionUtil.getPartitionRangeString(
                     prop, ZonedDateTime.now(ZoneOffset.UTC), 0, partitionFormat);
-            Assert.assertFalse("currentUtcBorder should NOT contain fractional seconds: "
-                    + currentUtcBorder, currentUtcBorder.contains("."));
+            Assertions.assertFalse(currentUtcBorder.contains("."), "currentUtcBorder should NOT contain fractional seconds: "
+                    + currentUtcBorder);
 
             // Without currentUtcBorder: name-based cannot identify the current
             // partition when nowPartitionName does not match.
@@ -3519,8 +3493,7 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertTrue("Scaled TIMESTAMPTZ(6): name-based should fail to exclude current partition",
-                    currentFoundByName);
+            Assertions.assertTrue(currentFoundByName, "Scaled TIMESTAMPTZ(6): name-based should fail to exclude current partition");
 
             // With the correct nowPartitionName matching the current partition's
             // actual name, name-based exclusion works correctly even when the
@@ -3534,7 +3507,7 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertNotNull("Should find the current partition", currentPartitionName);
+            Assertions.assertNotNull(currentPartitionName, "Should find the current partition");
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
                     table, currentPartitionName);
             boolean currentFoundByNameCorrect = false;
@@ -3546,10 +3519,9 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertFalse("Scaled TIMESTAMPTZ(6): name-based must exclude current partition "
-                    + "when nowPartitionName matches", currentFoundByNameCorrect);
-            Assert.assertEquals("Scaled TIMESTAMPTZ(6): exclude exactly one partition",
-                    totalPartitions - 1, historicalWithName.size());
+            Assertions.assertFalse(currentFoundByNameCorrect, "Scaled TIMESTAMPTZ(6): name-based must exclude current partition "
+                    + "when nowPartitionName matches");
+            Assertions.assertEquals(totalPartitions - 1, historicalWithName.size(), "Scaled TIMESTAMPTZ(6): exclude exactly one partition");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3585,7 +3557,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
                     + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_old_prefix");
@@ -3594,12 +3566,11 @@ public class DynamicPartitionTableTest {
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
             int totalPartitions = table.getPartitionNames().size();
-            Assert.assertEquals("Initial partitions should be 7", 7, totalPartitions);
+            Assertions.assertEquals(7, totalPartitions, "Initial partitions should be 7");
 
             // Verify all existing partitions use the old prefix "p".
             for (String name : table.getPartitionNames()) {
-                Assert.assertTrue("Existing partitions must use old prefix: " + name,
-                        name.startsWith("p"));
+                Assertions.assertTrue(name.startsWith("p"), "Existing partitions must use old prefix: " + name);
             }
 
             // Now change the prefix from "p" to "q" via table properties.
@@ -3610,7 +3581,7 @@ public class DynamicPartitionTableTest {
 
             // Re-read the dynamic property to get the updated prefix.
             DynamicPartitionProperty updatedProp = table.getTableProperty().getDynamicPartitionProperty();
-            Assert.assertEquals("Prefix should now be 'q'", "q", updatedProp.getPrefix());
+            Assertions.assertEquals("q", updatedProp.getPrefix(), "Prefix should now be 'q'");
 
             // Compute currentUtcBorder from the scheduler's logic.
             RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
@@ -3636,8 +3607,7 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertTrue("Old prefix: name-based should fail to exclude current partition",
-                    currentFoundByName);
+            Assertions.assertTrue(currentFoundByName, "Old prefix: name-based should fail to exclude current partition");
 
             // 2. With the correct nowPartitionName (the actual partition name
             //    with old prefix "p"), name-based exclusion works.
@@ -3650,8 +3620,8 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertNotNull("Should find the current partition", currentPartitionName);
-            Assert.assertTrue("Current partition should start with 'p'", currentPartitionName.startsWith("p"));
+            Assertions.assertNotNull(currentPartitionName, "Should find the current partition");
+            Assertions.assertTrue(currentPartitionName.startsWith("p"), "Current partition should start with 'p'");
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
                     table, currentPartitionName);
             boolean currentFoundByName2 = false;
@@ -3663,10 +3633,9 @@ public class DynamicPartitionTableTest {
                     break;
                 }
             }
-            Assert.assertFalse("Old prefix: name-based must exclude current partition "
-                    + "when nowPartitionName matches", currentFoundByName2);
-            Assert.assertEquals("Old prefix: exclude exactly one partition",
-                    totalPartitions - 1, historicalWithName.size());
+            Assertions.assertFalse(currentFoundByName2, "Old prefix: name-based must exclude current partition "
+                    + "when nowPartitionName matches");
+            Assertions.assertEquals(totalPartitions - 1, historicalWithName.size(), "Old prefix: exclude exactly one partition");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3697,7 +3666,7 @@ public class DynamicPartitionTableTest {
                     + "PROPERTIES (\n"
                     + "\"replication_num\" = \"1\"\n"
                     + ");";
-            createTable(createSql);
+            createTableStmt(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_noncanonical");
@@ -3726,7 +3695,7 @@ public class DynamicPartitionTableTest {
             alterTable("ALTER TABLE test.tstz_noncanonical ADD PARTITION p_hist VALUES "
                     + "[('2020-01-01 00:00:00+00:00'), ('2020-01-02 00:00:00+00:00'))");
 
-            Assert.assertEquals(2, table.getPartitionNames().size());
+            Assertions.assertEquals(2, table.getPartitionNames().size());
 
             // currentUtcBorder = today's UTC midnight → inside p_legacy.
             String currentUtcBorder = fmt.format(todayMidnight) + "+00:00";
@@ -3739,11 +3708,9 @@ public class DynamicPartitionTableTest {
                 String lowerStr = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
                 String upperStr = item.getItems().upperEndpoint().getKeys().get(0).getStringValue();
                 if ("p_legacy".equals(table.getPartition(entry.getKey()).getName())) {
-                    Assert.assertTrue("00:00Z must be inside [" + lowerStr + ", " + upperStr + ")",
-                            currentUtcBorder.compareTo(lowerStr) >= 0
-                            && currentUtcBorder.compareTo(upperStr) < 0);
-                    Assert.assertFalse("00:00Z must NOT equal " + lowerStr,
-                            currentUtcBorder.equals(lowerStr));
+                    Assertions.assertTrue(currentUtcBorder.compareTo(lowerStr) >= 0
+                            && currentUtcBorder.compareTo(upperStr) < 0, "00:00Z must be inside [" + lowerStr + ", " + upperStr + ")");
+                    Assertions.assertFalse(currentUtcBorder.equals(lowerStr), "00:00Z must NOT equal " + lowerStr);
                 }
             }
 
@@ -3752,19 +3719,15 @@ public class DynamicPartitionTableTest {
             // 1. Without currentUtcBorder: name-based fallback returns both.
             List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
                     table, wrongNowPartitionName);
-            Assert.assertEquals("Name-based fallback returns all partitions",
-                    2, historicalNoUtc.size());
+            Assertions.assertEquals(2, historicalNoUtc.size(), "Name-based fallback returns all partitions");
 
             // 2. With the correct nowPartitionName matching p_legacy,
             //    name-based exclusion removes it.
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
                     table, "p_legacy");
-            Assert.assertEquals("Name-based exclusion removes exactly one partition",
-                    1, historicalWithName.size());
-            Assert.assertFalse("p_legacy must be excluded by name match",
-                    "p_legacy".equals(historicalWithName.get(0).getName()));
-            Assert.assertEquals("p_hist should survive",
-                    "p_hist", historicalWithName.get(0).getName());
+            Assertions.assertEquals(1, historicalWithName.size(), "Name-based exclusion removes exactly one partition");
+            Assertions.assertFalse("p_legacy".equals(historicalWithName.get(0).getName()), "p_legacy must be excluded by name match");
+            Assertions.assertEquals("p_hist", historicalWithName.get(0).getName(), "p_hist should survive");
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }

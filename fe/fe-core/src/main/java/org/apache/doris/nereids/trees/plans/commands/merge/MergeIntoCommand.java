@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
@@ -42,24 +40,25 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
-import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlArgs;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlCommand;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlOp;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlRegistry;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlTransform;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -122,12 +121,22 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                 Objects.requireNonNull(notMatchedClauses, "notMatchedClauses should not be null"));
     }
 
+    /** Return every relation root retained across prepared executions. */
+    public List<LogicalPlan> getRelationRoots() {
+        ImmutableList.Builder<LogicalPlan> roots = ImmutableList.builder();
+        cte.ifPresent(roots::add);
+        roots.add(source);
+        return roots.build();
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf table = getTargetTableIf(ctx);
-        if (table instanceof IcebergExternalTable) {
-            new IcebergMergeCommand(targetNameParts, targetAlias, cte,
-                    source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).run(ctx, executor);
             return;
         }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
@@ -142,9 +151,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = getTargetTableIf(ctx);
-        if (table instanceof IcebergExternalTable) {
-            return new IcebergMergeCommand(targetNameParts, targetAlias, cte,
-                    source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx);
     }
@@ -173,7 +184,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     }
 
     /**
-     * generate target right outer join source.
+     * generate target (inner | right outer) join source, see {@link MergeUtils#buildMergeJoin}.
      */
     private LogicalPlan generateBasePlan() {
         LogicalPlan plan = LogicalPlanBuilderAssistant.withCheckPolicy(
@@ -185,9 +196,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         if (targetAlias.isPresent()) {
             plan = new LogicalSubQueryAlias<>(targetAlias.get(), plan);
         }
-        return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, plan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(plan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     /**
@@ -202,7 +211,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             Expression currentResult = new IntegerLiteral(i);
             if (clause.getCasePredicate().isPresent()) {
-                matchedLabel = new If(clause.getCasePredicate().get(), currentResult, matchedLabel);
+                matchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, matchedLabel);
             } else {
                 matchedLabel = currentResult;
             }
@@ -215,12 +225,13 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             Expression currentResult = new IntegerLiteral(i + matchedClauses.size());
             if (clause.getCasePredicate().isPresent()) {
-                notMatchedLabel = new If(clause.getCasePredicate().get(), currentResult, notMatchedLabel);
+                notMatchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, notMatchedLabel);
             } else {
                 notMatchedLabel = currentResult;
             }
         }
-        return new UnboundAlias(new If(new Not(new IsNull(deleteSign)),
+        return new UnboundAlias(MergeUtils.selectBranch(new Not(new IsNull(deleteSign)),
                 matchedLabel, notMatchedLabel), BRANCH_LABEL);
     }
 
@@ -437,7 +448,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
             Expression project = new NullLiteral();
             for (int j = 0; j < finalProjections.size(); j++) {
-                project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
+                project = MergeUtils.selectBranch(
+                        new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         finalProjections.get(j).get(i), project);
             }
             outputProjectionsBuilder.add(new UnboundAlias(project, colNames.get(i)));

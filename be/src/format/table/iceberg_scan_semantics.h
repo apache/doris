@@ -22,12 +22,31 @@
 namespace doris {
 
 inline constexpr int32_t ICEBERG_SCAN_SEMANTICS_VERSION_1 = 1;
+inline constexpr int32_t ICEBERG_SCAN_SEMANTICS_VERSION_2 = 2;
 
 inline bool supports_iceberg_scan_semantics_v1(const TFileScanRangeParams* params) {
     // Old FE plans can carry IDs and encoded defaults too, so only this explicit version marker
     // may opt a new BE into result-changing semantics during a rolling upgrade.
     return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
            params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_1;
+}
+
+inline bool supports_iceberg_scan_semantics_v2(const TFileScanRangeParams* params) {
+    return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
+           params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_2;
+}
+
+// Iceberg manifest-entry content codes (spec: 1 = position deletes, 3 = deletion vectors).
+inline constexpr int kIcebergPositionDeleteContent = 1;
+inline constexpr int kIcebergDeletionVectorContent = 3;
+
+inline bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 } // namespace doris

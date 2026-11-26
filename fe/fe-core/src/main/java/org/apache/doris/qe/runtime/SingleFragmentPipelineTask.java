@@ -58,12 +58,19 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
     // return true if profile is updated. Otherwise, return false.
     // Has to use synchronized to ensure there are not concurrent update threads. Or the done
     // state maybe update wrong and will lose data. see https://github.com/apache/doris/pull/29802/files.
-    public boolean processReportExecStatus(TReportExecStatusParams reportExecStatus) {
+    public synchronized boolean processReportExecStatus(
+            TReportExecStatusParams reportExecStatus, Runnable acceptanceAction) {
         // The fragment or instance is not finished, not need update
         if (!reportExecStatus.done) {
             return false;
         }
-        return this.done.compareAndSet(false, true);
+        if (done.get()) {
+            return false;
+        }
+        // Mark done only after external commit data is accepted; exceptions remain retryable.
+        acceptanceAction.run();
+        done.set(true);
+        return true;
     }
 
     public Status getBackendHealthStatus(long jobId) {
@@ -73,7 +80,9 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
         }
 
         long currentProcessEpoch = backend.getProcessEpoch();
-        if (backendProcessEpoch > 0 && currentProcessEpoch > 0 && backendProcessEpoch != currentProcessEpoch) {
+        // A zero current epoch can come from older metadata during replay/upgrade. All other
+        // epoch changes invalidate running tasks, including an initially uninitialized capture.
+        if (currentProcessEpoch != 0 && backendProcessEpoch != currentProcessEpoch) {
             Status unhealthyStatus = new Status(TStatusCode.INTERNAL_ERROR,
                     "backend {} process epoch changed from {} to {}, indicating that the backend restarted",
                     backend.getId(), backendProcessEpoch, currentProcessEpoch);

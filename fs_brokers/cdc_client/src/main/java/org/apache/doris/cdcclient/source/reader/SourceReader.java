@@ -20,9 +20,11 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 
 import org.apache.flink.api.connector.source.SourceSplit;
@@ -77,8 +79,8 @@ public interface SourceReader {
     /** Finish reading all split records */
     void finishSplitRecords();
 
-    /** Get the end offset for the job */
-    Map<String, String> getEndOffset(JobBaseConfig jobConfig);
+    /** Get the end offset and latest source-log lag. */
+    FetchEndOffsetResult fetchEndOffset(FetchEndOffsetRequest request);
 
     /** Compare the offsets */
     int compareOffset(CompareOffsetRequest compareOffsetRequest);

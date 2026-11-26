@@ -17,11 +17,14 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -36,6 +39,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
     private static final long serialVersionUID = 1L;
 
+    /** Metastore parameter key marking an ACID table insert-only (vs full-ACID). */
+    private static final String TRANSACTIONAL_PROPERTIES = "transactional_properties";
+    private static final String INSERT_ONLY = "insert_only";
+
     private final String dbName;
     private final String tableName;
     private final HiveTableType tableType;
@@ -45,11 +52,19 @@ public class HiveTableHandle implements ConnectorTableHandle {
     private final String serializationLib;
     private final String location;
     private final List<String> partitionKeyNames;
+    private final Map<String, String> partitionKeyTypes;
+    private final Map<String, String> partitionKeyHiveTypes;
     private final Map<String, String> sdParameters;
     private final Map<String, String> tableParameters;
+    // Whether the table's first column is a STRING, precomputed at handle build time (the metastore table is
+    // already loaded there). Reproduces legacy HMSExternalTable.firstColumnIsString, consulted ONLY for the
+    // OpenX-JSON read_hive_json_in_one_column read-format branch (see HiveFileFormat.detect).
+    private final boolean firstColumnIsString;
 
     // Set after applyFilter for partition pruning
     private final List<HmsPartitionInfo> prunedPartitions;
+    private final Map<String, HmsPartitionInfo> prunedPartitionsByName;
+    private final HmsPartitionBatchStats pruningBatchStats;
 
     private HiveTableHandle(Builder builder) {
         this.dbName = builder.dbName;
@@ -61,13 +76,25 @@ public class HiveTableHandle implements ConnectorTableHandle {
         this.partitionKeyNames = builder.partitionKeyNames != null
                 ? Collections.unmodifiableList(builder.partitionKeyNames)
                 : Collections.emptyList();
+        this.partitionKeyTypes = builder.partitionKeyTypes != null
+                ? Collections.unmodifiableMap(new HashMap<>(builder.partitionKeyTypes))
+                : Collections.emptyMap();
+        this.partitionKeyHiveTypes = builder.partitionKeyHiveTypes != null
+                && !builder.partitionKeyHiveTypes.isEmpty()
+                ? Collections.unmodifiableMap(new HashMap<>(builder.partitionKeyHiveTypes))
+                : this.partitionKeyTypes;
         this.sdParameters = builder.sdParameters != null
                 ? Collections.unmodifiableMap(builder.sdParameters)
                 : Collections.emptyMap();
         this.tableParameters = builder.tableParameters != null
                 ? Collections.unmodifiableMap(builder.tableParameters)
                 : Collections.emptyMap();
+        this.firstColumnIsString = builder.firstColumnIsString;
         this.prunedPartitions = builder.prunedPartitions;
+        this.prunedPartitionsByName = builder.prunedPartitionsByName != null
+                ? Collections.unmodifiableMap(new HashMap<>(builder.prunedPartitionsByName))
+                : Collections.emptyMap();
+        this.pruningBatchStats = builder.pruningBatchStats;
     }
 
     /** Legacy constructor for Phase 1 compatibility (metadata-only). */
@@ -103,6 +130,14 @@ public class HiveTableHandle implements ConnectorTableHandle {
         return partitionKeyNames;
     }
 
+    public Map<String, String> getPartitionKeyTypes() {
+        return partitionKeyTypes;
+    }
+
+    public Map<String, String> getPartitionKeyHiveTypes() {
+        return partitionKeyHiveTypes;
+    }
+
     public Map<String, String> getSdParameters() {
         return sdParameters;
     }
@@ -111,8 +146,59 @@ public class HiveTableHandle implements ConnectorTableHandle {
         return tableParameters;
     }
 
+    /**
+     * Whether the table's first column is a {@code STRING}, the gate legacy {@code HMSExternalTable} applies
+     * before reading an OpenX-JSON table as a single CSV column under {@code read_hive_json_in_one_column}.
+     */
+    public boolean isFirstColumnString() {
+        return firstColumnIsString;
+    }
+
+    /**
+     * Whether the metastore parameters mark this table transactional (ACID), replicating Hive's
+     * {@code AcidUtils.isTransactionalTable} (case-insensitive {@code "true"} under the
+     * {@code transactional} key, with the upper-cased key as a fallback).
+     */
+    public boolean isTransactional() {
+        return isTransactionalTable(tableParameters);
+    }
+
+    /**
+     * Whether this table is full-ACID (transactional and <b>not</b> insert-only), i.e. its reads must
+     * apply row-level deletes from delete-delta directories. Mirrors Hive's
+     * {@code AcidUtils.isFullAcidTable}: transactional and {@code transactional_properties} is not
+     * {@code insert_only}.
+     */
+    public boolean isFullAcid() {
+        if (!isTransactional()) {
+            return false;
+        }
+        String props = tableParameters.get(TRANSACTIONAL_PROPERTIES);
+        return !INSERT_ONLY.equalsIgnoreCase(props);
+    }
+
+    private static boolean isTransactionalTable(Map<String, String> tableParameters) {
+        if (tableParameters == null) {
+            return false;
+        }
+        String value = tableParameters.get(HiveConnectorMetadata.CREATE_TRANSACTIONAL);
+        if (value == null) {
+            value = tableParameters.get(
+                    HiveConnectorMetadata.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+        }
+        return "true".equalsIgnoreCase(value);
+    }
+
     public List<HmsPartitionInfo> getPrunedPartitions() {
         return prunedPartitions;
+    }
+
+    public Map<String, HmsPartitionInfo> getPrunedPartitionsByName() {
+        return prunedPartitionsByName;
+    }
+
+    public HmsPartitionBatchStats getPruningBatchStats() {
+        return pruningBatchStats;
     }
 
     /** Returns a builder pre-populated with this handle's state, for creating modified copies. */
@@ -122,9 +208,14 @@ public class HiveTableHandle implements ConnectorTableHandle {
         b.serializationLib = this.serializationLib;
         b.location = this.location;
         b.partitionKeyNames = this.partitionKeyNames;
+        b.partitionKeyTypes = this.partitionKeyTypes;
+        b.partitionKeyHiveTypes = this.partitionKeyHiveTypes;
         b.sdParameters = this.sdParameters;
         b.tableParameters = this.tableParameters;
+        b.firstColumnIsString = this.firstColumnIsString;
         b.prunedPartitions = this.prunedPartitions;
+        b.prunedPartitionsByName = this.prunedPartitionsByName;
+        b.pruningBatchStats = this.pruningBatchStats;
         return b;
     }
 
@@ -144,9 +235,14 @@ public class HiveTableHandle implements ConnectorTableHandle {
         private String serializationLib;
         private String location;
         private List<String> partitionKeyNames;
+        private Map<String, String> partitionKeyTypes;
+        private Map<String, String> partitionKeyHiveTypes;
         private Map<String, String> sdParameters;
         private Map<String, String> tableParameters;
+        private boolean firstColumnIsString;
         private List<HmsPartitionInfo> prunedPartitions;
+        private Map<String, HmsPartitionInfo> prunedPartitionsByName;
+        private HmsPartitionBatchStats pruningBatchStats;
 
         public Builder(String dbName, String tableName, HiveTableType tableType) {
             this.dbName = dbName;
@@ -174,6 +270,16 @@ public class HiveTableHandle implements ConnectorTableHandle {
             return this;
         }
 
+        public Builder partitionKeyTypes(Map<String, String> val) {
+            this.partitionKeyTypes = val;
+            return this;
+        }
+
+        public Builder partitionKeyHiveTypes(Map<String, String> val) {
+            this.partitionKeyHiveTypes = val;
+            return this;
+        }
+
         public Builder sdParameters(Map<String, String> val) {
             this.sdParameters = val;
             return this;
@@ -184,8 +290,23 @@ public class HiveTableHandle implements ConnectorTableHandle {
             return this;
         }
 
+        public Builder firstColumnIsString(boolean val) {
+            this.firstColumnIsString = val;
+            return this;
+        }
+
         public Builder prunedPartitions(List<HmsPartitionInfo> val) {
             this.prunedPartitions = val;
+            return this;
+        }
+
+        public Builder prunedPartitionsByName(Map<String, HmsPartitionInfo> val) {
+            this.prunedPartitionsByName = val;
+            return this;
+        }
+
+        public Builder pruningBatchStats(HmsPartitionBatchStats val) {
+            this.pruningBatchStats = val;
             return this;
         }
 

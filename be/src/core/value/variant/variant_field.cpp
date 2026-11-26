@@ -20,11 +20,13 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <span>
 #include <utility>
-#include <vector>
 
 #include "common/exception.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_payload_validator.h"
+#include "core/value/variant/variant_scalar.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -127,13 +129,6 @@ void require_valid_primitive(VariantRef value) {
     throw Exception(ErrorCode::CORRUPTION, "VariantField contains an unknown primitive type");
 }
 
-void require_exact_value(VariantRef value, uint32_t depth);
-
-struct ObjectValueSpan {
-    size_t offset;
-    size_t size;
-};
-
 size_t object_values_offset(VariantRef value, uint32_t count) {
     const uint8_t value_header =
             static_cast<uint8_t>(value.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
@@ -147,13 +142,24 @@ size_t object_values_offset(VariantRef value, uint32_t count) {
            (static_cast<size_t>(count) + 1) * offset_width;
 }
 
-void require_valid_object(VariantRef value, uint32_t depth) {
+} // namespace
+
+void VariantPayloadValidator::require_valid_object(VariantRef value, uint32_t depth) {
     const uint32_t count = value.num_elements();
     const size_t values_offset = object_values_offset(value, count);
     const char* values_begin = value.value.data + values_offset;
     const size_t values_size = value.value.size - values_offset;
-    std::vector<ObjectValueSpan> spans;
-    spans.reserve(count);
+    // Entries below base belong to the ancestors of this object; see _object_spans.
+    const size_t base = _object_spans.size();
+    // Reserve this object's spans up front. A fresh validator, such as the one each
+    // validate_variant_payload() call makes, then allocates once for a flat object of 1000
+    // fields instead of growing ten times (1, 2, 4, ..., 1024). Reserving exactly base + count
+    // would not be enough for nested objects: in a root of 26 fields that are each objects of
+    // 30 fields, field k needs k + 30 entries, so every later sibling would reallocate by one
+    // entry. Taking at least twice the capacity grows 26 -> 52 -> 104 instead.
+    if (_object_spans.capacity() < base + count) {
+        _object_spans.reserve(std::max(base + count, 2 * _object_spans.capacity()));
+    }
 
     StringRef previous_key;
     for (uint32_t index = 0; index < count; ++index) {
@@ -165,11 +171,12 @@ void require_valid_object(VariantRef value, uint32_t depth) {
                             "VariantField object keys are not strictly ordered at field {}", index);
         }
         require_exact_value(child, depth + 1);
-        spans.push_back({.offset = static_cast<size_t>(child.value.data - values_begin),
-                         .size = child.value.size});
+        _object_spans.push_back({.offset = static_cast<size_t>(child.value.data - values_begin),
+                                 .size = child.value.size});
         previous_key = key;
     }
 
+    const std::span<ObjectValueSpan> spans(_object_spans.data() + base, count);
     std::ranges::sort(spans, [](const ObjectValueSpan& left, const ObjectValueSpan& right) {
         return left.offset < right.offset;
     });
@@ -189,16 +196,17 @@ void require_valid_object(VariantRef value, uint32_t depth) {
         throw Exception(ErrorCode::CORRUPTION,
                         "VariantField object values contain unreferenced trailing bytes");
     }
+    _object_spans.resize(base);
 }
 
-void require_valid_array(VariantRef value, uint32_t depth) {
+void VariantPayloadValidator::require_valid_array(VariantRef value, uint32_t depth) {
     const uint32_t count = value.num_elements();
     for (uint32_t index = 0; index < count; ++index) {
         require_exact_value(value.array_at(index), depth + 1);
     }
 }
 
-void require_exact_value(VariantRef value, uint32_t depth) {
+void VariantPayloadValidator::require_exact_value(VariantRef value, uint32_t depth) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         throw Exception(ErrorCode::CORRUPTION,
                         "VariantField value exceeds maximum nesting depth {}",
@@ -227,6 +235,8 @@ void require_exact_value(VariantRef value, uint32_t depth) {
     }
     throw Exception(ErrorCode::CORRUPTION, "VariantField contains an unknown value type");
 }
+
+namespace {
 
 struct RowSlices {
     VariantMetadataRef metadata;
@@ -275,13 +285,25 @@ void validate_variant_metadata(VariantMetadataRef metadata) {
     }
 }
 
-void validate_variant_payload(VariantRef value) {
+void VariantPayloadValidator::validate(VariantRef value) {
     require_non_null(value.value, "value");
+    // A call that threw in the middle of an object left the spans of its unfinished objects
+    // behind, and the next call must not count them as its own.
+    _object_spans.clear();
     require_exact_value(value, 0);
+    DCHECK(_object_spans.empty());
+}
+
+void validate_variant_payload(VariantRef value) {
+    VariantPayloadValidator().validate(value);
 }
 
 VariantField::VariantField(std::unique_ptr<char[]> data, size_t size) noexcept
         : _data(std::move(data)), _size(size) {}
+
+VariantField::VariantField() noexcept = default;
+
+VariantField::~VariantField() = default;
 
 VariantField::VariantField(const VariantField& other) : _size(other._size) {
     if (_size != 0) {
@@ -339,6 +361,17 @@ VariantField VariantField::from_bytes(StringRef bytes) {
     return {copy_bytes(bytes), bytes.size};
 }
 
+VariantField VariantField::from_scalar(const VariantScalarRef& scalar) {
+    const size_t metadata_size = VARIANT_EMPTY_METADATA.size();
+    const size_t value_offset = METADATA_SIZE_PREFIX + metadata_size;
+    const size_t value_size = scalar.encoded_size();
+    auto data = std::make_unique<char[]>(value_offset + value_size);
+    write_u32(data.get(), static_cast<uint32_t>(metadata_size));
+    std::memcpy(data.get() + METADATA_SIZE_PREFIX, VARIANT_EMPTY_METADATA.data(), metadata_size);
+    scalar.write_physical(data.get() + value_offset, value_size);
+    return VariantField(std::move(data), value_offset + value_size);
+}
+
 VariantRef VariantField::ref() const {
     if (_size == 0) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -351,6 +384,14 @@ VariantRef VariantField::ref() const {
     VariantMetadataRef metadata {.data = _data.get() + METADATA_SIZE_PREFIX, .size = metadata_size};
     return {.metadata = metadata,
             .value = {metadata.data + metadata.size, _size - METADATA_SIZE_PREFIX - metadata.size}};
+}
+
+VariantMetadataRef VariantField::metadata() const {
+    return ref().metadata;
+}
+
+StringRef VariantField::value() const {
+    return ref().value;
 }
 
 StringRef VariantField::bytes() const noexcept {

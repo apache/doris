@@ -25,6 +25,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/common/agg_utils.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"

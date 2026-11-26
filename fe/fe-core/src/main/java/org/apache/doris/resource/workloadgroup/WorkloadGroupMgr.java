@@ -273,8 +273,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             }
         }
 
-        // 4 check wg num
-        if (isCreateStmt && wgNumOfCurrentCg >= Config.workload_group_max_num) {
+        // The count already includes the workload group being created.
+        if (isCreateStmt && wgNumOfCurrentCg > Config.workload_group_max_num) {
             throw new DdlException(
                     "Workload group number in Compute Group " + newWgCg + "can not exceed "
                             + Config.workload_group_max_num);

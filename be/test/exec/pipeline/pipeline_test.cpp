@@ -241,7 +241,8 @@ TEST_F(PipelineTest, HAPPY_PATH) {
 
         std::vector<TUniqueId> ids;
         ids.push_back(source_ins);
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(), op->row_desc(),
+        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
+                                             op->operator_row_desc_after_projection(),
                                              _next_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
@@ -575,7 +576,8 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
 
         std::vector<TUniqueId> ids;
         ids.push_back(source_ins);
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(), op->row_desc(),
+        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
+                                             op->operator_row_desc_after_projection(),
                                              _next_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
@@ -890,9 +892,10 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         for (int i = 0; i < parallelism; i++) {
             ids.push_back(_next_ins_id());
         }
-        sink.reset(new ExchangeSinkOperatorX(_runtime_state.back().get(),
-                                             _pipelines.back()->operators().back()->row_desc(),
-                                             _next_sink_op_id(), stream_sink, destinations, ids));
+        sink.reset(new ExchangeSinkOperatorX(
+                _runtime_state.back().get(),
+                _pipelines.back()->operators().back()->operator_row_desc_after_projection(),
+                _next_sink_op_id(), stream_sink, destinations, ids));
         EXPECT_EQ(sink->init(tsink), Status::OK());
         EXPECT_EQ(cur_pipe->set_sink(sink), Status::OK());
         EXPECT_EQ(cur_pipe->sink()->set_child(cur_pipe->operators().back()), Status::OK());

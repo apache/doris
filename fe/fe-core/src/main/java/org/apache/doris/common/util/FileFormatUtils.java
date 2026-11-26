@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.foundation.format.ParquetTimestampUtils;
 
 import com.google.common.base.Strings;
 
@@ -30,6 +32,16 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 
 public class FileFormatUtils {
+
+    public static final int PARQUET_TIMESTAMP_SEMANTICS_VERSION = 1;
+
+    public static String parseHiveParquetTimeZone(String value) throws DdlException {
+        try {
+            return ParquetTimestampUtils.parseHiveTimeZone(value);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
 
     public static boolean isCsv(String formatStr) {
         return FileFormatConstants.FORMAT_CSV.equalsIgnoreCase(formatStr)
@@ -95,6 +107,8 @@ public class FileFormatUtils {
                     column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
                 } else if (type.equals("string")) {
                     column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("uuid")) {
+                    column = new Column(name, PrimitiveType.UUID, true);
                 } else if (type.equals("boolean")) {
                     column = new Column(name, PrimitiveType.BOOLEAN, true);
                 } else {

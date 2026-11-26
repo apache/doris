@@ -556,160 +556,163 @@ static Status fill_array_offset(NativeFieldSchema* field, ColumnArray::Offsets64
     return Status::OK();
 }
 
-Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
-                            const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
-                            const cctz::time_zone* ctz, io::IOContext* io_ctx,
-                            std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
-                            const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                            RuntimeState* state, bool in_collection,
-                            const std::set<uint64_t>& column_ids,
-                            const std::set<uint64_t>& filter_column_ids,
-                            const std::string& page_cache_file_key,
-                            const ParquetReaderCompat& compat, bool enable_strict_mode) {
-    size_t total_rows = row_group.num_rows;
-    if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
-        std::unique_ptr<ColumnReader> element_reader;
-        RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size, col_offsets, state, true, column_ids,
-                               filter_column_ids, page_cache_file_key, compat, enable_strict_mode));
-        auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
-        element_reader->set_column_in_nested();
-        RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
-        array_reader->_filter_column_ids = filter_column_ids;
-        reader.reset(array_reader.release());
-    } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
-        std::unique_ptr<ColumnReader> key_reader;
-        std::unique_ptr<ColumnReader> value_reader;
+Status ColumnReader::create(const ColumnReaderCreateContext& context, NativeFieldSchema* field,
+                            bool in_collection, std::unique_ptr<ColumnReader>& reader) {
+    switch (field->data_type->get_primitive_type()) {
+    case TYPE_ARRAY:
+        RETURN_IF_ERROR(_create_array_reader(context, field, reader));
+        break;
+    case TYPE_MAP:
+        RETURN_IF_ERROR(_create_map_reader(context, field, reader));
+        break;
+    case TYPE_STRUCT:
+        RETURN_IF_ERROR(_create_struct_reader(context, field, in_collection, reader));
+        break;
+    default:
+        RETURN_IF_ERROR(_create_scalar_reader(context, field, in_collection, reader));
+    }
+    reader->_filter_column_ids = context.filter_column_ids;
+    return Status::OK();
+}
 
-        if (column_ids.empty() ||
-            column_ids.find(field->children[0].get_column_id()) != column_ids.end()) {
-            // Create key reader
-            RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                                   key_reader, max_buf_size, col_offsets, state, true, column_ids,
-                                   filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
-        } else {
-            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
-                                                                   io_ctx, &field->children[0]);
-            key_reader = std::move(skip_reader);
-        }
+Status ColumnReader::_create_array_reader(const ColumnReaderCreateContext& context,
+                                          NativeFieldSchema* field,
+                                          std::unique_ptr<ColumnReader>& reader) {
+    const auto& row_ranges = context.row_ranges;
+    size_t total_rows = context.row_group.num_rows;
+    const auto* ctz = context.options.timezone;
+    auto* io_ctx = context.io_ctx;
+    std::unique_ptr<ColumnReader> element_reader;
+    RETURN_IF_ERROR(create(context, &field->children[0], true, element_reader));
+    auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+    element_reader->set_column_in_nested();
+    RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
+    reader = std::move(array_reader);
+    return Status::OK();
+}
 
-        if (column_ids.empty() ||
-            column_ids.find(field->children[1].get_column_id()) != column_ids.end()) {
-            // Create value reader
-            RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
-                                   value_reader, max_buf_size, col_offsets, state, true, column_ids,
-                                   filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
-        } else {
-            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
-                                                                   io_ctx, &field->children[1]);
-            value_reader = std::move(skip_reader);
-        }
-
-        auto map_reader = MapColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
-        key_reader->set_column_in_nested();
-        value_reader->set_column_in_nested();
-        RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
-        map_reader->_filter_column_ids = filter_column_ids;
-        reader.reset(map_reader.release());
-    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
-        std::unordered_map<std::string, std::unique_ptr<ColumnReader>> child_readers;
-        child_readers.reserve(field->children.size());
-        int non_skip_reader_idx = -1;
-        for (int i = 0; i < field->children.size(); ++i) {
-            auto& child = field->children[i];
-            std::unique_ptr<ColumnReader> child_reader;
-            if (column_ids.empty() || column_ids.find(child.get_column_id()) != column_ids.end()) {
-                RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
-                                       child_reader, max_buf_size, col_offsets, state,
-                                       in_collection, column_ids, filter_column_ids,
-                                       page_cache_file_key, compat, enable_strict_mode));
-                child_readers[child.name] = std::move(child_reader);
-                // Record the first non-SkippingReader
-                if (non_skip_reader_idx == -1) {
-                    non_skip_reader_idx = i;
-                }
-            } else {
-                auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
-                                                                       io_ctx, &child);
-                skip_reader->_filter_column_ids = filter_column_ids;
-                child_readers[child.name] = std::move(skip_reader);
-            }
-            child_readers[child.name]->set_column_in_nested();
-        }
-        // If all children are SkipReadingReader, force the first child to call create
-        if (non_skip_reader_idx == -1) {
-            std::unique_ptr<ColumnReader> child_reader;
-            RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size, col_offsets, state, in_collection,
-                                   column_ids, filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
-            child_reader->set_column_in_nested();
-            child_readers[field->children[0].name] = std::move(child_reader);
-        }
-        auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
-        RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
-        struct_reader->_filter_column_ids = filter_column_ids;
-        reader.reset(struct_reader.release());
+Status ColumnReader::_create_map_reader(const ColumnReaderCreateContext& context,
+                                        NativeFieldSchema* field,
+                                        std::unique_ptr<ColumnReader>& reader) {
+    const auto& row_ranges = context.row_ranges;
+    size_t total_rows = context.row_group.num_rows;
+    const auto* ctz = context.options.timezone;
+    auto* io_ctx = context.io_ctx;
+    const auto& column_ids = context.column_ids;
+    std::unique_ptr<ColumnReader> key_reader;
+    std::unique_ptr<ColumnReader> value_reader;
+    if (column_ids.empty() || column_ids.contains(field->children[0].get_column_id())) {
+        RETURN_IF_ERROR(create(context, &field->children[0], true, key_reader));
     } else {
-        auto physical_index = field->physical_column_index;
-        if (physical_index < 0 || static_cast<size_t>(physical_index) >= row_group.columns.size()) {
-            // Keep the leaf-to-chunk invariant checked at this consumer too because unit callers
-            // can construct a reader without going through NativeParquetMetadata::init_schema().
-            return Status::Corruption("Parquet physical column index {} is out of range {}",
-                                      physical_index, row_group.columns.size());
-        }
-        const auto offset_it = col_offsets.find(physical_index);
-        const tparquet::OffsetIndex* offset_index =
-                offset_it != col_offsets.end() ? &offset_it->second : nullptr;
+        key_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
+                                                         &field->children[0]);
+    }
+    if (column_ids.empty() || column_ids.contains(field->children[1].get_column_id())) {
+        RETURN_IF_ERROR(create(context, &field->children[1], true, value_reader));
+    } else {
+        value_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
+                                                           &field->children[1]);
+    }
+    auto map_reader = MapColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+    key_reader->set_column_in_nested();
+    value_reader->set_column_in_nested();
+    RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
+    reader = std::move(map_reader);
+    return Status::OK();
+}
 
-        const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
-        if (!chunk.__isset.meta_data) {
-            return Status::Corruption("Parquet physical column {} has no chunk metadata",
-                                      physical_index);
-        }
-        if (in_collection) {
-            if (offset_index == nullptr) {
-                auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
-
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
-                                                    page_cache_file_key, compat,
-                                                    enable_strict_mode));
-                scalar_reader->_filter_column_ids = filter_column_ids;
-                reader.reset(scalar_reader.release());
-            } else {
-                auto scalar_reader = ScalarColumnReader<true, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
-
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
-                                                    page_cache_file_key, compat,
-                                                    enable_strict_mode));
-                scalar_reader->_filter_column_ids = filter_column_ids;
-                reader.reset(scalar_reader.release());
-            }
+Status ColumnReader::_create_struct_reader(const ColumnReaderCreateContext& context,
+                                           NativeFieldSchema* field, bool in_collection,
+                                           std::unique_ptr<ColumnReader>& reader) {
+    const auto& row_ranges = context.row_ranges;
+    size_t total_rows = context.row_group.num_rows;
+    const auto* ctz = context.options.timezone;
+    auto* io_ctx = context.io_ctx;
+    const auto& column_ids = context.column_ids;
+    std::unordered_map<std::string, std::unique_ptr<ColumnReader>> child_readers;
+    child_readers.reserve(field->children.size());
+    bool has_physical_child = false;
+    for (auto& child : field->children) {
+        std::unique_ptr<ColumnReader> child_reader;
+        if (column_ids.empty() || column_ids.contains(child.get_column_id())) {
+            RETURN_IF_ERROR(create(context, &child, in_collection, child_reader));
+            has_physical_child = true;
         } else {
-            if (offset_index == nullptr) {
-                auto scalar_reader = ScalarColumnReader<false, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
-
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
-                                                    page_cache_file_key, compat,
-                                                    enable_strict_mode));
-                scalar_reader->_filter_column_ids = filter_column_ids;
-                reader.reset(scalar_reader.release());
-            } else {
-                auto scalar_reader = ScalarColumnReader<false, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
-
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
-                                                    page_cache_file_key, compat,
-                                                    enable_strict_mode));
-                scalar_reader->_filter_column_ids = filter_column_ids;
-                reader.reset(scalar_reader.release());
-            }
+            child_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz, io_ctx,
+                                                               &child);
+            child_reader->_filter_column_ids = context.filter_column_ids;
         }
+        child_reader->set_column_in_nested();
+        child_readers[child.name] = std::move(child_reader);
+    }
+    // Even an entirely synthetic projection needs one physical child's parent levels.
+    if (!has_physical_child) {
+        std::unique_ptr<ColumnReader> child_reader;
+        RETURN_IF_ERROR(create(context, &field->children[0], in_collection, child_reader));
+        child_reader->set_column_in_nested();
+        child_readers[field->children[0].name] = std::move(child_reader);
+    }
+    auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+    RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
+    reader = std::move(struct_reader);
+    return Status::OK();
+}
+
+Status ColumnReader::_create_scalar_reader(const ColumnReaderCreateContext& context,
+                                           NativeFieldSchema* field, bool in_collection,
+                                           std::unique_ptr<ColumnReader>& reader) {
+    const auto& row_ranges = context.row_ranges;
+    size_t total_rows = context.row_group.num_rows;
+    const auto* ctz = context.options.timezone;
+    auto* io_ctx = context.io_ctx;
+    const auto& row_group = context.row_group;
+    const auto& options = context.options;
+    auto physical_index = field->physical_column_index;
+    if (physical_index < 0 || static_cast<size_t>(physical_index) >= row_group.columns.size()) {
+        // Keep the leaf-to-chunk invariant checked at this consumer too because unit callers
+        // can construct a reader without going through NativeParquetMetadata::init_schema().
+        return Status::Corruption("Parquet physical column index {} is out of range {}",
+                                  physical_index, row_group.columns.size());
+    }
+    const auto offset_it = context.col_offsets.find(physical_index);
+    const tparquet::OffsetIndex* offset_index =
+            offset_it != context.col_offsets.end() ? &offset_it->second : nullptr;
+    const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
+    if (!chunk.__isset.meta_data) {
+        return Status::Corruption("Parquet physical column {} has no chunk metadata",
+                                  physical_index);
+    }
+    std::shared_ptr<ParquetColumnCrypto> crypto;
+    if (context.file_crypto != nullptr) {
+        if (offset_index != nullptr) {
+            return Status::NotSupported("File encryption [INDEX_READ_UNAVAILABLE]");
+        }
+        RETURN_IF_ERROR(context.file_crypto->column_crypto(chunk, context.row_group_ordinal,
+                                                           physical_index, &crypto));
+    }
+    // INT96 has no logical timezone annotation. An engaged override, including nullptr,
+    // carries the explicit catalog decision; callers that omit it retain the legacy session
+    // timezone behavior used by the V1/native reader path.
+    const cctz::time_zone* scalar_timezone =
+            field->physical_type == tparquet::Type::INT96 &&
+                            options.int96_timezone_override.has_value()
+                    ? *options.int96_timezone_override
+                    : ctz;
+    auto create_scalar = [&]<bool IN_COLLECTION, bool OFFSET_INDEX>() -> Status {
+        auto scalar_reader = ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::create_unique(
+                row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
+        RETURN_IF_ERROR(scalar_reader->init(context.file, field, options, std::move(crypto)));
+        reader = std::move(scalar_reader);
+        return Status::OK();
+    };
+    if (in_collection) {
+        RETURN_IF_ERROR((offset_index != nullptr
+                                 ? create_scalar.template operator()<true, true>()
+                                 : create_scalar.template operator()<true, false>()));
+    } else {
+        RETURN_IF_ERROR((offset_index != nullptr
+                                 ? create_scalar.template operator()<false, true>()
+                                 : create_scalar.template operator()<false, false>()));
     }
     return Status::OK();
 }
@@ -721,17 +724,16 @@ void ColumnReader::_generate_read_ranges(RowRange page_row_range, RowRanges* res
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
-        io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size, RuntimeState* state,
-        const std::string& page_cache_file_key, const ParquetReaderCompat& compat,
-        bool enable_strict_mode) {
+        io::FileReaderSPtr file, NativeFieldSchema* field, const ColumnReaderOptions& options,
+        std::shared_ptr<ParquetColumnCrypto> crypto) {
     _field_schema = field;
     auto& chunk_meta = _chunk_meta.meta_data;
     ColumnChunkRange chunk_range;
-    RETURN_IF_ERROR(compute_column_chunk_range(chunk_meta, file->size(), compat.parquet_816_padding,
-                                               &chunk_range));
+    RETURN_IF_ERROR(compute_column_chunk_range(chunk_meta, file->size(),
+                                               options.compat.parquet_816_padding, &chunk_range));
     const size_t chunk_start = chunk_range.offset;
     const size_t chunk_len = chunk_range.length;
-    size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
+    size_t prefetch_buffer_size = std::min(chunk_len, options.max_buf_size);
     if ((typeid_cast<doris::io::TracingFileReader*>(file.get()) &&
          typeid_cast<io::MergeRangeFileReader*>(
                  ((doris::io::TracingFileReader*)(file.get()))->inner_reader().get())) ||
@@ -741,14 +743,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
     }
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
-    ParquetPageReadContext ctx(
-            (state == nullptr) ? true : state->query_options().enable_parquet_file_page_cache,
-            page_cache_file_key, compat.data_page_v2_always_compressed);
+    ParquetPageReadContext ctx(options.enable_page_cache, options.page_cache_file_key,
+                               options.compat.data_page_v2_always_compressed, std::move(crypto));
 
     _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>>(
             _stream_reader.get(), &_chunk_meta, field, _offset_index, _total_rows, _io_ctx, ctx,
             &chunk_range);
-    _materialization_state.enable_strict_mode = enable_strict_mode;
+    _materialization_state.enable_strict_mode = options.enable_strict_mode;
     RETURN_IF_ERROR(_chunk_reader->init());
     RETURN_IF_ERROR(init_decode_context(*field, _ctz, &_decode_context));
     const auto primitive_type = remove_nullable(field->data_type)->get_primitive_type();
@@ -800,6 +801,8 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_if_oversized(&_materialization_state.selection.ranges,
                                                      max_retained_bytes);
     release_selection |=
+            release_filter_if_oversized(&_fused_nullable_selection_nulls, max_retained_bytes);
+    release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_nulls, max_retained_bytes);
     release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_matches, max_retained_bytes);
@@ -832,6 +835,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_for_aggregate(&_nested_filter_map_data);
     release_selection |= release_vector_for_aggregate(&_materialization_state.dictionary_indices);
     release_selection |= release_vector_for_aggregate(&_materialization_state.selection.ranges);
+    release_selection |= release_filter_for_aggregate(&_fused_nullable_selection_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_matches);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_conversion_nulls);
@@ -860,7 +864,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_b
            _def_levels.capacity() * sizeof(level_t) +
            _null_run_lengths.capacity() * sizeof(uint16_t) +
            _nested_filter_map_data.capacity() * sizeof(uint8_t) +
-           _fixed_width_predicate_nulls.capacity() + _fixed_width_predicate_matches.capacity() +
+           _fused_nullable_selection_nulls.capacity() + _fixed_width_predicate_nulls.capacity() +
+           _fixed_width_predicate_matches.capacity() +
            _fixed_width_predicate_conversion_nulls.capacity() +
            _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
@@ -875,7 +880,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::active_batch_scratch_byt
             _serde == nullptr ? 0 : _serde->active_parquet_raw_predicate_scratch_bytes();
     return decoder_bytes + serde_bytes + _rep_levels.size() * sizeof(level_t) +
            _def_levels.size() * sizeof(level_t) + _null_run_lengths.size() * sizeof(uint16_t) +
-           _nested_filter_map_data.size() * sizeof(uint8_t) + _fixed_width_predicate_nulls.size() +
+           _nested_filter_map_data.size() * sizeof(uint8_t) +
+           _fused_nullable_selection_nulls.size() + _fixed_width_predicate_nulls.size() +
            _fixed_width_predicate_matches.size() + _fixed_width_predicate_conversion_nulls.size() +
            _materialization_state.dictionary_indices.size() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.size() * sizeof(ParquetSelectionRange) +
@@ -892,6 +898,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
     _nested_filter_map_data.reserve(elements);
     _materialization_state.dictionary_indices.reserve(elements);
     _materialization_state.selection.ranges.reserve(elements);
+    _fused_nullable_selection_nulls.reserve(elements);
     _ancestor_null_indices.reserve(elements);
 }
 
@@ -955,6 +962,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     }
     MutableColumnPtr data_column;
     _null_run_lengths.clear();
+    size_t num_nulls = 0;
     NullMap* map_data_column = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
     if (is_column_nullable(*doris_column)) {
@@ -977,6 +985,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 }
 
                 bool is_null = def_level < _field_schema->definition_level;
+                if (is_null) {
+                    num_nulls += loop_read;
+                }
                 if (!(prev_is_null ^ is_null)) {
                     _null_run_lengths.emplace_back(0);
                 }
@@ -1006,10 +1017,26 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
         }
         _null_run_lengths.emplace_back((u_short)remaining);
     }
+    const bool use_fused_nullable_selection =
+            map_data_column != nullptr && filter_map.has_filter() && num_nulls > 0 &&
+            should_use_fused_nullable_selection(num_values, num_nulls, _null_run_lengths.size()) &&
+            _chunk_reader->supports_fused_nullable_selection(*data_column);
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
-                                            &filter_map, _filter_map_index));
+        if (use_fused_nullable_selection) {
+            size_t num_filtered = 0;
+            // The fused path owns both the physical ranges and selected NULL layout. Restrict it
+            // to fragmented, materially nullable level plans: clustered, low-NULL, and no-NULL
+            // pages already collapse into a few cheap legacy runs, while fusing them adds planning
+            // branches without removing enough work to guarantee a win.
+            RETURN_IF_ERROR(build_filtered_nullable_selection(
+                    _null_run_lengths, num_values, num_nulls, map_data_column, &filter_map,
+                    _filter_map_index, &_materialization_state.selection,
+                    &_fused_nullable_selection_nulls, &num_filtered));
+        } else {
+            RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
+                                                &filter_map, _filter_map_index));
+        }
         _filter_map_index += num_values;
     }
     DORIS_CHECK(_serde != nullptr);
@@ -1020,8 +1047,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
             conversion_failure_map(*_field_schema, type, _materialization_state.enable_strict_mode,
                                    map_data_column, &compatibility_scratch);
     const size_t materialization_start_row = data_column->size();
-    const auto status = _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
-                                                          _materialization_state, _select_vector);
+    const auto status =
+            use_fused_nullable_selection
+                    ? _chunk_reader->materialize_fused_nullable_values(
+                              data_column, *_serde, _decode_context, _materialization_state,
+                              num_values, num_nulls, _fused_nullable_selection_nulls)
+                    : _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
+                                                        _materialization_state, _select_vector);
     _materialization_state.conversion_failure_null_map = nullptr;
     if (status.ok()) {
         mark_local_timestamp_defaults(*_field_schema, type,
@@ -1066,7 +1098,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 
     auto read_and_fill_data = [&](size_t before_rep_level_sz, size_t filter_map_index) {
         RETURN_IF_ERROR(_chunk_reader->fill_def(_def_levels));
-        if (filter_map.has_filter()) {
+        const bool fuse_nested_selection = filter_map.has_filter() && !filter_map.filter_all();
+        size_t ancestor_null_count = 0;
+        if (fuse_nested_selection) {
+            SCOPED_RAW_TIMER(&_decode_null_map_time);
+            RETURN_IF_ERROR(_select_vector.init_nested(
+                    &_rep_levels, &_def_levels, before_rep_level_sz,
+                    _field_schema->repeated_parent_def_level, _field_schema->definition_level,
+                    map_data_column, &filter_map, filter_map_index, &ancestor_null_count));
+        } else if (filter_map.has_filter()) {
             RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
                                            _rep_levels.size(), _nested_filter_map_data,
                                            &_nested_filter_map));
@@ -1075,17 +1115,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                     nullptr, _rep_levels.size() - before_rep_level_sz, false));
         }
 
-        _null_run_lengths.clear();
-        _ancestor_null_indices.clear();
-        RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
-                                            _null_run_lengths, _ancestor_null_indices));
+        if (!fuse_nested_selection) {
+            _null_run_lengths.clear();
+            _ancestor_null_indices.clear();
+            RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
+                                                _null_run_lengths, _ancestor_null_indices));
+            ancestor_null_count = _ancestor_null_indices.size();
 
-        {
-            SCOPED_RAW_TIMER(&_decode_null_map_time);
-            RETURN_IF_ERROR(_select_vector.init(
-                    _null_run_lengths,
-                    _rep_levels.size() - before_rep_level_sz - _ancestor_null_indices.size(),
-                    map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                RETURN_IF_ERROR(_select_vector.init(
+                        _null_run_lengths,
+                        _rep_levels.size() - before_rep_level_sz - ancestor_null_count,
+                        map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            }
         }
 
         DORIS_CHECK(_serde != nullptr);
@@ -1104,10 +1147,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                                           map_data_column, materialization_start_row);
         }
         RETURN_IF_ERROR(status);
-        if (!_ancestor_null_indices.empty()) {
-            RETURN_IF_ERROR(_chunk_reader->skip_values(_ancestor_null_indices.size(), false));
+        if (ancestor_null_count != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_null_count, false));
         }
-        if (filter_map.has_filter()) {
+        if (filter_map.has_filter() && !fuse_nested_selection) {
             auto new_rep_sz = before_rep_level_sz;
             for (size_t idx = before_rep_level_sz; idx < _rep_levels.size(); idx++) {
                 if (_nested_filter_map_data[idx - before_rep_level_sz]) {

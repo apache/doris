@@ -20,9 +20,9 @@ package org.apache.doris.resource;
 
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -40,7 +40,7 @@ public class TagSerializationTest {
 
     private static String fileName = "./TagSerializationTest";
 
-    @After
+    @AfterEach
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
@@ -62,6 +62,6 @@ public class TagSerializationTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         Tag readTag = Tag.read(in);
-        Assert.assertEquals(tag, readTag);
+        Assertions.assertEquals(tag, readTag);
     }
 }

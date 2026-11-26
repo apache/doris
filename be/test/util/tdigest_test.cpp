@@ -21,7 +21,9 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <numeric>
 #include <random>
+#include <vector>
 
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
@@ -74,6 +76,34 @@ static double quantile(const double q, const std::vector<double>& values) {
         }
     }
     return q1;
+}
+
+TEST_F(TDigestTest, CopyPreservesValuesWithoutSpareCapacity) {
+    const auto allocated_bytes = [](const TDigest& digest) {
+        return (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+               digest._cumulative.capacity() * sizeof(Weight);
+    };
+    TDigest source(10000);
+    for (int i = 0; i < 300; ++i) {
+        source.add(i);
+    }
+    source.compress();
+    TDigest processed_copy(source);
+    EXPECT_EQ(0, processed_copy.unprocessed().capacity());
+    EXPECT_LT(allocated_bytes(processed_copy), 16 * 1024);
+    source.add(1000);
+    TDigest copy(source);
+    EXPECT_EQ(301, copy.total_weight());
+    EXPECT_LT(allocated_bytes(copy), 16 * 1024);
+    // Continued writes may grow the copy's buffers, without changing the source.
+    for (int i = 0; i < 1000; ++i) {
+        copy.add(2000);
+    }
+    EXPECT_EQ(1301, copy.total_weight());
+    EXPECT_EQ(0, copy.quantile(0));
+    EXPECT_EQ(2000, copy.quantile(1));
+    EXPECT_EQ(1000, source.quantile(1));
+    EXPECT_EQ(299, processed_copy.quantile(1));
 }
 
 TEST_F(TDigestTest, CrashAfterMerge) {
@@ -158,8 +188,8 @@ TEST_F(TDigestTest, MoreThan2BValues) {
         const auto count = 1L << 28;
         digest.add(next, count);
     }
-    EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.totalWeight());
-    EXPECT_GT(digest.totalWeight(), std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.total_weight());
+    EXPECT_GT(digest.total_weight(), std::numeric_limits<int32_t>::max());
     std::vector<double> quantiles {0, 0.1, 0.5, 0.9, 1, reals(gen)};
     std::sort(quantiles.begin(), quantiles.end());
     auto prev = std::numeric_limits<double>::min();
@@ -216,6 +246,82 @@ TEST_F(TDigestTest, ExtremeQuantiles) {
     }
 }
 
+TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantiles) {
+    TDigest digest(1000);
+    for (int i = 0; i < 10000; ++i) {
+        digest.add(static_cast<double>((i * 37) % 1000));
+    }
+
+    std::vector<double> levels {0.9, 0.0, 0.5, 0.1, 1.0, 0.5, 0.99};
+    std::vector<size_t> permutation(levels.size());
+    std::iota(permutation.begin(), permutation.end(), 0);
+    std::sort(permutation.begin(), permutation.end(),
+              [&levels](size_t lhs, size_t rhs) { return levels[lhs] < levels[rhs]; });
+
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    for (size_t i = 0; i < levels.size(); ++i) {
+        EXPECT_DOUBLE_EQ(results[i], static_cast<double>(digest.quantile(levels[i])));
+    }
+}
+
+TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantileInLeftTail) {
+    TDigest digest(2);
+    digest.add(0.0F);
+    digest.compress();
+    digest.add(1.5F, 2.0F);
+    digest.add(3.0F, 3.0F);
+    digest.compress();
+
+    ASSERT_EQ(digest.processed().size(), 2);
+    ASSERT_FLOAT_EQ(digest.processed()[0].mean(), 1.0F);
+    ASSERT_FLOAT_EQ(digest.processed()[0].weight(), 3.0F);
+    ASSERT_EQ(digest.total_weight(), 6);
+
+    std::vector<double> levels {0.1};
+    std::vector<size_t> permutation {0};
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    EXPECT_DOUBLE_EQ(results[0], static_cast<double>(digest.quantile(levels[0])));
+}
+
+TEST_F(TDigestTest, AllNegativeValuesHaveCorrectMaximum) {
+    TDigest digest(1000);
+    digest.add(-3.0);
+    digest.add(-2.0);
+    digest.add(-1.0);
+
+    std::vector<double> levels {1.0};
+    std::vector<size_t> permutation {0};
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    EXPECT_FLOAT_EQ(digest.quantile(levels[0]), -1.0F);
+    EXPECT_DOUBLE_EQ(results[0], -1.0);
+    EXPECT_DOUBLE_EQ(results[0], static_cast<double>(digest.quantile(levels[0])));
+}
+
+TEST_F(TDigestTest, BatchQuantilesHandleEmptyAndSingleValueDigests) {
+    std::vector<double> levels {0.0, 0.5, 1.0};
+    std::vector<size_t> permutation {0, 1, 2};
+    std::vector<double> results(levels.size());
+
+    TDigest empty_digest(1000);
+    empty_digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+    for (double result : results) {
+        EXPECT_TRUE(std::isnan(result));
+    }
+
+    TDigest single_value_digest(1000);
+    single_value_digest.add(42.0);
+    single_value_digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+    for (double result : results) {
+        EXPECT_DOUBLE_EQ(result, 42.0);
+    }
+}
+
 TEST_F(TDigestTest, Montonicity) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
@@ -234,6 +340,49 @@ TEST_F(TDigestTest, Montonicity) {
         double q = digest.cdf(z);
         EXPECT_GE(q, lastQuantile);
         lastQuantile = q;
+    }
+}
+
+TEST_F(TDigestTest, DefaultConstructorDoesNotPrepareCompressionSizedBuffers) {
+    const auto allocated_bytes = [](const TDigest& digest) {
+        return (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+               digest._cumulative.capacity() * sizeof(Weight);
+    };
+
+    TDigest digest(10000);
+    // The compression thresholds keep their historical semantics.
+    EXPECT_EQ(20000, digest.max_processed());
+    EXPECT_EQ(80000, digest.max_unprocessed());
+    // A fresh digest must not preallocate O(compression) buffers.
+    EXPECT_EQ(0, digest.processed().capacity());
+    EXPECT_EQ(0, digest.unprocessed().capacity());
+    EXPECT_LT(allocated_bytes(digest), 4 * 1024);
+
+    digest.add(42.0f);
+    EXPECT_EQ(1, digest.unprocessed().size());
+    EXPECT_LT(allocated_bytes(digest), 4 * 1024);
+    EXPECT_FLOAT_EQ(42.0f, digest.quantile(0.5f));
+}
+
+TEST_F(TDigestTest, SingletonGroupsKeepMemoryProportionalToData) {
+    // percentile_approx keeps one digest per group. With the old eager reserve every
+    // singleton group held 800000 bytes, so enough live groups exhausted ASAN's
+    // secondary allocator chunk limit.
+    constexpr size_t kGroups = 1000;
+    std::vector<std::unique_ptr<TDigest>> digests;
+    digests.reserve(kGroups);
+    size_t allocated_bytes = 0;
+    for (size_t i = 0; i < kGroups; ++i) {
+        auto digest = TDigest::create_unique(10000.0f);
+        digest->add(static_cast<float>(i));
+        allocated_bytes += (digest->processed().capacity() + digest->unprocessed().capacity()) *
+                                   sizeof(Centroid) +
+                           digest->_cumulative.capacity() * sizeof(Weight);
+        digests.push_back(std::move(digest));
+    }
+    EXPECT_LT(allocated_bytes, kGroups * 1024);
+    for (size_t i = 0; i < kGroups; ++i) {
+        EXPECT_FLOAT_EQ(static_cast<float>(i), digests[i]->quantile(0.5f));
     }
 }
 

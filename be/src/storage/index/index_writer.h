@@ -50,14 +50,27 @@ public:
     IndexColumnWriter() = default;
     virtual ~IndexColumnWriter() = default;
 
-    virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
+    // Aligned storage values: fixed-width cells or Slice descriptors. The writer's
+    // field type determines the layout; count is the number of values.
+    virtual Status add_values(const uint8_t* values, size_t count) = 0;
 
-    virtual Status add_array_values(size_t field_size, const void* value_ptr,
-                                    const uint8_t* null_map, const uint8_t* offsets_ptr,
+    // One document per array row. null_map describes items, and adjacent offsets
+    // give each row's item count. Values use the same storage layout as add_values.
+    virtual Status add_array_values(size_t field_size, const uint8_t* value_ptr,
+                                    const uint8_t* null_map, const uint64_t* offsets_ptr,
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
     virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;
+
+    // Write-path hint from the segment writer: this writer serves a direct load
+    // (stream/broker load, DataWriteType::TYPE_DIRECT) as opposed to compaction
+    // / schema change / index build. The column writer forwards it
+    // unconditionally right after create() succeeds (i.e. after init(), before
+    // any value is added); creation paths outside the column writer (e.g. ADD
+    // INDEX in index_builder.cpp) never call it and keep the non-direct default.
+    // Default no-op: SNII uses it to select the direct-load PRX zstd level.
+    virtual void set_direct_load(bool /*is_direct_load*/) {}
 
     virtual Status finish() = 0;
 

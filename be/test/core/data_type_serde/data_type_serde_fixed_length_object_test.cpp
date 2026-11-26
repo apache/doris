@@ -16,6 +16,7 @@
 // under the License.
 
 #include <arrow/array/builder_base.h>
+#include <gen_cpp/types.pb.h>
 #include <gtest/gtest.h>
 
 #include "core/column/column_fixed_length_object.h"

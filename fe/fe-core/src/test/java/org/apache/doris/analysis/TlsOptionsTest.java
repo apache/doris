@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
@@ -31,24 +31,24 @@ public class TlsOptionsTest {
     public void testAnalyzeRejectsSanEntryWithoutValue() {
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:")));
 
-        AnalysisException e = Assert.assertThrows(AnalysisException.class, tlsOptions::analyze);
-        Assert.assertTrue(e.getMessage().contains("Invalid SAN entry format"));
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, tlsOptions::analyze);
+        Assertions.assertTrue(e.getMessage().contains("Invalid SAN entry format"));
     }
 
     @Test
     public void testAnalyzeRejectsUnsupportedSanType() {
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "FOO:bar")));
 
-        AnalysisException e = Assert.assertThrows(AnalysisException.class, tlsOptions::analyze);
-        Assert.assertTrue(e.getMessage().contains("Unsupported SAN entry type"));
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, tlsOptions::analyze);
+        Assertions.assertTrue(e.getMessage().contains("Unsupported SAN entry type"));
     }
 
     @Test
     public void testAnalyzeRejectsEmptyEntryInList() {
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com, ")));
 
-        AnalysisException e = Assert.assertThrows(AnalysisException.class, tlsOptions::analyze);
-        Assert.assertTrue(e.getMessage().contains("empty entry"));
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, tlsOptions::analyze);
+        Assertions.assertTrue(e.getMessage().contains("empty entry"));
     }
 
     @Test
@@ -58,7 +58,7 @@ public class TlsOptionsTest {
         ));
 
         tlsOptions.analyze();
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 "email:alice@example.com, DNS:Example.com, URI:spiffe://Example.com/workload, IP Address:192.168.1.1",
                 tlsOptions.getSan());
     }

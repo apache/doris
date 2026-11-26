@@ -19,10 +19,10 @@ package org.apache.doris.plugin;
 
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
@@ -34,14 +34,14 @@ public class HttpDialectUtilsTest {
     private int port;
     private SimpleHttpServer server;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         port = findValidPort();
         server = new SimpleHttpServer(port);
         server.start("/api/v1/convert");
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (server != null) {
             server.stop();
@@ -55,20 +55,20 @@ public class HttpDialectUtilsTest {
         String[] features = new String[] {"ctas"};
         String targetURL = "http://127.0.0.1:" + port + "/api/v1/convert";
         String res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
+        Assertions.assertEquals(originSql, res);
         // test presto
         server.setResponse("{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
         res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
-        Assert.assertEquals(expectedSql, res);
+        Assertions.assertEquals(expectedSql, res);
         // test response version error
         server.setResponse("{\"version\": \"v2\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
         res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
+        Assertions.assertEquals(originSql, res);
         // test response code error
         server.setResponse(
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
         res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
-        Assert.assertEquals(originSql, res);
+        Assertions.assertEquals(originSql, res);
     }
 
     private static int findValidPort() {

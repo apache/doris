@@ -53,22 +53,24 @@ public:
     template <typename IntDataType>
     Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
     template <typename IntDataType>
-    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
-                                      IColumn& target_col) const;
+    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col, IColumn& target_col,
+                                      const NullMap::value_type* null_map = nullptr) const;
 
     template <typename FloatDataType>
     Status from_float_batch(const FloatDataType::ColumnType& float_col,
                             ColumnNullable& target_col) const;
     template <typename FloatDataType>
     Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
-                                        IColumn& target_col) const;
+                                        IColumn& target_col,
+                                        const NullMap::value_type* null_map = nullptr) const;
 
     template <typename DecimalDataType>
     Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
                               ColumnNullable& target_col) const;
     template <typename DecimalDataType>
     Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
-                                          IColumn& target_col) const;
+                                          IColumn& target_col,
+                                          const NullMap::value_type* null_map = nullptr) const;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -86,6 +88,11 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                        const IColumn& column, const NullMap* null_map,
+                                        const std::shared_ptr<arrow::Field>& field,
+                                        arrow::ArrayBuilder* array_builder, int64_t start,
+                                        int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_decoded_values(IColumn& column,

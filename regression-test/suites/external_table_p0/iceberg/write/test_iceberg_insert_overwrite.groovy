@@ -18,6 +18,10 @@
 suite("test_iceberg_insert_overwrite", "p0,external") {
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     def q01 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
@@ -831,6 +835,7 @@ suite("test_iceberg_insert_overwrite", "p0,external") {
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'hive.parquet.time-zone' = 'Asia/Shanghai',
                 'use_meta_cache' = 'true'
             );"""
 

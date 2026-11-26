@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <functional>
 #include <string>
 
 #include "common/object_pool.h"
@@ -24,7 +25,6 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "exprs/function/function.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
 
@@ -44,7 +44,8 @@ public:
 #ifdef BE_TEST
     VCastExpr() = default;
 #endif
-    VCastExpr(const TExprNode& node) : VExpr(node) {}
+    VCastExpr(const TExprNode& node)
+            : VExpr(node), _is_strict_cast(node.__isset.is_strict_cast && node.is_strict_cast) {}
     ~VCastExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -67,23 +68,29 @@ public:
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
         if (res) {
-            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
-                                    res);
+            res = HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                   res);
+            return HashUtil::hash64(&_is_strict_cast, sizeof(_is_strict_cast), res);
         }
         return 0;
     }
 
 protected:
-    FunctionBasePtr _function;
+    using CastExecutor =
+            std::function<Status(RuntimeState*, const ColumnWithTypeAndName&,
+                                 ColumnWithTypeAndName&, size_t, const NullMap::value_type*)>;
+    Status execute_cast(RuntimeState* state, const ColumnWithTypeAndName& source,
+                        const DataTypePtr& result_type, size_t rows,
+                        ColumnPtr& result_column) const;
+    CastExecutor _cast_executor;
     std::string _expr_name;
+    RuntimeState* _runtime_state = nullptr;
 
 private:
     DataTypePtr _target_data_type;
     std::string _target_data_type_name;
 
-    DataTypePtr _cast_param_data_type;
-
-    static const constexpr char* function_name = "CAST";
+    bool _is_strict_cast = false;
 };
 
 class TryCastExpr final : public VCastExpr {
@@ -113,7 +120,6 @@ public:
 
 private:
     DataTypePtr original_cast_return_type() const;
-    template <bool original_cast_reutrn_is_nullable>
     Status single_row_execute(VExprContext* context, const ColumnWithTypeAndName& input_info,
                               ColumnPtr& return_column) const;
 

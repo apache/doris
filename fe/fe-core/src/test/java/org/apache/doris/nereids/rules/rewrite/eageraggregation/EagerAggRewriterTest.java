@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -71,6 +73,62 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    }
+
+    @Test
+    void testDecimalSumDisablesBilateralPushDown() throws Exception {
+        createTable("CREATE TABLE decimal_sum_l (k VARCHAR(20), v DECIMAL(38,18))"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        createTable("CREATE TABLE decimal_sum_r (k VARCHAR(20), w BIGINT)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        int oldMode = connectContext.getSessionVariable().getEagerAggregationMode();
+        boolean oldReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        boolean oldDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().setEagerAggregationMode(1);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+            for (boolean decimal256 : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableDecimal256 = decimal256;
+                DecimalV3Type expected = DecimalV3Type.createDecimalV3Type(decimal256 ? 76 : 38, 18);
+                for (String join : new String[] {"JOIN decimal_sum_r r ON l.k=r.k",
+                        "CROSS JOIN decimal_sum_r r"}) {
+                    for (String sums : new String[] {"SUM(l.v) AS sv, SUM(r.w) AS sw",
+                            "SUM(r.w) AS sw, SUM(l.v) AS sv"}) {
+                        Plan plan = PlanChecker.from(connectContext)
+                                .analyze("SELECT l.k AS g, " + sums + " FROM decimal_sum_l l "
+                                        + join + " GROUP BY l.k")
+                                .rewrite().getPlan();
+                        int decimalOutputIndex = sums.startsWith("SUM(l.v)") ? 1 : 2;
+                        Assertions.assertEquals(expected, plan.getOutput().get(decimalOutputIndex).getDataType());
+                        LogicalJoin<?, ?> logicalJoin = findFirstPlan(plan, LogicalJoin.class);
+                        Assertions.assertNotNull(logicalJoin, plan.treeString());
+                        Assertions.assertFalse(containsPlan(logicalJoin, LogicalAggregate.class), plan.treeString());
+                    }
+                }
+                assertNoAggregateUnderJoin("SELECT SUBSTRING(l.k, 1, 6), SUM(l.v), SUM(r.w)"
+                        + " FROM decimal_sum_l l JOIN decimal_sum_r r ON l.k=r.k"
+                        + " GROUP BY SUBSTRING(l.k, 1, 6)");
+                assertNoAggregateUnderJoin("SELECT r.k, SUM(l.v), COUNT(r.w)"
+                        + " FROM decimal_sum_r r JOIN decimal_sum_l l ON l.k=r.k GROUP BY r.k");
+                // A decimal SUM on just one side still supports eager aggregation.
+                for (String from : new String[] {"decimal_sum_l l JOIN decimal_sum_r r ON l.k=r.k",
+                        "decimal_sum_r r JOIN decimal_sum_l l ON l.k=r.k"}) {
+                    Plan plan = PlanChecker.from(connectContext)
+                            .analyze("SELECT l.k, SUM(l.v) FROM " + from + " GROUP BY l.k")
+                            .rewrite().getPlan();
+                    Assertions.assertEquals(expected, plan.getOutput().get(1).getDataType());
+                    LogicalJoin<?, ?> logicalJoin = findFirstPlan(plan, LogicalJoin.class);
+                    Assertions.assertNotNull(logicalJoin, plan.treeString());
+                    Assertions.assertTrue(containsPlan(logicalJoin, LogicalAggregate.class), plan.treeString());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(oldMode);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldReorder);
+            connectContext.getSessionVariable().enableDecimal256 = oldDecimal256;
+        }
     }
 
     @Test
@@ -138,19 +196,57 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
-    void testNotPushDownDistinctAgg() {
-        // Distinct aggregation should not be pushed down.
+    void testPushDownDistinctAggWithSameKey() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        disableDistinctAggregateRewrite();
+        try {
+            String sql = "select count(distinct t1.id1), sum(distinct t1.id1), t2.id2 from t1 join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            assertDistinctAggPushDown(sql, 1);
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+            resetDisabledRules();
+        }
+    }
+
+    @Test
+    void testPushDownMultiColumnCountDistinct() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        disableDistinctAggregateRewrite();
+        try {
+            String sql = "select count(distinct t1.id1, t1.name), t2.id2 from t1 join t2"
+                    + " on t1.id1 = t2.id2 group by t2.id2";
+            assertDistinctAggPushDown(sql, 2);
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+            resetDisabledRules();
+        }
+    }
+
+    @Test
+    void testNotPushDownDistinctAggWithDifferentKeys() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
         try {
-            String sql = "select count(distinct t1.name), t2.id2 from t1 join t2"
-                    + " on t1.id1 = t2.id2 group by t2.id2";
-            PlanChecker.from(connectContext)
-                    .analyze(sql)
-                    .rewrite()
-                    .nonMatch(logicalJoin(logicalAggregate(), any()))
-                    .nonMatch(logicalJoin(any(), logicalAggregate()))
-                    .printlnTree();
+            assertNoAggregateUnderJoin("select count(distinct t1.id1), count(distinct t1.name), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2");
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushDownDistinctAggWithNonDistinctAgg() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            assertNoAggregateUnderJoin("select count(distinct t1.name), max(t1.id1), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2");
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
             connectContext.getSessionVariable().setDisableJoinReorder(false);
@@ -476,7 +572,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PushDownAggContext context = new PushDownAggContext(
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
                     planChecker.getCascadesContext(),
-                    true, false, false, new BilateralState(), false);
+                    true, false, false, new BilateralState(), false, true, false);
 
             Plan rewritten = relation.accept(new EagerAggRewriter(), context);
 
@@ -678,6 +774,43 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testNotPushConcatWsToNullableSideOfOuterJoin() {
+        // concat_ws(',', NULL) returns an empty string, so unmatched rows contribute to count.
+        // Pushing the aggregate to the nullable side would lose these contributions.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(concat_ws(',', t1.name)), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            sql = "select count(concat_ws(',', t2.name)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+
+            // Inner joins do not introduce null-extended rows, so pushdown remains safe.
+            sql = "select count(concat_ws(',', t1.name)), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testNotPushNvlToNullableSideOfOuterJoin() {
         // count(nvl(col, default)): NVL converts NULL input to default.
         connectContext.getSessionVariable().setEagerAggregationMode(1);
@@ -850,6 +983,34 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         Assertions.assertFalse(containsAggregateUnderJoin(plan), plan.treeString());
     }
 
+    private void assertDistinctAggPushDown(String sql, int expectedLeftGroupKeyCount) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        LogicalAggregate<?> topAggregate = findFirstPlan(plan, LogicalAggregate.class);
+        Assertions.assertNotNull(topAggregate, plan.treeString());
+        Assertions.assertTrue(topAggregate.getAggregateFunctions().stream()
+                .allMatch(aggFunction -> aggFunction.isDistinct()), plan.treeString());
+        LogicalJoin<?, ?> join = findFirstPlan(topAggregate.child(), LogicalJoin.class);
+        Assertions.assertNotNull(join, plan.treeString());
+        LogicalAggregate<?> leftAggregate = findFirstPlan(join.left(), LogicalAggregate.class);
+        Assertions.assertNotNull(leftAggregate, plan.treeString());
+        Assertions.assertEquals(expectedLeftGroupKeyCount,
+                leftAggregate.getGroupByExpressions().size(), plan.treeString());
+    }
+
+    private void disableDistinctAggregateRewrite() {
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",",
+                RuleType.PRUNE_EMPTY_PARTITION.name(),
+                RuleType.DISTINCT_AGGREGATE_SPLIT.name(),
+                RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.name()));
+    }
+
+    private void resetDisabledRules() {
+        connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
+    }
+
     private boolean containsAggregateUnderJoin(Plan plan) {
         if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
@@ -875,7 +1036,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         CascadesContext cascadesContext = PlanChecker.from(connectContext).analyze("select * from t1")
                 .getCascadesContext();
         PushDownAggContext context = new PushDownAggContext(Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true);
+                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true, false, false);
         SlotReference leftCountSlot = new SlotReference("leftCnt", BigIntType.INSTANCE, false);
         SlotReference rightCountSlot = new SlotReference("rightCnt", BigIntType.INSTANCE, false);
 

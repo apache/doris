@@ -33,9 +33,12 @@ import org.apache.doris.mysql.authenticate.Authenticator;
 import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
+import org.apache.doris.mysql.authenticate.password.NativePassword;
+import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.User;
 
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -55,19 +58,61 @@ import java.util.Set;
 public class AuthenticationIntegrationAuthenticator implements Authenticator {
     private static final Logger LOG = LogManager.getLogger(AuthenticationIntegrationAuthenticator.class);
 
-    private final PasswordResolver passwordResolver;
+    private PasswordResolver passwordResolver;
+    private final User binding;
     private final String chainConfig;
     private final String chainConfigName;
 
     public AuthenticationIntegrationAuthenticator(String chainConfig, String chainConfigName) {
+        this(chainConfig, chainConfigName, null);
+    }
+
+    private AuthenticationIntegrationAuthenticator(String chainConfig, String chainConfigName, User binding) {
         this.chainConfig = chainConfig;
         this.chainConfigName = chainConfigName;
-        validateChainConfig(chainConfig, chainConfigName);
+        this.binding = binding;
+        if (binding == null) {
+            validateChainConfig(chainConfig, chainConfigName);
+        }
         this.passwordResolver = new AuthPacketAwarePasswordResolver(new ClearPasswordResolver());
+    }
+
+    public AuthenticationIntegrationAuthenticator(User binding) {
+        this(binding.getAuthIntegration(), "user authentication binding", binding);
+    }
+
+    public boolean isBoundAuthentication() {
+        return binding != null;
+    }
+
+    /** Resolve credential requirements before asking the client to supply any clear text. */
+    public boolean prepareBoundAuthentication() throws AuthenticationException {
+        AuthenticationIntegrationMeta meta = Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegration(binding.getAuthIntegration());
+        if (meta == null) {
+            throw new AuthenticationException("Bound authentication integration does not exist",
+                    AuthenticationFailureType.MISCONFIGURED);
+        }
+        boolean clear = Env.getCurrentEnv().getAuthenticationIntegrationRuntime().requiresClearPassword(meta);
+        passwordResolver = new AuthPacketAwarePasswordResolver(clear
+                ? new ClearPasswordResolver() : new NativePasswordResolver());
+        return clear;
     }
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        if (binding == null && Env.getCurrentEnv().getAuth()
+                .getAuthenticationBinding(request.getUserName(), request.getRemoteIp()) != null) {
+            return AuthenticateResponse.failedResponse;
+        }
+        if (binding != null && request.getUserIdentity() != null
+                && !binding.getUserIdentity().equals(request.getUserIdentity())) {
+            User preferred = Env.getCurrentEnv().getAuth().getUserManager()
+                    .getUserByUserIdentity(request.getUserIdentity());
+            if (preferred == null || !binding.getUserIdentity().equals(preferred.getDomainUserIdentity())) {
+                return AuthenticateResponse.failedResponse;
+            }
+        }
         AuthenticationRequest integrationRequest = toIntegrationRequest(request);
         if (integrationRequest == null) {
             return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
@@ -142,6 +187,13 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         // TODO(authentication): drop password fallback once protocol adapters emit
         // generic credentials for all plugin-based authenticators.
         Password password = request.getPassword();
+        if (password instanceof NativePassword) {
+            NativePassword nativePassword = (NativePassword) password;
+            return builder.credentialType(org.apache.doris.authentication.CredentialType.MYSQL_NATIVE_PASSWORD)
+                    .credential(nativePassword.getRemotePasswd())
+                    .property(NativePasswordResolver.MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString())
+                    .build();
+        }
         if (!(password instanceof ClearPassword)) {
             return null;
         }
@@ -167,6 +219,21 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         Principal principal = outcome.getPrincipal()
                 .orElseThrow(() -> new IllegalStateException("principal is required for successful authentication"));
         Set<String> authenticatedRoles = outcome.getGrantedRoles();
+        if (binding != null) {
+            if (binding.getAuthIdentity() != null
+                    && !principal.getExternalPrincipal().filter(binding.getAuthIdentity()::equals).isPresent()) {
+                return AuthenticateResponse.failedResponse;
+            }
+            AuthenticateResponse response = new AuthenticateResponse(true, binding.getUserIdentity(), false,
+                    principal, authenticatedRoles);
+            response.setAuthenticationIntegration(integration.getName());
+            response.setBoundIdentity(binding.getAuthIdentity());
+            return withCredentialExpiration(response, outcome);
+        }
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(qualifiedUser, remoteIp) != null) {
+            return AuthenticateResponse.failedResponse;
+        }
+
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
@@ -190,7 +257,8 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
     }
 
     private List<AuthenticationIntegrationMeta> resolveAuthenticationChain() throws AuthenticationException {
-        List<String> chainNames = parseAuthenticationChain(chainConfig);
+        List<String> chainNames = binding == null ? parseAuthenticationChain(chainConfig)
+                : Collections.singletonList(binding.getAuthIntegration());
         if (chainNames.isEmpty()) {
             throw new AuthenticationException(
                     chainConfigName + " is empty",

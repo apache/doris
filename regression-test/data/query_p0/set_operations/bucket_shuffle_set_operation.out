@@ -161,6 +161,52 @@ PhysicalResultSink
 3
 3
 
+-- !union_under_window --
+1	1	1
+1	1	2
+2	2	1
+2	2	2
+3	3	1
+3	3	2
+
+-- !union_under_window_no_order_by --
+1	1	1
+1	1	2
+2	2	1
+2	2	2
+3	3	1
+3	3	2
+
+-- !union_unequal_buckets_under_window --
+1	1	1
+1	1	2
+2	2	1
+2	2	2
+3	3	1
+3	3	2
+
+-- !three_way_union_under_window --
+1	1	1
+1	1	2
+1	1	3
+2	2	1
+2	2	2
+2	2	3
+3	3	1
+3	3	2
+3	3	3
+
+-- !nested_union_under_window --
+1	1	1
+1	1	2
+1	1	3
+2	2	1
+2	2	2
+2	2	3
+3	3	1
+3	3	2
+3	3	3
+
 -- !bucket_shuffle_when_local_shuffle_off_shape --
 PhysicalResultSink
 --PhysicalIntersect[bucketShuffle]

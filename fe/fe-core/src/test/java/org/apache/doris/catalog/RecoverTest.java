@@ -21,77 +21,25 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.util.UUID;
+public class RecoverTest extends TestWithFeService {
 
-public class RecoverTest {
-
-    private static String runningDir = "fe/mocked/RecoverTest/" + UUID.randomUUID() + "/";
-
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createDb(String db) throws Exception {
-        String createDbStmtStr = "create database " + db;
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
-        if (logicalPlan instanceof CreateDatabaseCommand) {
-            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void createTable(String sql) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof CreateTableCommand) {
-            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void dropDb(String db) throws Exception {
-        String sql = "drop database " + db;
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        if (parsed instanceof DropDatabaseCommand) {
-            ((DropDatabaseCommand) parsed).run(connectContext, stmtExecutor);
-        }
-    }
-
-    private static void dropTable(String db, String tbl) throws Exception {
+    private void dropTable(String db, String tbl) throws Exception {
         String sql = "drop table " + db + "." + tbl;
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
@@ -101,7 +49,7 @@ public class RecoverTest {
         }
     }
 
-    private static void dropPartition(String db, String tbl, String part) throws Exception {
+    private void dropPartition(String db, String tbl, String part) throws Exception {
         String sql = "alter table " + db + "." + tbl + " drop partition " + part;
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
@@ -111,7 +59,7 @@ public class RecoverTest {
         }
     }
 
-    private static void recoverDb(String db, long dbId) throws Exception {
+    private void recoverDb(String db, long dbId) throws Exception {
         String sql;
         if (dbId != -1) {
             sql = "recover database " + db + " " + String.valueOf(dbId);
@@ -126,7 +74,7 @@ public class RecoverTest {
         }
     }
 
-    private static void recoverTable(String db, String tbl, long tableId) throws Exception {
+    private void recoverTable(String db, String tbl, long tableId) throws Exception {
         String sql;
         if (tableId != -1) {
             sql = "recover table " + db + "." + tbl + " " + String.valueOf(tableId);
@@ -141,7 +89,7 @@ public class RecoverTest {
         }
     }
 
-    private static void recoverPartition(String db, String tbl, String part, long partId) throws Exception {
+    private void recoverPartition(String db, String tbl, String part, long partId) throws Exception {
         String sql;
         if (partId != -1) {
             sql = "recover partition " + part + " " + String.valueOf(partId) + " from " + db + "." + tbl;
@@ -222,8 +170,57 @@ public class RecoverTest {
     }
 
     @Test
+    public void testRecoverRowTtlPreservesMetadata() throws Exception {
+        createDatabase("test_recover_row_ttl");
+        createTable("CREATE TABLE test_recover_row_ttl.ttl_table (\n"
+                + "  k INT NOT NULL,\n"
+                + "  expire_at DATETIME\n"
+                + ") DUPLICATE KEY(k)\n"
+                + "PARTITION BY RANGE(k) (\n"
+                + "  PARTITION p1 VALUES LESS THAN ('10'),\n"
+                + "  PARTITION p2 VALUES LESS THAN ('20')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  'replication_num' = '1',\n"
+                + "  'function_column.enable_row_ttl' = 'true',\n"
+                + "  'function_column.ttl_col' = 'expire_at',\n"
+                + "  'function_column.ttl' = '1 day',\n"
+                + "  'function_column.ttl_time_zone' = '+00:00'\n"
+                + ")");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_recover_row_ttl");
+        OlapTable table = db.getOlapTableOrDdlException("ttl_table");
+        Partition partition = table.getPartition("p1");
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertNotNull(partition);
+        dropPartition("test_recover_row_ttl", "ttl_table", "p1");
+
+        recoverPartition("test_recover_row_ttl", "ttl_table", "p1", -1);
+        Assertions.assertSame(partition, table.getPartition("p1"));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecyclePartition(
+                db.getId(), table.getId(), partition.getId()));
+
+        dropTable("test_recover_row_ttl", "ttl_table");
+        recoverTable("test_recover_row_ttl", "ttl_table", -1);
+        Assertions.assertSame(table, db.getOlapTableOrDdlException("ttl_table"));
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleTable(db.getId(), table.getId()));
+
+        dropDatabase("test_recover_row_ttl");
+        recoverDb("test_recover_row_ttl", -1);
+        Database recoveredDb = Env.getCurrentInternalCatalog().getDbOrDdlException("test_recover_row_ttl");
+        Assertions.assertSame(db, recoveredDb);
+        Assertions.assertSame(table, recoveredDb.getOlapTableOrDdlException("ttl_table"));
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertSame(partition, table.getPartition("p1"));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleDatabase(db.getId()));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleTable(db.getId(), table.getId()));
+    }
+
+    @Test
     public void testRecover() throws Exception {
-        createDb("test");
+        createDatabase("test");
         createTable("CREATE TABLE test.`table1` (\n"
                 + "  `event_date` date NOT NULL COMMENT \"\",\n"
                 + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
@@ -249,37 +246,37 @@ public class RecoverTest {
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertTrue(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertTrue(checkTableExist("test", "table1"));
 
-        dropDb("test");
-        Assert.assertFalse(checkDbExist("test"));
-        Assert.assertFalse(checkTableExist("test", "table1"));
+        dropDatabase("test");
+        Assertions.assertFalse(checkDbExist("test"));
+        Assertions.assertFalse(checkTableExist("test", "table1"));
 
         recoverDb("test", -1);
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertTrue(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertTrue(checkTableExist("test", "table1"));
 
         long dbId = getDbId("test");
-        dropDb("test");
-        Assert.assertFalse(checkDbExist("test"));
-        Assert.assertFalse(checkTableExist("test", "table1"));
+        dropDatabase("test");
+        Assertions.assertFalse(checkDbExist("test"));
+        Assertions.assertFalse(checkTableExist("test", "table1"));
 
         recoverDb("test", dbId);
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertTrue(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertTrue(checkTableExist("test", "table1"));
 
         dropTable("test", "table1");
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertFalse(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertFalse(checkTableExist("test", "table1"));
 
         recoverTable("test", "table1", -1);
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertTrue(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertTrue(checkTableExist("test", "table1"));
 
         dropTable("test", "table1");
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertFalse(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertFalse(checkTableExist("test", "table1"));
 
         createTable("CREATE TABLE test.`table1` (\n"
                 + "  `event_date` date NOT NULL COMMENT \"\",\n"
@@ -305,27 +302,27 @@ public class RecoverTest {
                 + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
-        Assert.assertTrue(checkDbExist("test"));
-        Assert.assertTrue(checkTableExist("test", "table1"));
+        Assertions.assertTrue(checkDbExist("test"));
+        Assertions.assertTrue(checkTableExist("test", "table1"));
 
         try {
             recoverTable("test", "table1", -1);
-            Assert.fail("should not recover succeed");
+            Assertions.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
-        Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
+        Assertions.assertTrue(checkPartitionExist("test", "table1", "p1"));
         dropPartition("test", "table1", "p1");
-        Assert.assertFalse(checkPartitionExist("test", "table1", "p1"));
+        Assertions.assertFalse(checkPartitionExist("test", "table1", "p1"));
 
         recoverPartition("test", "table1", "p1", -1);
-        Assert.assertTrue(checkPartitionExist("test", "table1", "p1"));
+        Assertions.assertTrue(checkPartitionExist("test", "table1", "p1"));
     }
 
     @Test
     public void testRecover2() throws Exception {
-        createDb("test2");
+        createDatabase("test2");
         createTable("CREATE TABLE test2.`table2` (\n"
                 + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
                 + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
@@ -351,37 +348,37 @@ public class RecoverTest {
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertTrue(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertTrue(checkTableExist("test2", "table2"));
 
-        dropDb("test2");
-        Assert.assertFalse(checkDbExist("test2"));
-        Assert.assertFalse(checkTableExist("test2", "table2"));
+        dropDatabase("test2");
+        Assertions.assertFalse(checkDbExist("test2"));
+        Assertions.assertFalse(checkTableExist("test2", "table2"));
 
         recoverDb("test2", -1);
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertTrue(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertTrue(checkTableExist("test2", "table2"));
 
         long dbId = getDbId("test2");
-        dropDb("test2");
-        Assert.assertFalse(checkDbExist("test2"));
-        Assert.assertFalse(checkTableExist("test2", "table2"));
+        dropDatabase("test2");
+        Assertions.assertFalse(checkDbExist("test2"));
+        Assertions.assertFalse(checkTableExist("test2", "table2"));
 
         recoverDb("test2", dbId);
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertTrue(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertTrue(checkTableExist("test2", "table2"));
 
         dropTable("test2", "table2");
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertFalse(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertFalse(checkTableExist("test2", "table2"));
 
         recoverTable("test2", "table2", -1);
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertTrue(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertTrue(checkTableExist("test2", "table2"));
 
         dropTable("test2", "table2");
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertFalse(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertFalse(checkTableExist("test2", "table2"));
 
         createTable("CREATE TABLE test2.`table2` (\n"
                 + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
@@ -407,28 +404,28 @@ public class RecoverTest {
                 + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
-        Assert.assertTrue(checkDbExist("test2"));
-        Assert.assertTrue(checkTableExist("test2", "table2"));
+        Assertions.assertTrue(checkDbExist("test2"));
+        Assertions.assertTrue(checkTableExist("test2", "table2"));
 
         try {
             recoverTable("test2", "table2", -1);
-            Assert.fail("should not recover succeed");
+            Assertions.fail("should not recover succeed");
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
-        Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+        Assertions.assertTrue(checkPartitionExist("test2", "table2", "p1"));
         dropPartition("test2", "table2", "p1");
-        Assert.assertFalse(checkPartitionExist("test2", "table2", "p1"));
+        Assertions.assertFalse(checkPartitionExist("test2", "table2", "p1"));
 
         recoverPartition("test2", "table2", "p1", -1);
-        Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+        Assertions.assertTrue(checkPartitionExist("test2", "table2", "p1"));
     }
 
 
     @Test
     public void testDynamicTableRecover() throws Exception {
-        createDb("test3");
+        createDatabase("test3");
         createTable("CREATE TABLE test3.`table3` (\n"
                 + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
                 + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
@@ -465,6 +462,6 @@ public class RecoverTest {
         Long tableId = getTableId("test3", "table3");
         dropTable("test3", "table3");
         recoverTable("test3", "table3", -1);
-        Assert.assertTrue(checkTableInDynamicScheduler(dbId, tableId));
+        Assertions.assertTrue(checkTableInDynamicScheduler(dbId, tableId));
     }
 }

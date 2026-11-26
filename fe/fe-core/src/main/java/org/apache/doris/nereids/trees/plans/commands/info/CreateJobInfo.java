@@ -346,8 +346,7 @@ public class CreateJobInfo {
                 throw new AnalysisException(e.getMessage());
             }
         } else {
-            throw new AnalysisException("Only " + logicalPlan.getClass().getName()
-                    + " is supported to use with streaming job together");
+            throw new AnalysisException("Streaming jobs only support INSERT statements");
         }
     }
 

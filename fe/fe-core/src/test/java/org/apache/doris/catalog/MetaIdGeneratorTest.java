@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 
 public class MetaIdGeneratorTest {
@@ -28,17 +28,17 @@ public class MetaIdGeneratorTest {
     @Test
     public void normalTest() {
         MetaIdGenerator idGenerator = new MetaIdGenerator(10);
-        Assert.assertEquals(10, idGenerator.getBatchEndId());
-        Assert.assertEquals(11, idGenerator.getNextId());
-        Assert.assertEquals(1010, idGenerator.getBatchEndId());
+        Assertions.assertEquals(10, idGenerator.getBatchEndId());
+        Assertions.assertEquals(11, idGenerator.getNextId());
+        Assertions.assertEquals(1010, idGenerator.getBatchEndId());
 
         IdGeneratorBuffer idGeneratorBuffer = idGenerator.getIdGeneratorBuffer(3500);
-        Assert.assertEquals(12, idGeneratorBuffer.getNextId());
-        Assert.assertEquals(4010, idGenerator.getBatchEndId());
+        Assertions.assertEquals(12, idGeneratorBuffer.getNextId());
+        Assertions.assertEquals(4010, idGenerator.getBatchEndId());
         for (int i = 1; i < 3500; i++) {
-            Assert.assertEquals(i + 12, idGeneratorBuffer.getNextId());
+            Assertions.assertEquals(i + 12, idGeneratorBuffer.getNextId());
         }
-        Assert.assertEquals(3511, idGeneratorBuffer.getBatchEndId());
-        Assert.assertEquals(3512, idGenerator.getNextId());
+        Assertions.assertEquals(3511, idGeneratorBuffer.getBatchEndId());
+        Assertions.assertEquals(3512, idGenerator.getNextId());
     }
 }

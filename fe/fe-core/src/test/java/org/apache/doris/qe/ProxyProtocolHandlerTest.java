@@ -21,8 +21,8 @@ import org.apache.doris.mysql.BytesChannel;
 import org.apache.doris.mysql.ProxyProtocolHandler;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -87,32 +87,40 @@ public class ProxyProtocolHandlerTest {
         Assertions.assertEquals(ProtocolType.PROTOCOL_WITHOUT_IP, result.pType);
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithInvalidProtocol() throws IOException {
-        byte[] data = "PROXY TCP7 xxx\r\n".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "PROXY TCP7 xxx\r\n".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithInvalidData() throws IOException {
-        byte[] data = "INVALID DATA".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "INVALID DATA".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithIncompleteData() throws IOException {
-        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithExtraData() throws IOException {
-        byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345 54321 EXTRA DATA\r\n".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "PROXY TCP4 192.168.0.1 192.168.0.2 12345 54321 EXTRA DATA\r\n".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
     @Test
@@ -137,24 +145,30 @@ public class ProxyProtocolHandlerTest {
         Assertions.assertEquals(ProtocolType.NOT_PROXY_PROTOCOL, result.pType);
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithInvalidIPv6Data() throws IOException {
-        byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345 EXTRA DATA\r\n".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345 EXTRA DATA\r\n".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV1ProtocolWithIncompleteIPv6Data() throws IOException {
-        byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345".getBytes();
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = "PROXY TCP6 2001:db8:0:1:1:1:1:1 2001:db8:0:1:1:1:1:2 12345".getBytes();
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void handleV2Protocol() throws IOException {
-        byte[] data = new byte[] {0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
-        testChannel = new TestChannel(data);
-        ProxyProtocolHandler.handle(testChannel);
+        Assertions.assertThrows(IOException.class, () -> {
+            byte[] data = new byte[] {0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
+            testChannel = new TestChannel(data);
+            ProxyProtocolHandler.handle(testChannel);
+        });
     }
 }

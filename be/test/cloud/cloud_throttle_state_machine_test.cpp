@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace doris::cloud {
 
 // ============== RpcThrottleStateMachine Tests ==============
@@ -76,6 +78,7 @@ TEST_F(RpcThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
     auto a1 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 80.0}});
     ASSERT_EQ(a1.size(), 1);
     EXPECT_DOUBLE_EQ(a1[0].qps_limit, 40.0); // 80 * 0.5
+    EXPECT_FALSE(a1[0].reset_reservation);
 
     // Second upgrade, same table, current limit is 40
     auto a2 = sm.on_upgrade({{LoadRelatedRpc::COMMIT_ROWSET, 100, 40.0}});
@@ -89,6 +92,7 @@ TEST_F(RpcThrottleStateMachineTest, MultipleUpgradesThenDowngrades) {
     ASSERT_EQ(d1.size(), 1);
     EXPECT_EQ(d1[0].type, RpcThrottleAction::Type::SET_LIMIT);
     EXPECT_DOUBLE_EQ(d1[0].qps_limit, 40.0);
+    EXPECT_TRUE(d1[0].reset_reservation);
 
     // Second downgrade: undo first upgrade, remove limit
     auto d2 = sm.on_downgrade();
@@ -170,9 +174,15 @@ TEST_F(RpcThrottleStateMachineTest, UpdateFloorQpsAtRuntime) {
     // Runtime update floor_qps=5.0
     sm.update_params({.top_k = 1, .ratio = 0.01, .floor_qps = 5.0});
 
-    // Second upgrade, new floor takes effect
-    auto a2 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 1.0}});
-    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0); // 1*0.01=0.01 < floor(5.0)
+    // The higher floor applies to new limits but must not relax the existing limit.
+    auto a2 = sm.on_upgrade({
+            {LoadRelatedRpc::PREPARE_ROWSET, 100, 1.0},
+            {LoadRelatedRpc::PREPARE_ROWSET, 200, 10.0},
+    });
+    ASSERT_EQ(a2.size(), 1);
+    EXPECT_EQ(a2[0].table_id, 200);
+    EXPECT_DOUBLE_EQ(a2[0].qps_limit, 5.0);
+    EXPECT_DOUBLE_EQ(sm.get_current_limit(LoadRelatedRpc::PREPARE_ROWSET, 100), 1.0);
 }
 
 TEST_F(RpcThrottleStateMachineTest, MultipleRpcTypes) {
@@ -436,9 +446,20 @@ TEST_F(RpcThrottleStateMachineTest, FloorQpsWithRepeatedUpgrades) {
     auto a4 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 12.5}});
     EXPECT_DOUBLE_EQ(a4[0].qps_limit, 10.0);
 
-    // Already at floor: 10 * 0.5 = 5 < floor(10), stays at floor
-    auto a5 = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
-    EXPECT_DOUBLE_EQ(a5[0].qps_limit, 10.0);
+    EXPECT_EQ(sm.upgrade_level(), 4);
+
+    // Repeated upgrades at the floor are no-ops and do not add rollback history.
+    for (int i = 0; i < 3; ++i) {
+        auto no_op = sm.on_upgrade({{LoadRelatedRpc::PREPARE_ROWSET, 100, 10.0}});
+        EXPECT_TRUE(no_op.empty());
+        EXPECT_EQ(sm.upgrade_level(), 4);
+    }
+
+    // One downgrade immediately restores the limit before reaching the floor.
+    auto downgrade = sm.on_downgrade();
+    ASSERT_EQ(downgrade.size(), 1);
+    EXPECT_DOUBLE_EQ(downgrade[0].qps_limit, 12.5);
+    EXPECT_EQ(sm.upgrade_level(), 3);
 }
 
 TEST_F(RpcThrottleStateMachineTest, MultiRpcTypeTopKIndependence) {
@@ -539,10 +560,66 @@ TEST_F(RpcThrottleCoordinatorTest, NoDowngradeWithoutPendingUpgrades) {
     // Explicitly clear pending upgrades to simulate the case where
     // the caller decided not to upgrade (report_ms_busy sets it internally)
     coord.set_has_pending_upgrades(false);
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
 
     for (int i = 0; i < 100; i++) {
         EXPECT_FALSE(coord.tick());
     }
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+}
+
+TEST_F(RpcThrottleCoordinatorTest, MsBusyDuringIdleCooldownKeepsBusyCounterInactive) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 3};
+    RpcThrottleCoordinator coord(params);
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(false);
+    EXPECT_FALSE(coord.tick());
+
+    EXPECT_FALSE(coord.report_ms_busy());
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+}
+
+TEST_F(RpcThrottleCoordinatorTest, LargeTickSaturatesWithoutOverflow) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 20};
+    RpcThrottleCoordinator coord(params);
+    constexpr int64_t kBeyondInt32 =
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1000;
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(true);
+
+    EXPECT_TRUE(coord.tick(kBeyondInt32));
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), 0);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+
+    coord.set_has_pending_upgrades(false);
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_FALSE(coord.tick(kBeyondInt32));
+    EXPECT_EQ(coord.ticks_since_last_ms_busy(), -1);
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), params.upgrade_cooldown_ticks);
+
+    // Saturating the upgrade counter preserves the cooldown decision while idle.
+    EXPECT_TRUE(coord.report_ms_busy());
+}
+
+TEST_F(RpcThrottleCoordinatorTest, IncreasedCooldownContinuesFromSaturatedCounter) {
+    ThrottleCoordinatorParams params {.upgrade_cooldown_ticks = 5, .downgrade_after_ticks = 20};
+    RpcThrottleCoordinator coord(params);
+
+    EXPECT_TRUE(coord.report_ms_busy());
+    coord.set_has_pending_upgrades(false);
+    EXPECT_FALSE(coord.tick(5));
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), 5);
+
+    coord.update_params({.upgrade_cooldown_ticks = 10, .downgrade_after_ticks = 20});
+    EXPECT_FALSE(coord.tick(4));
+    EXPECT_EQ(coord.ticks_since_last_upgrade(), 9);
+    EXPECT_FALSE(coord.report_ms_busy());
+
+    EXPECT_FALSE(coord.tick());
+    EXPECT_TRUE(coord.report_ms_busy());
 }
 
 TEST_F(RpcThrottleCoordinatorTest, UpdateUpgradeCooldownAtRuntime) {

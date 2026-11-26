@@ -28,8 +28,7 @@
 
 #include <roaring/roaring.hh>
 
-#include "core/column/column_variant.h"
-#include "storage/iterator/olap_data_convertor.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_statistics.h"
@@ -59,27 +58,25 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderRejectsNestedGroupWritePath) {
         GTEST_SKIP() << "EE build: write provider has real implementation";
     }
 
-    auto column_variant = ColumnVariant::create(0, false);
+    auto column_variant = ColumnVariantV2::create();
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 
-    auto status =
-            write_provider->prepare(*column_variant, nullptr, opts, nullptr, nullptr, &statistics);
+    auto status = write_provider->prepare(*column_variant, nullptr, opts, nullptr, &statistics);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
 
     TabletColumn tablet_column;
-    OlapBlockDataConvertor converter;
     int column_id = 0;
-    status = write_provider->prepare(*column_variant, &tablet_column, opts, &converter, &column_id,
-                                     &statistics);
+    status =
+            write_provider->prepare(*column_variant, &tablet_column, opts, &column_id, &statistics);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
     EXPECT_NE(status.to_string().find("not available"), std::string::npos);
 
     NestedGroupsMap nested_groups;
     status = write_provider->prepare_with_built_groups(nested_groups, &tablet_column, opts,
-                                                       &converter, &column_id, &statistics);
+                                                       &column_id, &statistics);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
     EXPECT_NE(status.to_string().find("not available"), std::string::npos);

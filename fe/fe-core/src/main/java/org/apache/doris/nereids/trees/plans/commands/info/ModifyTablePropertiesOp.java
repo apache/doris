@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -69,15 +70,19 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Only allow table property changes that are not related to bloom filter
-        // when row binlog is enabled.
+    public boolean allowOnChangelogTable() {
+        // Changelog tables forbid bloom-filter changes and storage relocation.
         if (properties == null || properties.isEmpty()) {
             return true;
         }
-        // BF related properties are forbidden on row binlog tables.
+        // BF related properties are forbidden on changelog tables.
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            return false;
+        }
+        if (properties.keySet().stream().anyMatch(key ->
+                key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
+                        || key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME))) {
             return false;
         }
         // Other properties are allowed.
@@ -89,16 +94,31 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
+        String rowTtlPrefix = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)
+                || properties.keySet().stream().anyMatch(key -> key.startsWith(rowTtlPrefix)
+                        && !key.equals(rowTtlPrefix))) {
+            throw new AnalysisException("TTL properties can only be specified when creating a table");
+        }
+
+        if (tableName != null && !InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl())) {
+            validateExternalTableProperties();
+            return;
+        }
 
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(
                         properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
-                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_CHANGELOG_PREFIX)) {
             throw new AnalysisException(
                     "Can only set one table property(without dynamic partition && binlog) at a time");
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+        if (properties.containsKey(rowTtlPrefix)) {
+            PropertyAnalyzer.parseRowTtlDurationMicros(properties.get(rowTtlPrefix));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
             // do nothing, colocate property will be processed in SchemaChangeHandler
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {
@@ -164,6 +184,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             // validate binlog.* properties
             PropertyAnalyzer.analyzeBinlogConfig(new java.util.HashMap<>(properties));
             // will be altered in SchemaChangeHandler.updateBinlogConfig
+        } else if (TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_CHANGELOG_PREFIX)) {
+            // validate changelog.* properties
+            PropertyAnalyzer.analyzeChangelogConfig(new java.util.HashMap<>(properties));
+            // will be altered in SchemaChangeHandler.updateChangelogConfig
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
             if (compactionPolicy != null
@@ -281,6 +305,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + " should be set to true or false");
             }
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
             throw new AnalysisException(
                     "Property "
@@ -351,16 +378,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
             // do nothing, will be analyzed when creating alter job
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
-            String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
-            if (analyzePolicy != null
-                    && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
-                    && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
-                    && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
-                throw new AnalysisException(
-                        "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
-                                + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
-                                + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
-            }
+            validateAutoAnalyzePolicy();
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
             throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
@@ -373,6 +391,35 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
         analyzeForMTMV();
+    }
+
+    /**
+     * An external table takes its properties as connector-native options, any number of them in one
+     * statement, except {@code auto_analyze_policy}: Doris owns that one and stores it itself, so it must be
+     * set on its own rather than travel to the remote catalog with the others.
+     */
+    private void validateExternalTableProperties() throws AnalysisException {
+        this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            return;
+        }
+        if (properties.size() != 1) {
+            throw new AnalysisException("auto_analyze_policy cannot be set with external table properties");
+        }
+        validateAutoAnalyzePolicy();
+    }
+
+    private void validateAutoAnalyzePolicy() throws AnalysisException {
+        String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
+        if (analyzePolicy != null
+                && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
+                && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
+                && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+            throw new AnalysisException(
+                    "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
+        }
     }
 
     private void analyzeForMTMV() throws AnalysisException {

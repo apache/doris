@@ -45,10 +45,6 @@ public class TransactionRollbackCommand extends TransactionCommand {
     }
 
     private void handleTransactionRollback(ConnectContext ctx) throws AnalysisException {
-        if (ctx.getConnectType() == ConnectContext.ConnectType.MYSQL) {
-            // Every time set no send flag and clean all data in buffer
-            ctx.getMysqlChannel().reset();
-        }
         ctx.getState().setOk(0, 0, "");
 
         if (ctx.getTxnEntry() != null && ctx.getTxnEntry().getRowsInTransaction() == 0

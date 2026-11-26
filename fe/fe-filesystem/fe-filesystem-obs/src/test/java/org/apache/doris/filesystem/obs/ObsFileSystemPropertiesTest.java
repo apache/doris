@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -94,6 +96,92 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("obs-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("obs-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("OBS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toMaps_emitObsTuningDefaultsWhenNotConfigured() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        // Parity with fe-core OBSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com",
+                "obs.access_key", "ak",
+                "obs.secret_key", "sk"));
+        ObsFileSystemProperties otherCredentials = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com",
+                "obs.access_key", "other-ak",
+                "obs.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("obs", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
+    }
+
+    @Test
+    void hadoopMap_selectsObsFileSystemWithoutLinkingIt() {
+        // Premise this test rests on, and the exact shape of a deployment where fe-core no longer
+        // supplies hadoop: hadoop-huaweicloud puts org.apache.hadoop.fs.obs.OBSFileSystem on this
+        // module's classpath, while hadoop-common -- which owns its superclass
+        // org.apache.hadoop.fs.FileSystem -- is deliberately not part of this plugin. Loading the
+        // class therefore fails with NoClassDefFoundError, a LinkageError and NOT a
+        // ClassNotFoundException. Asserted so that adding hadoop-common later fails here loudly
+        // rather than quietly turning the rest of this test into a tautology.
+        Assertions.assertThrows(NoClassDefFoundError.class,
+                () -> Class.forName("org.apache.hadoop.fs.obs.OBSFileSystem", false,
+                        ObsFileSystemProperties.class.getClassLoader()));
+
+        // The probe asks whether the OBS connector ships in this plugin, not whether this JVM can
+        // link it, so an unlinkable-but-present OBSFileSystem must still select the native impl --
+        // the consumers that instantiate it carry their own hadoop. Probing with Class.forName got
+        // both halves wrong here: it threw, and catching the LinkageError would have downgraded
+        // fs.obs.impl to S3AFileSystem while the connector sat in lib/.
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", hadoopKv.get("fs.obs.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBS",
+                hadoopKv.get("fs.AbstractFileSystem.obs.impl"));
     }
 
     @Test

@@ -90,7 +90,9 @@ suite("test_create_mtmv_with_view","mtmv") {
     order_qt_trigger_view_need_refresh "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
     order_qt_after_trigger_view "SELECT * FROM ${mvName}"
 
-    // table should useful
+    // Excluding the base table itself: the property is read by the refresh that follows it, so the change
+    // that arrived before it is not applied -- this table no longer participates, and the refresh that
+    // follows has nothing to do rather than reading it again. A complete refresh is what reads it again.
     sql """
             alter Materialized View ${mvName} set("excluded_trigger_tables"="internal.${dbName}.${tableName}");
         """
@@ -104,6 +106,12 @@ suite("test_create_mtmv_with_view","mtmv") {
 
     order_qt_trigger_table_not_need_refresh "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
     order_qt_after_trigger_table "SELECT * FROM ${mvName}"
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
+            """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_after_trigger_table_complete "SELECT * FROM ${mvName}"
 
 
     sql """drop view if exists `${viewName}`"""

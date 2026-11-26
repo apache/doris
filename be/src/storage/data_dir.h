@@ -141,6 +141,13 @@ public:
                                  (double)_disk_capacity_bytes;
     }
 
+#ifdef BE_TEST
+    void set_capacity_for_test(size_t disk_capacity_bytes, size_t available_bytes) {
+        _disk_capacity_bytes = disk_capacity_bytes;
+        _available_bytes = available_bytes;
+    }
+#endif
+
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
 

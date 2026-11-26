@@ -46,4 +46,165 @@ suite("test_catalog_ddl", "p0,external") {
         assertTrue(result[0][1].contains("COMMENT \"alter_comment\""))
 
         sql """drop catalog ${catalog1}"""
+
+        String weightedCatalog = "test_ddl_weighted_meta_cache"
+        sql """drop catalog if exists ${weightedCatalog}"""
+        sql """
+            create catalog ${weightedCatalog} properties(
+                "type" = "hms",
+                "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                "meta.cache.max-weight" = "128MB",
+                "meta.cache.hive.file.max-weight" = "64MB"
+            )
+        """
+        result = sql """show create catalog ${weightedCatalog}"""
+        assertEquals(result.size(), 1)
+        assertTrue(result[0][1].contains("\"meta.cache.max-weight\" = \"128MB\""))
+        assertTrue(result[0][1].contains("\"meta.cache.hive.file.max-weight\" = \"64MB\""))
+
+        sql """
+            alter catalog ${weightedCatalog} set properties(
+                "meta.cache.max-weight" = "96MB",
+                "meta.cache.hive.file.max-weight" = "48MB"
+            )
+        """
+        result = sql """show create catalog ${weightedCatalog}"""
+        assertTrue(result[0][1].contains("\"meta.cache.max-weight\" = \"96MB\""))
+        assertTrue(result[0][1].contains("\"meta.cache.hive.file.max-weight\" = \"48MB\""))
+
+        test {
+            sql """
+                alter catalog ${weightedCatalog} set properties(
+                    "meta.cache.default.schema.max-weight" = "invalid"
+                )
+            """
+            exception "Invalid cache weight for 'meta.cache.default.schema.max-weight': invalid"
+        }
+        test {
+            sql """alter catalog ${weightedCatalog} set properties(
+                "meta.cache.iceberg.partiton.max-weight" = "64MB")"""
+            exception "Unknown metadata cache weight property: meta.cache.iceberg.partiton.max-weight"
+        }
+        sql """drop catalog ${weightedCatalog}"""
+
+        test {
+            sql """
+                create catalog ${weightedCatalog} properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.max-weight" = "64MB",
+                    "meta.cache.hive.file.max-weight" = "128MB"
+                )
+            """
+            exception "meta.cache.hive.file.max-weight can not exceed meta.cache.max-weight"
+        }
+
+        test {
+            sql """
+                create catalog ${weightedCatalog} properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.max-weight" = "10%"
+                )
+            """
+            exception "Invalid cache weight for 'meta.cache.max-weight': 10%"
+        }
+
+        test {
+            sql """
+                create catalog ${weightedCatalog} properties(
+                    "type" = "es",
+                    "hosts" = "http://10.10.10.10:8888",
+                    "meta.cache.max-weight" = "invalid"
+                )
+            """
+            exception "Invalid cache weight for 'meta.cache.max-weight': invalid"
+        }
+
+        // Newly submitted unknown entries must not silently disable the requested memory limit.
+        sql """drop catalog if exists test_ddl_future_hive_cache"""
+        test {
+            sql """
+                create catalog test_ddl_future_hive_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.hive.future_entry.max-weight" = "64MB"
+                )
+            """
+            exception "Unknown metadata cache weight property: meta.cache.hive.future_entry.max-weight"
+        }
+        test {
+            sql """
+                create catalog ${weightedCatalog} properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.iceberg.manifest.max-weight" = "invalid"
+                )
+            """
+            exception "Invalid cache weight for 'meta.cache.iceberg.manifest.max-weight': invalid"
+        }
+
+        sql """drop catalog if exists test_ddl_future_core_cache"""
+        sql """
+            create catalog test_ddl_future_core_cache properties(
+                "type" = "es",
+                "hosts" = "http://10.10.10.10:8888",
+                "meta.cache.default.future_entry.max-weight" = "64MB"
+            )
+        """
+        sql """alter catalog test_ddl_future_core_cache set properties("comment" = "updated")"""
+
+        // A submitted meta cache key must name a known option with a value of its type. An unknown entry is still
+        // accepted (above): a newer connector may read an entry this version does not know.
+        sql """drop catalog if exists test_ddl_strict_meta_cache"""
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.hive.file.max-weigth" = "64MB"
+                )
+            """
+            exception "Unknown external meta cache property: meta.cache.hive.file.max-weigth"
+        }
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.hive.file.enable" = "1"
+                )
+            """
+            exception "The parameter meta.cache.hive.file.enable is wrong, value is 1"
+        }
+        test {
+            sql """
+                create catalog test_ddl_strict_meta_cache properties(
+                    "type" = "hms",
+                    "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                    "meta.cache.iceberg.table.ttl-second" = "-2"
+                )
+            """
+            exception "The parameter meta.cache.iceberg.table.ttl-second is wrong, value is -2"
+        }
+        // The core namespace that fe-core owns is checked the same way, on ALTER too.
+        test {
+            sql """alter catalog test_ddl_future_core_cache set properties("meta.cache.default.schema.enable" = "1")"""
+            exception "The parameter meta.cache.default.schema.enable is wrong, value is 1"
+        }
+
+        // A submitted weight may not exceed the FE global limit. Frontends run without one by default.
+        def globalWeight = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'external_meta_cache_max_weight'"""
+        if (globalWeight.size() == 1 && globalWeight[0][1] != "0") {
+            test {
+                sql """
+                    create catalog test_ddl_strict_meta_cache properties(
+                        "type" = "hms",
+                        "hive.metastore.uris" = "thrift://127.0.0.1:9083",
+                        "meta.cache.max-weight" = "1PB"
+                    )
+                """
+                exception "can not exceed the FE global max weight external_meta_cache_max_weight"
+            }
+        }
 }

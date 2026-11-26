@@ -70,7 +70,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -219,6 +219,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
+        if (PartitionCompensator.hasUnknownPartitionCoverage(materializationContext,
+                cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet())) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Query partition coverage is unavailable", () -> "");
+            return rewriteResults;
+        }
         StructInfo viewStructInfo = materializationContext.getStructInfo();
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
@@ -375,17 +381,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
                     return rewriteResults;
                 }
-                boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(queryPlan,
-                        (AsyncMaterializationContext) materializationContext, cascadesContext);
-                if (partitionNeedUnion && !canUnionRewrite) {
+                boolean needRemoveMvPartitions = !invalidPartitions.key().isEmpty();
+                boolean needBaseTableUnion = !invalidPartitions.value().isEmpty();
+                if (needBaseTableUnion && !canUnionRewrite(queryPlan,
+                        (AsyncMaterializationContext) materializationContext, cascadesContext)) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
                             () -> String.format("mv partition info is %s, and the query plan is %s",
                                     mtmv.getMvPartitionInfo(), queryPlan.treeString()));
                     return rewriteResults;
                 }
-                if (partitionNeedUnion) {
+                if (needRemoveMvPartitions) {
+                    rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
+                }
+                if (needBaseTableUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
                             StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
@@ -395,15 +404,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         invalidPartitions, queryPlan.treeString()));
                         continue;
                     }
-                    if (invalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
-                        // if invalid base table filter is empty or doesn't need to add filter on base table,
-                        // only need remove mv invalid partition
-                        rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
-                    } else {
-                        // For rewrittenPlan which contains materialized view should remove invalid partition ids
-                        List<Plan> children = Lists.newArrayList(
-                                rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key()),
-                                planAndNeedAddFilterPair.key());
+                    if (planAndNeedAddFilterPair.value()) {
+                        List<Plan> children = Lists.newArrayList(rewrittenPlan, planAndNeedAddFilterPair.key());
                         // Union query materialized view and source table
                         rewrittenPlan = new LogicalUnion(Qualifier.ALL,
                                 queryPlan.getOutput().stream().map(NamedExpression.class::cast)
@@ -599,7 +601,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (int exprIndex = 0; exprIndex < sourceShuttledExpressions.size(); exprIndex++) {
             Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(exprIndex);
-            if (expressionShuttledToRewrite instanceof Literal) {
+            if (expressionShuttledToRewrite.isConstant()) {
+                // a constant expression needs no counterpart in the view: e.g. the query column is pinned to a
+                // literal by a predicate, or it is materialized as a constant above an aggregate, so the view does
+                // not have to output it
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
@@ -645,7 +650,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
-                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                if (foldedExpressionWithLiteral.equals(queryUsedLiteral)) {
                     // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
                     replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                             targetToTargetReplacementMappingQueryBased,
@@ -857,11 +862,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         PredicateCompensation finalPredicateCompensation =
                 Predicates.compensatePredicates(queryStructInfo, viewStructInfo,
-                        viewToQuerySlotMapping, comparisonResult, cascadesContext);
+                        viewToQuerySlotMapping, comparisonResult, cascadesContext,
+                        aggregateOutputIsRecomputed(queryStructInfo, viewStructInfo));
         if (finalPredicateCompensation == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
         return finalPredicateCompensation.toSplitPredicate();
+    }
+
+    /**
+     * Whether the rewrite answers the query by aggregating the view rows again, instead of reading the
+     * aggregate values that the view stored. A predicate the view enforced over its own aggregate output
+     * says nothing about such a recomputed value, so compensation can not treat it as redundant.
+     */
+    protected boolean aggregateOutputIsRecomputed(StructInfo queryStructInfo, StructInfo viewStructInfo) {
+        return false;
     }
 
     /**
@@ -969,7 +984,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         for (Set<Slot> requireNullableSlots : requireNoNullableViewSlot) {
             shuttledRequireNoNullableViewSlot.add(
                     ExpressionUtils.shuttleExpressionWithLineage(new ArrayList<>(requireNullableSlots),
-                                    viewStructInfo.getTopPlan()).stream().map(Slot.class::cast)
+                                    viewStructInfo.getTopPlan()).stream()
+                            .filter(Slot.class::isInstance)
+                            .map(Slot.class::cast)
                             .collect(Collectors.toSet()));
         }
         return shuttledRequireNoNullableViewSlot;

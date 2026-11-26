@@ -17,15 +17,20 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
+import org.apache.doris.datasource.SchemaCacheValue;
+
 import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- * Immutable definition of a logical {@link MetaCacheEntry}.
+ * Immutable definition of a logical {@link FeMetaCacheEntry}.
  *
  * <p>This class only describes "what an entry is", not "entry runtime data".
- * Runtime instances are still created by {@link AbstractExternalMetaCache}
+ * Runtime instances are still created by {@link ExternalCatalogMetaCache}
  * per catalog during {@code initCatalog(long)}.
  *
  * <p>A definition contains:
@@ -68,7 +73,7 @@ public final class MetaCacheEntryDef<K, V> {
     /**
      * Declared key type of this entry.
      *
-     * <p>Used by {@link AbstractExternalMetaCache} to validate that callers use
+     * <p>Used by {@link ExternalCatalogMetaCache} to validate that callers use
      * the expected key class when obtaining the entry via
      * {@code entry(catalogId, def)}.
      */
@@ -77,13 +82,13 @@ public final class MetaCacheEntryDef<K, V> {
     /**
      * Declared value type of this entry.
      *
-     * <p>Used by {@link AbstractExternalMetaCache} to validate value type
+     * <p>Used by {@link ExternalCatalogMetaCache} to validate value type
      * compatibility for the requested entry and to prevent cross-entry misuse.
      */
     private final Class<V> valueType;
 
     /**
-     * Loader function used by {@link MetaCacheEntry#get(Object)}.
+     * Loader function used by {@link FeMetaCacheEntry#get(Object)}.
      *
      * <p>Cache miss triggers loader invocation. Loader is bound once at
      * definition creation time and reused by all per-catalog runtime entries.
@@ -98,6 +103,7 @@ public final class MetaCacheEntryDef<K, V> {
      * Keeping it on the definition makes each entry's default policy explicit.
      */
     private final CacheSpec defaultCacheSpec;
+    private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     private final boolean autoRefresh;
     private final boolean contextualOnly;
     private final MetaCacheEntryInvalidation<K> invalidation;
@@ -105,6 +111,21 @@ public final class MetaCacheEntryDef<K, V> {
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
             MetaCacheEntryInvalidation<K> invalidation) {
+        this(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, contextualOnly,
+                invalidation, defaultSizeEstimator(valueType));
+    }
+
+    /** A whole-value walk of a wide schema exceeds the visit budget, so account for its columns individually. */
+    static <K, V> MetaCacheSizeEstimator<K, V> defaultSizeEstimator(Class<V> valueType) {
+        return SchemaCacheValue.class.isAssignableFrom(valueType)
+                ? MetaCacheSizeEstimators.reflectivePerElement(value -> ((SchemaCacheValue) value).getColumnLists())
+                : MetaCacheSizeEstimators.reflective();
+    }
+
+    private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
+            @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
+            MetaCacheEntryInvalidation<K> invalidation, MetaCacheSizeEstimator<K, V> sizeEstimator) {
+        this.sizeEstimator = Objects.requireNonNull(sizeEstimator, "size estimator is required");
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -131,7 +152,7 @@ public final class MetaCacheEntryDef<K, V> {
      * @param name logical entry name, unique in one cache implementation
      * @param keyType declared key class
      * @param valueType declared value class
-     * @param loader miss loader invoked by {@link MetaCacheEntry#get(Object)}
+     * @param loader miss loader invoked by {@link FeMetaCacheEntry#get(Object)}
      * @param defaultCacheSpec default cache policy used by this entry definition
      */
     public static <K, V> MetaCacheEntryDef<K, V> of(String name, Class<K> keyType, Class<V> valueType,
@@ -151,7 +172,7 @@ public final class MetaCacheEntryDef<K, V> {
      * @param name logical entry name, unique in one cache implementation
      * @param keyType declared key class
      * @param valueType declared value class
-     * @param loader miss loader invoked by {@link MetaCacheEntry#get(Object)}
+     * @param loader miss loader invoked by {@link FeMetaCacheEntry#get(Object)}
      * @param defaultCacheSpec default cache policy used by this entry definition
      * @param autoRefresh whether to enable refresh-after-write
      */
@@ -180,6 +201,16 @@ public final class MetaCacheEntryDef<K, V> {
             MetaCacheEntryInvalidation<K> invalidation) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, null, defaultCacheSpec, false, true,
                 invalidation);
+    }
+
+    /** Preserve entry-specific accounting when creating the catalog cache runtime. */
+    public MetaCacheEntryDef<K, V> withSizeEstimator(MetaCacheSizeEstimator<K, V> estimator) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh,
+                contextualOnly, invalidation, estimator);
+    }
+
+    public MetaCacheSizeEstimator<K, V> getSizeEstimator() {
+        return sizeEstimator;
     }
 
     /**

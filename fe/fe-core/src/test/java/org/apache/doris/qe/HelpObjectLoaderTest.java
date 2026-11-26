@@ -23,8 +23,8 @@ import org.apache.doris.qe.help.HelpObjectLoader;
 import org.apache.doris.qe.help.HelpTopic;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.URL;
@@ -38,28 +38,28 @@ public class HelpObjectLoaderTest {
         URL resource = getClass().getClassLoader().getResource("data/helpTopicNormal.md");
         HelpObjectLoader<HelpTopic> loader = HelpObjectLoader.createTopicLoader();
         List<HelpTopic> helpTopics = loader.loadAll(resource.getFile());
-        Assert.assertNotNull(helpTopics);
-        Assert.assertEquals(2, helpTopics.size());
+        Assertions.assertNotNull(helpTopics);
+        Assertions.assertEquals(2, helpTopics.size());
 
         for (HelpTopic topic : helpTopics) {
             if (topic.getName().equals("SHOW TABLES")) {
-                Assert.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "TABLES").toArray(),
+                Assertions.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "TABLES").toArray(),
                         topic.getKeywords().toArray()));
-                Assert.assertEquals("Administration\n", topic.getCategory());
-                Assert.assertEquals("", topic.getUrl());
-                Assert.assertEquals("show table in this\n"
+                Assertions.assertEquals("Administration\n", topic.getCategory());
+                Assertions.assertEquals("", topic.getUrl());
+                Assertions.assertEquals("show table in this\n"
                         + "SYNTAX: SHOW TABLES\n", topic.getDescription());
-                Assert.assertEquals("show tables\n", topic.getExample());
+                Assertions.assertEquals("show tables\n", topic.getExample());
             } else {
                 // SHOW DATABASES
-                Assert.assertEquals("SHOW DATABASES", topic.getName());
-                Assert.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "DATABASES").toArray(),
+                Assertions.assertEquals("SHOW DATABASES", topic.getName());
+                Assertions.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "DATABASES").toArray(),
                         topic.getKeywords().toArray()));
-                Assert.assertEquals("", topic.getCategory());
-                Assert.assertEquals("", topic.getUrl());
-                Assert.assertEquals("show table in this\n"
+                Assertions.assertEquals("", topic.getCategory());
+                Assertions.assertEquals("", topic.getUrl());
+                Assertions.assertEquals("show table in this\n"
                         + "    SYNTAX: SHOW DATABASES\n", topic.getDescription());
-                Assert.assertEquals("", topic.getExample());
+                Assertions.assertEquals("", topic.getExample());
             }
         }
     }
@@ -70,16 +70,16 @@ public class HelpObjectLoaderTest {
 
         HelpObjectLoader<HelpCategory> loader = HelpObjectLoader.createCategoryLoader();
         List<HelpCategory> helpTopics = loader.loadAll(resource.getFile());
-        Assert.assertNotNull(helpTopics);
-        Assert.assertEquals(2, helpTopics.size());
+        Assertions.assertNotNull(helpTopics);
+        Assertions.assertEquals(2, helpTopics.size());
 
         for (HelpCategory topic : helpTopics) {
             if (topic.getName().equals("Polygon properties")) {
-                Assert.assertEquals("", topic.getUrl());
-                Assert.assertEquals("Geographic Features\n", topic.getParent());
+                Assertions.assertEquals("", topic.getUrl());
+                Assertions.assertEquals("Geographic Features\n", topic.getParent());
             } else if (topic.getName().equals("Geographic")) {
-                Assert.assertEquals("", topic.getUrl());
-                Assert.assertEquals("", topic.getParent());
+                Assertions.assertEquals("", topic.getUrl());
+                Assertions.assertEquals("", topic.getParent());
             }
         }
     }

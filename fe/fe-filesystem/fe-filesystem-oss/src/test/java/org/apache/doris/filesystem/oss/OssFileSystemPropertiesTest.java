@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -113,6 +115,41 @@ class OssFileSystemPropertiesTest {
     }
 
     @Test
+    void bind_usesSameDlfAccessPublicSemanticsAsMetastore() {
+        for (String truthy : java.util.Arrays.asList("yes", "ON", "y")) {
+            OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                    "dlf.region", "cn-hangzhou",
+                    "dlf.access.public", truthy));
+
+            Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", properties.getEndpoint());
+        }
+    }
+
+    @Test
+    void bind_acceptsCanonicalDlfCredentialsAndToken() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "dlf.cn-hangzhou.aliyuncs.com",
+                "dlf.catalog.accessKeyId", "dlf-ak",
+                "dlf.catalog.accessKeySecret", "dlf-sk",
+                "dlf.catalog.securityToken", "dlf-token"));
+
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+        Assertions.assertEquals("dlf-ak", properties.getAccessKey());
+        Assertions.assertEquals("dlf-sk", properties.getSecretKey());
+        Assertions.assertEquals("dlf-token", properties.getSessionToken());
+    }
+
+    @Test
+    void bind_derivesRegionFromDlfVpcEndpoint() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "dlf.catalog.endpoint", "https://dlf-vpc.cn-shanghai.aliyuncs.com"));
+
+        Assertions.assertEquals("cn-shanghai", properties.getRegion());
+        Assertions.assertEquals("oss-cn-shanghai-internal.aliyuncs.com", properties.getEndpoint());
+    }
+
+    @Test
     void toBackendProperties_returnsOnlyAwsCompatibleKeysForBeAdapters() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
                 "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
@@ -132,6 +169,65 @@ class OssFileSystemPropertiesTest {
         Assertions.assertEquals("oss-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("oss-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("OSS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toMaps_emitOssTuningDefaultsWhenNotConfigured() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com"));
+
+        // Parity with fe-core OSSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk"));
+        OssFileSystemProperties otherCredentials = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "other-ak",
+                "oss.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("oss", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
     }
 
     @Test

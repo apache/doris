@@ -2,6 +2,12 @@
 -- !select1 --
 ["a", "b", "c", "d", "e"]
 
+-- !select_utf8_empty_pattern --
+["中", "a", "😀"]
+
+-- !select_utf8_empty_pattern_with_limit --
+["中", "a😀"]
+
 -- !select2 --
 ["a", "bc", "de", "f"]
 

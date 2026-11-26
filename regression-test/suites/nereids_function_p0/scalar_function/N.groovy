@@ -31,8 +31,14 @@ suite("nereids_scalar_fn_N") {
 	qt_sql_not_null_or_empty_String_notnull "select not_null_or_empty(kstr) from fn_test_not_nullable order by kstr"
 	sql "select now() from fn_test"
 	sql "select now() from fn_test_not_nullable"
-	sql "select now(kint) from fn_test where kint is not null order by kint"
-	sql "select now(kint) from fn_test_not_nullable where kint is not null order by kint"
+	test {
+		sql "select now(kint) from fn_test where kint is not null order by kint"
+		exception "NOW precision argument must be a constant literal."
+	}
+	test {
+		sql "select now(kint) from fn_test_not_nullable where kint is not null order by kint"
+		exception "NOW precision argument must be a constant literal."
+	}
 	qt_sql_null_or_empty_Varchar "select null_or_empty(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_null_or_empty_Varchar_notnull "select null_or_empty(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_null_or_empty_String "select null_or_empty(kstr) from fn_test order by kstr"
@@ -58,7 +64,9 @@ suite("nereids_scalar_fn_N") {
 	qt_sql_nullif_Date_Date "select nullif(kdt, kdt) from fn_test order by kdt, kdt"
 	qt_sql_nullif_Date_Date_notnull "select nullif(kdt, kdt) from fn_test_not_nullable order by kdt, kdt"
 	qt_sql_nullif_DateTimeV2_DateTimeV2 "select nullif(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
+	qt_sql_nullif_TimestampNs_TimestampNs "select nullif(ktsns, ktsns) from fn_test order by ktsns, ktsns"
 	qt_sql_nullif_DateTimeV2_DateTimeV2_notnull "select nullif(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
+	qt_sql_nullif_TimestampNs_TimestampNs_notnull "select nullif(ktsns, ktsns) from fn_test_not_nullable order by ktsns, ktsns"
 	qt_sql_nullif_DateV2_DateV2 "select nullif(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
 	qt_sql_nullif_DateV2_DateV2_notnull "select nullif(kdtv2, kdtv2) from fn_test_not_nullable order by kdtv2, kdtv2"
 	qt_sql_nullif_DecimalV2_DecimalV2 "select nullif(kdcmls1, kdcmls1) from fn_test order by kdcmls1, kdcmls1"
@@ -92,7 +100,9 @@ suite("nereids_scalar_fn_N") {
 	qt_sql_nvl_DateTime_Date "select nvl(kdtm, kdt) from fn_test order by kdtm, kdt"
 	qt_sql_nvl_DateTime_Date_notnull "select nvl(kdtm, kdt) from fn_test_not_nullable order by kdtm, kdt"
 	qt_sql_nvl_DateTimeV2_DateTimeV2 "select nvl(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
+	qt_sql_nvl_TimestampNs_TimestampNs "select nvl(ktsns, ktsns) from fn_test order by ktsns, ktsns"
 	qt_sql_nvl_DateTimeV2_DateTimeV2_notnull "select nvl(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
+	qt_sql_nvl_TimestampNs_TimestampNs_notnull "select nvl(ktsns, ktsns) from fn_test_not_nullable order by ktsns, ktsns"
 	qt_sql_nvl_DateV2_DateV2 "select nvl(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
 	qt_sql_nvl_DateV2_DateV2_notnull "select nvl(kdtv2, kdtv2) from fn_test_not_nullable order by kdtv2, kdtv2"
 	qt_sql_nvl_DecimalV2_DecimalV2 "select nvl(kdcmls1, kdcmls1) from fn_test order by kdcmls1, kdcmls1"

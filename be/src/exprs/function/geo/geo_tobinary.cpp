@@ -52,13 +52,13 @@ bool toBinary::geo_tobinary(GeoShape* shape, std::string* result) {
 
 bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
     switch (shape->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         return writeGeoPoint((GeoPoint*)(shape), ctx);
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         return writeGeoLine((GeoLine*)(shape), ctx);
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         return writeGeoPolygon((GeoPolygon*)(shape), ctx);
     }
     default:
@@ -98,17 +98,17 @@ bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx)
 
 void toBinary::writeByteOrder(ToBinaryContext* ctx) {
     ctx->byteOrder = getMachineByteOrder();
-    if (ctx->byteOrder == 1) {
-        ctx->buf[0] = byteOrder::wkbNDR;
+    if (ctx->byteOrder == ByteOrderValues::EndianType::ENDIAN_LITTLE) {
+        ctx->buf[0] = static_cast<unsigned char>(byteOrder::wkbNDR);
     } else {
-        ctx->buf[0] = byteOrder::wkbXDR;
+        ctx->buf[0] = static_cast<unsigned char>(byteOrder::wkbXDR);
     }
 
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 1);
 }
 
-void toBinary::writeGeometryType(int typeId, ToBinaryContext* ctx) {
-    writeInt(typeId, ctx);
+void toBinary::writeGeometryType(wkbType typeId, ToBinaryContext* ctx) {
+    writeInt(static_cast<int>(typeId), ctx);
 }
 
 void toBinary::writeInt(int val, ToBinaryContext* ctx) {

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
@@ -452,33 +453,30 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
             Thread.sleep(10);
         }
-
-        if (ctx == null) { // for run with scheduler, not by command.
-            // priv check is done in relative(caller) command. so use ADMIN here is ok.
-            ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
-        }
-
-        // not use rerfresh command's executor to avoid potential problems.
-        String insertSql = "insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
-                + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
-                + dictionary.getSourceTableName();
-        StmtExecutor executor = new StmtExecutor(ctx, insertSql);
-        NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
-        LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
-                adaptiveLoad);
-        if (!baseCommand.getLabelName().isPresent()) {
-            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
-        }
-        if (baseCommand.getJobId() == 0) {
-            baseCommand.setJobId(DICTIONARY_JOB_ID);
-        }
-
-        InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
-                baseCommand, database, dictionary, adaptiveLoad);
-
-        // run with sync by status.
         try {
+            if (ctx == null) { // for run with scheduler, not by command.
+                // priv check is done in relative(caller) command. so use ADMIN here is ok.
+                ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
+            }
+
+            // not use rerfresh command's executor to avoid potential problems.
+            String insertSql = buildDataLoadSql(dictionary);
+            StmtExecutor executor = new StmtExecutor(ctx, insertSql);
+            NereidsParser parser = new NereidsParser();
+            InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
+            LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                    adaptiveLoad);
+            if (!baseCommand.getLabelName().isPresent()) {
+                baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
+            }
+            if (baseCommand.getJobId() == 0) {
+                baseCommand.setJobId(DICTIONARY_JOB_ID);
+            }
+
+            InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
+                    baseCommand, database, dictionary, adaptiveLoad);
+
+            // run with sync by status.
             // avoid to generate EmptySetNode making us not able to get base table version.
             ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
                     "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
@@ -536,11 +534,24 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             }
         }
 
+        // block here in test to simulate the race: INC journal written, commit not done yet.
+        while (DebugPointUtil.isEnable("DictionaryManager.afterIncJournal")) {
+            Thread.sleep(100);
+        }
+
         // commit and check the result. not modify metadata so dont need lock.
         if (!commitNowVersion(ctx, dictionary)) {
             if (!ctx.getStatementContext().isPartialLoadDictionary()) {
                 dictionary.decreaseVersion();
-                Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+                // DROP may have removed the dictionary between the INC journal and this failed
+                // commit. A DEC journal for a dropped dictionary cannot be replayed by name, so
+                // only persist the rollback while the dictionary is still the current one.
+                if (isCurrentDictionary(database, dictionary)) {
+                    Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+                } else {
+                    LOG.warn("Dictionary {} has been dropped or replaced during commit, skip DEC journal",
+                            dictionary.getName());
+                }
             }
             dictionary.trySetStatus(oldStatus);
             abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
@@ -565,7 +576,16 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
+    static String buildDataLoadSql(Dictionary dictionary) {
+        String targetName = Utils.qualifiedNameWithBackquote(dictionary.getFullQualifiers());
+        String sourceName = Utils.qualifiedNameWithBackquote(dictionary.getSourceQualifiedName());
+        return "insert into " + targetName + " select * from " + sourceName;
+    }
+
     private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {
+        if (DebugPointUtil.isEnable("DictionaryManager.commitNowVersion.fail")) {
+            return false;
+        }
         // use the same BEs when we get before start loading.
         List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
 
@@ -861,21 +881,33 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     public void replayIncreaseVersion(DictionaryIncreaseVersionInfo info) throws DdlException {
-        String dbName = info.getDictionary().getDbName();
-        String dictName = info.getDictionary().getName();
-        Dictionary dictionary = getDictionary(dbName, dictName);
+        long dictId = info.getDictionary().getId();
+        Dictionary dictionary = getDictionary(dictId);
+        if (dictionary == null) {
+            LOG.warn("Dictionary with id {} does not exist when replaying increase version, skip", dictId);
+            return;
+        }
         dictionary.writeLock();
-        dictionary.increaseVersion();
-        dictionary.writeUnlock();
+        try {
+            dictionary.increaseVersion();
+        } finally {
+            dictionary.writeUnlock();
+        }
     }
 
     public void replayDecreaseVersion(DictionaryDecreaseVersionInfo info) throws DdlException {
-        String dbName = info.getDictionary().getDbName();
-        String dictName = info.getDictionary().getName();
-        Dictionary dictionary = getDictionary(dbName, dictName);
+        long dictId = info.getDictionary().getId();
+        Dictionary dictionary = getDictionary(dictId);
+        if (dictionary == null) {
+            LOG.warn("Dictionary with id {} does not exist when replaying decrease version, skip", dictId);
+            return;
+        }
         dictionary.writeLock();
-        dictionary.decreaseVersion();
-        dictionary.writeUnlock();
+        try {
+            dictionary.decreaseVersion();
+        } finally {
+            dictionary.writeUnlock();
+        }
     }
 
     // Metadata serialization

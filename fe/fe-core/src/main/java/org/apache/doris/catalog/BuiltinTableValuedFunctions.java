@@ -18,9 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
-import org.apache.doris.nereids.trees.expressions.functions.table.Binlog;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.Changelog;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
-import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.IndexDiskUsage;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -54,19 +54,20 @@ import com.google.common.collect.ImmutableList;
 public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
             tableValued(Backends.class, "backends"),
-            tableValued(Binlog.class, "binlog"),
+            // ATTN(changelog-rename): formerly "binlog"
+            tableValued(Changelog.class, "changelog"),
             tableValued(Catalogs.class, "catalogs"),
             tableValued(Frontends.class, "frontends"),
             tableValued(FrontendsDisks.class, "frontends_disks"),
             tableValued(GroupCommit.class, "group_commit"),
             tableValued(Local.class, "local"),
-            tableValued(HudiMeta.class, "hudi_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Partitions.class, "partitions"),
+            tableValued(IndexDiskUsage.class, "index_disk_usage"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),

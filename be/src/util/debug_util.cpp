@@ -18,21 +18,34 @@
 #include "util/debug_util.h"
 
 #include <bvar/bvar.h>
+#include <bvar/multi_dimension.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
 #include <cstring>
 #include <iomanip>
+#include <list>
 #include <map>
 #include <sstream> // IWYU pragma: keep
+#include <string>
 #include <utility>
 
+#include "common/check.h"
+#include "common/config.h"
 #include "common/version_internal.h"
+#include "cpp/version_metrics.h"
 #include "fmt/core.h"
 #include "util/uid_util.h"
 
 namespace doris {
+
+std::string print_fragment_params_summary(const TPipelineFragmentParams& params) {
+    return fmt::format("query_id={}, fragment_id={}, local_instances={}", print_id(params.query_id),
+                       params.fragment_id, params.local_params.size());
+}
 
 std::string print_plan_node_type(const TPlanNodeType::type& type) {
     std::map<int, const char*>::const_iterator i;
@@ -109,15 +122,48 @@ std::string hexdump(const char* buf, int len) {
     return ss.str();
 }
 
-bvar::Status<uint64_t> be_version_metrics("doris_be_version", [] {
-    std::stringstream ss;
-    ss << version::doris_build_version_major() << 0 << version::doris_build_version_minor() << 0
-       << version::doris_build_version_patch();
-    if (version::doris_build_version_hotfix() > 0) {
-        ss << 0 << version::doris_build_version_hotfix();
-    }
-    return std::strtoul(ss.str().c_str(), nullptr, 10);
-}());
+namespace {
+
+uint64_t get_be_version_metric_value() {
+    const int64_t major = version::doris_build_version_major();
+    const int64_t minor = version::doris_build_version_minor();
+    const int64_t patch = version::doris_build_version_patch();
+    const int64_t hotfix = version::doris_build_version_hotfix();
+
+    // A component outside 0..99 would carry into its neighbor in the base-100 encoding. For
+    // example, patch 100 would be indistinguishable from incrementing minor and using patch 0.
+    DORIS_CHECK(is_valid_version_metric_component(major));
+    DORIS_CHECK(is_valid_version_metric_component(minor));
+    DORIS_CHECK(is_valid_version_metric_component(patch));
+    DORIS_CHECK(is_valid_version_metric_component(hotfix));
+    return encode_version_metric_value(major, minor, patch, hotfix);
+}
+
+} // namespace
+
+void init_be_version_metrics() {
+    // MultiDimension metrics are omitted from /brpc_metrics while this brpc flag is 0.
+    DORIS_CHECK(
+            !google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                          config::bvar_max_dump_multi_dimension_metric_num.c_str())
+                     .empty());
+
+    static const bool initialized = [] {
+        static bvar::MultiDimension<bvar::Status<uint64_t>> metrics(
+                "doris_be_version", {"version", "major", "minor", "patch", "hotfix", "short_hash"});
+        auto* metric = metrics.get_stats(
+                std::list<std::string> {version::doris_build_version(),
+                                        std::to_string(version::doris_build_version_major()),
+                                        std::to_string(version::doris_build_version_minor()),
+                                        std::to_string(version::doris_build_version_patch()),
+                                        std::to_string(version::doris_build_version_hotfix()),
+                                        version::doris_build_short_hash()});
+        DORIS_CHECK(metric != nullptr);
+        metric->set_value(get_be_version_metric_value());
+        return true;
+    }();
+    static_cast<void>(initialized);
+}
 
 std::string PrintThriftNetworkAddress(const TNetworkAddress& add) {
     std::stringstream ss;

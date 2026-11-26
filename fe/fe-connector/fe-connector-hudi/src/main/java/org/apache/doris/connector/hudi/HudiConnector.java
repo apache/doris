@@ -17,22 +17,51 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.hms.HmsConfHelper;
 import org.apache.doris.connector.hms.ThriftHmsClient;
+import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthSpec;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * Hudi connector implementation. Manages the lifecycle of an
@@ -42,28 +71,238 @@ import java.util.Map;
  * <p>Phase 1 provides read-only metadata operations (list databases,
  * list tables, get schema via Hudi's Avro schema). Phase 2 adds scan
  * planning for COW and MOR tables (snapshot reads).</p>
+ *
+ * <p>Built only as an embedded <em>sibling</em> of the hive {@code hms} gateway (via
+ * {@code ConnectorContext.createSiblingConnector("hudi", ...)}), never as a standalone {@code type=hudi}
+ * catalog — see {@link HudiConnectorProvider}.</p>
  */
 public class HudiConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(HudiConnector.class);
 
+    // fs.s3a.impl.disable.cache and its per-scheme siblings, as the FE emits them.
+    private static final Pattern FS_DISABLE_CACHE = Pattern.compile("fs\\..+\\.impl\\.disable\\.cache");
+
+    private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache;
     private volatile HmsClient hmsClient;
 
+    // HMS and storage deliberately have separate authenticators: hive.metastore.username must affect set_ugi
+    // without changing the UGI used by HoodieTableMetaClient and FileIO.
+    private volatile HadoopAuthenticator hmsAuth;
+    private volatile boolean hmsAuthComputed;
+    private volatile HadoopAuthenticator storageAuth;
+    private volatile boolean storageAuthComputed;
+
+    // One UGI per distinct catalog configuration, which is what keys Hadoop's FileSystem cache to the
+    // credentials that opened it. See fileSystemScope().
+    //
+    // Static because a scope belongs to a CONFIGURATION and not to a connector object: two catalogs
+    // whose properties are byte-identical may share a filesystem, so they share the UGI that keys it -
+    // which is exactly the contract fileSystemScopeKey() states. It also means a connector rebuilt on
+    // the same properties lands on the same scope rather than stranding the filesystems cached under
+    // the old one.
+    //
+    // Reference-counted by the connectors holding an entry, and released in close(). Every path that
+    // ends this connector's life goes through it: ALTER CATALOG and CREATE-time re-registration reach
+    // ExternalCatalog.resetToUninitialized -> closeResources -> close(), DROP CATALOG reaches
+    // closeResources directly, and PluginDrivenExternalCatalog.initLocalObjectsImpl closes the
+    // throwaway connector CatalogFactory built for checkWhenCreating. REFRESH CATALOG does NOT - it
+    // goes through RefreshManager -> onRefreshCache, which rebuilds no connector - so a refresh keeps
+    // the scope it had, with no eviction and no re-listing. The last holder of a scope hands the
+    // filesystems Hadoop cached under its UGI to FS_SCOPE_CLOSER below, each of which holds an SDK
+    // client whose scheduled executor keeps its own worker threads alive. Those threads are exactly
+    // the resource this feature's own javadoc blames for "OutOfMemoryError: unable to create native
+    // thread", so leaving them to the FE's lifetime is not an option - and neither is dropping the map
+    // entry without closing them, because Hadoop's FileSystem.CACHE is a static strong reference and
+    // nothing else will ever let go.
+    //
+    // Releasing in close() rather than from a newer connector is what makes "whose scope is this" a
+    // question with an answer: a connector only ever releases the entry IT acquired. The alternative -
+    // a new connector deciding which older entries are superseded - has no ordering to appeal to, and
+    // an old connector computing its scope late would then tear down the live one.
+    //
+    // The window this does NOT close is the same one close() has always had, and the reason
+    // hmsClient.close() sits three lines below the scope release: a statement that is still running
+    // when its connector is closed loses the resources of that connector. For the HMS client that has
+    // been true since this class existed; for the filesystems it is true now, and the failure looks
+    // like "IOException: Filesystem closed" rather than a dead thrift socket. Fixing that properly
+    // means the FE not closing a connector a statement still holds, which is above this class.
+    private static final Map<String, ScopeEntry> FS_SCOPES = new HashMap<>();
+
+    // Where the last release's filesystem teardown runs. NEVER on the caller's thread: close() is reached
+    // from the FE's journal replay thread, and on the ALTER CATALOG path it arrives holding two coarse locks
+    // - CatalogMgr.writeLock(), one process-wide lock covering EVERY catalog, and the
+    // ExternalCatalog.resetToUninitialized synchronized(this) that is the very monitor
+    // makeSureInitialized() takes. DROP CATALOG holds neither (cleanupRemovedCatalog runs after
+    // writeUnlock()), but it is still the replay thread, which a follower must never let fall behind.
+    // The work is unbounded: FileSystem.closeAll(UGI) holds the process-wide FileSystem.CACHE monitor for
+    // its whole duration, and one S3AFileSystem.close() shuts three thread pools down through
+    // HadoopExecutors.shutdown - await, shutdownNow, await again, 30s apiece - so roughly 180s per
+    // filesystem, with a still-flying S3 transfer being enough to spend it.
+    //
+    // Handing it off is sound rather than merely convenient: the reference count has already established
+    // that no connector holds this UGI, so nothing about the close is ordered against the caller. It cannot
+    // race a later acquire of the same key either - UserGroupInformation.equals is Subject IDENTITY, and a
+    // later acquire builds a fresh createRemoteUser UGI, so the entries closed here are never the entries
+    // that acquire will cache under.
+    //
+    // One thread, unbounded queue (releases are catalog-lifecycle events - ALTER, DROP, CREATE validation -
+    // not query traffic, and they contend on the single FileSystem.CACHE monitor anyway), daemon, and
+    // allowCoreThreadTimeOut so an FE that never drops a hudi catalog never has this thread at all. Its
+    // TCCL is pinned to the hudi plugin loader: a worker thread created inside a child-first plugin would
+    // otherwise inherit whatever loader the replay thread happened to carry, which is the split-brain
+    // failure the fe-connector TCCL invariant exists to prevent.
+    private static final ExecutorService FS_SCOPE_CLOSER = newFileSystemScopeCloser();
+
+    private volatile UserGroupInformation fsScope;
+    private volatile boolean fsScopeComputed;
+    // The key this connector acquired, so that close() releases its OWN entry. Guarded by `this`,
+    // and null both before the scope is built and after it is released.
+    private String fsScopeKey;
+
+    /** One {@link #FS_SCOPES} entry: a UGI and the number of connectors holding it. Guarded by FS_SCOPES. */
+    private static final class ScopeEntry {
+        private final UserGroupInformation ugi;
+        private int owners;
+
+        private ScopeEntry(UserGroupInformation ugi) {
+            this.ugi = ugi;
+        }
+    }
+
+    /** Builds {@link #FS_SCOPE_CLOSER}; see that field for why it is shaped this way. */
+    private static ExecutorService newFileSystemScopeCloser() {
+        ThreadPoolExecutor closer = new ThreadPoolExecutor(1, 1, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(), runnable -> {
+                    Thread thread = new Thread(runnable, "hudi-fs-scope-closer");
+                    thread.setDaemon(true);
+                    thread.setContextClassLoader(HudiConnector.class.getClassLoader());
+                    return thread;
+                });
+        closer.allowCoreThreadTimeOut(true);
+        return closer;
+    }
+
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = Collections.unmodifiableMap(properties);
+        HmsConfHelper.initializeHadoopConfigDir(context);
+        this.props = HudiCatalogProperties.of(properties);
+        this.properties = props.getRaw();
         this.context = context;
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hudi", this.properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HudiConnectorMetadata(getOrCreateClient(), properties);
+        return new HudiConnectorMetadata(getOrCreateClient(), props, metaClientExecutor(),
+                HudiScanPlanProvider.storageHadoopConfig(context));
     }
 
+    /**
+     * Builds the metaClient execute-wrapper the metadata partition/snapshot methods run their
+     * {@code HoodieTableMetaClient}-touching work inside: a TCCL pin to the hudi plugin classloader (so
+     * hudi-bundled reflection resolves the plugin's child-first copies) around the plugin UGI {@code doAs}
+     * (Kerberos) — or the FE-injected {@code context.executeAuthenticated} when storage is non-Kerberos —
+     * restoring the previous TCCL in a {@code finally}. The storage-specific choice is intentionally separate
+     * from HMS auth; the TCCL pin is added because — unlike the HMS thrift RPC (which pins the
+     * system loader) — building a metaClient / listing partitions off the (unpinned) planning thread needs the
+     * plugin loader. See {@link HudiMetaClientExecutor} and memory
+     * {@code catalog-spi-plugin-tccl-classloader-gotcha}.
+     */
+    private HudiMetaClientExecutor metaClientExecutor() {
+        return metaClientExecutor(true);
+    }
+
+    /**
+     * @param wrapUnchecked whether a {@link RuntimeException} out of the action is wrapped with the catalog
+     *                      name like a checked one. The metadata path always has been; the scan-planning path
+     *                      is not, so that {@code planScan} keeps reporting its own failures - "Failed to list
+     *                      partitions for ..." and the like - the way it did before it ran in here.
+     */
+    private HudiMetaClientExecutor metaClientExecutor(boolean wrapUnchecked) {
+        return new HudiMetaClientExecutor() {
+            @Override
+            public <T> T execute(Callable<T> action) {
+                ClassLoader previous = Thread.currentThread().getContextClassLoader();
+                Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
+                try {
+                    HadoopAuthenticator auth = storageAuthenticator();
+                    if (auth != null) {
+                        return auth.doAs(action::call);
+                    }
+                    UserGroupInformation scope = fileSystemScope();
+                    if (scope != null) {
+                        return scope.doAs((PrivilegedExceptionAction<T>) action::call);
+                    }
+                    return context.executeAuthenticated(action);
+                } catch (RuntimeException e) {
+                    if (!wrapUnchecked) {
+                        throw e;
+                    }
+                    throw new DorisConnectorException("Hudi metadata operation failed for catalog '"
+                            + context.getCatalogName() + "'", e);
+                } catch (Exception e) {
+                    throw new DorisConnectorException("Hudi metadata operation failed for catalog '"
+                            + context.getCatalogName() + "'", e);
+                } finally {
+                    Thread.currentThread().setContextClassLoader(previous);
+                }
+            }
+        };
+    }
+
+    /**
+     * True for a handle this connector produced (a {@link HudiTableHandle}). Tested against this connector's OWN
+     * in-loader type, so a heterogeneous hms gateway that embeds this connector as a sibling can route a foreign
+     * hudi handle here without casting it across the plugin classloader split. Returns false for any other
+     * connector's handle (e.g. an iceberg sibling's), so the gateway keeps looking.
+     */
+    @Override
+    public boolean ownsHandle(ConnectorTableHandle handle) {
+        return handle instanceof HudiTableHandle;
+    }
+
+    /**
+     * The provider plans inside this connector's execute-wrapper (see {@link #metaClientExecutor()}), so the
+     * filesystems its metaClients open are cached under {@link #fileSystemScope()} - or the Kerberos
+     * authenticator's UGI - and {@link #close()} lets them go with the rest. Unwrapped: the provider's own
+     * exceptions are what the engine reports.
+     */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HudiScanPlanProvider(properties);
+        return new HudiScanPlanProvider(properties, context, metaClientExecutor(false));
+    }
+
+    /**
+     * REFRESH TABLE hook: invalidate this table's cached HMS metadata (table info +
+     * partition names) so the next query re-reads it live. Reads the client field WITHOUT building it
+     * (getOrCreateClient would force a real client just to flush an empty cache; a never-queried catalog has no
+     * cache to flush). hudi is a leaf sibling (no siblings of its own) holding no file/partition-view caches, so
+     * the metastore flush is the only layer. The hive gateway forwards REFRESH to this sibling via
+     * {@code forEachBuiltSibling}, so this override is what makes REFRESH reach the sibling's own client
+     * (fe-core routes REFRESH TABLE to {@code connector.invalidateTable} for a plugin-driven catalog).
+     */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        metaCache.invalidateTable(dbName, tableName);
+    }
+
+    /**
+     * REFRESH DATABASE hook: invalidate every cached table in this database.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        metaCache.invalidateDatabase(dbName);
+    }
+
+    /**
+     * REFRESH CATALOG hook: invalidate this catalog's entire HMS metadata cache.
+     */
+    @Override
+    public void invalidateAll() {
+        metaCache.invalidateCatalog();
     }
 
     private HmsClient getOrCreateClient() {
@@ -78,29 +317,337 @@ public class HudiConnector implements Connector {
     }
 
     private HmsClient createClient() {
-        String metastoreUri = properties.get(HudiConnectorProperties.HIVE_METASTORE_URIS);
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            metastoreUri = properties.get("uri");
-        }
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            throw new DorisConnectorException(
-                    "HMS URI ('" + HudiConnectorProperties.HIVE_METASTORE_URIS + "') is required for Hudi connector");
-        }
-
-        int poolSize = HudiConnectorProperties.getInt(
-                properties, HudiConnectorProperties.HMS_CLIENT_POOL_SIZE,
-                HudiConnectorProperties.DEFAULT_HMS_CLIENT_POOL_SIZE);
-
-        HmsClientConfig config = new HmsClientConfig(properties, poolSize);
+        // The URI (either spelling) and the pool size were checked when this connector was constructed --
+        // HudiCatalogProperties.of throws for a catalog without a metastore URI, so there is nothing left
+        // to re-check here.
+        HmsClientConfig config = buildHmsClientConfig();
+        int poolSize = config.getPoolSize();
         LOG.info("Creating Hudi connector HMS client for catalog='{}', uri={}, poolSize={}",
                 context.getCatalogName(), config.getMetastoreUri(), poolSize);
 
-        ThriftHmsClient.AuthAction authAction = context::executeAuthenticated;
-        return new ThriftHmsClient(config, authAction);
+        // HMS SIMPLE and Kerberos both need the plugin's UGI at set_ugi/client-RPC time; the separate storage
+        // authenticator is deliberately not reused because hive.metastore.username is not a FileIO identity.
+        // AuthAction.execute is generic, so it cannot be a lambda. ThriftHmsClient.doAs pins the RPC TCCL; the
+        // plugin authenticator here only adds the UGI doAs.
+        HadoopAuthenticator auth = hmsAuthenticator();
+        ThriftHmsClient.AuthAction authAction;
+        if (auth != null) {
+            authAction = new ThriftHmsClient.AuthAction() {
+                @Override
+                public <T> T execute(Callable<T> callable) throws Exception {
+                    return auth.doAs(callable::call);
+                }
+            };
+        } else {
+            authAction = context::executeAuthenticated;
+        }
+        return wrapWithCache(new ThriftHmsClient(config, authAction));
     }
 
+    HmsClientConfig buildHmsClientConfig() {
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+        // The FE fallback is deployment state, not a catalog property, but the live HiveConf still needs it.
+        return new HmsClientConfig(hms.getConfResources(), HmsConfHelper.mergeCatalogProperties(properties,
+                hms.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
+                props.getHmsClientPoolSize());
+    }
+
+    /**
+     * Wraps the raw pooled client in the shared {@link CachingHmsClient} (mirrors {@code HiveConnector}):
+     * {@code getTable} and {@code listPartitionNames} become {@code (db,table)}-keyed and TTL-bounded
+     * ({@code meta.cache.hive.*}, default 24h), so repeated queries against the same hudi table stop re-hitting
+     * HMS; {@code tableExists}/{@code listTables} stay pass-through. Freshness is preserved two ways: the
+     * SHOW-PARTITIONS / {@code partition_values} path lists FRESH (bypasses the cache &mdash; see
+     * {@link HudiConnectorMetadata}{@code .collectPartitions}), and REFRESH flushes it (see
+     * {@link #invalidateTable(String, String)}). Package-private so a unit test can wrap an observable fake and
+     * assert the cache decoration.
+     */
+    HmsClient wrapWithCache(HmsClient raw) {
+        return new CachingHmsClient(metaCache, raw, properties);
+    }
+
+    /**
+     * Lazily builds and memoizes the plugin-side authenticator that {@link #createClient()} wraps the
+     * metastore RPC under, so the RPC uses the PLUGIN's own {@code UserGroupInformation} copy (hadoop +
+     * fe-kerberos are bundled child-first in the hudi plugin). Construction is cheap — a keytab login is lazy
+     * in {@code getUGI()} on the first {@code doAs}. Mirrors {@code HiveConnector.pluginAuthenticator}.
+     */
+    private HadoopAuthenticator hmsAuthenticator() {
+        if (!hmsAuthComputed) {
+            synchronized (this) {
+                if (!hmsAuthComputed) {
+                    hmsAuth = buildHmsAuthenticator(properties);
+                    hmsAuthComputed = true;
+                }
+            }
+        }
+        return hmsAuth;
+    }
+
+    private HadoopAuthenticator storageAuthenticator() {
+        if (!storageAuthComputed) {
+            synchronized (this) {
+                if (!storageAuthComputed) {
+                    storageAuth = buildPluginAuthenticator(properties);
+                    storageAuthComputed = true;
+                }
+            }
+        }
+        return storageAuth;
+    }
+
+    /**
+     * The {@link UserGroupInformation} this catalog's metadata reads run under, so that Hadoop's
+     * {@code FileSystem} cache can stay ON without letting two catalogs share one filesystem.
+     *
+     * <p>The problem this exists for: Hadoop's cache is keyed on (scheme, authority, ugi) and ignores
+     * credentials, and every non-Kerberos catalog arrives under the SAME ugi,
+     * {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)}. Two catalogs on one
+     * bucket would otherwise read through whichever S3AFileSystem was built first. Turning the cache off
+     * per scheme is the FE's historical answer and is still what the HDFS family gets
+     * ({@code fs.hdfs.impl.disable.cache=true} and its siblings; asserted by
+     * {@code HdfsConfigBuilderTest}) - the S3 side has since moved to the credential fingerprint below
+     * ({@code FsCacheKeys}) and no longer emits it.
+     *
+     * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} behind a
+     * {@code HoodieTableMetaClient} then builds a new S3AFileSystem and a new AWS SDK client that nobody
+     * closes; the filesystems are collected but each SDK client's scheduled executor is kept alive by its
+     * own worker threads. Measured at about 62 threads per query, until the FE cannot start a thread:
+     * {@code OutOfMemoryError: unable to create native thread}, and every session dies with it.
+     *
+     * <p>So the cache goes back on ({@code buildHadoopConf} clears the flag) and the separation it was
+     * disabled for moves into the cache key: one UGI per catalog configuration. The UGI carries the name
+     * the simple authenticator would have used - a second Subject for one user, not another user - so an
+     * {@code hdfs://} warehouse still sees the identity it always saw. A Kerberos catalog never reaches
+     * here: its own authenticator runs the doAs above with credentials this cannot reproduce, and that
+     * UGI already partitions the cache per principal.
+     *
+     * <p>Null after {@link #close()}, so a statement that outlives its connector falls back to the
+     * FE-injected authenticator rather than acquiring a scope nothing will ever release.
+     *
+     * <p>Package-private rather than private so that the acquire/release lifecycle can be driven from
+     * a test without a metastore behind it; nothing outside this class calls it.
+     */
+    UserGroupInformation fileSystemScope() {
+        if (!fsScopeComputed) {
+            synchronized (this) {
+                if (!fsScopeComputed) {
+                    fsScope = buildFileSystemScope();
+                    fsScopeComputed = true;
+                }
+            }
+        }
+        return fsScope;
+    }
+
+    // Called under `this` from fileSystemScope(), so fsScopeKey is written under the same monitor
+    // releaseFileSystemScope() reads it under. The FS_SCOPES monitor is taken inside `this`, never
+    // the other way round - releaseFileSystemScope() takes them in that same order.
+    private UserGroupInformation buildFileSystemScope() {
+        try {
+            String userName = UserGroupInformation.getCurrentUser().getUserName();
+            String key = fileSystemScopeKey(properties);
+            synchronized (FS_SCOPES) {
+                ScopeEntry entry = FS_SCOPES.computeIfAbsent(key,
+                        absent -> new ScopeEntry(UserGroupInformation.createRemoteUser(userName)));
+                entry.owners++;
+                fsScopeKey = key;
+                return entry.ugi;
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to derive a FileSystem scope for catalog '{}', keeping the shared one",
+                    context.getCatalogName(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Gives up this connector's hold on its scope, and - when it was the last holder - hands the
+     * filesystems Hadoop cached under that UGI to {@link #FS_SCOPE_CLOSER} to be closed.
+     *
+     * <p>Returns as soon as the count is settled: the teardown itself can take minutes and this runs on
+     * the FE's journal replay thread, on ALTER CATALOG under the CatalogMgr write lock. See
+     * {@link #FS_SCOPE_CLOSER} for why detaching it is sound.
+     *
+     * <p>Only ever the entry this connector acquired: the count is what decides, so a catalog sharing
+     * a configuration with another one keeps its filesystems until both are gone, and a connector
+     * that never computed a scope releases nothing.
+     *
+     * <p>Idempotent. {@code close()} is called once by the FE, but a second call - or a close racing
+     * a first use - must not decrement twice, so the key is cleared under {@code this} before the
+     * count is touched. Clearing {@code fsScope} and marking it computed in the same block is what
+     * stops a statement still holding this connector from acquiring a fresh scope afterwards: it
+     * falls back to the FE-injected authenticator, which is where a non-Kerberos catalog started.
+     *
+     * <p>Failures are logged and swallowed - a leak is better than a failed DROP CATALOG.
+     */
+    private void releaseFileSystemScope() {
+        String key;
+        synchronized (this) {
+            key = fsScopeKey;
+            fsScopeKey = null;
+            fsScope = null;
+            fsScopeComputed = true;
+        }
+        if (key == null) {
+            return;
+        }
+        UserGroupInformation orphaned = null;
+        synchronized (FS_SCOPES) {
+            ScopeEntry entry = FS_SCOPES.get(key);
+            if (entry != null && --entry.owners <= 0) {
+                FS_SCOPES.remove(key);
+                orphaned = entry.ugi;
+            }
+        }
+        if (orphaned == null) {
+            return;
+        }
+        // Both read on the calling thread: the task must not reach back into a connector this close() is
+        // dismantling, and the name is only ever used to say which catalog a failure came from.
+        final UserGroupInformation toClose = orphaned;
+        final String catalogName = context.getCatalogName();
+        FS_SCOPE_CLOSER.execute(() -> {
+            try {
+                FileSystem.closeAllForUGI(toClose);
+            } catch (Exception | LinkageError e) {
+                LOG.warn("failed to close the filesystems of the FileSystem scope of catalog '{}'",
+                        catalogName, e);
+            }
+        });
+    }
+
+    /** How many connectors hold a scope, or 0 when the key has none. For tests. */
+    static int scopeOwners(String key) {
+        synchronized (FS_SCOPES) {
+            ScopeEntry entry = FS_SCOPES.get(key);
+            return entry == null ? 0 : entry.owners;
+        }
+    }
+
+    /**
+     * Turns Hadoop's {@code FileSystem} cache back on for a configuration that arrives with it off.
+     * Without this every {@code FileSystem.get()} behind a metaClient returns a filesystem nobody closes;
+     * with it, this catalog holds one per distinct cache key.
+     *
+     * <p>The flag can still arrive from an operator's {@code core-site.xml} or from a catalog property
+     * passed straight through, and this overrides it. That is deliberate - it is the whole point - but it
+     * is a silent override, and an operator who set {@code fs.s3a.impl.disable.cache=true} on purpose
+     * will not see it take effect on this path. The FE itself no longer emits the flag for S3: the S3
+     * side moved to the credential fingerprint ({@code FsCacheKeys}), and only the HDFS family still
+     * carries {@code fs.hdfs.impl.disable.cache=true} and its siblings.
+     *
+     * <p>What separates the catalogs instead is the cache key, and which UGI supplies it is the same for
+     * both callers: the metadata path ({@code HudiConnectorMetadata}) and the scan-planning path
+     * ({@code HudiScanPlanProvider}) both run inside {@code metaClientExecutor()}, so their filesystems are
+     * cached under {@link #fileSystemScope()} for a non-Kerberos catalog or under the connector's own
+     * authenticator for a Kerberos one, and {@link #close()} releases the former with the scope. The
+     * planning path used to run with no {@code doAs} at all, which cached its filesystems under the FE's
+     * login user - shared with every other catalog, so nothing could ever close them, and each catalog
+     * configuration that came and went (ALTER CATALOG, CREATE/query/DROP) left its S3 client and executor
+     * threads behind for the life of the FE.
+     */
+    static void enableFileSystemCache(Configuration conf) {
+        List<String> disabled = new ArrayList<>();
+        for (Map.Entry<String, String> entry : conf) {
+            if (FS_DISABLE_CACHE.matcher(entry.getKey()).matches()) {
+                disabled.add(entry.getKey());
+            }
+        }
+        // Collected first: Configuration's iterator walks a live view, and set() during the walk trips it.
+        disabled.forEach(key -> conf.set(key, "false"));
+    }
+
+    /**
+     * Identifies a catalog configuration so {@link #FS_SCOPES} hands the same UGI to two connectors exactly
+     * when they may share a filesystem. Digested rather than used directly because the properties hold
+     * credentials and a map key is easy to print by accident.
+     *
+     * <p>The configuration and nothing else. No catalog id: two catalogs defined on byte-identical
+     * properties may share a filesystem, and giving each its own UGI would double the filesystems, the
+     * SDK clients and the threads this feature exists to bound. Which catalog an entry belongs to is not
+     * a question anything has to answer - {@link #releaseFileSystemScope()} releases the entry this
+     * connector acquired, by key, and the reference count decides when it is the last one.
+     */
+    static String fileSystemScopeKey(Map<String, String> properties)
+            throws NoSuchAlgorithmException {
+        StringBuilder canonical = new StringBuilder();
+        new TreeMap<>(properties).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte b : digest) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
+    /**
+     * Resolves the plugin-side HMS authenticator. Explicit HMS SIMPLE/KERBEROS wins over storage fallback, so
+     * the metastore identity remains independent from the Hudi data-path identity. Package-visible + static for
+     * KDC-free unit testing.
+     */
+    static HadoopAuthenticator buildHmsAuthenticator(Map<String, String> properties) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
+            AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                    HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf = buildHmsConf(hms);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(
+                                spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+            if (hms.getAuthType() == AuthType.KERBEROS) {
+                return null;
+            }
+            // HMS set_ugi uses the current UGI; scope this user to the metastore instead of Hudi FileIO.
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    AuthenticationConfig.getSimpleAuthenticationConfig(buildHmsConf(hms)));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /** Resolves only the storage Kerberos identity used by Hudi metadata and file operations. */
+    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties) {
+        if (!"kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication"))) {
+            return null;
+        }
+        Configuration conf = new Configuration();
+        conf.setClassLoader(HudiConnector.class.getClassLoader());
+        properties.forEach(conf::set);
+        return HadoopAuthenticator.getHadoopAuthenticator(conf);
+    }
+
+    /**
+     * Builds a plain Hadoop {@link Configuration} from the catalog properties for the authenticator. A plain
+     * {@code new Configuration()} (NOT {@code HiveConf}) is used deliberately: HiveConf static-init would drag
+     * hadoop-mapreduce onto the unit-test classpath. The classloader is pinned to the plugin loader so the
+     * child-first (plugin) copy of the auth classes is resolved. Mirrors {@code HiveConnector.buildHadoopConf}.
+     */
+    private static Configuration buildHmsConf(AbstractHmsMetaStoreProperties hms) {
+        return HmsConfHelper.createHadoopConfWithResources(hms.getConfResources(), hms.toHiveConfOverrides(""));
+    }
+
+    /**
+     * Releases everything this connector owns. The FE calls it when it replaces this connector
+     * (ALTER CATALOG) and when the catalog is dropped, and those are the only two moments at which
+     * a scope can be given up - see the note on {@link #FS_SCOPES}.
+     *
+     * <p>The scope goes first, the metadata cache second and the HMS client last, so that a throwing
+     * {@code HmsClient.close()} cannot strand a filesystem scope for the life of the FE. None of the
+     * steps depends on another.
+     */
     @Override
     public void close() throws IOException {
+        releaseFileSystemScope();
+        metaCache.close();
         HmsClient c = hmsClient;
         if (c != null) {
             c.close();

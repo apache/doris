@@ -70,7 +70,7 @@ Status ColdDataCompaction::execute_compact() {
         return Status::Aborted<false>("this replica is not cooldown replica");
     }
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
-    DCHECK_EQ(_state, CompactionState::SUCCESS);
+    DCHECK(_state == CompactionState::SUCCESS);
     return Status::OK();
 }
 

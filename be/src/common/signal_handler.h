@@ -33,6 +33,8 @@
 
 #pragma once
 
+#include <butil/macros.h> // ARRAYSIZE_UNSAFE
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 
 #include <boost/stacktrace.hpp>

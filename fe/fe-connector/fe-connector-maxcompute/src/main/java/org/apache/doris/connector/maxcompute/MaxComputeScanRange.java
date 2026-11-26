@@ -17,8 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -62,11 +61,6 @@ public class MaxComputeScanRange implements ConnectorScanRange {
     }
 
     @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    @Override
     public String getTableFormatType() {
         return "max_compute";
     }
@@ -78,6 +72,12 @@ public class MaxComputeScanRange implements ConnectorScanRange {
             return Optional.of("/byte_size");
         }
         return Optional.of("/row_offset");
+    }
+
+    @Override
+    public String getSplitIdentity() {
+        // Offsets and split indices are relative to the ODPS read session, not a physical file.
+        return getPath().get() + "/" + properties.get(PROP_SESSION_ID);
     }
 
     @Override

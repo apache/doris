@@ -112,6 +112,12 @@ public class UnionCombinator extends AggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        nested.checkLegalityBeforeTypeCoercion();
+        // A directly nested state retains the original value expressions, so their legality
+        // checks are still meaningful. After a subquery or stored-column boundary, the nested
+        // function is rebuilt with mocked slots from AggStateType; replaying value-expression
+        // checks there would reject valid states whose constants are already serialized.
+        if (getArgument(0) instanceof StateCombinator || getArgument(0) instanceof CombineCombinator) {
+            nested.checkLegalityBeforeTypeCoercion();
+        }
     }
 }

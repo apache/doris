@@ -17,10 +17,11 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -196,6 +197,104 @@ public final class HmsTypeMapping {
     }
 
     /**
+     * Convert a {@link ConnectorType} to its Hive type string. This is the reverse direction of
+     * {@link #toConnectorType(String, Options)} for the shapes a Doris CREATE TABLE emits, and the
+     * SPI-clean equivalent of fe-core's {@code HiveMetaStoreClientHelper.dorisTypeToHiveType()}.
+     *
+     * <p>Scalar type names are Doris {@code PrimitiveType} names, matching what fe-core's
+     * {@code ConnectorColumnConverter.toConnectorType} emits ({@code PrimitiveType.toString()}); complex
+     * types use "ARRAY"/"MAP"/"STRUCT" with populated children. CHAR carries its length in the precision
+     * field (mirroring the create-request encoding). VARCHAR and STRING both map to Hive {@code string},
+     * matching legacy.</p>
+     *
+     * @throws IllegalArgumentException for a type Hive tables cannot represent — matching legacy, which
+     *         threw for the same unsupported primitive/complex shapes.
+     */
+    public static String toHiveTypeString(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        switch (name) {
+            case "ARRAY": {
+                List<ConnectorType> children = type.getChildren();
+                if (children.isEmpty()) {
+                    throw new IllegalArgumentException("Unsupported type conversion of " + type);
+                }
+                return "array<" + toHiveTypeString(children.get(0)) + ">";
+            }
+            case "MAP": {
+                List<ConnectorType> children = type.getChildren();
+                if (children.size() < 2) {
+                    throw new IllegalArgumentException("Unsupported type conversion of " + type);
+                }
+                return "map<" + toHiveTypeString(children.get(0)) + ","
+                        + toHiveTypeString(children.get(1)) + ">";
+            }
+            case "STRUCT": {
+                List<ConnectorType> children = type.getChildren();
+                List<String> fieldNames = type.getFieldNames();
+                StringBuilder sb = new StringBuilder("struct<");
+                for (int i = 0; i < children.size(); i++) {
+                    if (i > 0) {
+                        sb.append(",");
+                    }
+                    String fieldName = i < fieldNames.size() ? fieldNames.get(i) : "col" + i;
+                    sb.append(fieldName).append(":").append(toHiveTypeString(children.get(i)));
+                }
+                sb.append(">");
+                return sb.toString();
+            }
+            default:
+                return scalarToHiveTypeString(name, type);
+        }
+    }
+
+    private static String scalarToHiveTypeString(String name, ConnectorType type) {
+        switch (name) {
+            case "BOOLEAN":
+                return "boolean";
+            case "TINYINT":
+                return "tinyint";
+            case "SMALLINT":
+                return "smallint";
+            case "INT":
+                return "int";
+            case "BIGINT":
+                return "bigint";
+            case "DATE":
+            case "DATEV2":
+                return "date";
+            case "DATETIME":
+            case "DATETIMEV2":
+                return "timestamp";
+            case "FLOAT":
+                return "float";
+            case "DOUBLE":
+                return "double";
+            case "CHAR":
+                return "char(" + type.getPrecision() + ")";
+            case "VARCHAR":
+            case "STRING":
+                return "string";
+            case "VARBINARY":
+                // Hive binary now reads as VARBINARY, including nested INSERT/CTAS columns.
+                return "binary";
+            case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
+            case "DECIMAL256":
+            case "DECIMALV3": {
+                int precision = type.getPrecision();
+                if (precision == 0) {
+                    precision = DEFAULT_DECIMAL_PRECISION;
+                }
+                return "decimal(" + precision + "," + type.getScale() + ")";
+            }
+            default:
+                throw new IllegalArgumentException("Unsupported type conversion of " + type);
+        }
+    }
+
+    /**
      * Find the index of the next top-level comma separator in a
      * comma-separated nested type string. Respects angle-bracket and
      * parenthesis nesting.
@@ -236,8 +335,9 @@ public final class HmsTypeMapping {
         public Options(int timeScale, boolean mapBinaryToVarbinary,
                 boolean mapTimestampTz) {
             this.timeScale = timeScale;
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // External payload types retain bytes and instant semantics regardless of legacy options.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public int getTimeScale() {

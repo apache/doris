@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <limits>
 #include <sstream>
+#include <string>
 
 namespace doris {
 
@@ -50,6 +53,58 @@ TEST(LargeIntValueTest, StreamInputFailsOnInvalidText) {
 
     EXPECT_TRUE(in.fail());
     EXPECT_EQ(value, 0);
+}
+
+TEST(LargeIntValueTest, StringToLargeInt) {
+    {
+        std::string str("1024");
+        std::stringstream ss;
+        ss << str;
+        __int128 v;
+        ss >> v;
+        EXPECT_EQ(v, 1024);
+    }
+
+    {
+        std::string str("170141183460469231731687303715884105727");
+        std::stringstream ss;
+        ss << str;
+        __int128 v;
+        ss >> v;
+        EXPECT_TRUE(v == MAX_INT128);
+    }
+
+    {
+        std::string str("-170141183460469231731687303715884105728");
+        std::stringstream ss;
+        ss << str;
+        __int128 v;
+        ss >> v;
+        EXPECT_TRUE(v == MIN_INT128);
+    }
+}
+
+TEST(LargeIntValueTest, LargeIntToString) {
+    {
+        __int128 v1 = std::numeric_limits<int64_t>::max();
+        std::stringstream ss;
+        ss << v1;
+        EXPECT_EQ(ss.str(), "9223372036854775807");
+    }
+
+    {
+        __int128 v2 = MAX_INT128;
+        std::stringstream ss;
+        ss << v2;
+        EXPECT_EQ(ss.str(), "170141183460469231731687303715884105727");
+    }
+
+    {
+        __int128 v2 = MIN_INT128;
+        std::stringstream ss;
+        ss << v2;
+        EXPECT_EQ(ss.str(), "-170141183460469231731687303715884105728");
+    }
 }
 
 } // namespace doris

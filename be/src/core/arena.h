@@ -24,6 +24,8 @@
 #include <string.h>
 
 #include <boost/noncopyable.hpp>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -331,6 +333,22 @@ public:
         }
 
         return _used_size_no_head + head->used();
+    }
+
+    bool contains(const void* data, size_t size) const {
+        const auto address = reinterpret_cast<uintptr_t>(data);
+        if (data == nullptr || size > std::numeric_limits<uintptr_t>::max() - address) {
+            return false;
+        }
+        const auto range_end = address + size;
+        for (const Chunk* chunk = head; chunk != nullptr; chunk = chunk->prev) {
+            const auto chunk_begin = reinterpret_cast<uintptr_t>(chunk->begin);
+            const auto chunk_used_end = reinterpret_cast<uintptr_t>(chunk->pos);
+            if (address >= chunk_begin && range_end <= chunk_used_end) {
+                return true;
+            }
+        }
+        return false;
     }
 
     size_t remaining_space_in_current_chunk() const {

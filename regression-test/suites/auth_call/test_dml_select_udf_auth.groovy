@@ -44,6 +44,7 @@ suite("test_dml_select_udf_auth","p0,auth_call") {
 
     def jarPath = """${context.file.parent}/../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("Jar path: ${jarPath}".toString())
 
     sql """ CREATE FUNCTION ${dbName}.${udfName}(string) RETURNS int PROPERTIES (

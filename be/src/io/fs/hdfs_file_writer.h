@@ -31,6 +31,9 @@ class BlockFileCache;
 struct FileCacheAllocatorBuilder;
 struct AsyncCloseStatusPack;
 
+Status validate_hdfs_write_batch_buffer_size(int64_t batch_buffer_size_mb,
+                                             int64_t file_cache_block_size);
+
 class HdfsFileWriter final : public FileWriter {
 public:
     // Accepted path format:

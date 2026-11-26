@@ -430,17 +430,22 @@ public:
             DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
                    PrimitiveType::TYPE_BOOLEAN);
 
-            // update nested column by null map
+            // Treat NULL as false. The nested column may be shared with other columns of the
+            // block (e.g. NULLIF wraps its first argument as the nested column), so build a
+            // new condition column instead of mutating the nested column in place.
+            const auto rows = nullable->size();
             const auto* __restrict null_map = nullable->get_null_map_data().data();
-            auto* __restrict nested_bool_data =
-                    ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
-            auto rows = nullable->size();
+            const auto* __restrict nested_bool_data =
+                    assert_cast<const ColumnUInt8&>(nullable->get_nested_column())
+                            .get_data()
+                            .data();
+            auto cond_column = ColumnUInt8::create(rows);
+            auto* __restrict cond_data = cond_column->get_data().data();
             for (size_t i = 0; i < rows; i++) {
-                nested_bool_data[i] &= !null_map[i];
+                cond_data[i] = nested_bool_data[i] & !null_map[i];
             }
             auto column_size = block.columns();
-            block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
-                          arg_cond.name});
+            block.insert({std::move(cond_column), remove_nullable(arg_cond.type), arg_cond.name});
 
             handled = true;
             return _execute_impl_internal(context, block, {column_size, arguments[1], arguments[2]},

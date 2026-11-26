@@ -26,8 +26,8 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class EnvFactoryTest {
 
@@ -35,22 +35,22 @@ public class EnvFactoryTest {
     public void testCreate() throws Exception {
         Config.cloud_unique_id = "";
         EnvFactory envFactory = EnvFactory.getInstance();
-        Assert.assertTrue(envFactory instanceof EnvFactory);
-        Assert.assertFalse(envFactory instanceof CloudEnvFactory);
-        Assert.assertTrue(Env.getCurrentEnv() instanceof Env);
-        Assert.assertFalse(Env.getCurrentEnv() instanceof CloudEnv);
-        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof InternalCatalog);
-        Assert.assertFalse(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(envFactory.createEnv(false) instanceof Env);
-        Assert.assertFalse(envFactory.createEnv(false) instanceof CloudEnv);
-        Assert.assertTrue(envFactory.createInternalCatalog() instanceof InternalCatalog);
-        Assert.assertFalse(envFactory.createInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(envFactory.createPartition() instanceof Partition);
-        Assert.assertFalse(envFactory.createPartition() instanceof CloudPartition);
-        Assert.assertTrue(envFactory.createTablet() instanceof Tablet);
-        Assert.assertFalse(envFactory.createTablet() instanceof CloudTablet);
-        Assert.assertTrue(envFactory.createReplica() instanceof Replica);
-        Assert.assertFalse(envFactory.createReplica() instanceof CloudReplica);
+        Assertions.assertTrue(envFactory instanceof EnvFactory);
+        Assertions.assertFalse(envFactory instanceof CloudEnvFactory);
+        Assertions.assertTrue(Env.getCurrentEnv() instanceof Env);
+        Assertions.assertFalse(Env.getCurrentEnv() instanceof CloudEnv);
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof InternalCatalog);
+        Assertions.assertFalse(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(envFactory.createEnv(false) instanceof Env);
+        Assertions.assertFalse(envFactory.createEnv(false) instanceof CloudEnv);
+        Assertions.assertTrue(envFactory.createInternalCatalog() instanceof InternalCatalog);
+        Assertions.assertFalse(envFactory.createInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(envFactory.createPartition() instanceof Partition);
+        Assertions.assertFalse(envFactory.createPartition() instanceof CloudPartition);
+        Assertions.assertTrue(envFactory.createTablet() instanceof Tablet);
+        Assertions.assertFalse(envFactory.createTablet() instanceof CloudTablet);
+        Assertions.assertTrue(envFactory.createReplica() instanceof Replica);
+        Assertions.assertFalse(envFactory.createReplica() instanceof CloudReplica);
     }
 
 }

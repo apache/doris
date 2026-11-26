@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -66,6 +68,59 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     @Test
     public void testRightOuterJoin() {
         testRightOuterJoinHelper(JoinType.RIGHT_OUTER_JOIN);
+    }
+
+    @Test
+    public void testSemiJoinCommuteInRewrite() {
+        for (JoinType joinType : ImmutableList.of(
+                JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(new LogicalPlanBuilder(scan1)
+                            .join(scan2, joinType, Pair.of(0, 0))
+                            .build())
+                    .matches(logicalJoin().when(join -> join.getJoinType() == joinType));
+
+            checker.rewrite()
+                    .matches(logicalJoin().when(join -> join.getJoinType() == joinType.swap()));
+        }
+    }
+
+    @Test
+    public void testDisableJoinReorderBeforeRewrite() {
+        for (JoinType joinType : ImmutableList.of(
+                JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(new LogicalPlanBuilder(scan1)
+                            .join(scan2, joinType, Pair.of(0, 0))
+                            .build());
+
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+            checker.rewrite()
+                    .matches(logicalJoin().when(join -> join.getJoinType() == joinType));
+        }
+    }
+
+    @Test
+    public void testSemiJoinCommuteInMvPreRewrite() {
+        for (JoinType joinType : ImmutableList.of(
+                JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(new LogicalPlanBuilder(scan1)
+                            .join(scan2, joinType, Pair.of(0, 0))
+                            .build());
+            CascadesContext cascadesContext = checker.getCascadesContext();
+
+            Rewriter.getCteChildrenRewriter(
+                    cascadesContext, Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED, false).execute();
+            MemoTestUtils.initMemoAndValidState(cascadesContext);
+            checker.matches(logicalJoin().when(join -> join.getJoinType() == joinType.swap()));
+        }
     }
 
     private void testRightOuterJoinHelper(JoinType joinType) {
@@ -153,7 +208,6 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         PlanChecker.from(connectContext, plan2)
-                .applyBottomUp(new SemiJoinCommute())
                 .rewrite()
                 .matchesFromRoot(
                         logicalProject(innerLogicalJoin(

@@ -10,16 +10,16 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_substring(s_zip, 1, 2) = expr_substring(ca_zip, 1, 2))) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->ss_sold_date_sk
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->ss_sold_date_sk
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
+----------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_qoy = 2) and (date_dim.d_year = 1998))
-------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalOlapScan[store]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store]
+------------------------filter((date_dim.d_qoy = 2) and (date_dim.d_year = 1998))
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------PhysicalIntersect
 ----------------------PhysicalDistribute[DistributionSpecHash]

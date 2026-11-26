@@ -17,6 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+import org.apache.doris.regression.util.Http
+
 suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -150,20 +152,7 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         String trigger_backend_id = tablet.BackendId
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/delete_bitmap/count_local?verbose=true&tablet_id=")
-        sb.append(tablet_id)
-
-        String command = sb.toString()
-        logger.info(command)
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.getText()
-        logger.info("Get local delete bitmap count status:  =" + code + ", out=" + out)
-        assertEquals(code, 0)
-        def deleteBitmapStatus = parseJson(out.trim())
-        return deleteBitmapStatus
+        return Http.GET("http://${be_host}:${be_http_port}/api/delete_bitmap/count_local?verbose=true&tablet_id=${tablet_id}", true, false)
     }
 
     GetDebugPoint().clearDebugPointsForAllBEs()

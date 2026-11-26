@@ -23,12 +23,39 @@
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/table/iceberg/schema.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+namespace {
+bool contains_nanosecond_timestamp(const iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::TIMESTAMP_NS:
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        return true;
+    case iceberg::TypeID::STRUCT:
+        for (const auto& field : static_cast<const iceberg::StructType&>(type).fields()) {
+            if (contains_nanosecond_timestamp(*field.field_type())) {
+                return true;
+            }
+        }
+        return false;
+    case iceberg::TypeID::LIST:
+        return contains_nanosecond_timestamp(
+                *static_cast<const iceberg::ListType&>(type).element_field().field_type());
+    case iceberg::TypeID::MAP: {
+        const auto& map = static_cast<const iceberg::MapType&>(type);
+        return contains_nanosecond_timestamp(*map.key_field().field_type()) ||
+               contains_nanosecond_timestamp(*map.value_field().field_type());
+    }
+    default:
+        return false;
+    }
+}
+} // namespace
 
 VIcebergPartitionWriter::VIcebergPartitionWriter(
         const TDataSink& t_sink, std::vector<std::string> partition_values,
@@ -53,6 +80,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
     if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
         _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
     }
+    if (t_sink.iceberg_table_sink.__isset.nan_count_field_ids) {
+        _nan_count_field_ids = t_sink.iceberg_table_sink.nan_count_field_ids;
+    }
 }
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
@@ -63,62 +93,76 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
-    _path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
+    _path = _write_info.location.write_path(_get_target_file_name());
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
+    Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
-            break;
-        }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
-            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            return Status::InternalError("Unsupported compress type {} with parquet",
-                                         to_string(_compress_type));
-        }
-        }
-        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
-                                              .parquet_version = TParquetVersion::PARQUET_1_0,
-                                              .parquet_disable_dictionary = false,
-                                              .enable_int96_timestamps = false};
-        _file_format_transformer = std::make_unique<VParquetTransformer>(
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
+        // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
+        ParquetFileOptions parquet_options = {
+                .compression_type = parquet_compression_type,
+                .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
+                                           ? TParquetVersion::PARQUET_2_LATEST
+                                           : TParquetVersion::PARQUET_1_0,
+                .parquet_disable_dictionary = false,
+                .enable_int96_timestamps = false};
+        _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, &_schema);
-        return _file_format_transformer->open();
+                parquet_options, _iceberg_schema_json, _schema, _nan_count_field_ids);
+        open_status = _file_format_transformer->open();
+        break;
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
-                _compress_type, &_schema, _fs);
-        return _file_format_transformer->open();
+                _compress_type, &_schema, _fs, _nan_count_field_ids);
+        open_status = _file_format_transformer->open();
+        break;
     }
     default: {
-        return Status::InternalError("Unsupported file format type {}",
-                                     to_string(_file_format_type));
+        open_status = Status::InternalError("Unsupported file format type {}",
+                                            to_string(_file_format_type));
+        break;
     }
+    }
+    if (!open_status.ok()) {
+        // A transformer failure happens after writer creation. Defer deletion until the output
+        // stream has finished closing so an asynchronous object upload cannot publish it later.
+        _defer_file_cleanup();
+    }
+    return open_status;
+}
+
+void VIcebergPartitionWriter::_defer_file_cleanup() {
+    if (_fs == nullptr || _file_cleanup_deferred) {
+        return;
+    }
+    _file_cleanup_deferred = true;
+    // Destroy the format writer and its output stream before deleting the physical object. In
+    // particular, a failed close may leave an asynchronous upload running, and the object must not
+    // be visible after the rollback has completed.
+    _file_format_transformer.reset();
+    _file_writer.reset();
+    if (_closed_file_callback) {
+        _closed_file_callback(_fs, _path);
+    } else {
+        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file");
     }
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
+    if (_file_cleanup_deferred) {
+        return _terminal_close_status;
+    }
     Status result_status;
     if (_file_format_transformer != nullptr) {
         result_status = _file_format_transformer->close();
@@ -129,25 +173,23 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     }
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
-        // delete the actual created file, otherwise an orphan file is left behind
-        Status st = _fs->delete_file(_path);
-        if (!st.ok()) {
-            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path, st.to_string());
-        }
+        _terminal_close_status = result_status;
+        _defer_file_cleanup();
     }
     if (status_ok) {
         TIcebergCommitData commit_data;
         Status commit_status = _build_iceberg_commit_data(&commit_data);
         if (!commit_status.ok()) {
-            // A closed object without commit data can never be published, so remove it immediately.
-            Status delete_status = _fs->delete_file(_path);
-            if (!delete_status.ok()) {
-                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
-                                            delete_status.to_string());
-            }
+            _terminal_close_status = commit_status;
+            _defer_file_cleanup();
             return commit_status;
         }
-        _state->add_iceberg_commit_datas(commit_data);
+        Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+        if (!report_status.ok()) {
+            _terminal_close_status = report_status;
+            _defer_file_cleanup();
+            return report_status;
+        }
         if (_closed_file_callback) {
             _closed_file_callback(_fs, _path);
         }
@@ -165,20 +207,29 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     DCHECK(commit_data != nullptr);
     DCHECK(_file_format_transformer != nullptr);
 
-    commit_data->__set_file_path(
-            fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
+    commit_data->__set_file_path(_write_info.location.commit_path(_get_target_file_name()));
     commit_data->__set_row_count(_row_count);
     commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
+    // Split offsets describe the physical file, even when the table disables all column metrics.
+    if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
+        std::vector<int64_t> offsets;
+        RETURN_IF_ERROR(static_cast<VIcebergParquetWriter*>(_file_format_transformer.get())
+                                ->collect_split_offsets_after_close(&offsets));
+        // Empty files have no splits; leave the optional field absent, as with an older BE.
+        if (!offsets.empty()) {
+            commit_data->__set_split_offsets(offsets);
+        }
+    }
     // ORC collection reopens the file, so honor the FE policy before any footer work.
     if (!_collect_column_stats) {
         return Status::OK();
     }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
-        RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())
+        RETURN_IF_ERROR(static_cast<VIcebergParquetWriter*>(_file_format_transformer.get())
                                 ->collect_file_statistics_after_close(&column_stats));
         commit_data->__set_column_stats(column_stats);
     } else if (_file_format_type == TFileFormatType::FORMAT_ORC) {

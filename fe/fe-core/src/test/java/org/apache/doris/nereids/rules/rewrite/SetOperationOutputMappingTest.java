@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
@@ -64,6 +65,58 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
     }
 
     @Test
+    void testMergeSetOperationsComposesChildOutputMapping() {
+        Alias first = new Alias(new ExprId(101), new IntegerLiteral(10), "campaign");
+        Alias second = new Alias(new ExprId(102), new IntegerLiteral(20), "country");
+        LogicalOneRowRelation row = new LogicalOneRowRelation(
+                new RelationId(101), ImmutableList.of(first, second));
+        SlotReference campaign = new SlotReference(new ExprId(103), "campaign",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        SlotReference country = new SlotReference(new ExprId(104), "country",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        LogicalUnion child = new LogicalUnion(Qualifier.ALL, ImmutableList.of(campaign, country),
+                ImmutableList.of(ImmutableList.of((SlotReference) first.toSlot(), (SlotReference) second.toSlot())),
+                ImmutableList.of(ImmutableList.of(first, second)), false, ImmutableList.of(row));
+        LogicalUnion parent = new LogicalUnion(Qualifier.ALL, ImmutableList.of(country, campaign),
+                ImmutableList.of(ImmutableList.of(country, campaign)), ImmutableList.of(),
+                false, ImmutableList.of(child));
+
+        LogicalUnion rewritten = (LogicalUnion) PlanChecker.from(MemoTestUtils.createConnectContext(), parent)
+                .applyTopDown(new MergeSetOperations()).getPlan();
+        Assertions.assertEquals(ImmutableList.of(row), rewritten.children());
+        Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
+                rewritten.getRegularChildOutput(0));
+        Assertions.assertEquals(ImmutableList.of(second, first), rewritten.getConstantExprsList().get(0));
+
+        Alias rightFirst = new Alias(new ExprId(105), new IntegerLiteral(30), "right_first");
+        Alias rightSecond = new Alias(new ExprId(106), new IntegerLiteral(40), "right_second");
+        LogicalOneRowRelation right = new LogicalOneRowRelation(
+                new RelationId(102), ImmutableList.of(rightFirst, rightSecond));
+        List<SlotReference> rightOutputs = ImmutableList.of(
+                (SlotReference) rightFirst.toSlot(), (SlotReference) rightSecond.toSlot());
+        LogicalExcept childExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(campaign, country),
+                ImmutableList.of(child.getRegularChildOutput(0), rightOutputs), ImmutableList.of(row, right));
+        Alias outerFirst = new Alias(new ExprId(107), new IntegerLiteral(50), "outer_first");
+        Alias outerSecond = new Alias(new ExprId(108), new IntegerLiteral(60), "outer_second");
+        LogicalOneRowRelation outerRight = new LogicalOneRowRelation(
+                new RelationId(103), ImmutableList.of(outerFirst, outerSecond));
+        List<SlotReference> outerRightOutputs = ImmutableList.of(
+                (SlotReference) outerFirst.toSlot(), (SlotReference) outerSecond.toSlot());
+        LogicalExcept parentExcept = new LogicalExcept(Qualifier.DISTINCT, ImmutableList.of(country, campaign),
+                ImmutableList.of(ImmutableList.of(country, campaign), outerRightOutputs),
+                ImmutableList.of(childExcept, outerRight));
+        LogicalExcept rewrittenExcept = (LogicalExcept) PlanChecker.from(
+                MemoTestUtils.createConnectContext(), parentExcept)
+                .applyTopDown(new MergeSetOperationsExcept()).getPlan();
+        Assertions.assertEquals(ImmutableList.of(row, right, outerRight), rewrittenExcept.children());
+        Assertions.assertEquals(ImmutableList.of(second.toSlot(), first.toSlot()),
+                rewrittenExcept.getRegularChildOutput(0));
+        Assertions.assertEquals(ImmutableList.of(rightSecond.toSlot(), rightFirst.toSlot()),
+                rewrittenExcept.getRegularChildOutput(1));
+        Assertions.assertEquals(outerRightOutputs, rewrittenExcept.getRegularChildOutput(2));
+    }
+
+    @Test
     void testMergeOneRowRelationUsesRegularChildOutput() {
         Alias firstProject = new Alias(new ExprId(1), new IntegerLiteral(10), "first_col");
         Alias secondProject = new Alias(new ExprId(2), new IntegerLiteral(20), "second_col");
@@ -94,6 +147,50 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
         Assertions.assertEquals(secondProject.getExprId(), constantExprs.get(0).getExprId());
         Assertions.assertInstanceOf(IntegerLiteral.class, constantExprs.get(0).child(0));
         Assertions.assertEquals(20, ((IntegerLiteral) constantExprs.get(0).child(0)).getValue());
+    }
+
+    @Test
+    void testMergeOneRowRelationPreservesExistingConstantRows() {
+        Alias newConstant = new Alias(new ExprId(1), new IntegerLiteral(2), "c");
+        LogicalOneRowRelation oneRowRelation = new LogicalOneRowRelation(
+                new RelationId(1), ImmutableList.of(newConstant));
+
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "c",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        Alias firstExistingConstant = new Alias(new ExprId(20), new IntegerLiteral(1), "c");
+        Alias secondExistingConstant = new Alias(new ExprId(21), new IntegerLiteral(1), "c");
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput),
+                ImmutableList.of(ImmutableList.of((SlotReference) newConstant.toSlot())),
+                ImmutableList.of(
+                        ImmutableList.of(firstExistingConstant),
+                        ImmutableList.of(secondExistingConstant)),
+                false,
+                ImmutableList.of(oneRowRelation));
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
+                .applyTopDown(new MergeOneRowRelationIntoUnion())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalUnion.class, rewritten);
+        LogicalUnion rewrittenUnion = (LogicalUnion) rewritten;
+        Assertions.assertEquals(0, rewrittenUnion.children().size());
+        Assertions.assertEquals(3, rewrittenUnion.getConstantExprsList().size());
+        Assertions.assertSame(firstExistingConstant,
+                rewrittenUnion.getConstantExprsList().get(0).get(0));
+        Assertions.assertSame(secondExistingConstant,
+                rewrittenUnion.getConstantExprsList().get(1).get(0));
+        Assertions.assertSame(newConstant,
+                rewrittenUnion.getConstantExprsList().get(2).get(0));
+
+        Plan rewrittenAgain = PlanChecker.from(MemoTestUtils.createConnectContext(), rewrittenUnion)
+                .applyTopDown(new MergeOneRowRelationIntoUnion())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalUnion.class, rewrittenAgain);
+        LogicalUnion rewrittenAgainUnion = (LogicalUnion) rewrittenAgain;
+        Assertions.assertEquals(0, rewrittenAgainUnion.children().size());
+        Assertions.assertEquals(rewrittenUnion.getConstantExprsList(),
+                rewrittenAgainUnion.getConstantExprsList());
     }
 
     @Test

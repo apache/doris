@@ -22,6 +22,18 @@
 #include "util/unaligned.h"
 
 namespace doris {
+// This header used to lean on the bswap_16/32/64 macros that protobuf's
+// stubs/port.h happened to leak into most TUs; use the compiler builtins
+// directly so it stands on its own natural include closure (redefining the
+// macros here would clash with protobuf's unguarded definitions).
+inline uint16_t gbswap_16(uint16_t host_int) {
+    return __builtin_bswap16(host_int);
+}
+
+inline uint32_t gbswap_32(uint32_t host_int) {
+    return __builtin_bswap32(host_int);
+}
+
 inline uint64_t gbswap_64(uint64_t host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)
     // Adapted from /usr/include/byteswap.h.  Not available on Mac.
@@ -32,17 +44,14 @@ inline uint64_t gbswap_64(uint64_t host_int) {
         __asm__("bswap %0" : "=r"(result) : "0"(host_int));
         return result;
     }
-#elif defined(bswap_64)
-    return bswap_64(host_int);
 #else
-    return static_cast<uint64_t>(bswap_32(static_cast<uint32_t>(host_int >> 32))) |
-           (static_cast<uint64_t>(bswap_32(static_cast<uint32_t>(host_int))) << 32);
-#endif // bswap_64
+    return __builtin_bswap64(host_int);
+#endif
 }
 
 inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
-    return static_cast<unsigned __int128>(bswap_64(static_cast<uint64_t>(host_int >> 64))) |
-           (static_cast<unsigned __int128>(bswap_64(static_cast<uint64_t>(host_int))) << 64);
+    return static_cast<unsigned __int128>(gbswap_64(static_cast<uint64_t>(host_int >> 64))) |
+           (static_cast<unsigned __int128>(gbswap_64(static_cast<uint64_t>(host_int))) << 64);
 }
 
 inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
@@ -64,13 +73,13 @@ T byte_swap(T x) {
     } else if constexpr (sizeof(T) == sizeof(__int128)) {
         return gbswap_128(x);
     } else if constexpr (sizeof(T) == sizeof(int64_t)) {
-        return bswap_64(x);
+        return gbswap_64(x);
     } else if constexpr (sizeof(T) == sizeof(int32_t)) {
-        return bswap_32(x);
+        return gbswap_32(x);
     } else if constexpr (sizeof(T) == sizeof(doris::uint24_t)) {
         return bswap_24(x);
     } else if constexpr (sizeof(T) == sizeof(int16_t)) {
-        return bswap_16(x);
+        return gbswap_16(x);
     } else {
         static_assert(sizeof(T) == 1, "Unsupported type size for byte_swap");
         return x; // No byte swap needed for unsupported types

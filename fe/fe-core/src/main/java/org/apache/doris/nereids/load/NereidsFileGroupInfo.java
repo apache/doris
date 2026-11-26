@@ -26,10 +26,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileGroupInfo;
-import org.apache.doris.datasource.FilePartitionUtils;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.scan.FileGroupInfo;
+import org.apache.doris.datasource.scan.FilePartitionUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -48,11 +49,9 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -277,8 +276,8 @@ public class NereidsFileGroupInfo {
                         fileStatus.path);
                 context.params.setCompressType(compressType);
                 FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
-                        FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
-                                context.fileGroup.getColumnNamesFromPath(), true, false);
+                        FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(fileStatus.path,
+                                context.fileGroup.getColumnNamesFromPath(), true);
                 List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
                 TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size,
                         columnsFromPath.getValues(), columnsFromPathKeys, columnsFromPath.getIsNull());
@@ -330,8 +329,8 @@ public class NereidsFileGroupInfo {
                     fileStatus.path);
             context.params.setCompressType(compressType);
             FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
-                    FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
-                            context.fileGroup.getColumnNamesFromPath(), true, false);
+                    FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(fileStatus.path,
+                            context.fileGroup.getColumnNamesFromPath(), true);
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
@@ -430,8 +429,9 @@ public class NereidsFileGroupInfo {
             rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
             rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
             if (getFileType() == TFileType.FILE_HDFS) {
-                URI fileUri = new Path(fileStatus.path).toUri();
-                rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+                // LocationPath parses scheme and authority into fsIdentifier in exactly this
+                // "scheme://authority" shape, without pulling in hadoop.
+                rangeDesc.setFsName(LocationPath.of(fileStatus.path).getFsIdentifier());
             }
         } else {
             // for stream load

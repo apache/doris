@@ -40,7 +40,7 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
     const auto* strings = check_and_get_column<ColumnString>(source.get());
     if (strings == nullptr || strings->size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid JSONB input shape for Variant V2 CAST");
+        return Status::InternalError("Invalid JSONB input shape for Variant V2 CAST");
     }
     JsonbToVariantEncoder encoder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row = 0; row < rows; ++row) {
@@ -57,16 +57,16 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
     return Status::OK();
 }
 
-Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
+Status cast_variant_to_jsonb(RuntimeState* state, const ColumnVariantV2& source, size_t rows,
                              ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for JSONB CAST");
+        return Status::InternalError("Invalid Variant V2 input shape for JSONB CAST");
     }
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create(rows, 0);
     strings->reserve(rows);
     JsonbWriter writer;
-    const VariantJsonFormatOptions options = variant_json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(state);
     visit_variant_v2_values(
             source, 0, rows, forced_nulls,
             [&](size_t row) {
@@ -80,17 +80,17 @@ Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& so
     return Status::OK();
 }
 
-Status cast_variant_refs_to_jsonb(FunctionContext* context, std::span<const VariantRef> values,
+Status cast_variant_refs_to_jsonb(RuntimeState* state, std::span<const VariantRef> values,
                                   ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
-        return Status::InvalidArgument("Variant V2 JSONB CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), values.size());
+        return Status::InternalError("Variant V2 JSONB CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), values.size());
     }
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create(values.size(), 0);
     strings->reserve(values.size());
     JsonbWriter writer;
-    const VariantJsonFormatOptions options = variant_json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(state);
     for (size_t row = 0; row < values.size(); ++row) {
         if (!forced_nulls.empty() && forced_nulls[row] != 0) {
             strings->insert_default();

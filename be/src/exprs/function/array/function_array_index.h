@@ -22,6 +22,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "common/status.h"
@@ -45,9 +46,10 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 
@@ -110,7 +112,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 
@@ -120,7 +122,7 @@ public:
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         if (context->get_constant_col(1)) {
-            context->get_constant_col(1)->column_ptr->get(0, field);
+            context->get_constant_col(1)->column().get(0, field);
             state->value = field;
             state->type = context->get_arg_type(1)->get_primitive_type();
             context->set_function_state(scope, state);
@@ -218,6 +220,21 @@ public:
         return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx,
+                                                const VExprSPtrs& arguments) const override {
+        if constexpr (!std::is_same_v<ConcreteAction, ArrayContainsAction>) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        return expr_zonemap::evaluate_array_contains_zonemap(ctx, arguments);
+    }
+
+    bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
+        if constexpr (!std::is_same_v<ConcreteAction, ArrayContainsAction>) {
+            return false;
+        }
+        return expr_zonemap::can_evaluate_array_contains_zonemap(arguments);
+    }
+
 private:
     template <PrimitiveType PType>
     ColumnPtr _execute_view(const ColumnArrayView<PType>& array_view,
@@ -295,7 +312,13 @@ private:
                 return_column = _execute_view(array_view, right_view);
                 return true;
             };
-            dispatch_switch_all(left_element_primitive_type, call);
+            // Keep nano dispatch local: the shared scalar dispatcher is also used by
+            // arithmetic-only templates that cannot be instantiated for datetime values.
+            if (left_element_primitive_type == TYPE_TIMESTAMP_NS) {
+                call(DispatchDataType<TYPE_TIMESTAMP_NS>());
+            } else {
+                dispatch_switch_all(left_element_primitive_type, call);
+            }
         }
 
         if (return_column) {

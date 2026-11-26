@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -61,7 +63,29 @@ class CteLimitPushdownPlanTest extends TestWithFeService implements MemoPatternM
                 .analyze(sql)
                 .rewrite()
                 .matches(logicalCTEProducer(
-                        logicalLimit().when(limit -> limit.getLimit() == 15 && limit.getOffset() == 0)));
+                        logicalLimit().when(limit -> limit.getLimit() == 15 && limit.getOffset() == 0
+                                && limit.getPhase() == LimitPhase.GLOBAL)));
+    }
+
+    @Test
+    void testCloudNonStreamQueryKeepsSingleCteRewritePass() {
+        String sql = "WITH cte AS (SELECT k1, k2 FROM cte_limit_pushdown_t) "
+                + "(SELECT * FROM cte LIMIT 10 OFFSET 5) "
+                + "UNION ALL "
+                + "(SELECT * FROM cte LIMIT 3)";
+
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "cte_limit_pushdown_ut";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalCTEProducer(
+                            logicalLimit().when(limit -> limit.getLimit() == 15 && limit.getOffset() == 0
+                                    && limit.getPhase() == LimitPhase.GLOBAL)));
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+        }
     }
 
     @Test

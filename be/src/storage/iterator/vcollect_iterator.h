@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "storage/iterators.h"
 #include "storage/rowset/rowset_reader_context.h"
-#include "storage/utils.h"
 #ifdef USE_LIBCPP
 #include <queue>
 #else
@@ -44,7 +43,6 @@ struct pairing_heap_tag;
 
 namespace doris {
 
-class TabletSchema;
 class RuntimeProfile;
 
 // Pure-computation helper: estimate whether collected data meets the byte budget
@@ -76,12 +74,6 @@ public:
     Status next(Block* block);
 
     bool is_merge() const { return _merge; }
-
-    RowLocation current_row_location() { return _inner_iter->current_row_location(); }
-
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return _inner_iter->current_block_row_locations(block_row_locations);
-    }
 
     void update_profile(RuntimeProfile* profile) {
         if (_inner_iter != nullptr) {
@@ -122,7 +114,7 @@ private:
     class LevelIterator {
     public:
         LevelIterator(TabletReader* reader)
-                : _schema(reader->tablet_schema()),
+                : _schema(reader->_read_schema),
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
@@ -143,20 +135,17 @@ private:
 
         virtual ~LevelIterator() = default;
 
-        const TabletSchema& tablet_schema() const { return _schema; }
+        // Exact read schema of every block this iterator exposes.
+        const ReadSchema& schema() const { return *_schema; }
 
         const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
-
-        virtual RowLocation current_row_location() = 0;
-
-        virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
 
         [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
 
         virtual void update_profile(RuntimeProfile* profile) = 0;
 
     protected:
-        const TabletSchema& _schema;
+        const ReadSchemaSPtr _schema;
         IteratorRowRef _ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
     };
@@ -182,7 +171,7 @@ private:
         bool _use_insert_order_when_same = false;
         // Ordering direction of the tie-break column when keys are equal:
         // - false : larger value sorts first (UNIQUE_KEYS sequence column).
-        // - true  : smaller value sorts first (row binlog TSO column).
+        // - true  : smaller value sorts first (changelog TSO column).
         // The two cases are mutually exclusive (DCHECK at construction site).
         bool _small_seq_first = false;
     };
@@ -221,10 +210,6 @@ private:
 
         Status next(Block* block) override;
 
-        RowLocation current_row_location() override;
-
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
-
         void update_profile(RuntimeProfile* profile) override {
             if (_rs_reader != nullptr) {
                 _rs_reader->update_profile(profile);
@@ -234,7 +219,8 @@ private:
         Status refresh_current_row();
 
     private:
-        Status _next_by_ref(IteratorRowRef* ref);
+        // Build an empty block with the exact read-schema layout.
+        std::shared_ptr<Block> _create_read_block() const;
 
         bool _is_empty() {
             if (_get_data_by_ref) {
@@ -285,7 +271,6 @@ private:
 
         int _current;
         BlockView _block_view;
-        std::vector<RowLocation> _block_row_locations;
         std::vector<bool> _row_is_same;
         bool _is_merge_iterator = false;
         bool _get_data_by_ref = false;
@@ -305,10 +290,6 @@ private:
 
         Status next(Block* block) override;
 
-        RowLocation current_row_location() override { return _cur_child->current_row_location(); }
-
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
-
         [[nodiscard]] Status ensure_first_row_ref() override;
 
         ~Level1Iterator() override;
@@ -324,6 +305,9 @@ private:
         bool collected_enough_rows(const MutableColumns& columns, int rows_to_merge) const;
 
     private:
+        // Validate comparator ordinals and the default key-prefix layout.
+        Status _validate_merge_compare_contract(int sequence_ordinal) const;
+
         Status _merge_next(IteratorRowRef* ref);
 
         Status _normal_next(IteratorRowRef* ref);
@@ -352,8 +336,6 @@ private:
         bool _skip_same;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
-
-        std::vector<RowLocation> _block_row_locations;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

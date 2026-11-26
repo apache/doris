@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -40,8 +41,6 @@ import java.util.stream.Collectors;
 public class VariantType extends PrimitiveType {
 
     public static final VariantType INSTANCE = new VariantType(0);
-    public static final VariantType COMPUTE_V2_INSTANCE = new VariantType(0, true);
-
     public static final int WIDTH = 24;
 
     public static final String UNSUPPORTED_ORDERING_COMPARISON_MESSAGE =
@@ -60,7 +59,6 @@ public class VariantType extends PrimitiveType {
     private final long variantDocMaterializationMinRows;
     private final int variantDocShardCount;
     private final boolean enableNestedGroup;
-    private final boolean computeV2;
 
     /**
      * Creates a Variant type without predefined fields and only configures the max subcolumn limit.
@@ -68,10 +66,6 @@ public class VariantType extends PrimitiveType {
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed (0 means unlimited)
      */
     public VariantType(int variantMaxSubcolumnsCount) {
-        this(variantMaxSubcolumnsCount, false);
-    }
-
-    private VariantType(int variantMaxSubcolumnsCount, boolean computeV2) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
@@ -81,7 +75,6 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.computeV2 = computeV2;
     }
 
     /**
@@ -97,7 +90,6 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
-        this.computeV2 = false;
     }
 
     /**
@@ -116,20 +108,6 @@ public class VariantType extends PrimitiveType {
             int variantSparseHashShardCount, boolean enableVariantDocMode,
             long variantDocMaterializationMinRows, int variantDocShardCount,
             boolean enableNestedGroup) {
-        this(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                enableNestedGroup, false);
-    }
-
-    /**
-     * Creates a Variant type and selects its compute-only physical representation.
-     */
-    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
-            boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
-            int variantSparseHashShardCount, boolean enableVariantDocMode,
-            long variantDocMaterializationMinRows, int variantDocShardCount,
-            boolean enableNestedGroup, boolean computeV2) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
@@ -139,13 +117,11 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
-        this.computeV2 = computeV2;
     }
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target instanceof VariantType
-                && isExecutionCompatibleWith((VariantType) target);
+        return target instanceof VariantType;
     }
 
     @Override
@@ -154,7 +130,7 @@ public class VariantType extends PrimitiveType {
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
-                                    variantDocShardCount, enableNestedGroup, computeV2);
+                                    variantDocShardCount, enableNestedGroup);
     }
 
     @Override
@@ -163,7 +139,7 @@ public class VariantType extends PrimitiveType {
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
-                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, computeV2);
+                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
         return type;
     }
 
@@ -240,7 +216,6 @@ public class VariantType extends PrimitiveType {
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
-                    && this.computeV2 == other.computeV2
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
@@ -253,9 +228,6 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
-        if (computeV2 != other.computeV2) {
-            return false;
-        }
         if (predefinedFields.size() != other.predefinedFields.size()) {
             return false;
         }
@@ -273,7 +245,7 @@ public class VariantType extends PrimitiveType {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields, computeV2);
+                            predefinedFields);
     }
 
     @Override
@@ -288,22 +260,6 @@ public class VariantType extends PrimitiveType {
 
     public List<VariantField> getPredefinedFields() {
         return predefinedFields;
-    }
-
-    /**
-     * Find the first matching VariantField for the given field name.
-     * The matching is done in definition order, so the first matching pattern wins.
-     *
-     * @param fieldName the field name to match
-     * @return Optional containing the matching VariantField, or empty if no match
-     */
-    public Optional<VariantField> findMatchingField(String fieldName) {
-        for (VariantField field : predefinedFields) {
-            if (field.matches(fieldName)) {
-                return Optional.of(field);
-            }
-        }
-        return Optional.empty();
     }
 
     public int getVariantMaxSubcolumnsCount() {
@@ -334,8 +290,31 @@ public class VariantType extends PrimitiveType {
         return enableNestedGroup;
     }
 
-    public boolean isComputeV2() {
-        return computeV2;
+    /** Whether the Variant V2 execution kernel can convert this source type. */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            // Master is V2-only. Ordinary Variant and the connector execution marker share the
+            // same runtime representation, regardless of storage-layout properties.
+            return true;
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType()
+                || dataType.isUuidType();
     }
 
     /** Whether the type or any nested complex type contains Variant. */
@@ -354,41 +333,8 @@ public class VariantType extends PrimitiveType {
         return false;
     }
 
-    /** Selects the compute-only Variant representation in a possibly nested type. */
-    public static DataType toComputeV2(DataType dataType) {
-        if (dataType instanceof VariantType) {
-            return ((VariantType) dataType).withComputeV2(true);
-        } else if (dataType instanceof ArrayType) {
-            return ArrayType.of(toComputeV2(((ArrayType) dataType).getItemType()));
-        } else if (dataType instanceof MapType) {
-            MapType mapType = (MapType) dataType;
-            return MapType.of(toComputeV2(mapType.getKeyType()), toComputeV2(mapType.getValueType()));
-        } else if (dataType instanceof StructType) {
-            return new StructType(((StructType) dataType).getFields().stream()
-                    .map(field -> field.withDataType(toComputeV2(field.getDataType())))
-                    .collect(Collectors.toList()));
-        }
-        return dataType;
-    }
-
-    /**
-     * Whether two Variant values use an execution-compatible physical representation.
-     *
-     * <p>Legacy Variant values are compatible only when their type properties are equal.
-     * Compute-only Variant V2 values share one physical representation, independent of source
-     * layout properties.</p>
-     */
-    public boolean isExecutionCompatibleWith(VariantType other) {
-        return (computeV2 && other.computeV2) || equals(other);
-    }
-
-    /** Returns this Variant type with the requested compute-only physical representation. */
-    public VariantType withComputeV2(boolean enabled) {
-        if (computeV2 == enabled) {
-            return this;
-        }
-        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
-                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, enabled);
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

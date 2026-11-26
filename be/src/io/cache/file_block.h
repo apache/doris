@@ -40,11 +40,13 @@ namespace doris {
 namespace io {
 
 struct FileBlocksHolder;
+struct FileBlocksProbeResult;
 class BlockFileCache;
 struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
+    friend struct FileBlocksProbeResult;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
@@ -149,11 +151,12 @@ public:
     void set_deleting() { _is_deleting = true; }
     bool is_deleting() const { return _is_deleting; };
 
-public:
-    std::atomic<bool> _owned_by_cached_reader {
-            false}; // pocessed by CachedRemoteFileReader::_cache_file_readers
-
 private:
+    enum class CacheReferenceRole {
+        HOLDER,
+        PROBE,
+    };
+
     std::string get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const;
 
     [[nodiscard]] Status set_downloaded(std::lock_guard<std::mutex>& block_lock);
@@ -162,6 +165,14 @@ private:
     void complete_unlocked(std::lock_guard<std::mutex>& block_lock);
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& block_lock);
+
+    /// Release one holder/probe reference and complete deferred EMPTY/deleting block cleanup when
+    /// it is the last reference outside the cache map.
+    /// @param[in,out] file_block Reference to release.
+    /// @param[in] role A holder completes downloader ownership acquired through get_or_set; a
+    /// read-only probe never changes downloader state.
+    static void release_cache_reference(std::shared_ptr<FileBlock>& file_block,
+                                        CacheReferenceRole role);
 
     Range _block_range;
 

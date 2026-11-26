@@ -52,6 +52,26 @@ public class MetaLockUtils {
         }
     }
 
+    /**
+     * Read-lock every table, giving up instead of waiting when one of them stays busy for {@code timeout}.
+     * The locks taken so far are released before returning false, so a caller that cannot proceed holds
+     * nothing. Use this where blocking is not an option: a caller that already holds another table's write
+     * lock can deadlock against a thread that holds this one and wants that one.
+     *
+     * @return true when every table is read-locked, false when the locks were released again
+     */
+    public static boolean tryReadLockTables(List<? extends TableIf> tableList, long timeout, TimeUnit unit) {
+        for (int i = 0; i < tableList.size(); i++) {
+            if (!tableList.get(i).tryReadLock(timeout, unit)) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(j).readUnlock();
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static void readUnlockTables(List<? extends TableIf> tableList) {
         for (int i = tableList.size() - 1; i >= 0; i--) {
             tableList.get(i).readUnlock();

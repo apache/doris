@@ -42,6 +42,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1157,26 +1158,34 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* mgr) const 
     }
 }
 
-void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
-                                                       std::lock_guard<std::mutex>& cache_lock) {
-    BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-    auto block_meta = _meta_store->get(mkey);
-    if (!block_meta.has_value()) {
-        // cache miss
+void FSFileCacheStorage::load_file_blocks_directly_unlocked(
+        BlockFileCache* mgr, const UInt128Wrapper& hash, int64_t tablet_id,
+        std::lock_guard<std::mutex>& cache_lock) {
+    DORIS_CHECK(!mgr->_files.contains(hash));
+    auto iterator = _meta_store->range_get(tablet_id, hash);
+    // Meta-store initialization failure leaves no database to query.
+    if (!iterator) {
+        LOG(WARNING) << "Failed to create iterator for meta store";
         return;
     }
 
-    CacheContext context_original;
-    context_original.query_id = TUniqueId();
-    context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = block_meta->type;
-    context_original.tablet_id = key.meta.tablet_id;
+    for (; iterator->valid(); iterator->next()) {
+        const auto meta_key = iterator->key();
+        const auto block_meta = iterator->value();
+        // Malformed persisted records cannot describe a downloaded cache block.
+        if (!iterator->get_last_key_error().ok() || !iterator->get_last_value_error().ok()) {
+            LOG(WARNING) << "Failed to deserialize cache block metadata: "
+                         << "key_error=" << iterator->get_last_key_error().to_string()
+                         << ", value_error=" << iterator->get_last_value_error().to_string();
+            continue;
+        }
 
-    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
-                                    cache_lock)) {
-        return;
-    } else {
-        mgr->add_cell(key.hash, context_original, key.offset, block_meta->size,
+        CacheContext context_original;
+        context_original.query_id = TUniqueId();
+        context_original.expiration_time = block_meta.ttl;
+        context_original.cache_type = block_meta.type;
+        context_original.tablet_id = tablet_id;
+        mgr->add_cell(hash, context_original, meta_key.offset, block_meta.size,
                       FileBlock::State::DOWNLOADED, cache_lock);
     }
 }

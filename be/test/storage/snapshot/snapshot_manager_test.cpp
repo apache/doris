@@ -22,6 +22,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -113,6 +114,69 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsInvalidDir) {
     EXPECT_EQ(result.error().code(), ErrorCode::DIR_NOT_EXIST);
 }
 
+TEST_F(SnapshotManagerTest, ConvertRowsetIdsPreservesCommitTso) {
+    const std::vector<std::optional<TsoRange>> cases = {std::nullopt, TsoRange(-1, -1),
+                                                        TsoRange(100, 100), TsoRange(100, 200)};
+    for (size_t i = 0; i < cases.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto clone_dir = _engine_data_path + "/commit_tso_" + std::to_string(i);
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(clone_dir).ok());
+        auto tablet_meta = testutil::create_tablet_meta_pb(10006, 12346, 1, 1000, 100);
+        auto* schema = tablet_meta.mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_num_short_key_columns(1);
+        schema->set_num_rows_per_row_block(1024);
+        schema->set_compress_kind(COMPRESS_LZ4);
+        testutil::add_column_pb(schema, 0, "k1", "INT", true, false);
+
+        RowsetMetaPB source;
+        source.set_rowset_id(0);
+        source.set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        source.set_tablet_id(10006);
+        source.set_tablet_schema_hash(12346);
+        source.set_rowset_type(BETA_ROWSET);
+        source.set_rowset_state(VISIBLE);
+        source.set_start_version(7);
+        source.set_end_version(
+                cases[i].has_value() && cases[i]->start_tso() != cases[i]->end_tso() ? 8 : 7);
+        source.set_num_rows(0);
+        source.set_num_segments(0);
+        source.set_empty(true);
+        source.set_segments_overlap_pb(NONOVERLAPPING);
+        source.mutable_tablet_schema()->CopyFrom(*schema);
+        if (cases[i].has_value()) {
+            source.mutable_commit_tso()->set_start_tso(cases[i]->start_tso());
+            source.mutable_commit_tso()->set_end_tso(cases[i]->end_tso());
+        }
+        tablet_meta.add_rs_metas()->CopyFrom(source);
+        auto* stale = tablet_meta.add_stale_rs_metas();
+        stale->CopyFrom(source);
+        stale->set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        stale->set_start_version(3);
+        stale->set_end_version(source.start_version() == source.end_version() ? 3 : 4);
+
+        const auto meta_file = clone_dir + "/20006.hdr";
+        ASSERT_TRUE(TabletMeta::save(meta_file, tablet_meta).ok());
+        auto result =
+                _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, 20006, 2, 2000, 200, 65432);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        TabletMetaPB converted;
+        ASSERT_TRUE(TabletMeta::load_from_file(meta_file, &converted).ok());
+        ASSERT_EQ(1, converted.rs_metas_size());
+        ASSERT_EQ(1, converted.stale_rs_metas_size());
+        auto check = [](const RowsetMetaPB& before, const RowsetMetaPB& after) {
+            EXPECT_NE(before.rowset_id_v2(), after.rowset_id_v2());
+            EXPECT_EQ(before.has_commit_tso(), after.has_commit_tso());
+            EXPECT_EQ(before.commit_tso().SerializeAsString(),
+                      after.commit_tso().SerializeAsString());
+            EXPECT_EQ(before.start_version(), after.start_version());
+            EXPECT_EQ(before.end_version(), after.end_version());
+        };
+        check(source, converted.rs_metas(0));
+        check(tablet_meta.stale_rs_metas(0), converted.stale_rs_metas(0));
+    }
+}
+
 TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     std::string clone_dir = _engine_data_path + "/clone_dir_local";
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(clone_dir).ok());
@@ -135,7 +199,6 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     index_pb->set_index_name("test_index");
     index_pb->set_index_type(IndexType::BITMAP);
     index_pb->add_col_unique_id(0);
-    tablet_meta_pb.mutable_row_binlog_schema()->CopyFrom(*schema_pb);
 
     // rowset meta 0
     RowsetMetaPB* rowset_meta = tablet_meta_pb.add_rs_metas();
@@ -272,85 +335,4 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_rowset_index.col_unique_id(0), 0);
 }
 
-TEST_F(SnapshotManagerTest, TestConvertRowsetIdsRowBinlog) {
-    std::string clone_dir = _engine_data_path + "/clone_dir_row_binlog";
-    std::string row_binlog_dir = fmt::format("{}/{}", clone_dir, FDRowBinlogSuffix);
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(clone_dir).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(row_binlog_dir).ok());
-
-    TabletMetaPB tablet_meta_pb = testutil::create_tablet_meta_pb(10007, 12347, 1, 1000, 100);
-    TabletSchemaPB* schema_pb = tablet_meta_pb.mutable_schema();
-    schema_pb->set_num_short_key_columns(1);
-    schema_pb->set_num_rows_per_row_block(1024);
-    schema_pb->set_compress_kind(COMPRESS_LZ4);
-    testutil::add_column_pb(schema_pb, 0, "k1", "INT", true, false);
-    testutil::add_column_pb(schema_pb, 1, "v1", "STRING", false, true);
-    tablet_meta_pb.mutable_row_binlog_schema()->CopyFrom(*schema_pb);
-
-    RowsetMetaPB* row_binlog_meta = tablet_meta_pb.add_row_binlog_rs_metas();
-    row_binlog_meta->set_rowset_id(10002);
-    row_binlog_meta->set_rowset_id_v2("02000000000000010002");
-    row_binlog_meta->set_tablet_id(10007);
-    row_binlog_meta->set_partition_id(100);
-    row_binlog_meta->set_tablet_schema_hash(12347);
-    row_binlog_meta->set_rowset_type(BETA_ROWSET);
-    row_binlog_meta->set_rowset_state(VISIBLE);
-    row_binlog_meta->set_start_version(2);
-    row_binlog_meta->set_end_version(2);
-    row_binlog_meta->set_num_segments(0);
-    row_binlog_meta->set_num_rows(100);
-    row_binlog_meta->set_total_disk_size(1024);
-    row_binlog_meta->set_data_disk_size(1000);
-    row_binlog_meta->set_index_disk_size(24);
-    row_binlog_meta->set_empty(false);
-    row_binlog_meta->set_is_row_binlog(true);
-    row_binlog_meta->set_compaction_level(3);
-    row_binlog_meta->mutable_tablet_schema()->CopyFrom(*schema_pb);
-
-    std::string meta_file = clone_dir + "/" + std::to_string(20007) + ".hdr";
-    EXPECT_TRUE(TabletMeta::save(meta_file, tablet_meta_pb).ok());
-
-    TCreateTabletReq create_tablet_req;
-    create_tablet_req.__set_tablet_id(20007);
-    create_tablet_req.__set_replica_id(2);
-    create_tablet_req.__set_table_id(2000);
-    create_tablet_req.__set_partition_id(200);
-    create_tablet_req.__set_version(1);
-
-    TTabletSchema tablet_schema;
-    tablet_schema.__set_schema_hash(65433);
-    tablet_schema.__set_short_key_column_count(schema_pb->num_short_key_columns());
-    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
-    tablet_schema.__set_storage_type(TStorageType::COLUMN);
-    tablet_schema.__set_columns(
-            {testutil::create_tablet_column({"k1", TPrimitiveType::INT, true}),
-             testutil::create_tablet_column(
-                     {"v1", TPrimitiveType::STRING, false, true, TAggregationType::REPLACE})});
-    create_tablet_req.__set_tablet_schema(tablet_schema);
-
-    std::vector<DataDir*> stores;
-    stores.push_back(_data_dir);
-    RuntimeProfile profile("CreateTablet");
-
-    Status status = _engine->tablet_manager()->create_tablet(create_tablet_req, stores, &profile);
-    EXPECT_TRUE(status.ok()) << "Failed to create tablet: " << status;
-
-    auto result =
-            _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, 20007, 2, 2000, 200, 65433);
-    EXPECT_TRUE(result.has_value());
-
-    TabletMetaPB converted_meta_pb;
-    EXPECT_TRUE(TabletMeta::load_from_file(meta_file, &converted_meta_pb).ok());
-    EXPECT_EQ(converted_meta_pb.row_binlog_rs_metas_size(), 1);
-
-    const RowsetMetaPB& converted_row_binlog_meta = converted_meta_pb.row_binlog_rs_metas(0);
-    EXPECT_EQ(converted_row_binlog_meta.tablet_id(), 20007);
-    EXPECT_EQ(converted_row_binlog_meta.partition_id(), 200);
-    EXPECT_NE(converted_row_binlog_meta.rowset_id(), 10002);
-    EXPECT_NE(converted_row_binlog_meta.rowset_id_v2(), "02000000000000010002");
-    EXPECT_EQ(converted_row_binlog_meta.source_rowset_id(), "02000000000000010002");
-    EXPECT_EQ(converted_row_binlog_meta.source_tablet_id(), 10007);
-    EXPECT_TRUE(converted_row_binlog_meta.is_row_binlog());
-    EXPECT_EQ(converted_row_binlog_meta.compaction_level(), 3);
-}
 } // namespace doris

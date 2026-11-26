@@ -31,7 +31,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/ipv6_value.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 

@@ -21,7 +21,6 @@
 
 #include <map>
 #include <ostream>
-#include <sstream>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -29,7 +28,6 @@
 #include "core/block/block.h"
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
-#include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
@@ -50,71 +48,24 @@ const std::vector<SlotDescriptor*> JniReader::_s_empty_slot_descs;
 // =========================================================================
 
 JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                     RuntimeProfile* profile, std::string connector_class,
+                     RuntimeProfile* profile, Jni::PluginRef plugin_ref,
                      std::map<std::string, std::string> scanner_params,
                      std::vector<std::string> column_names, int64_t self_split_weight)
         : _file_slot_descs(file_slot_descs),
           _state(state),
           _profile(profile),
-          _connector_class(std::move(connector_class)),
+          _plugin_ref(plugin_ref),
+          _connector_name(plugin_ref.plugin),
           _scanner_params(std::move(scanner_params)),
           _column_names(std::move(column_names)),
-          _self_split_weight(static_cast<int32_t>(self_split_weight)) {
-    _connector_name = split(_connector_class, "/").back();
-}
+          _self_split_weight(static_cast<int32_t>(self_split_weight)) {}
 
-JniReader::JniReader(std::string connector_class, std::map<std::string, std::string> scanner_params)
+JniReader::JniReader(Jni::PluginRef plugin_ref, std::map<std::string, std::string> scanner_params)
         : _file_slot_descs(_s_empty_slot_descs),
-          _connector_class(std::move(connector_class)),
+          _plugin_ref(plugin_ref),
+          _connector_name(plugin_ref.plugin),
           _scanner_params(std::move(scanner_params)) {
     _is_table_schema = true;
-    _connector_name = split(_connector_class, "/").back();
-}
-
-Status JniReader::on_before_init_reader(ReaderInitContext* ctx) {
-    _column_descs = ctx->column_descs;
-    if (_col_name_to_block_idx == nullptr) {
-        _col_name_to_block_idx = ctx->col_name_to_block_idx;
-    }
-    _partition_values.clear();
-    _partition_value_is_null.clear();
-    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
-        !ctx->range->__isset.columns_from_path_keys) {
-        return Status::OK();
-    }
-
-    DORIS_CHECK(ctx->range->__isset.columns_from_path);
-    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
-    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
-    if (has_null_flags) {
-        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
-                    ctx->range->columns_from_path_keys.size());
-    }
-
-    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
-    for (auto* slot : ctx->tuple_descriptor->slots()) {
-        name_to_slot.emplace(slot->col_name(), slot);
-    }
-    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
-        const auto& key = ctx->range->columns_from_path_keys[i];
-        auto slot_it = name_to_slot.find(key);
-        if (slot_it == name_to_slot.end()) {
-            continue;
-        }
-        _partition_values.emplace(
-                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
-        _partition_value_is_null.emplace(
-                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
-    }
-    return Status::OK();
-}
-
-Status JniReader::on_after_read_block(Block* block, size_t* read_rows) {
-    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
-        _push_down_agg_type == TPushAggOp::type::COUNT) {
-        return Status::OK();
-    }
-    return _fill_partition_columns(block, *read_rows);
 }
 
 // =========================================================================
@@ -151,8 +102,8 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         _scanner_params.emplace("time_zone", _state->timezone());
     }
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
-    // Call org.apache.doris.common.jni.JniScanner#open
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
+    // Call org.apache.doris.jni.spi.JniScanner#open
+    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->open).call());
 
     RETURN_ERROR_IF_EXC(env);
     _scanner_opened = true;
@@ -169,7 +120,7 @@ Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
     long meta_address = 0;
     {
         SCOPED_RAW_TIMER(&_java_scan_watcher);
-        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_next_batch)
+        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _scanner_api->get_next_batch_meta)
                                 .call(&meta_address));
     }
     if (meta_address == 0) {
@@ -187,25 +138,8 @@ Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
     RETURN_IF_ERROR(_fill_block(block, num_rows));
     *read_rows = num_rows;
     *eof = false;
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
+    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->release_table).call());
     _has_read += num_rows;
-    return Status::OK();
-}
-
-// =========================================================================
-// JniReader::get_table_schema  (merged from JniConnector::get_table_schema)
-// =========================================================================
-
-Status JniReader::get_table_schema(std::string& table_schema_str) {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    Jni::LocalString jstr;
-    RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_table_schema).call(&jstr));
-    Jni::LocalStringBufferGuard cstr;
-    RETURN_IF_ERROR(jstr.get_string_chars(env, &cstr));
-    table_schema_str = std::string {cstr.get()};
     return Status::OK();
 }
 
@@ -214,48 +148,30 @@ Status JniReader::get_table_schema(std::string& table_schema_str) {
 // =========================================================================
 
 Status JniReader::close() {
-    if (!_closed) {
-        _closed = true;
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_opened) {
-            if (_profile) {
-                COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-                COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-            }
-
-            RETURN_ERROR_IF_EXC(env);
-            jlong _append = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&_append));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_append_data_time, _append);
-            }
-
-            jlong _create = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj
-                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                            .call(&_create));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_create_vector_table_time, _create);
-                COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
-                _max_time_split_weight_counter->conditional_update(
-                        _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                        _self_split_weight);
-            }
-
-            // _fill_block may be failed and returned, we should release table in close.
-            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        }
+    if (_closed) {
+        return Status::OK();
     }
-    return Status::OK();
+    if (!_scanner_opened) {
+        _closed = true;
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+
+    // _fill_block may fail before releasing the current Java table. JniScanner::releaseTable()
+    // is idempotent, so close always retries it. Java close must still run when that release
+    // fails, otherwise connector resources such as Paimon's static table-cache lease can leak.
+    auto close_status = _jni_scanner_obj.call_void_method(env, _scanner_api->release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _scanner_api->close).call();
+    if (close_status.ok() && !java_close_status.ok()) {
+        close_status = std::move(java_close_status);
+    }
+    if (close_status.ok()) {
+        _scanner_opened = false;
+        _closed = true;
+    }
+    return close_status;
 }
 
 // =========================================================================
@@ -275,7 +191,7 @@ void JniReader::set_batch_size(size_t batch_size) {
             LOG(WARNING) << "failed to get jni env when set_batch_size: " << st;
             return;
         }
-        st = _jni_scanner_obj.call_void_method(env, _jni_scanner_set_batch_size)
+        st = _jni_scanner_obj.call_void_method(env, _scanner_api->set_batch_size)
                      .with_arg(static_cast<int>(_batch_size))
                      .call();
         if (!st) {
@@ -289,40 +205,8 @@ void JniReader::set_batch_size(size_t batch_size) {
 // =========================================================================
 
 Status JniReader::_init_jni_scanner(JNIEnv* env, int batch_size) {
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-
-    Jni::MethodId scanner_constructor;
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "<init>", "(ILjava/util/Map;)V",
-                                                &scanner_constructor));
-
-    // prepare constructor parameters
-    Jni::LocalObject hashmap_object;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _scanner_params, &hashmap_object));
-    RETURN_IF_ERROR(_jni_scanner_cls.new_object(env, scanner_constructor)
-                            .with_arg(batch_size)
-                            .with_arg(hashmap_object)
-                            .call(&_jni_scanner_obj));
-
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "open", "()V", &_jni_scanner_open));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getNextBatchMeta", "()J",
-                                                &_jni_scanner_get_next_batch));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getAppendDataTime", "()J",
-                                                &_jni_scanner_get_append_data_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getCreateVectorTableTime", "()J",
-                                                &_jni_scanner_get_create_vector_table_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getTableSchema", "()Ljava/lang/String;",
-                                                &_jni_scanner_get_table_schema));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "close", "()V", &_jni_scanner_close));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "releaseColumn", "(I)V",
-                                                &_jni_scanner_release_column));
-    RETURN_IF_ERROR(
-            _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
-                                                &_jni_scanner_get_statistics));
-    RETURN_IF_ERROR(
-            _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
-    return Status::OK();
+    return Jni::PluginRegistry::create_scanner(env, _plugin_ref, batch_size, _scanner_params,
+                                               &_jni_scanner_obj, &_scanner_api);
 }
 
 // =========================================================================
@@ -333,58 +217,18 @@ Status JniReader::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-    // Fallback: if _col_name_to_block_idx was not set by the caller (e.g. JdbcScanner),
-    // build the name-to-position map from the block itself.
-    std::unordered_map<std::string, uint32_t> local_name_to_idx;
-    const std::unordered_map<std::string, uint32_t>* col_map = _col_name_to_block_idx;
-    if (col_map == nullptr) {
-        local_name_to_idx = block->get_name_to_pos_map();
-        col_map = &local_name_to_idx;
-    }
+    const auto local_name_to_idx = block->get_name_to_pos_map();
+    const auto* col_map = &local_name_to_idx;
     for (int i = 0; i < _column_names.size(); ++i) {
         auto& column_with_type_and_name = block->get_by_position(col_map->at(_column_names[i]));
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(JniDataBridge::fill_column(_table_meta, column_ptr, column_type, num_rows));
         // Column is not released when fill_column failed. It will be released when releasing table.
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_column)
+        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->release_column)
                                 .with_arg(i)
                                 .call());
         RETURN_ERROR_IF_EXC(env);
-    }
-    return Status::OK();
-}
-
-Status JniReader::_fill_partition_columns(Block* block, size_t num_rows) {
-    std::unordered_map<std::string, uint32_t> local_name_to_idx;
-    const std::unordered_map<std::string, uint32_t>* col_map = _col_name_to_block_idx;
-    if (col_map == nullptr) {
-        local_name_to_idx = block->get_name_to_pos_map();
-        col_map = &local_name_to_idx;
-    }
-
-    for (const auto& desc : *_column_descs) {
-        if (desc.category != ColumnCategory::PARTITION_KEY) {
-            continue;
-        }
-        auto value_it = _partition_values.find(desc.name);
-        if (value_it == _partition_values.end()) {
-            continue;
-        }
-        auto col_it = col_map->find(desc.name);
-        if (col_it == col_map->end()) {
-            return Status::InternalError("Missing partition column {} in block {}", desc.name,
-                                         block->dump_structure());
-        }
-
-        auto& column_with_type_and_name = block->get_by_position(col_it->second);
-        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
-        const auto& [value, slot_desc] = value_it->second;
-        auto null_it = _partition_value_is_null.find(desc.name);
-        DORIS_CHECK(null_it != _partition_value_is_null.end());
-        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
-                                                              num_rows, null_it->second));
-        column_with_type_and_name.column = std::move(mutable_column);
     }
     return Status::OK();
 }
@@ -397,7 +241,7 @@ Status JniReader::_get_statistics(JNIEnv* env, std::map<std::string, std::string
     result->clear();
     Jni::LocalObject metrics;
     RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));
+            _jni_scanner_obj.call_object_method(env, _scanner_api->get_statistics).call(&metrics));
 
     RETURN_IF_ERROR(Jni::Util::convert_to_cpp_map(env, metrics, result));
     return Status::OK();
@@ -416,6 +260,35 @@ void JniReader::_collect_profile_before_close() {
             LOG(WARNING) << "failed to get jni env when collect profile: " << st;
             return;
         }
+        COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+        COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+        jlong append_data_time = 0;
+        auto append_time_status =
+                _jni_scanner_obj.call_long_method(env, _scanner_api->get_append_data_time)
+                        .call(&append_data_time);
+        jlong create_vector_table_time = 0;
+        auto create_table_time_status =
+                _jni_scanner_obj.call_long_method(env, _scanner_api->get_create_vector_table_time)
+                        .call(&create_vector_table_time);
+        if (!append_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI append-data time before close: "
+                         << append_time_status;
+        }
+        if (!create_table_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI vector-table time before close: "
+                         << create_table_time_status;
+        }
+        if (append_time_status.ok() && create_table_time_status.ok()) {
+            COUNTER_UPDATE(_java_append_data_time, append_data_time);
+            COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
+            COUNTER_UPDATE(_java_scan_time,
+                           _java_scan_watcher - append_data_time - create_vector_table_time);
+            _max_time_split_weight_counter->conditional_update(
+                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                    _self_split_weight);
+        }
+
         // update scanner metrics
         std::map<std::string, std::string> statistics_result;
         st = _get_statistics(env, &statistics_result);
@@ -479,47 +352,6 @@ void JniReader::_collect_profile_before_close() {
             }
         }
     }
-}
-
-// =========================================================================
-// MockJniReader
-// =========================================================================
-
-MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                             RuntimeState* state, RuntimeProfile* profile)
-        : JniReader(
-                  file_slot_descs, state, profile, "org/apache/doris/common/jni/MockJniScanner",
-                  [&]() {
-                      std::ostringstream required_fields;
-                      std::ostringstream columns_types;
-                      int index = 0;
-                      for (const auto& desc : file_slot_descs) {
-                          std::string field = desc->col_name();
-                          std::string type =
-                                  JniDataBridge::get_jni_type_with_different_string(desc->type());
-                          if (index == 0) {
-                              required_fields << field;
-                              columns_types << type;
-                          } else {
-                              required_fields << "," << field;
-                              columns_types << "#" << type;
-                          }
-                          index++;
-                      }
-                      return std::map<String, String> {{"mock_rows", "10240"},
-                                                       {"required_fields", required_fields.str()},
-                                                       {"columns_types", columns_types.str()}};
-                  }(),
-                  [&]() {
-                      std::vector<std::string> names;
-                      for (const auto& desc : file_slot_descs) {
-                          names.emplace_back(desc->col_name());
-                      }
-                      return names;
-                  }()) {}
-
-Status MockJniReader::init_reader() {
-    return open(_state, _profile);
 }
 
 } // namespace doris

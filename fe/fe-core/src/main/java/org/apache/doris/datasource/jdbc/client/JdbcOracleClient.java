@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.base.Strings;
@@ -99,8 +99,7 @@ public class JdbcOracleClient extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
-                Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get table name list from jdbc for table %s", e, remoteTableName);
         } finally {
             close(rs, conn, stmt, isSynonymRs, synonymInfoRs);
         }
@@ -160,13 +159,9 @@ public class JdbcOracleClient extends JdbcClient {
             if (scale > 6) {
                 scale = 6;
             }
-            if (oracleType.contains("LOCAL TIME ZONE")) {
-                //TIMESTAMP(s) WITH LOCAL TIME ZONE
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
-            } else if (oracleType.contains("TIME ZONE")) {
-                //TIMESTAMP(s) WITH TIME ZONE
-                return Type.UNSUPPORTED;
+            if (oracleType.contains("TIME ZONE")) {
+                // Both Oracle zoned timestamp variants represent instants, not wall-clock values.
+                return ScalarType.createTimeStampTzType(scale);
             } else {
                 //TIMESTAMP(s)
                 oracleType = "TIMESTAMP";
@@ -217,6 +212,9 @@ public class JdbcOracleClient extends JdbcClient {
                     precision = scale;
                 }
                 return createDecimalOrStringType(precision, scale);
+            case "BINARY_FLOAT":
+                return Type.FLOAT;
+            case "BINARY_DOUBLE":
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -233,12 +231,9 @@ public class JdbcOracleClient extends JdbcClient {
             case "CLOB":
                 return ScalarType.createStringType();
             case "BLOB":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "NCLOB":
             case "BFILE":
-            case "BINARY_FLOAT":
-            case "BINARY_DOUBLE":
             default:
                 return Type.UNSUPPORTED;
         }

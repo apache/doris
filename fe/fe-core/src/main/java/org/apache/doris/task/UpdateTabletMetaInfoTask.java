@@ -17,7 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.RowTtlConfig;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
@@ -45,7 +46,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private Set<Pair<Long, Integer>> tableIdWithSchemaHash;
     private int inMemory = -1; // < 0 means not to update inMemory property, > 0 means true, == 0 means false
     private long storagePolicyId = -1; // < 0 means not to update storage policy, == 0 means to reset storage policy
-    private BinlogConfig binlogConfig = null; // null means not to update binlog config
+    private TabletBinlogConfig binlogConfig = null; // null means not to update binlog config
     private String compactionPolicy = null; // null means not to update compaction policy
     private Map<String, Long> timeSeriesCompactionConfig = null; // null means not to update compaction policy config
     // For ReportHandler
@@ -64,7 +65,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public UpdateTabletMetaInfoTask(long backendId,
                                     Set<Pair<Long, Integer>> tableIdWithSchemaHash,
                                     int inMemory, long storagePolicyId,
-                                    BinlogConfig binlogConfig,
+                                    TabletBinlogConfig binlogConfig,
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch) {
         this(backendId, tableIdWithSchemaHash);
         this.storagePolicyId = storagePolicyId;
@@ -83,7 +84,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public UpdateTabletMetaInfoTask(long backendId,
                                     Set<Pair<Long, Integer>> tableIdWithSchemaHash,
                                     int inMemory, long storagePolicyId,
-                                    BinlogConfig binlogConfig,
+                                    TabletBinlogConfig binlogConfig,
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch,
                                     String compactionPolicy,
                                     Map<String, Long> timeSeriesCompactionConfig,
@@ -121,6 +122,16 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
 
     public Set<Pair<Long, Integer>> getTablets() {
         return tableIdWithSchemaHash;
+    }
+
+    private RowTtlConfig rowTtlConfig;
+
+    public void setRowTtlConfig(RowTtlConfig config) {
+        rowTtlConfig = config;
+    }
+
+    public RowTtlConfig getRowTtlConfig() {
+        return rowTtlConfig;
     }
 
     public TUpdateTabletMetaInfoReq toThrift() {
@@ -178,6 +189,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 if (verticalCompactionNumColumnsPerGroup >= 0) {
                     metaInfo.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+                }
+                if (rowTtlConfig != null) {
+                    metaInfo.setRowTtlConfig(rowTtlConfig.toThrift());
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

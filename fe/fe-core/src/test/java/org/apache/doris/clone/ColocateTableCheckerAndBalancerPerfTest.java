@@ -27,34 +27,32 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.UUID;
 
-public class ColocateTableCheckerAndBalancerPerfTest {
-    private static String runningDir = "fe/mocked/ColocateTableCheckerAndBalancerPerfTest/"
-            + UUID.randomUUID().toString() + "/";
+public class ColocateTableCheckerAndBalancerPerfTest extends TestWithFeService {
 
-    private static ConnectContext connectContext;
     private static final int TEMP_DISALBE_BE_NUM = 2;
-    private static List<Backend> backends;
+    private List<Backend> backends;
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected int backendNum() {
+        return 6;
+    }
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.enableInternalSchemaDb = false;
         Config.tablet_checker_interval_ms = 100;
@@ -65,8 +63,10 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         Config.schedule_slot_num_per_hdd_path = 1000;
         Config.disable_colocate_balance = true;
         Config.disable_tablet_scheduler = true;
-        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 6);
+    }
 
+    @Override
+    protected void runBeforeAll() throws Exception {
         backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
@@ -81,14 +81,6 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         for (int i = 0; i < TEMP_DISALBE_BE_NUM; i++) {
             backends.get(i).setTagMap(tagMap);
         }
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     @Test
@@ -124,9 +116,9 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                 }
 
                 BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();
-                Assert.assertEquals("group: " + groupIndex + ", table: " + tableIndex + ", "
-                        + beforeBalanceStatistic.getBackendTotalReplicaNum(),
-                        0, beforeBalanceStatistic.getBeMinTotalReplicaNum());
+                Assertions.assertEquals(0, beforeBalanceStatistic.getBeMinTotalReplicaNum(),
+                        "group: " + groupIndex + ", table: " + tableIndex + ", "
+                        + beforeBalanceStatistic.getBackendTotalReplicaNum());
             }
         }
 
@@ -137,13 +129,13 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         RebalancerTestUtil.updateReplicaPathHash();
 
         BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();
-        Assert.assertEquals("" + beforeBalanceStatistic.getBackendTotalReplicaNum(),
-                0, beforeBalanceStatistic.getBeMinTotalReplicaNum());
+        Assertions.assertEquals(0, beforeBalanceStatistic.getBeMinTotalReplicaNum(),
+                "" + beforeBalanceStatistic.getBackendTotalReplicaNum());
 
         // all groups stable
         Thread.sleep(1000);
-        Assert.assertTrue("some groups are unstable",
-                groupIds.stream().noneMatch(groupId -> colocateIndex.isGroupUnstable(groupId)));
+        Assertions.assertTrue(groupIds.stream().noneMatch(groupId -> colocateIndex.isGroupUnstable(groupId)),
+                "some groups are unstable");
 
         // after enable colocate balance and some backends return,  it should relocate all groups.
         // and they will be unstable
@@ -158,8 +150,8 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                 break;
             }
         }
-        Assert.assertTrue("some groups are stable",
-                groupIds.stream().allMatch(groupId -> colocateIndex.isGroupUnstable(groupId)));
+        Assertions.assertTrue(groupIds.stream().allMatch(groupId -> colocateIndex.isGroupUnstable(groupId)),
+                "some groups are stable");
 
 
         // after enable scheduler, the unstable groups should shed their tablets and change to stable
@@ -174,15 +166,15 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                 break;
             }
 
-            Assert.assertTrue("some groups are unstable", i < 60);
+            Assertions.assertTrue(i < 60, "some groups are unstable");
         }
 
         System.out.println("=== before colocate relocate and balance:");
         beforeBalanceStatistic.printToStdout();
-        Assert.assertEquals("" + beforeBalanceStatistic.getBackendTotalReplicaNum(),
-                0, beforeBalanceStatistic.getBeMinTotalReplicaNum());
-        Assert.assertEquals("" + beforeBalanceStatistic.getBackendTotalDataSize(),
-                0, beforeBalanceStatistic.getBeMinTotalDataSize());
+        Assertions.assertEquals(0, beforeBalanceStatistic.getBeMinTotalReplicaNum(),
+                "" + beforeBalanceStatistic.getBackendTotalReplicaNum());
+        Assertions.assertEquals(0, beforeBalanceStatistic.getBeMinTotalDataSize(),
+                "" + beforeBalanceStatistic.getBackendTotalDataSize());
         long beforeDataSizeDiff = beforeBalanceStatistic.getBeMaxTotalDataSize()
                 - beforeBalanceStatistic.getBeMinTotalDataSize();
         int beforeReplicaNumDiff = beforeBalanceStatistic.getBeMaxTotalReplicaNum()
@@ -193,15 +185,15 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         System.out.println("=== after colocate relocate and balance:");
         afterBalanceStatistic.printToStdout();
 
-        Assert.assertTrue("" + afterBalanceStatistic.getBackendTotalReplicaNum(),
-                afterBalanceStatistic.getBeMinTotalReplicaNum() > 0);
-        Assert.assertTrue("" + afterBalanceStatistic.getBackendTotalDataSize(),
-                afterBalanceStatistic.getBeMinTotalDataSize() > 0);
+        Assertions.assertTrue(afterBalanceStatistic.getBeMinTotalReplicaNum() > 0,
+                "" + afterBalanceStatistic.getBackendTotalReplicaNum());
+        Assertions.assertTrue(afterBalanceStatistic.getBeMinTotalDataSize() > 0,
+                "" + afterBalanceStatistic.getBackendTotalDataSize());
         long afterDataSizeDiff = afterBalanceStatistic.getBeMaxTotalDataSize()
                 - afterBalanceStatistic.getBeMinTotalDataSize();
         int afterReplicaNumDiff = afterBalanceStatistic.getBeMaxTotalReplicaNum()
                 - afterBalanceStatistic.getBeMinTotalReplicaNum();
-        Assert.assertTrue(afterDataSizeDiff <= beforeDataSizeDiff);
-        Assert.assertTrue(afterReplicaNumDiff <= beforeReplicaNumDiff);
+        Assertions.assertTrue(afterDataSizeDiff <= beforeDataSizeDiff);
+        Assertions.assertTrue(afterReplicaNumDiff <= beforeReplicaNumDiff);
     }
 }

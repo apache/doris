@@ -107,7 +107,10 @@ uint32_t VariantMetadataRef::dict_size() const {
 }
 
 StringRef VariantMetadataRef::key_at(uint32_t id) const {
-    const Layout layout = _layout();
+    return _key_at(_layout(), id);
+}
+
+StringRef VariantMetadataRef::_key_at(const Layout& layout, uint32_t id) const {
     if (id >= layout.num_keys) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant metadata dictionary id {} is out of range [0, {})", id,
@@ -132,7 +135,7 @@ int64_t VariantMetadataRef::find_key(StringRef key) const {
     const Layout layout = _layout();
     if (!sorted_strings()) {
         for (uint32_t id = 0; id < layout.num_keys; ++id) {
-            if (key_at(id) == key) {
+            if (_key_at(layout, id) == key) {
                 return id;
             }
         }
@@ -143,14 +146,14 @@ int64_t VariantMetadataRef::find_key(StringRef key) const {
     uint32_t end = layout.num_keys;
     while (begin < end) {
         const uint32_t middle = begin + (end - begin) / 2;
-        const int comparison = key_at(middle).compare(key);
+        const int comparison = _key_at(layout, middle).compare(key);
         if (comparison < 0) {
             begin = middle + 1;
         } else {
             end = middle;
         }
     }
-    if (begin < layout.num_keys && key_at(begin) == key) {
+    if (begin < layout.num_keys && _key_at(layout, begin) == key) {
         return begin;
     }
     return -1;
@@ -158,10 +161,11 @@ int64_t VariantMetadataRef::find_key(StringRef key) const {
 
 void VariantMetadataRef::validate() const {
     const Layout layout = _layout();
+    const bool strings_are_sorted = sorted_strings();
     StringRef previous;
     for (uint32_t id = 0; id < layout.num_keys; ++id) {
-        const StringRef current = key_at(id);
-        if (sorted_strings() && id != 0 && previous.compare(current) >= 0) {
+        const StringRef current = _key_at(layout, id);
+        if (strings_are_sorted && id != 0 && previous.compare(current) >= 0) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Variant metadata dictionary is not sorted and unique at id {}", id);
         }

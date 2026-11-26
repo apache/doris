@@ -58,12 +58,14 @@ static std::map<HttpStatus, std::string> s_reason_map = {
         {HttpStatus::UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type"},
         {HttpStatus::REQUESTED_RANGE_NOT_SATISFIED, "Requested range not satisfiable"},
         {HttpStatus::EXPECTATION_FAILED, "Expectation Failed"},
+        {HttpStatus::TOO_MANY_REQUESTS, "Too Many Requests"},
         {HttpStatus::INTERNAL_SERVER_ERROR, "Internal Server Error"},
         {HttpStatus::NOT_IMPLEMENTED, "Not Implemented"},
         {HttpStatus::BAD_GATEWAY, "Bad Gateway"},
         {HttpStatus::SERVICE_UNAVAILABLE, "Service Unavailable"},
         {HttpStatus::GATEWAY_TIMEOUT, "Gateway Time-out"},
-        {HttpStatus::HTTP_VERSION_NOT_SUPPORTED, "HTTP Version not supported"}};
+        {HttpStatus::HTTP_VERSION_NOT_SUPPORTED, "HTTP Version not supported"},
+        {HttpStatus::OVERLOADED, "Overloaded"}};
 
 std::string default_reason(const HttpStatus& status) {
     auto iter = s_reason_map.find(status);

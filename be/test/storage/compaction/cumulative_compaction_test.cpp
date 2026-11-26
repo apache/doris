@@ -26,11 +26,16 @@
 #include <filesystem>
 #include <memory>
 
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
+#include "storage/changelog.h"
 #include "storage/compaction/compaction.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/data_dir.h"
 #include "storage/rowset/beta_rowset.h"
@@ -38,15 +43,21 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris {
 using namespace config;
 
 class CumulativeCompactionTest : public testing::Test {
 public:
-    virtual void SetUp() {}
+    void SetUp() override {
+        _previous_cluster = ExecEnv::GetInstance()->cluster_info();
+        ExecEnv::GetInstance()->set_cluster_info(&_cluster);
+    }
 
-    virtual void TearDown() {}
+    void TearDown() override { ExecEnv::GetInstance()->set_cluster_info(_previous_cluster); }
+    ClusterInfo _cluster;
+    ClusterInfo* _previous_cluster = nullptr;
 };
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
@@ -65,6 +76,29 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     }
     return rowset;
 }
+
+class TestableCumulativeCompactionMixin : public CompactionMixin {
+public:
+    TestableCumulativeCompactionMixin(StorageEngine& engine, TabletSharedPtr tablet)
+            : CompactionMixin(engine, tablet, "TestableCumulativeCompactionMixin") {}
+
+    void set_input_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
+        _input_rowsets = rowsets;
+    }
+
+    Status prepare_compact() override { return Status::OK(); }
+
+    Status execute_compact() override { return Status::OK(); }
+
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
+
+    std::string_view compaction_name() const override { return "testable cumulative compaction"; }
+
+protected:
+    Status construct_output_rowset_writer(RowsetWriterContext&) override { return Status::OK(); }
+
+    Status update_delete_bitmap() override { return Status::OK(); }
+};
 
 TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
     EngineOptions options;
@@ -292,6 +326,273 @@ TEST_F(CumulativeCompactionTest, TestShouldDelayLargeTask) {
     storage_engine._cumu_compaction_thread_pool_used_threads = 3;
     storage_engine._cumu_compaction_thread_pool_small_tasks_running = 0;
     EXPECT_EQ(storage_engine._should_delay_large_task(), true);
+}
+
+TEST_F(CumulativeCompactionTest, TestCalcInputRowsetsRowNumUsesRowCount) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+
+    TabletMetaSharedPtr tablet_meta;
+    tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                     UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                     TCompressionType::LZ4F));
+    TabletSharedPtr tablet(
+            new Tablet(storage_engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto rowset1 = create_rowset({1, 1}, 1, false, 1024);
+    ASSERT_NE(rowset1, nullptr);
+    rowset1->rowset_meta()->set_num_rows(10);
+    rowsets.push_back(rowset1);
+
+    auto rowset2 = create_rowset({2, 2}, 1, false, 2048);
+    ASSERT_NE(rowset2, nullptr);
+    rowset2->rowset_meta()->set_num_rows(20);
+    rowsets.push_back(rowset2);
+
+    auto rowset3 = create_rowset({3, 3}, 1, false, 4096);
+    ASSERT_NE(rowset3, nullptr);
+    rowset3->rowset_meta()->set_num_rows(30);
+    rowsets.push_back(rowset3);
+
+    compaction.set_input_rowsets(rowsets);
+
+    EXPECT_EQ(compaction.calc_input_rowsets_row_num(), 60);
+    EXPECT_EQ(compaction.calc_input_rowsets_total_size(), 7168);
+}
+
+TEST_F(CumulativeCompactionTest, TestPickExpiredChangelogRowsetUsesFrozenCutoff) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    constexpr int64_t kReferenceMs = 100000;
+    const int64_t reference_tso = kReferenceMs << kTsoLogicalBits;
+    _cluster.advance_changelog_ttl_reference_tso(reference_tso);
+
+    auto tablet = std::make_shared<Tablet>(storage_engine, tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
+    auto visible = std::make_shared<VersionWithTime>();
+    visible->version.store(4);
+    tablet->set_visible_version(visible);
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+    compaction.snapshot_changelog_ttl();
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 10);
+    ASSERT_EQ(compaction._changelog_ttl_cutoff_tso, cutoff);
+
+    _cluster.advance_changelog_ttl_reference_tso((kReferenceMs + 10000) << kTsoLogicalBits);
+    EXPECT_EQ(compaction._changelog_ttl_cutoff_tso, cutoff);
+
+    auto empty = create_rowset({1, 1}, 0, false, 0);
+    empty->rowset_meta()->set_commit_tso(cutoff);
+    auto no_tso = create_rowset({2, 2}, 1, false, 1024);
+    no_tso->rowset_meta()->set_num_rows(10);
+    auto expired = create_rowset({3, 3}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({4, 4}, 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(10);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+
+    EXPECT_FALSE(compaction.pick_expired_changelog_rowset({expired}));
+    tablet->_timestamped_version_tracker.add_version(Version(0, 2));
+    tablet->_timestamped_version_tracker.add_version(expired->version());
+    EXPECT_TRUE(compaction.pick_expired_changelog_rowset({empty, no_tso, expired, retained}));
+    ASSERT_EQ(compaction._input_rowsets.size(), 1);
+    EXPECT_EQ(compaction._input_rowsets.front(), expired);
+
+    // Contiguous expired versions share one empty output; missing TSO and mixed ranges stop it.
+    retained->rowset_meta()->set_commit_tso(cutoff);
+    tablet->_timestamped_version_tracker.add_version(retained->version());
+    EXPECT_TRUE(compaction.pick_expired_changelog_rowset({expired, retained}));
+    EXPECT_EQ(compaction._input_rowsets.size(), 2);
+    retained->rowset_meta()->set_commit_tso({cutoff, cutoff + 1});
+    EXPECT_TRUE(compaction.pick_expired_changelog_rowset({expired, retained}));
+    EXPECT_EQ(compaction._input_rowsets.size(), 1);
+
+    tablet->set_visible_version(nullptr);
+    TestableCumulativeCompactionMixin after_restart(storage_engine, tablet);
+    after_restart.snapshot_changelog_ttl();
+    EXPECT_FALSE(after_restart.pick_expired_changelog_rowset({expired}));
+}
+
+TEST_F(CumulativeCompactionTest, TestChangelogTtlEmptyOutputAcceptsMixedLevels) {
+    StorageEngine engine(EngineOptions {});
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    Tablet tablet(engine, tablet_meta, nullptr);
+    ChangelogCumulativeCompactionPolicy policy;
+    auto empty = create_rowset({0, 1}, 0, false, 0);
+    empty->rowset_meta()->set_compaction_level(1);
+    auto expired = create_rowset({2, 2}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_compaction_level(0);
+    auto output = create_rowset({0, 2}, 0, false, 0);
+    EXPECT_EQ(0, policy.get_compaction_level(&tablet, {empty, expired}, output));
+
+    // Non-empty compaction still promotes inputs from the same level.
+    output->rowset_meta()->set_num_segments(1);
+    output->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_compaction_level(1);
+    EXPECT_EQ(2, policy.get_compaction_level(&tablet, {empty, expired}, output));
+}
+
+TEST_F(CumulativeCompactionTest, TestFilterExpiredChangelogRowsets) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    const int64_t reference_tso = 2000L << kTsoLogicalBits;
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 1);
+    _cluster.advance_changelog_ttl_reference_tso(reference_tso);
+    auto tablet = std::make_shared<Tablet>(storage_engine, tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
+    auto visible = std::make_shared<VersionWithTime>();
+    visible->version.store(4);
+    tablet->set_visible_version(visible);
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+    compaction.snapshot_changelog_ttl();
+
+    auto empty = create_rowset({1, 1}, 0, false, 0);
+    auto expired = create_rowset({2, 2}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({3, 3}, 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(20);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+    auto unknown = create_rowset({4, 4}, 1, false, 1024);
+    unknown->rowset_meta()->set_num_rows(30);
+    // Without a clock snapshot, preserve every input, including empty version carriers.
+    TestableCumulativeCompactionMixin without_reference(storage_engine, tablet);
+    without_reference.set_input_rowsets({empty, expired, retained, unknown});
+    without_reference.filter_changelog_ttl_rowsets();
+    EXPECT_EQ(without_reference._data_input_rowsets, without_reference._input_rowsets);
+    EXPECT_EQ(without_reference._changelog_ttl_filtered_rows, 0);
+
+    compaction.set_input_rowsets({empty, expired, retained, unknown});
+
+    compaction.filter_changelog_ttl_rowsets();
+    ASSERT_EQ(compaction._data_input_rowsets.size(), 2);
+    EXPECT_EQ(compaction._data_input_rowsets[0], retained);
+    EXPECT_EQ(compaction._data_input_rowsets[1], unknown);
+    EXPECT_EQ(compaction._changelog_ttl_filtered_rows, 10);
+}
+
+struct ChangelogTtlCleanupMetrics {
+    int64_t successes;
+    int64_t failures;
+    int64_t reclaimed_bytes;
+    int64_t last_success_s;
+};
+
+static ChangelogTtlCleanupMetrics changelog_ttl_cleanup_metrics() {
+    auto* metrics = DorisMetrics::instance();
+    return {metrics->changelog_ttl_cleanup_success_total->value(),
+            metrics->changelog_ttl_cleanup_failed_total->value(),
+            metrics->changelog_ttl_reclaimed_bytes_total->value(),
+            metrics->changelog_ttl_last_success_timestamp_seconds->value()};
+}
+
+TEST_F(CumulativeCompactionTest, TestRecordChangelogTtlCleanup) {
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    const int64_t reference_tso = 2000L << kTsoLogicalBits;
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 1);
+    _cluster.advance_changelog_ttl_reference_tso(reference_tso);
+    auto tablet = std::make_shared<Tablet>(storage_engine, tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
+    auto visible = std::make_shared<VersionWithTime>();
+    visible->version.store(4);
+    tablet->set_visible_version(visible);
+
+    auto empty = create_rowset({1, 1}, 0, false, 0);
+    auto expired = create_rowset({2, 2}, 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset({3, 3}, 1, false, 2048);
+    retained->rowset_meta()->set_num_rows(20);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+    auto expired_again = create_rowset({4, 4}, 1, false, 4096);
+    expired_again->rowset_meta()->set_num_rows(30);
+    expired_again->rowset_meta()->set_commit_tso(cutoff);
+    // Expired by its TSO, but above the visible version the TTL snapshot was taken at, so it is merged.
+    auto invisible = create_rowset({5, 5}, 1, false, 8192);
+    invisible->rowset_meta()->set_num_rows(40);
+    invisible->rowset_meta()->set_commit_tso(cutoff);
+
+    TestableCumulativeCompactionMixin compaction(storage_engine, tablet);
+    compaction.snapshot_changelog_ttl();
+    compaction.set_input_rowsets({empty, expired, retained, expired_again, invisible});
+    // What a cleanup reclaims is what its merge leaves out: the inputs with data that it does not read.
+    compaction.filter_changelog_ttl_rowsets();
+    const auto& merged = compaction._data_input_rowsets;
+    int64_t dropped_bytes = 0;
+    for (const auto& rowset : compaction._input_rowsets) {
+        if (rowset->num_rows() != 0 &&
+            std::find(merged.begin(), merged.end(), rowset) == merged.end()) {
+            dropped_bytes += rowset->total_disk_size();
+        }
+    }
+    EXPECT_EQ(dropped_bytes, 1024 + 4096);
+
+    const auto before = changelog_ttl_cleanup_metrics();
+    const int64_t started_s = UnixSeconds();
+    compaction.record_changelog_ttl_cleanup(true);
+    const auto succeeded = changelog_ttl_cleanup_metrics();
+    EXPECT_EQ(succeeded.successes, before.successes + 1);
+    EXPECT_EQ(succeeded.failures, before.failures);
+    EXPECT_EQ(succeeded.reclaimed_bytes, before.reclaimed_bytes + dropped_bytes);
+    EXPECT_GE(succeeded.last_success_s, started_s);
+    EXPECT_LE(succeeded.last_success_s, UnixSeconds());
+
+    // A cleanup that fails reclaims nothing and leaves the time of the last success as it is.
+    DorisMetrics::instance()->changelog_ttl_last_success_timestamp_seconds->set_value(1);
+    compaction.record_changelog_ttl_cleanup(false);
+    const auto failed = changelog_ttl_cleanup_metrics();
+    EXPECT_EQ(failed.successes, succeeded.successes);
+    EXPECT_EQ(failed.failures, succeeded.failures + 1);
+    EXPECT_EQ(failed.reclaimed_bytes, succeeded.reclaimed_bytes);
+    EXPECT_EQ(failed.last_success_s, 1);
+
+    // A compaction that drops no expired changelog is no cleanup, whichever way it ends: one whose inputs hold none,
+    // and one that took no TTL snapshot.
+    TestableCumulativeCompactionMixin nothing_expired(storage_engine, tablet);
+    nothing_expired.snapshot_changelog_ttl();
+    nothing_expired.set_input_rowsets({empty, retained, invisible});
+    TestableCumulativeCompactionMixin without_reference(storage_engine, tablet);
+    without_reference.set_input_rowsets({empty, expired, retained, expired_again});
+    for (auto* other : {&nothing_expired, &without_reference}) {
+        other->record_changelog_ttl_cleanup(true);
+        other->record_changelog_ttl_cleanup(false);
+    }
+    const auto unchanged = changelog_ttl_cleanup_metrics();
+    EXPECT_EQ(unchanged.successes, failed.successes);
+    EXPECT_EQ(unchanged.failures, failed.failures);
+    EXPECT_EQ(unchanged.reclaimed_bytes, failed.reclaimed_bytes);
+    EXPECT_EQ(unchanged.last_success_s, failed.last_success_s);
 }
 
 } // namespace doris

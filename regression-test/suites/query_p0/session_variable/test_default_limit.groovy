@@ -287,6 +287,21 @@ suite('test_default_limit', "arrow_flight_sql") {
 
     }
 
+    // A CTE referenced by both UNION ALL branches is materialized. The session
+    // limit must be applied to the CTE result branch, not to its producer.
+    sql 'set enable_cte_materialize = true'
+    sql 'set inline_cte_referenced_threshold = 1'
+    sql 'set default_order_by_limit = -1'
+    sql 'set sql_select_limit = 1'
+    order_qt_sql_select_limit_on_materialized_cte '''
+        with cte as (
+            select k1 from baseall where k1 = 1
+        )
+        select k1 from cte
+        union all
+        select k1 from cte
+    '''
+
     // test dml
     sql 'set default_order_by_limit = -1'
     sql 'set sql_select_limit = 1'

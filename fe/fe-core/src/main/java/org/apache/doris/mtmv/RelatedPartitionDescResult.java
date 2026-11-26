@@ -19,10 +19,14 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class RelatedPartitionDescResult {
@@ -30,11 +34,13 @@ public class RelatedPartitionDescResult {
     private Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs;
     private Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items;
     private Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res;
+    private final Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots;
 
-    public RelatedPartitionDescResult() {
+    RelatedPartitionDescResult(Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) {
         this.descs = Maps.newHashMap();
         this.items = Maps.newHashMap();
         this.res = Maps.newHashMap();
+        this.pinnedSnapshots = pinnedSnapshots;
     }
 
     public Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> getDescs() {
@@ -62,5 +68,11 @@ public class RelatedPartitionDescResult {
     public void setRes(
             Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res) {
         this.res = res;
+    }
+
+    public Optional<MvccSnapshot> resolveSnapshot(MTMVRelatedTableIf table) {
+        return pinnedSnapshots == null
+                ? MvccUtil.getSnapshotFromContext(table)
+                : Optional.ofNullable(pinnedSnapshots.get(new MvccTableInfo(table)));
     }
 }

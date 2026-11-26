@@ -41,4 +41,21 @@ under the License.
             <version>${project.version}</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <resources>
+            <!-- Default resource root, restated because declaring <resources> replaces the default. -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              plugin API version file and can never rewrite a service descriptor by accident.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+    </build>
 </project>

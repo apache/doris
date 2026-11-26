@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_disable_root_variant_match", "p0") {
+    def variantV2Function = "parse_to_variant"
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
@@ -26,10 +27,15 @@ suite("test_disable_root_variant_match", "p0") {
     sql """
         CREATE TABLE test_disable_root_variant_match_tbl (
             `id` INT NOT NULL,
+            `response_body` TEXT NULL,
             `response` variant<
                 MATCH_NAME 'msg' : string,
                 properties("variant_max_subcolumns_count" = "16")
             > NULL,
+            INDEX idx_response_body (response_body) USING INVERTED PROPERTIES(
+                "parser" = "unicode",
+                "lower_case" = "true"
+            ),
             INDEX idx_response (response) USING INVERTED PROPERTIES(
                 "parser" = "unicode",
                 "field_pattern" = "msg",
@@ -45,9 +51,9 @@ suite("test_disable_root_variant_match", "p0") {
     """
 
     sql """INSERT INTO test_disable_root_variant_match_tbl VALUES
-        (1, '{"msg": "doris community"}'),
-        (2, '{"msg": "apache software"}'),
-        (3, '{"msg": "doris variant index"}')
+        (1, 'doris community', ${variantV2Function}('{"msg": "doris community"}')),
+        (2, 'apache software', ${variantV2Function}('{"msg": "apache software"}')),
+        (3, 'doris variant index', ${variantV2Function}('{"msg": "doris variant index"}'))
     """
 
     sql "sync"
@@ -58,6 +64,17 @@ suite("test_disable_root_variant_match", "p0") {
             SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
             FROM test_disable_root_variant_match_tbl
             WHERE response MATCH 'doris'
+            ORDER BY id
+        """
+        exception "VARIANT root column does not support MATCH"
+    }
+
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
+            FROM test_disable_root_variant_match_tbl
+            WHERE response_body MATCH_ANY 'doris'
+                OR response MATCH_ANY 'doris'
             ORDER BY id
         """
         exception "VARIANT root column does not support MATCH"

@@ -19,6 +19,8 @@ suite('push_down_filter_through_set_operation_with_unique_function') {
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
+    sql 'SET enable_spill = false'
+    sql 'SET enable_force_spill = false'
     sql 'SET parallel_pipeline_task_num=2'
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
     sql "SET detail_shape_nodes='PhysicalProject'"

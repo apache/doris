@@ -60,6 +60,7 @@ class CreateTableCommandTest {
                     () -> command.run(context, executor));
 
             sinkMock.verifyNoInteractions();
+            Mockito.verify(command, Mockito.never()).validateCreateTableProperties(context);
             Mockito.verify(env).createTable(createTableInfo);
         }
     }
@@ -77,6 +78,7 @@ class CreateTableCommandTest {
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doNothing().when(command).validateCreateTableProperties(context);
         Mockito.doReturn(false).when(command).targetTableExists(context);
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
@@ -112,6 +114,7 @@ class CreateTableCommandTest {
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doNothing().when(command).validateCreateTableProperties(context);
         Mockito.doReturn(true).when(command).targetTableExists(context);
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
@@ -122,6 +125,42 @@ class CreateTableCommandTest {
                     Exception.class, () -> command.run(context, executor));
 
             org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("already exists"));
+            sinkMock.verifyNoInteractions();
+            Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
+            Mockito.verify(env, Mockito.never()).dropTable(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        }
+    }
+
+    @Test
+    void ctasConfigurationPreflightPrecedesTargetLookup() throws Exception {
+        LogicalPlan query = Mockito.mock(LogicalPlan.class);
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Env env = Mockito.mock(Env.class);
+        List<String> tableNameParts = ImmutableList.of("catalog", "database", "target");
+
+        Mockito.when(createTableInfo.getTableNameParts()).thenReturn(tableNameParts);
+        Mockito.when(createTableInfo.getTableName()).thenReturn("target");
+        CreateTableCommand command = Mockito.spy(
+                new CreateTableCommand(Optional.of(query), createTableInfo));
+        Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doThrow(new UserException("unsupported catalog configuration"))
+                .when(command).validateCreateTableProperties(context);
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<UnboundTableSinkCreator> sinkMock =
+                        Mockito.mockStatic(UnboundTableSinkCreator.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            Exception exception = org.junit.jupiter.api.Assertions.assertThrows(
+                    Exception.class, () -> command.run(context, executor));
+
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    exception.getMessage().contains("unsupported catalog configuration"));
+            Mockito.verify(command, Mockito.never()).targetTableExists(context);
             sinkMock.verifyNoInteractions();
             Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
             Mockito.verify(env, Mockito.never()).dropTable(

@@ -33,8 +33,9 @@ namespace doris {
 
 struct MockUnionSourceOperator : public UnionSourceOperatorX {
     MockUnionSourceOperator(int32_t child_size, DataTypes types, ObjectPool* pool)
-            : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {}
-    RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
+            : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {
+        _row_descriptor = _mock_row_descriptor;
+    }
     MockRowDescriptor _mock_row_descriptor;
 };
 

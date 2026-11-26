@@ -145,9 +145,12 @@ public class ModifyPartitionOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Modify partition does not change schema, allow on row binlog tables.
-        return true;
+    public boolean allowOnChangelogTable() {
+        // Moving only one member of a base/changelog pair can break their backend/path locality.
+        // Other partition properties, such as replica allocation, remain safe to modify.
+        return properties.keySet().stream().noneMatch(key ->
+                key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
+                        || key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME));
     }
 
     @Override

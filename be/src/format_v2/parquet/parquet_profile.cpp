@@ -22,6 +22,33 @@
 
 namespace doris::format::parquet {
 
+const ParquetProfile& ParquetProfileCache::get() {
+    std::call_once(_initialized, [this] { _counters.init(_profile); });
+    return _counters;
+}
+
+ParquetProfileCache* ParquetProfileCache::get_child_cache(RuntimeProfile* child_profile) {
+    std::lock_guard lock(_children_mutex);
+    auto& cache = _children[child_profile];
+    if (cache == nullptr) {
+        cache = std::make_unique<ParquetProfileCache>(child_profile);
+    }
+    return cache.get();
+}
+
+namespace {
+
+std::shared_ptr<RuntimeProfile::Counter> add_persistent_counter(RuntimeProfile* profile,
+                                                                const std::string& name,
+                                                                TUnit::type type,
+                                                                const std::string& parent) {
+    // A shredded Variant may be materialized after its scanner profile is destroyed. Keep the
+    // counter storage alive with the column state instead of retaining a dangling profile pointer.
+    return profile->add_shared_counter(name, type, parent, 1);
+}
+
+} // namespace
+
 void ParquetProfile::init(RuntimeProfile* profile) {
     if (profile == nullptr) {
         return;
@@ -31,6 +58,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
     static const char* parquet_profile = "ParquetReader";
     total_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, parquet_profile, file_scan_profile::FILE_READER, 1);
+    refresh_scan_request_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "RefreshScanRequestTime", parquet_profile, 1);
 
     // Row-group counters are part of the long-standing ParquetReader profile contract. Keep them
     // below the format node so profile parsers and operators can attribute pruning to Parquet.
@@ -54,6 +83,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                        parquet_profile, 1);
     filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByPage", TUnit::UNIT,
                                                       parquet_profile, 1);
+    variant_leaf_projections = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantLeafProjections",
+                                                            TUnit::UNIT, parquet_profile, 1);
+    variant_leaf_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantLeafProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
+    variant_full_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantFullProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
     data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DataPageFilterSkipBytes",
@@ -86,6 +121,36 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "LevelOnlySkipTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
+    auto variant = std::make_shared<ParquetVariantProfile>();
+    variant->variant_reconstruction_time = add_persistent_counter(
+            profile, "VariantReconstructionTime", TUnit::TIME_NS, parquet_profile);
+    variant->variant_reconstructed_rows = add_persistent_counter(
+            profile, "VariantReconstructedRows", TUnit::UNIT, parquet_profile);
+    variant->variant_unshredded_direct_import_time = add_persistent_counter(
+            profile, "VariantUnshreddedDirectImportTime", TUnit::TIME_NS, parquet_profile);
+    variant->variant_unshredded_direct_import_rows = add_persistent_counter(
+            profile, "VariantUnshreddedDirectImportRows", TUnit::UNIT, parquet_profile);
+    variant->variant_unshredded_direct_import_bytes = add_persistent_counter(
+            profile, "VariantUnshreddedDirectImportBytes", TUnit::BYTES, parquet_profile);
+    variant->variant_unshredded_direct_seek_time = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekTime", TUnit::TIME_NS, parquet_profile);
+    variant->variant_unshredded_direct_seek_rows = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekRows", TUnit::UNIT, parquet_profile);
+    variant->variant_unshredded_direct_seek_bytes = add_persistent_counter(
+            profile, "VariantUnshreddedDirectSeekBytes", TUnit::BYTES, parquet_profile);
+    variant->variant_unshredded_prefix_reuse_rows = add_persistent_counter(
+            profile, "VariantUnshreddedPrefixReuseRows", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_subtree_rows = add_persistent_counter(
+            profile, "VariantDirectSubtreeRows", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_leaf_rows =
+            add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_leaf_path_misses = add_persistent_counter(
+            profile, "VariantDirectLeafPathMisses", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_leaf_residual_fallbacks = add_persistent_counter(
+            profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_leaf_unsupported_fallbacks = add_persistent_counter(
+            profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile);
+    variant_counters = std::move(variant);
     hybrid_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionBatches",
                                                             TUnit::UNIT, parquet_profile, 1);
     hybrid_selection_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HybridSelectionRanges",
@@ -221,6 +286,14 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                              TUnit::UNIT, parquet_profile, 1);
     rows_filtered_by_dict_filter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByDictFilter",
                                                                 TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_probe_attempts = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BloomFilterProbeAttempts",
+                                                               TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_probe_successes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterProbeSuccesses", TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_conservative_fallbacks = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterConservativeFallbacks", TUnit::UNIT, parquet_profile, 1);
+    bloom_filter_corrupt_rejections = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "BloomFilterCorruptRejections", TUnit::UNIT, parquet_profile, 1);
     bloom_filter_read_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "BloomFilterReadTime", parquet_profile, 1);
 }
@@ -242,6 +315,11 @@ void ParquetProfile::update_pruning_stats(const ParquetPruningStats& pruning_sta
     COUNTER_UPDATE(filtered_bytes, pruning_stats.filtered_bytes);
     COUNTER_UPDATE(filtered_page_rows, pruning_stats.filtered_page_rows);
     COUNTER_UPDATE(page_index_read_calls, pruning_stats.page_index_read_calls);
+    COUNTER_UPDATE(bloom_filter_probe_attempts, pruning_stats.bloom_filter_probe_attempts);
+    COUNTER_UPDATE(bloom_filter_probe_successes, pruning_stats.bloom_filter_probe_successes);
+    COUNTER_UPDATE(bloom_filter_conservative_fallbacks,
+                   pruning_stats.bloom_filter_conservative_fallbacks);
+    COUNTER_UPDATE(bloom_filter_corrupt_rejections, pruning_stats.bloom_filter_corrupt_rejections);
     COUNTER_UPDATE(bloom_filter_read_time, pruning_stats.bloom_filter_read_time);
     COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
     COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);
@@ -256,6 +334,7 @@ void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pr
                                                    bool selected) const {
     const int64_t filtered = selected ? 0 : 1;
     COUNTER_UPDATE(filtered_row_groups, filtered);
+    COUNTER_UPDATE(filtered_row_groups_by_min_max, pruning_stats.filtered_row_groups_by_statistics);
     COUNTER_UPDATE(filtered_row_groups_by_dictionary,
                    pruning_stats.filtered_row_groups_by_dictionary);
     COUNTER_UPDATE(filtered_row_groups_by_bloom_filter,
@@ -270,6 +349,11 @@ void ParquetProfile::update_deferred_pruning_stats(const ParquetPruningStats& pr
     COUNTER_UPDATE(filtered_bytes, pruning_stats.filtered_bytes);
     COUNTER_UPDATE(filtered_page_rows, pruning_stats.filtered_page_rows);
     COUNTER_UPDATE(page_index_read_calls, pruning_stats.page_index_read_calls);
+    COUNTER_UPDATE(bloom_filter_probe_attempts, pruning_stats.bloom_filter_probe_attempts);
+    COUNTER_UPDATE(bloom_filter_probe_successes, pruning_stats.bloom_filter_probe_successes);
+    COUNTER_UPDATE(bloom_filter_conservative_fallbacks,
+                   pruning_stats.bloom_filter_conservative_fallbacks);
+    COUNTER_UPDATE(bloom_filter_corrupt_rejections, pruning_stats.bloom_filter_corrupt_rejections);
     COUNTER_UPDATE(bloom_filter_read_time, pruning_stats.bloom_filter_read_time);
     COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
     COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);
@@ -295,6 +379,7 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .level_only_read_time = level_only_read_time,
             .level_only_skip_time = level_only_skip_time,
             .materialization_time = materialization_time,
+            .variant_counters = variant_counters,
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,
             .hybrid_selection_null_fallback_batches = hybrid_selection_null_fallback_batches,

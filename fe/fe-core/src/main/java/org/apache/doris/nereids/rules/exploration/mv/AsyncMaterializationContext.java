@@ -26,6 +26,9 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -34,12 +37,13 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -56,6 +60,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
     private Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMultiFlatMap;
+    private final Map<List<String>, Set<String>> coveredQueryUsedBaseTablePartitionMap = new HashMap<>();
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -68,6 +73,29 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     public MTMV getMtmv() {
         return mtmv;
+    }
+
+    @Override
+    public void tryGenerateScanPlan(CascadesContext cascadesContext) {
+        super.tryGenerateScanPlan(cascadesContext);
+        if (!isAvailable()) {
+            return;
+        }
+        Multimap<Expression, Expression> mapping = shuttledExprToScanExprMapping.getExpressionMapping();
+        for (Expression expression : planOutputShuttledExpressions) {
+            if (!(expression instanceof NonNullable) || !(expression.child(0) instanceof SlotReference)
+                    || mapping.containsKey(expression.child(0))) {
+                continue;
+            }
+            // A successful non_nullable(slot) materialization preserves the slot's values. This
+            // mapping is local to the MV and does not make the source column globally non-nullable.
+            for (Expression target : mapping.get(expression)) {
+                if (!target.nullable() && target.getDataType().equals(expression.child(0).getDataType())) {
+                    mapping.put(expression.child(0), target);
+                    break;
+                }
+            }
+        }
     }
 
     @Override
@@ -184,12 +212,19 @@ public class AsyncMaterializationContext extends MaterializationContext {
     /**
      * Calculate partition mappings and cache
      */
-    public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings() throws AnalysisException {
-        if (partitionMultiFlatMap != null) {
+    public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
+        Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap
+                = mtmv.getEffectiveQueryUsedBaseTablePartitionMap(queryUsedBaseTablePartitionMap);
+        Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+        if (isPartitionMappingsCovered(effectiveQueryUsedBaseTablePartitionMap, pctTables)) {
             return partitionMultiFlatMap;
         }
-        partitionMultiFlatMap = new HashMap<>();
-        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap = this.mtmv.calculatePartitionMappings();
+        if (partitionMultiFlatMap == null) {
+            partitionMultiFlatMap = new HashMap<>();
+        }
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap
+                = this.mtmv.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         for (Map.Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMultiMap.entrySet()) {
             String partitionKey = entry.getKey();
             Map<MTMVRelatedTableIf, Set<String>> tableMap = entry.getValue();
@@ -202,6 +237,58 @@ public class AsyncMaterializationContext extends MaterializationContext {
                         .addAll(set);
             }
         }
+        mergeCoveredPartitions(effectiveQueryUsedBaseTablePartitionMap, pctTables);
         return partitionMultiFlatMap;
+    }
+
+    private boolean isPartitionMappingsCovered(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap,
+            Set<MTMVRelatedTableIf> pctTables) {
+        if (partitionMultiFlatMap == null) {
+            return false;
+        }
+        for (MTMVRelatedTableIf pctTable : pctTables) {
+            List<String> tableQualifiers = pctTable.getFullQualifiers();
+            Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
+                    ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
+                    : null;
+            if (!isTableCovered(tableQualifiers, queryUsedPartitions)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isTableCovered(List<String> tableQualifiers, Set<String> queryUsedPartitions) {
+        if (!coveredQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)) {
+            return false;
+        }
+        Set<String> coveredPartitions = coveredQueryUsedBaseTablePartitionMap.get(tableQualifiers);
+        if (coveredPartitions == null) {
+            return true;
+        }
+        return queryUsedPartitions != null && coveredPartitions.containsAll(queryUsedPartitions);
+    }
+
+    private void mergeCoveredPartitions(Map<List<String>, Set<String>> effectiveQueryUsedBaseTablePartitionMap,
+            Set<MTMVRelatedTableIf> pctTables) {
+        for (MTMVRelatedTableIf pctTable : pctTables) {
+            List<String> tableQualifiers = pctTable.getFullQualifiers();
+            Set<String> queryUsedPartitions = effectiveQueryUsedBaseTablePartitionMap.containsKey(tableQualifiers)
+                    ? effectiveQueryUsedBaseTablePartitionMap.get(tableQualifiers)
+                    : null;
+            List<String> copiedQualifiers = new ArrayList<>(tableQualifiers);
+            if (queryUsedPartitions == null) {
+                coveredQueryUsedBaseTablePartitionMap.put(copiedQualifiers, null);
+                continue;
+            }
+            if (!coveredQueryUsedBaseTablePartitionMap.containsKey(copiedQualifiers)) {
+                coveredQueryUsedBaseTablePartitionMap.put(copiedQualifiers, new HashSet<>(queryUsedPartitions));
+                continue;
+            }
+            Set<String> coveredPartitions = coveredQueryUsedBaseTablePartitionMap.get(copiedQualifiers);
+            if (coveredPartitions != null) {
+                coveredPartitions.addAll(queryUsedPartitions);
+            }
+        }
     }
 }

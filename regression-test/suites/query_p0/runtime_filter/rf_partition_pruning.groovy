@@ -24,12 +24,10 @@ import org.apache.doris.regression.action.ProfileAction
 // sessions, so heavy parallel traffic could evict our profile before the
 // poller finds it. Running serially keeps the assertions deterministic.
 suite("rf_partition_pruning", "nonConcurrent") {
-    // Disable the legacy RuntimeFilterPruner: it strips RFs whose effectiveness
-    // cannot be statistically verified, and the small INSERT-only tables in
-    // this suite have no analyzed column stats, so the pruner would otherwise
-    // drop every RF and the partition-pruning counters under test would never
-    // populate.
-    sql "set enable_runtime_filter_prune=false;"
+    // Keep RuntimeFilterPruner enabled so this suite also verifies that partition-pruning
+    // filters survive its row-selectivity checks when column statistics are unavailable.
+    sql "set enable_runtime_filter_prune=true;"
+    sql "set enable_runtime_filter_bucket_prune=false"
 
     // ---- Profile utilities ----
     def profileAction = new ProfileAction(context)
@@ -70,6 +68,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
     def rfPruningSessionVarNames = [
         "enable_runtime_filter_prune",
         "enable_runtime_filter_partition_prune",
+        "enable_runtime_filter_bucket_prune",
         "runtime_filter_wait_infinitely",
         "disable_join_reorder",
         "enable_profile",
@@ -81,8 +80,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     ]
 
     def rfPruningExpectedSessionVars = [
-        "enable_runtime_filter_prune": "false",
+        "enable_runtime_filter_prune": "true",
         "enable_runtime_filter_partition_prune": "true",
+        "enable_runtime_filter_bucket_prune": "false",
         "runtime_filter_wait_infinitely": "true",
         "disable_join_reorder": "true",
         "enable_profile": "true",

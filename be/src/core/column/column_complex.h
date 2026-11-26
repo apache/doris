@@ -63,11 +63,10 @@ public:
 
     void insert_binary_data(const char* pos, size_t length) {
         insert_default();
-        value_type* pvalue = &get_element(size() - 1);
         if (!length) {
-            *pvalue = *reinterpret_cast<const value_type*>(pos);
             return;
         }
+        value_type* pvalue = &get_element(size() - 1);
 
         if constexpr (T == TYPE_BITMAP) {
             pvalue->deserialize(pos);

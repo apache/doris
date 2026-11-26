@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -101,7 +102,9 @@ public class ShowProcessListCommand extends ShowCommand {
                     try {
                         TShowProcessListResult result = client.showProcessList(request);
                         if (result.process_list != null && result.process_list.size() > 0) {
-                            rowSet.addAll(result.process_list);
+                            for (List<String> row : result.process_list) {
+                                rowSet.add(fitToColumns(row, PROCESSLIST_META_DATA.getColumnCount()));
+                            }
                         }
                         isReturnToPool = true;
                     } catch (Exception e) {
@@ -120,6 +123,25 @@ public class ShowProcessListCommand extends ShowCommand {
         }
 
         return new ShowResultSet(getMetaData(), rowSet);
+    }
+
+    /**
+     * A row from another frontend has that frontend's columns, which differ from this one's while the
+     * cluster runs two versions: an older frontend's row ends before the columns added since (Protocol),
+     * a newer one's has columns this frontend does not know. Fit it to the local column list so the
+     * result set stays rectangular: pad with empty strings, drop the surplus.
+     */
+    @VisibleForTesting
+    static List<String> fitToColumns(List<String> row, int columnCount) {
+        if (row.size() == columnCount) {
+            return row;
+        }
+        List<String> fitted = Lists.newArrayListWithCapacity(columnCount);
+        fitted.addAll(row.subList(0, Math.min(row.size(), columnCount)));
+        while (fitted.size() < columnCount) {
+            fitted.add("");
+        }
+        return fitted;
     }
 
     @Override

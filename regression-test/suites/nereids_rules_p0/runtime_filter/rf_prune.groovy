@@ -21,6 +21,8 @@ suite("rf_prune") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set enable_runtime_filter_prune=true;"
+    sql "set enable_runtime_filter_partition_prune=false"
+    sql "set enable_runtime_filter_bucket_prune=false"
     sql "set disable_join_reorder=true"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 

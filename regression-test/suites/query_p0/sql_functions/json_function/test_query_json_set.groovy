@@ -120,4 +120,57 @@ suite("test_query_json_set", "query") {
         sql "select json_set('1', '\$.', 4);"
         exception "Json path error: Invalid Json Path for value"
     }
+
+    // arguments must be a JSON document followed by path/value pairs, so an even count is rejected by FE
+    test {
+        sql "select json_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "select json_set('{}', '\$.a', 1, '\$.b', 2, '\$.c');"
+        exception "number of arguments must be odd, but got 6"
+    }
+
+    test {
+        sql "select jsonb_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "explain select json_set('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+    qt_set_odd_arity_ok """select json_set('{}', '\$.a', 1), json_set('{}', '\$.a', 1, '\$.b', 2), jsonb_set('{}', '\$.a', 1, '\$.b', 2);"""
+
+    // Setting a missing member on a nested object must keep the members that follow it.
+    order_qt_set_nested_sibling """select json_set('{"a":{},"b":2}', '\$.a.c', 1);"""
+    order_qt_set_nested_sibling_nonempty """select json_set('{"a":{"d":4},"b":2}', '\$.a.c', 1);"""
+    order_qt_set_nested_sibling_before """select json_set('{"b":2,"a":{}}', '\$.a.c', 1);"""
+    order_qt_set_deep_nested_sibling """select json_set('{"a":{"b":{}},"x":1}', '\$.a.b.c', 1);"""
+
+    sql "DROP TABLE IF EXISTS test_query_json_set_nested_sibling"
+    sql """
+            CREATE TABLE test_query_json_set_nested_sibling (
+              `id` int(11) not null,
+              `j` json
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+    sql """
+        insert into test_query_json_set_nested_sibling values
+            (1, '{"a":{},"b":2}'),
+            (2, '{"b":2,"a":{}}'),
+            (3, '{"a":{"d":4},"b":2}');
+    """
+    order_qt_set_nested_sibling_json_col """
+        select id, json_set(j, '\$.a.c', 1) as v
+        from test_query_json_set_nested_sibling order by id;
+    """
 }

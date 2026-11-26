@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -164,14 +164,14 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -182,29 +182,24 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
+                        orderKey -> orderKey.getDataType().isObjectType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
+                        partitionKey -> partitionKey.getDataType().isObjectType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (containsVariantTypeOutsideCast(conjunct)) {
-                    throw new AnalysisException("variant type could not in join equal conditions: "
-                            + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                if (comparesVarBinary(conjunct)) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
-                if (containsVariantTypeOutsideCast(conjunct)) {
-                    throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
-                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                if (comparesVarBinary(conjunct)) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }
@@ -212,21 +207,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         }
     }
 
-    private boolean containsVariantTypeOutsideCast(Expression expr) {
-        return containsVariantTypeOutsideCast(expr, false);
-    }
-
-    private boolean containsVariantTypeOutsideCast(Expression expr, boolean underCast) {
-        boolean nextUnderCast = underCast || (expr instanceof Cast && !expr.getDataType().isVariantType());
-        if (!nextUnderCast && expr.getDataType().isVariantType()) {
-            return true;
-        }
-        for (Expression child : expr.children()) {
-            if (containsVariantTypeOutsideCast(child, nextUnderCast)) {
-                return true;
-            }
-        }
-        return false;
+    // BE cannot hash or compare VARBINARY values, but a join condition may compare strings cast from VARBINARY,
+    // such as CAST(X'FF' AS STRING) = s, so only the compared operands are checked.
+    private static boolean comparesVarBinary(Expression conjunct) {
+        return conjunct.anyMatch(e -> e instanceof ComparisonPredicate && ((ComparisonPredicate) e).children()
+                .stream().anyMatch(operand -> operand.getDataType().isVarBinaryType()));
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

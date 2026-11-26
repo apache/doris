@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -49,24 +50,38 @@ class VariantEqualityContextTest extends TestWithFeService {
                 "SELECT * FROM t1 JOIN t2 ON CAST(t1.v AS STRING) = CAST(t2.v AS STRING)",
                 "SELECT v FROM t1 INTERSECT SELECT v FROM t2",
                 "SELECT v FROM t1 EXCEPT SELECT v FROM t2",
-                "SELECT v FROM t1 UNION SELECT v FROM t2");
-        assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
+                "SELECT v FROM t1 UNION SELECT v FROM t2",
+                "SELECT COUNT(DISTINCT v) FROM t1");
     }
 
     @Test
-    void testRejectedVariantComparisons() {
-        assertVariantComparisonRejected("SELECT v = v FROM t1");
-        assertVariantComparisonRejected("SELECT v != v FROM t1");
-        assertVariantComparisonRejected("SELECT v <=> v FROM t1");
+    void testRejectedVariantOrderingAndMixedComparisons() {
         assertVariantComparisonRejected("SELECT v = k FROM t1");
         assertVariantComparisonRejected("SELECT v > v FROM t1");
-        assertVariantComparisonRejected("SELECT * FROM t1 WHERE v = v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v <=> t2.v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v AND t1.k = t2.k");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k");
-        assertVariantComparisonRejected("SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1");
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
+    }
+
+    @Test
+    void testVariantEquality() {
+        assertAllAccepted(
+                "SELECT v = v, v != v, v <=> v FROM t1",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
+                "SELECT * FROM t1 LEFT JOIN t2 ON t1.v <=> t2.v",
+                "SELECT * FROM t1 FULL JOIN t2 ON t1.v = t2.v AND t1.k = t2.k",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k",
+                "SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1",
+                "SELECT * FROM t1 WHERE v IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 WHERE v NOT IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 JOIN t2 ON t1.v['id'] = t2.v['id']");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.k");
+    }
+
+    @Test
+    void testVariantOrdering() {
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v");
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v LIMIT 10");
+        assertPlanAccepted("SELECT row_number() OVER (ORDER BY v) FROM t1");
     }
 
     @Test
@@ -87,6 +102,11 @@ class VariantEqualityContextTest extends TestWithFeService {
     private void assertAllAccepted(String... sqlStatements) {
         Assertions.assertAll(Arrays.stream(sqlStatements)
                 .map(sql -> (Executable) () -> assertAccepted(sql)));
+    }
+
+    private void assertPlanAccepted(String sql) {
+        connectContext.setQueryId(new TUniqueId(1, 1));
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).plan(sql), sql);
     }
 
     private void assertVariantComparisonRejected(String sql) {

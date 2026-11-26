@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,20 +30,36 @@ import java.util.Map;
  * <p>These properties are passed to BE via scan node properties so that
  * the text/CSV/JSON file reader can parse the data correctly.</p>
  *
- * <p>The property keys mirror the constants used in fe-core's
- * {@code HiveProperties} and {@code HiveMetaStoreClientHelper}.</p>
+ * <p>The output keys are the text-family keys declared in {@link ScanNodePropertyKeys} — they are shared
+ * with the engine rather than mirrored, so a mistyped suffix (which would silently disable that one
+ * attribute, e.g. leaving the whole row in the first column) is a compile error.</p>
+ *
+ * <p>Despite the name, this is <b>not</b> a catalog-properties class — those are
+ * {@link HiveCatalogProperties} (per catalog) and {@link HmsConf} (per FE). Its input keys are remote HMS
+ * table parameters and its output keys are a BE payload, so both sets belong to the single class that
+ * reads them, which is this one. That is also why its two numeric parses stay lenient: a garbage
+ * {@code skip.header.line.count} or LazySimpleSerDe delimiter keeps its historical fallback. CSV
+ * character properties instead follow OpenCSVSerde validation and the BE wire-format limits.</p>
  */
 public final class HiveTextProperties {
 
-    // SerDe library class names
+    // SerDe library class names. Must stay in sync with HiveFileFormat's detection set: every serde the
+    // detector classifies as TEXT/CSV/JSON needs a branch here, or its text params (delimiters etc.) are
+    // dropped and BE reads with defaults.
     public static final String HIVE_TEXT_SERDE =
             "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    // MultiDelimitSerDe exists under two package names across Hive versions; both read as FORMAT_TEXT.
     public static final String HIVE_MULTI_DELIMIT_SERDE =
             "org.apache.hadoop.hive.contrib.serde2.MultiDelimitSerDe";
+    public static final String HIVE_MULTI_DELIMIT_SERDE_SERDE2 =
+            "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
     public static final String HIVE_OPEN_CSV_SERDE =
             "org.apache.hadoop.hive.serde2.OpenCSVSerde";
     public static final String HIVE_JSON_SERDE =
             "org.apache.hive.hcatalog.data.JsonSerDe";
+    // Legacy hive-2 JSON serde; legacy fe-core maps it to FORMAT_JSON like the hcatalog one.
+    public static final String LEGACY_HIVE_JSON_SERDE =
+            "org.apache.hadoop.hive.serde2.JsonSerDe";
     public static final String OPENX_JSON_SERDE =
             "org.openx.data.jsonserde.JsonSerDe";
 
@@ -49,29 +68,43 @@ public final class HiveTextProperties {
     private static final String SERIALIZATION_FORMAT = "serialization.format";
     private static final String LINE_DELIM = "line.delim";
     private static final String MAPKEY_DELIM = "mapkey.delim";
+    // Hive3 uses "collection.delim"; Hive2 uses the historically misspelled "colelction.delim". Legacy
+    // fe-core checks both, so parity requires recognizing both.
     private static final String COLLECTION_DELIM = "collection.delim";
+    private static final String COLLECTION_DELIM_HIVE2 = "colelction.delim";
     private static final String ESCAPE_DELIM = "escape.delim";
     private static final String SERIALIZATION_NULL_FORMAT = "serialization.null.format";
     private static final String SKIP_HEADER_LINE_COUNT = "skip.header.line.count";
+    // OpenX JSON serde: skip malformed rows instead of erroring. Mirrors legacy
+    // HiveProperties.PROP_OPENX_IGNORE_MALFORMED_JSON / DEFAULT_OPENX_IGNORE_MALFORMED_JSON.
+    private static final String IGNORE_MALFORMED_JSON = "ignore.malformed.json";
+    private static final String DEFAULT_IGNORE_MALFORMED_JSON = "false";
+
+    // Default delimiters, mirroring legacy HiveProperties. These are byte values (Ctrl-A etc.), not the
+    // literal digit characters Hive stores them as in serialization.format / *.delim SerDe params.
+    private static final String DEFAULT_FIELD_DELIM = "\001";
+    private static final String DEFAULT_LINE_DELIM = "\n";
+    private static final String DEFAULT_MAPKV_DELIM = "\003";
+    private static final String DEFAULT_COLLECTION_DELIM = "\002";
+    private static final String DEFAULT_ESCAPE_DELIM = "\\";
+    private static final String DEFAULT_NULL_FORMAT = "\\N";
 
     // CSV SerDe property keys
     private static final String SEPARATOR_CHAR = "separatorChar";
     private static final String QUOTE_CHAR = "quoteChar";
     private static final String ESCAPE_CHAR = "escapeChar";
 
-    // Output property key prefix for scan node properties
-    public static final String PROP_PREFIX = "hive.text.";
-
     private HiveTextProperties() {
     }
 
     /**
      * Extracts text format properties from the SerDe parameters of a table or partition.
-     * Returns properties prefixed with {@link #PROP_PREFIX} for use in scan node properties.
+     * Returns properties keyed by the text-family scan node property keys declared in
+     * {@link ScanNodePropertyKeys} (all of them share {@link ScanNodePropertyKeys#TEXT_PROPERTY_PREFIX}).
      *
      * @param serDeLib  the SerDe library class name
      * @param sdParams  the StorageDescriptor / SerDeInfo parameters
-     * @param tableParams the table-level parameters (for skip.header.line.count)
+     * @param tableParams the table-level SerDe properties and skip.header.line.count
      * @return map of text properties, empty if not a text-based format
      */
     public static Map<String, String> extract(String serDeLib,
@@ -80,90 +113,146 @@ public final class HiveTextProperties {
         if (serDeLib == null) {
             return result;
         }
-        if (HIVE_TEXT_SERDE.equals(serDeLib) || HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)) {
-            extractTextSerDeProps(sdParams, result,
-                    HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib));
+        boolean multiDelimit = HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)
+                || HIVE_MULTI_DELIMIT_SERDE_SERDE2.equals(serDeLib);
+        if (HIVE_TEXT_SERDE.equals(serDeLib) || multiDelimit) {
+            extractTextSerDeProps(sdParams, tableParams, result, multiDelimit);
         } else if (HIVE_OPEN_CSV_SERDE.equals(serDeLib)) {
-            extractCsvSerDeProps(sdParams, result);
-        } else if (HIVE_JSON_SERDE.equals(serDeLib) || OPENX_JSON_SERDE.equals(serDeLib)) {
-            extractJsonSerDeProps(serDeLib, result);
+            extractCsvSerDeProps(sdParams, tableParams, result);
+        } else if (HIVE_JSON_SERDE.equals(serDeLib) || LEGACY_HIVE_JSON_SERDE.equals(serDeLib)
+                || OPENX_JSON_SERDE.equals(serDeLib)) {
+            extractJsonSerDeProps(serDeLib, sdParams, tableParams, result);
         } else {
             return result;
         }
 
         // Skip header count from table parameters
         int skipLines = getSkipHeaderCount(tableParams);
-        result.put(PROP_PREFIX + "skip_lines", String.valueOf(skipLines));
-        result.put(PROP_PREFIX + "serde_lib", serDeLib);
+        result.put(ScanNodePropertyKeys.TEXT_SKIP_LINES, String.valueOf(skipLines));
+        result.put(ScanNodePropertyKeys.TEXT_SERDE_LIB, serDeLib);
         return result;
     }
 
-    private static void extractTextSerDeProps(Map<String, String> params,
-            Map<String, String> result, boolean supportMultiChar) {
-        // Column separator
-        String fieldDelim = getFieldDelimiter(params, supportMultiChar);
-        result.put(PROP_PREFIX + "column_separator", fieldDelim);
+    private static void extractTextSerDeProps(Map<String, String> sdParams,
+            Map<String, String> tableParams, Map<String, String> result, boolean supportMultiChar) {
+        // Column separator. Hive stores single-char delimiters as their numeric byte value (the default
+        // LazySimpleSerDe field delimiter is serialization.format="1" == byte 0x01, NOT the character
+        // '1'), so they must be decoded via getByte(). MultiDelimitSerDe keeps its raw multi-char value.
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
+                getFieldDelimiter(sdParams, tableParams, supportMultiChar));
         // Line delimiter
-        result.put(PROP_PREFIX + "line_delimiter", getLineDelimiter(params));
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
+                getByte(serdeVal(sdParams, tableParams, LINE_DELIM), DEFAULT_LINE_DELIM));
         // MapKV delimiter
-        result.put(PROP_PREFIX + "mapkv_delimiter", getMapKvDelimiter(params));
-        // Collection delimiter
-        result.put(PROP_PREFIX + "collection_delimiter", getCollectionDelimiter(params));
-        // Escape delimiter
-        String escape = getParamOrDefault(params, ESCAPE_DELIM, null);
-        if (escape != null && !escape.isEmpty()) {
-            result.put(PROP_PREFIX + "escape", escape);
+        result.put(ScanNodePropertyKeys.TEXT_MAPKV_DELIMITER,
+                getByte(serdeVal(sdParams, tableParams, MAPKEY_DELIM), DEFAULT_MAPKV_DELIM));
+        // Collection delimiter (Hive2 "colelction.delim" typo first, then Hive3 "collection.delim")
+        result.put(ScanNodePropertyKeys.TEXT_COLLECTION_DELIMITER,
+                getByte(serdeVal(sdParams, tableParams, COLLECTION_DELIM_HIVE2, COLLECTION_DELIM),
+                        DEFAULT_COLLECTION_DELIM));
+        // Escape delimiter: emitted only when the SerDe sets it, decoded via getByte
+        String escape = serdeVal(sdParams, tableParams, ESCAPE_DELIM);
+        if (escape != null) {
+            result.put(ScanNodePropertyKeys.TEXT_ESCAPE, getByte(escape, DEFAULT_ESCAPE_DELIM));
         }
-        // Null format
-        result.put(PROP_PREFIX + "null_format",
-                getParamOrDefault(params, SERIALIZATION_NULL_FORMAT, "\\N"));
+        // Null format (raw string; NOT byte-decoded)
+        String nullFormat = serdeVal(sdParams, tableParams, SERIALIZATION_NULL_FORMAT);
+        result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, nullFormat != null ? nullFormat : DEFAULT_NULL_FORMAT);
     }
 
     private static void extractCsvSerDeProps(Map<String, String> params,
-            Map<String, String> result) {
-        result.put(PROP_PREFIX + "column_separator",
-                getParamOrDefault(params, SEPARATOR_CHAR, ","));
-        result.put(PROP_PREFIX + "line_delimiter", getLineDelimiter(params));
-        String quoteChar = getParamOrDefault(params, QUOTE_CHAR, "\"");
-        result.put(PROP_PREFIX + "enclose", quoteChar);
-        String escapeChar = getParamOrDefault(params, ESCAPE_CHAR, "\\");
-        result.put(PROP_PREFIX + "escape", escapeChar);
-        result.put(PROP_PREFIX + "null_format", "");
-    }
-
-    private static void extractJsonSerDeProps(String serDeLib,
-            Map<String, String> result) {
-        result.put(PROP_PREFIX + "column_separator", "\t");
-        result.put(PROP_PREFIX + "line_delimiter", "\n");
-        result.put(PROP_PREFIX + "is_json", "true");
-        result.put(PROP_PREFIX + "json_serde_lib", serDeLib);
-    }
-
-    private static String getFieldDelimiter(Map<String, String> params,
-            boolean supportMultiChar) {
-        String delim = getParamOrDefault(params, FIELD_DELIM, null);
-        if (delim == null || delim.isEmpty()) {
-            delim = getParamOrDefault(params, SERIALIZATION_FORMAT, null);
+            Map<String, String> tableParams, Map<String, String> result) {
+        // Trino stores CSV settings in table parameters. Honor Hive's table-over-SerDe precedence
+        // so valid CSV files are not silently split with the default delimiter and quote characters.
+        String separator = getCsvCharacter(params, tableParams, SEPARATOR_CHAR, ',');
+        String quoteChar = getCsvCharacter(params, tableParams, QUOTE_CHAR, '"');
+        String escapeChar = getCsvCharacter(params, tableParams, ESCAPE_CHAR, '"');
+        // Hive treats the writer-default double quote as a sentinel: newReader selects the constructor
+        // whose effective escape is backslash. Resolve it before validating the parser's character tuple.
+        if ("\"".equals(escapeChar)) {
+            escapeChar = "\\";
         }
-        if (delim == null || delim.isEmpty()) {
-            return "\001"; // Default Hive field delimiter (Ctrl-A)
+        if ("\0".equals(separator)) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde property 'separatorChar': must not be NUL");
         }
-        if (!supportMultiChar && delim.length() == 1) {
-            return delim;
+        // OpenCSV requires distinct active characters; NUL disables quote/escape and may be shared by both.
+        if (separator.equals(quoteChar) || separator.equals(escapeChar)
+                || (!"\0".equals(quoteChar) && quoteChar.equals(escapeChar))) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde configuration: "
+                    + "separatorChar, quoteChar and escapeChar must be distinct when non-NUL");
         }
-        return delim;
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR, separator);
+        // TextInputFormat owns physical records; neither table nor SerDe line.delim changes its reader.
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, DEFAULT_LINE_DELIM);
+        result.put(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV, "true");
+        // Smooth-upgrade sources may still use the pre-flag reader at the new query execution version.
+        result.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Hive OpenCSVSerde semantics");
+        result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
+        // BE's extra double-quote trimming is valid only for the effective double-quote enclosure.
+        result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf("\"".equals(quoteChar)));
+        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, escapeChar);
+        result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, "");
     }
 
-    private static String getLineDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, LINE_DELIM, "\n");
+    private static void extractJsonSerDeProps(String serDeLib, Map<String, String> sdParams,
+            Map<String, String> tableParams, Map<String, String> result) {
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR, "\t");
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, "\n");
+        result.put(ScanNodePropertyKeys.TEXT_IS_JSON, "true");
+        result.put(ScanNodePropertyKeys.TEXT_PROPERTY_PREFIX + "json_serde_lib", serDeLib);
+        // OpenX-only: skip malformed rows when the serde/table sets ignore.malformed.json (table-param over
+        // sd-param, default false). Mirrors legacy HiveScanNode's OPENX_JSON_SERDE branch — the hcatalog/hive2
+        // JSON serdes never carried this flag, so scope it to OpenX to keep exact legacy branch parity.
+        if (OPENX_JSON_SERDE.equals(serDeLib)) {
+            String ignoreMalformed = serdeVal(sdParams, tableParams, IGNORE_MALFORMED_JSON);
+            result.put(ScanNodePropertyKeys.TEXT_OPENX_IGNORE_MALFORMED,
+                    ignoreMalformed != null ? ignoreMalformed : DEFAULT_IGNORE_MALFORMED_JSON);
+        }
     }
 
-    private static String getMapKvDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, MAPKEY_DELIM, "\003");
+    private static String getFieldDelimiter(Map<String, String> sdParams,
+            Map<String, String> tableParams, boolean supportMultiChar) {
+        String delim = serdeVal(sdParams, tableParams, FIELD_DELIM, SERIALIZATION_FORMAT);
+        if (delim == null) {
+            delim = "";
+        }
+        // MultiDelimitSerDe delimiters may be multiple characters; keep them raw (no byte decode).
+        return supportMultiChar ? delim : getByte(delim, DEFAULT_FIELD_DELIM);
     }
 
-    private static String getCollectionDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, COLLECTION_DELIM, "\002");
+    /**
+     * Looks up a SerDe property mirroring legacy {@code HiveMetaStoreClientHelper.getSerdeProperty}:
+     * table parameters take precedence over StorageDescriptor/SerDeInfo parameters, and the keys are
+     * tried in order. An empty string counts as present. Returns {@code null} if no key is set.
+     */
+    private static String serdeVal(Map<String, String> sdParams, Map<String, String> tableParams,
+            String... keys) {
+        for (String key : keys) {
+            if (tableParams != null && tableParams.get(key) != null) {
+                return tableParams.get(key);
+            }
+            if (sdParams != null && sdParams.get(key) != null) {
+                return sdParams.get(key);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Decodes a Hive delimiter. Hive stores single-char delimiters as their numeric byte value
+     * ("1" == 0x01, "9" == 0x09); a non-numeric value is taken literally and truncated to its first
+     * character; an empty/absent value falls back to {@code defValue}. Mirrors legacy
+     * {@code HiveMetaStoreClientHelper.getByte}.
+     */
+    private static String getByte(String altValue, String defValue) {
+        if (altValue != null && !altValue.isEmpty()) {
+            try {
+                return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return defValue;
     }
 
     private static int getSkipHeaderCount(Map<String, String> tableParams) {
@@ -181,12 +270,28 @@ public final class HiveTextProperties {
         }
     }
 
-    private static String getParamOrDefault(Map<String, String> params,
-            String key, String defaultVal) {
-        if (params == null) {
-            return defaultVal;
+    private static String getCsvCharacter(Map<String, String> params, Map<String, String> tableParams,
+            String key, char defaultValue) {
+        String value = serdeVal(params, tableParams, key);
+        if (value == null) {
+            return Character.toString(defaultValue);
         }
-        String val = params.get(key);
-        return (val != null) ? val : defaultVal;
+        if (value.isEmpty()) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde property '" + key + "': value must not be empty");
+        }
+        // Hive uses charAt(0), not a complete string, Unicode code point, or numeric byte value.
+        // Validate only that effective character, after resolving table-over-SerDe precedence.
+        char character = value.charAt(0);
+        if (Character.isSurrogate(character)) {
+            throw new DorisConnectorException("Unsupported OpenCSVSerde property '" + key
+                    + "': the first Java character must not be a surrogate");
+        }
+        // Separator is a Thrift string, but quote/escape are i8 fields consumed as single UTF-8 bytes.
+        // Reject unrepresentable characters instead of silently passing only their first encoded byte.
+        if (!SEPARATOR_CHAR.equals(key) && character > 0x7f) {
+            throw new DorisConnectorException("Unsupported OpenCSVSerde property '" + key
+                    + "': the first character must be ASCII (a single UTF-8 byte)");
+        }
+        return Character.toString(character);
     }
 }

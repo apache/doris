@@ -189,10 +189,18 @@ ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
         return {};
     }
     const ::parquet::ApplicationVersion version(created_by);
+    const ::parquet::ApplicationVersion arrow_fixed_null_count_version("parquet-cpp-arrow", 6, 0,
+                                                                       0);
     return {.parquet_816_padding =
                     version.VersionLt(::parquet::ApplicationVersion::PARQUET_816_FIXED_VERSION()),
             .data_page_v2_always_compressed = version.VersionLt(
-                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION())};
+                    ::parquet::ApplicationVersion::PARQUET_CPP_10353_FIXED_VERSION()),
+            // Arrow <= 3 used parquet-cpp, then Arrow 4/5 used parquet-cpp-arrow before the fix.
+            .null_count_trusted =
+                    version.application_ != "parquet-cpp" &&
+                    !version.VersionLt(arrow_fixed_null_count_version) &&
+                    !version.VersionLt(
+                            ::parquet::ApplicationVersion::PARQUET_MR_FIXED_STATS_VERSION())};
 }
 
 Status compute_column_chunk_range(const tparquet::ColumnMetaData& metadata, size_t file_size,
@@ -581,8 +589,11 @@ bool visit_nullable_expandable_column(IColumn& column, Visitor&& visitor) {
     VISIT_COLUMN(ColumnFloat64)
     VISIT_COLUMN(ColumnIPv4)
     VISIT_COLUMN(ColumnIPv6)
+    VISIT_COLUMN(ColumnUUID)
     VISIT_COLUMN(ColumnTimeV2)
     VISIT_COLUMN(ColumnTimeStampTz)
+    // Nanos columns also support in-place NULL expansion; do not decode once per null run.
+    VISIT_COLUMN(ColumnTimeStampNs)
     VISIT_COLUMN(ColumnOffset32)
     VISIT_COLUMN(ColumnOffset64)
     VISIT_COLUMN(ColumnDecimal32)
@@ -681,6 +692,12 @@ void remap_nullable_conversion_failures(IColumn::Filter* conversion_failure_null
     DORIS_CHECK_EQ(source, 0);
 }
 
+Status decode_prepared_nullable_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       const NullMap& selected_nulls,
+                                       int64_t* materialization_time);
+
 Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& serde,
                                        Decoder& decoder, const ParquetDecodeContext& context,
                                        ParquetMaterializationState& state,
@@ -722,6 +739,16 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
     DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
     DORIS_CHECK_EQ(selected_nulls.size(),
                    select_vector.num_values() - select_vector.num_filtered());
+    return decode_prepared_nullable_values(column, serde, decoder, context, state, selected_nulls,
+                                           materialization_time);
+}
+
+Status decode_prepared_nullable_values(IColumn& column, const DataTypeSerDe& serde,
+                                       Decoder& decoder, const ParquetDecodeContext& context,
+                                       ParquetMaterializationState& state,
+                                       const NullMap& selected_nulls,
+                                       int64_t* materialization_time) {
+    auto& selection = state.selection;
 
     const size_t old_size = column.size();
     SCOPED_RAW_TIMER(materialization_time);
@@ -1736,6 +1763,49 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::supports_fused_nullable_selection(
+        IColumn& column) const {
+    return visit_nullable_expandable_column(column, [](auto&) {});
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_fused_nullable_values(
+        MutableColumnPtr& doris_column, const DataTypeSerDe& serde, ParquetDecodeContext& context,
+        ParquetMaterializationState& state, size_t num_values, size_t num_nulls,
+        const NullMap& selected_nulls) {
+    if (num_values == 0) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
+    DORIS_CHECK_GT(num_nulls, 0);
+    const size_t physical_values = num_values - num_nulls;
+    DORIS_CHECK_EQ(state.selection.total_values, physical_values);
+    DORIS_CHECK_LE(state.selection.selected_values, selected_nulls.size());
+    if (UNLIKELY(_empty_value_section && physical_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                physical_values);
+    }
+    if (UNLIKELY((doris_column->is_column_dictionary() || context.dictionary_index_only) &&
+                 !_has_dict && physical_values != 0)) {
+        return Status::IOError("Not dictionary coded");
+    }
+    if (UNLIKELY(_remaining_num_values < num_values)) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &context.encoding));
+
+    ++_chunk_statistics.hybrid_selection_batches;
+    const auto status = decode_prepared_nullable_values(*doris_column, serde, *_page_decoder,
+                                                        context, state, selected_nulls,
+                                                        &_chunk_statistics.materialization_time);
+    _chunk_statistics.hybrid_selection_ranges += state.selection.ranges.size();
+    RETURN_IF_ERROR(status);
+    _remaining_num_values -= num_values;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_values(
         const VExprSPtrs& conjuncts, int column_id, const DataTypeSerDe* serde,
         const ParquetDecodeContext* decode_context) const {
@@ -2063,6 +2133,7 @@ bool try_filter_and_project_fixed_width_dictionary(
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeStampTz)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv4)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv6)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnUUID)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset32)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset64)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal32)

@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exprs/vexpr.h"
 #include "format/table/deletion_vector.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -147,14 +148,16 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
         _compress_type = delete_sink.compress_type;
     }
 
-    // Get output path and table location
-    if (delete_sink.__isset.output_path) {
-        _output_path = delete_sink.output_path;
+    // Every FE version sends both forms of the data location (see IcebergOutputLocation). Without
+    // the table's own form the commit could only record the address BE wrote the file at, e.g.
+    // s3://b/db/t/data/delete_pos_x.parquet for an oss:// table, which other engines resolve with
+    // the wrong file system.
+    if (delete_sink.output_path.empty() || delete_sink.table_location.empty()) {
+        return Status::InternalError(
+                "Iceberg delete sink must carry output_path and table_location, got '{}' and '{}'",
+                delete_sink.output_path, delete_sink.table_location);
     }
-
-    if (delete_sink.__isset.table_location) {
-        _table_location = delete_sink.table_location;
-    }
+    _output_location.emplace(delete_sink.output_path, delete_sink.table_location);
 
     // Get Hadoop configuration
     if (delete_sink.__isset.hadoop_config) {
@@ -203,6 +206,8 @@ Status VIcebergDeleteSink::init_properties(ObjectPool* pool) {
 Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options()));
+
     // Initialize counters
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
@@ -219,7 +224,7 @@ Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
 
     LOG(INFO) << fmt::format(
             "VIcebergDeleteSink opened: delete_type={}, output_path={}, format_version={}",
-            to_string(_delete_type), _output_path, _format_version);
+            to_string(_delete_type), _t_sink.iceberg_delete_sink.output_path, _format_version);
 
     return Status::OK();
 }
@@ -283,13 +288,17 @@ Status VIcebergDeleteSink::close(Status close_status) {
                              _delete_file_count);
 
     if (_state != nullptr) {
-        for (const auto& commit_data : _commit_data_list) {
-            _state->add_iceberg_commit_datas(commit_data);
+        for (auto& commit_data : _commit_data_list) {
+            Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+            if (!report_status.ok()) {
+                _cleanup_created_files();
+                return report_status;
+            }
         }
     }
 
     if (!_defer_file_cleanup_until_outer_close) {
-        _created_files.clear();
+        _transfer_created_files_to_report_cleanup();
     }
 
     return Status::OK();
@@ -299,9 +308,22 @@ void VIcebergDeleteSink::finish_deferred_file_cleanup(Status outer_status) {
     if (!outer_status.ok()) {
         _cleanup_created_files();
     } else {
-        _created_files.clear();
+        _transfer_created_files_to_report_cleanup();
     }
     _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergDeleteSink::_transfer_created_files_to_report_cleanup() {
+    DCHECK(_state != nullptr);
+    for (auto& created_file : _created_files) {
+        _state->add_rejected_external_file_report_cleanup(
+                [cleanup_fs = std::move(created_file.first),
+                 cleanup_path = std::move(created_file.second)] {
+                    WARN_IF_ERROR(cleanup_fs->delete_file(cleanup_path),
+                                  "failed to delete an Iceberg delete file after report failure");
+                });
+    }
+    _created_files.clear();
 }
 
 void VIcebergDeleteSink::_cleanup_created_files() {
@@ -461,18 +483,16 @@ Status VIcebergDeleteSink::_collect_position_deletes(
 
 Status VIcebergDeleteSink::_write_position_delete_files(
         const std::map<std::string, IcebergFileDeletion>& file_deletions) {
+    DORIS_CHECK(_output_location.has_value());
     constexpr size_t kBatchSize = 4096;
     for (const auto& [data_file_path, deletion] : file_deletions) {
         if (deletion.rows_to_delete.isEmpty()) {
             continue;
         }
-        // Generate unique delete file path
-        std::string delete_file_path = _generate_delete_file_path(data_file_path);
-
         // Create delete file writer
         auto writer = VIcebergDeleteFileWriterFactory::create_writer(
-                TFileContent::POSITION_DELETES, delete_file_path, _file_format_type,
-                _compress_type);
+                TFileContent::POSITION_DELETES, *_output_location,
+                _delete_file_name(data_file_path), _file_format_type, _compress_type);
 
         // Build column names for position delete
         std::vector<std::string> column_names = {"file_path", "pos"};
@@ -486,7 +506,7 @@ Status VIcebergDeleteSink::_write_position_delete_files(
                 writer->open(_state, _state->runtime_profile(), _position_delete_output_expr_ctxs,
                              column_names, _hadoop_conf, _file_type, _broker_addresses);
         if (writer->file_system() != nullptr) {
-            _created_files.emplace_back(writer->file_system(), delete_file_path);
+            _created_files.emplace_back(writer->file_system(), writer->write_path());
         }
         RETURN_IF_ERROR(open_status);
 
@@ -523,7 +543,7 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         _delete_file_count++;
 
         VLOG(1) << fmt::format("Written position delete file: path={}, rows={}, referenced_file={}",
-                               delete_file_path, commit_data.row_count, data_file_path);
+                               writer->write_path(), commit_data.row_count, data_file_path);
     }
 
     return Status::OK();
@@ -623,6 +643,7 @@ std::string VIcebergDeleteSink::_get_file_extension() const {
 
 Status VIcebergDeleteSink::_write_deletion_vector_files(
         const std::map<std::string, IcebergFileDeletion>& file_deletions) {
+    DORIS_CHECK(_output_location.has_value());
     std::vector<DeletionVectorBlob> blobs;
     for (const auto& [data_file_path, deletion] : file_deletions) {
         if (deletion.rows_to_delete.isEmpty()) {
@@ -667,13 +688,15 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         return Status::OK();
     }
 
-    std::string puffin_path = _generate_puffin_file_path();
+    const std::string puffin_file_name = _puffin_file_name();
     int64_t puffin_file_size = 0;
-    RETURN_IF_ERROR(_write_puffin_file(puffin_path, &blobs, &puffin_file_size));
+    RETURN_IF_ERROR(_write_puffin_file(_output_location->write_path(puffin_file_name), &blobs,
+                                       &puffin_file_size));
+    const std::string commit_path = _output_location->commit_path(puffin_file_name);
 
     for (const auto& blob : blobs) {
         TIcebergCommitData commit_data;
-        commit_data.__set_file_path(puffin_path);
+        commit_data.__set_file_path(commit_path);
         commit_data.__set_row_count(blob.merged_count);
         commit_data.__set_affected_rows(blob.delete_count);
         commit_data.__set_file_size(puffin_file_size);
@@ -783,37 +806,15 @@ std::string VIcebergDeleteSink::_build_puffin_footer_json(
     return {buffer.GetString(), buffer.GetSize()};
 }
 
-std::string VIcebergDeleteSink::_generate_delete_file_path(
-        const std::string& referenced_data_file) {
-    // Generate unique delete file name using UUID
-    std::string uuid = generate_uuid_string();
-    std::string file_name;
-
-    std::string file_extension = _get_file_extension();
-    file_name =
-            fmt::format("delete_pos_{}_{}{}", uuid,
-                        std::hash<std::string> {}(referenced_data_file) % 10000000, file_extension);
-
-    // Combine with output path or table location
-    std::string base_path = _output_path.empty() ? _table_location : _output_path;
-
-    // Ensure base path ends with /
-    if (!base_path.empty() && base_path.back() != '/') {
-        base_path += '/';
-    }
-
-    // Delete files are data files in Iceberg, write under data location
-    return fmt::format("{}{}", base_path, file_name);
+std::string VIcebergDeleteSink::_delete_file_name(const std::string& referenced_data_file) const {
+    // Delete files live in the data location itself, next to the partition directories.
+    return fmt::format("delete_pos_{}_{}{}", generate_uuid_string(),
+                       std::hash<std::string> {}(referenced_data_file) % 10000000,
+                       _get_file_extension());
 }
 
-std::string VIcebergDeleteSink::_generate_puffin_file_path() {
-    std::string uuid = generate_uuid_string();
-    std::string file_name = fmt::format("delete_dv_{}.puffin", uuid);
-    std::string base_path = _output_path.empty() ? _table_location : _output_path;
-    if (!base_path.empty() && base_path.back() != '/') {
-        base_path += '/';
-    }
-    return fmt::format("{}{}", base_path, file_name);
+std::string VIcebergDeleteSink::_puffin_file_name() const {
+    return fmt::format("delete_dv_{}.puffin", generate_uuid_string());
 }
 
 } // namespace doris

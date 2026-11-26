@@ -23,13 +23,10 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
-#include "util/defer_op.h"
+#include <tuple>
 
-#define private public
-#define protected public
 #include "io/cache/block_file_cache_test_common.h"
-#undef private
-#undef protected
+#include "util/defer_op.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -743,7 +740,183 @@ TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) 
     }
 }
 
-//TODO(zhengyu): check lazy load
+namespace {
+
+class CountingFSFileCacheStorage : public FSFileCacheStorage {
+public:
+    void load_file_blocks_directly_unlocked(BlockFileCache* mgr, const UInt128Wrapper& hash,
+                                            int64_t tablet_id,
+                                            std::lock_guard<std::mutex>& cache_lock) override {
+        ++direct_loads;
+        FSFileCacheStorage::load_file_blocks_directly_unlocked(mgr, hash, tablet_id, cache_lock);
+    }
+
+    size_t direct_loads = 0;
+};
+
+TEST_F(BlockFileCacheTest, CompletedAsyncOpenSkipsDirectLoad) {
+    const auto path = caches_dir / "completed_async_open_skips_direct_load";
+    fs::remove_all(path);
+    fs::create_directories(path);
+    Defer remove_cache {[&] { fs::remove_all(path); }};
+    auto settings = get_file_cache_settings(8_mb, 0);
+    settings.max_file_block_size = 4096;
+    BlockFileCache cache(path.string(), settings);
+    auto storage = std::make_unique<CountingFSFileCacheStorage>();
+    auto* storage_ptr = storage.get();
+    cache._storage = std::move(storage);
+    ASSERT_TRUE(cache.initialize().ok());
+    storage_ptr->_cache_background_load_thread.join();
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    const auto hash = BlockFileCache::hash("completed_async_open_skips_direct_load");
+    FileBlocks blocks;
+    bool fully_covered = true;
+    ASSERT_TRUE(cache.get_downloaded_blocks_if_fully_covered(hash, 4096, 8192, context, &blocks,
+                                                             &fully_covered)
+                        .ok());
+    EXPECT_FALSE(fully_covered);
+    auto result = cache.probe(hash, 4096, 8192, context);
+    EXPECT_EQ(result.file_blocks, (std::vector<FileBlockSPtr> {nullptr, nullptr}));
+    auto holder = cache.get_or_set(hash, 4096, 8192, context);
+    EXPECT_EQ(storage_ptr->direct_loads, 0);
+}
+
+enum class LazyRestoreLookup { GET_OR_SET, DOWNLOADED, PROBE };
+
+class FileCacheLazyRestoreTest
+        : public BlockFileCacheTest,
+          public testing::WithParamInterface<std::tuple<LazyRestoreLookup, bool>> {
+protected:
+    void SetUp() override {
+        fs::remove_all(path);
+        fs::create_directories(path);
+        {
+            // Destruction drains pending writes before the restarted cache opens the database.
+            CacheBlockMetaStore meta_store((path / "meta").string());
+            meta_store.put(BlockMetaKey(tablet_id, hash, block_size),
+                           BlockMeta(FileCacheType::INDEX, block_size));
+            meta_store.put(BlockMetaKey(tablet_id, hash, 2 * block_size),
+                           BlockMeta(FileCacheType::NORMAL, block_size));
+        }
+        sync_point->set_call_back(
+                "BlockFileCache::TmpFile1",
+                [&](auto&&) {
+                    std::unique_lock lock(mutex);
+                    background_paused = true;
+                    cv.notify_all();
+                    cv.wait(lock, [&] { return resume_background; });
+                },
+                &guard);
+        sync_point->enable_processing();
+        auto settings = get_file_cache_settings(8_mb, 0);
+        settings.max_file_block_size = block_size;
+        cache = std::make_unique<BlockFileCache>(path.string(), settings);
+        ASSERT_TRUE(cache->initialize().ok());
+        {
+            std::unique_lock lock(mutex);
+            ASSERT_TRUE(
+                    cv.wait_for(lock, std::chrono::seconds(10), [&] { return background_paused; }));
+        }
+        ASSERT_FALSE(cache->get_async_open_success());
+        ASSERT_FALSE(cache->_files.contains(hash));
+    }
+
+    void TearDown() override {
+        {
+            std::lock_guard lock(mutex);
+            resume_background = true;
+        }
+        cv.notify_all();
+        cache.reset();
+        sync_point->disable_processing();
+        fs::remove_all(path);
+    }
+
+    static constexpr int64_t tablet_id = 47;
+    static constexpr size_t block_size = 4096;
+    const fs::path path = caches_dir / "lazy_restore_file_blocks";
+    const UInt128Wrapper hash = BlockFileCache::hash("lazy_restore_file_blocks");
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool background_paused = false;
+    bool resume_background = false;
+    SyncPoint* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    std::unique_ptr<BlockFileCache> cache;
+};
+
+TEST_P(FileCacheLazyRestoreTest, RestoreAllFileBlocksBeforeBackgroundLoad) {
+    const auto [lookup, unaligned] = GetParam();
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    context.tablet_id = tablet_id;
+    const size_t offset = block_size + (unaligned ? 100 : 0);
+    const size_t size = 3 * block_size - offset;
+    FileBlocks blocks;
+    switch (lookup) {
+    case LazyRestoreLookup::GET_OR_SET: {
+        auto holder = cache->get_or_set(hash, offset, size, context);
+        blocks = holder.file_blocks;
+        break;
+    }
+    case LazyRestoreLookup::DOWNLOADED: {
+        bool fully_covered = false;
+        ASSERT_TRUE(cache->get_downloaded_blocks_if_fully_covered(hash, offset, size, context,
+                                                                  &blocks, &fully_covered)
+                            .ok());
+        EXPECT_TRUE(fully_covered);
+        break;
+    }
+    case LazyRestoreLookup::PROBE: {
+        auto result = cache->probe(hash, offset, size, context);
+        blocks.assign(result.file_blocks.begin(), result.file_blocks.end());
+        break;
+    }
+    }
+
+    ASSERT_EQ(blocks.size(), 2);
+    size_t expected_offset = block_size;
+    for (const auto& block : blocks) {
+        ASSERT_NE(block, nullptr);
+        EXPECT_EQ(block->state(), FileBlock::State::DOWNLOADED);
+        EXPECT_EQ(block->offset(), expected_offset);
+        EXPECT_EQ(block->range().size(), block_size);
+        EXPECT_EQ(block->tablet_id(), tablet_id);
+        EXPECT_EQ(block->cache_type(),
+                  expected_offset == block_size ? FileCacheType::INDEX : FileCacheType::NORMAL);
+        expected_offset += block_size;
+    }
+    EXPECT_EQ(cache->_cur_cache_size, 2 * block_size);
+
+    {
+        std::lock_guard lock(mutex);
+        resume_background = true;
+    }
+    cv.notify_all();
+    auto* storage = static_cast<FSFileCacheStorage*>(cache->_storage.get());
+    storage->_cache_background_load_thread.join();
+    ASSERT_TRUE(cache->get_async_open_success());
+    std::lock_guard cache_lock(cache->_mutex);
+    EXPECT_EQ(cache->_cur_cache_size, 2 * block_size);
+    for (const auto& block : blocks) {
+        EXPECT_EQ(cache->_files.at(hash).at(block->offset()).file_block, block);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(Startup, FileCacheLazyRestoreTest,
+                         testing::Values(std::make_tuple(LazyRestoreLookup::GET_OR_SET, false),
+                                         std::make_tuple(LazyRestoreLookup::GET_OR_SET, true),
+                                         std::make_tuple(LazyRestoreLookup::DOWNLOADED, false),
+                                         std::make_tuple(LazyRestoreLookup::DOWNLOADED, true),
+                                         std::make_tuple(LazyRestoreLookup::PROBE, false)));
+
+} // namespace
+
 //TODO(zhengyu): check version2 start
 //TODO(zhengyu): check version2 version3 mixed start
 

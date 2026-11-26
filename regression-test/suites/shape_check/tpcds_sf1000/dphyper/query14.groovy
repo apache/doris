@@ -26,6 +26,8 @@ suite("query14") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_spill = false'
+    sql 'set enable_force_spill = false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
     sql 'set parallel_pipeline_task_num=8; '
@@ -37,6 +39,7 @@ suite("query14") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "SET enable_dphyp_optimizer = true"
     sql "set max_table_count_use_cascades_join_reorder = 1"
+    sql 'set join_order_time_limit=10000'
     sql "set dphyper_limit=2600"
 
     def ds = """with  cross_items as

@@ -17,8 +17,8 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -27,6 +27,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Strategy interface for database-specific JDBC type handling.
@@ -35,10 +39,32 @@ import java.sql.SQLException;
  * that customizes how column values are read from ResultSets, how connections are configured,
  * and how output values are converted.
  *
- * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior without
- * requiring the old {@link BaseJdbcExecutor} class hierarchy.
+ * <p>Used by {@link JdbcJniScanner} to provide database-specific behavior: one scanner picks a
+ * handler by table type, rather than one scanner subclass per database.
  */
 public interface JdbcTypeHandler {
+
+    default void initializeWriteConnection(Connection connection) throws SQLException {
+    }
+
+    default void setUuid(PreparedStatement statement, int parameterIndex, java.util.UUID value)
+            throws SQLException {
+        statement.setObject(parameterIndex, value);
+    }
+
+    default void setUuidNull(PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.OTHER);
+    }
+
+    default void setTimestampTz(PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // JNI timestamps carry UTC fields; valueOf would reinterpret them in the JVM timezone.
+        statement.setObject(parameterIndex, Timestamp.from(value.toInstant(ZoneOffset.UTC)));
+    }
+
+    default void setTimestampTzNull(PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+    }
 
     /**
      * Extract a column value from the ResultSet with database-specific handling.
@@ -95,7 +121,9 @@ public interface JdbcTypeHandler {
 
     /**
      * Set JVM-level system properties needed by specific JDBC drivers.
-     * Called once during scanner initialization.
+     *
+     * <p>Called before the driver class is loaded - that is when a driver reads these - which means
+     * once per scanner open rather than once per process. Setting the same value again is free.
      */
     default void setSystemProperties() {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");

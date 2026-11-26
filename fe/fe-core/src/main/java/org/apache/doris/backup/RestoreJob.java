@@ -23,7 +23,6 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -51,6 +50,7 @@ import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -704,6 +704,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 BackupOlapTableInfo tblInfo = olapTableEntry.getValue();
                 Table remoteTbl = backupMeta.getTable(tableName);
                 Preconditions.checkNotNull(remoteTbl);
+                OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
+                if (remoteOlapTbl.hasChangelog()) {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "Do not support restore table with changelog enabled: " + remoteOlapTbl.getName());
+                    return;
+                }
                 Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
                 boolean isSchemaChanged = false;
                 if (localTbl != null && localTbl.getType() != TableType.OLAP) {
@@ -716,14 +722,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 if (localTbl != null) {
                     OlapTable localOlapTbl = (OlapTable) localTbl;
-                    if (localOlapTbl.needRowBinlog()) {
+                    if (localOlapTbl.isLegacyChangelog()) {
+                        status = new Status(ErrCode.COMMON_ERROR, localOlapTbl.getLegacyChangelogMessage());
+                        return;
+                    }
+                    if (localOlapTbl.hasChangelog()) {
                         status = new Status(ErrCode.COMMON_ERROR,
-                                "Do not support restore into local table with binlog<Row> enabled: "
+                                "Do not support restore into local table with changelog enabled: "
                                         + localOlapTbl.getName());
                         return;
                     }
-                    OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
-
                     if (localOlapTbl.isColocateTable() || (reserveColocate && remoteOlapTbl.isColocateTable())) {
                         status = new Status(ErrCode.COMMON_ERROR, "Not support to restore to local table "
                                 + tableName + " with colocate group.");
@@ -870,7 +878,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 // Table does not exist or atomic restore
                 if (localTbl == null || isAtomicRestore) {
-                    OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
                     // Retain only expected restore partitions in this table;
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
@@ -1428,10 +1435,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             batchTaskPerTable.put(localTbl.getId(), batchTask);
         }
 
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
         localTbl.readLock();
         try {
-            binlogConfig = new BinlogConfig(localTbl.getBinlogConfig());
+            binlogConfig = localTbl.getTabletBinlogConfig();
         } finally {
             localTbl.readUnlock();
         }
@@ -1454,14 +1461,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
                 }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                        restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
+                        restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium,
+                        indexMeta.isChangelogIndex());
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                    MaterializedIndexMeta rowBinlogIndexMeta = null;
-                    if (localTbl.needRowBinlog() && restoredIdx.getId() == localTbl.getBaseIndexId()) {
-                        rowBinlogIndexMeta = localTbl.getRowBinlogMeta();
-                    }
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -1493,7 +1497,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),
                             localTbl.getVerticalCompactionNumColumnsPerGroup(),
-                            rowBinlogIndexMeta);
+                            localTbl.getRowTtlConfig(),
+                            localTbl.getRowTtlTimeZoneOffsetSeconds());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -1739,7 +1744,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
+                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isChangelog());
                     Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1771,7 +1776,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         int schemaHash = olapRestoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
-                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
+                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD, restoreIdx.isChangelog());
                             Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -2249,10 +2254,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     protected void updateOlapTablesVersion(Database db, boolean isReplay) {
-        if (Env.getCurrentEnv().invalidCacheForCloud()) {
-            return;
-        }
-
+        boolean cloudCacheInvalidated = Env.getCurrentEnv().invalidCacheForCloud();
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
@@ -2268,8 +2270,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 continue;
             }
             try {
-                long nextVersion = olapTbl.getNextVersion();
-                olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+                if (!cloudCacheInvalidated) {
+                    long nextVersion = olapTbl.getNextVersion();
+                    olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+                }
+                env.onTableChanged(olapTbl);
             } finally {
                 olapTbl.writeUnlock();
             }
@@ -2526,7 +2531,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             restoreOlapTable.writeLock();
                             try {
                                 for (Partition part : restoreOlapTable.getPartitions()) {
-                                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                    for (MaterializedIndex idx
+                                            : part.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                                         for (Tablet tablet : idx.getTablets()) {
                                             Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                                         }
@@ -2564,7 +2570,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         restoreTbl.getName(), entry.second.getName());
                 try {
                     restoreTbl.dropPartitionAndReserveTablet(entry.second.getName());
-                    for (MaterializedIndex index : entry.second.getMaterializedIndices(IndexExtState.ALL)) {
+                    for (MaterializedIndex index : entry.second.getMaterializedIndices(IndexExtState.ALL, true)) {
                         for (Tablet tablet : index.getTablets()) {
                             Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                         }

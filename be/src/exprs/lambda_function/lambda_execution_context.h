@@ -19,7 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <ranges>
 #include <set>
 #include <string>
 #include <utility>
@@ -79,10 +78,12 @@ public:
 
     ResolveResult resolve_column_position(const std::string& name) const {
         ResolveResult result;
-        for (const auto& frame : std::ranges::reverse_view(_frames)) {
+        for (auto frame_it = _frames.rbegin(); frame_it != _frames.rend(); ++frame_it) {
+            const auto& frame = *frame_it;
             result.searched_named_scope |= frame.bind_by_name;
-            for (const auto& argument_binding :
-                 std::ranges::reverse_view(frame.argument_bindings)) {
+            for (auto binding_it = frame.argument_bindings.rbegin();
+                 binding_it != frame.argument_bindings.rend(); ++binding_it) {
+                const auto& argument_binding = *binding_it;
                 if (argument_binding.name == name) {
                     result.found = true;
                     result.column_position = argument_binding.column_position;
@@ -97,13 +98,32 @@ public:
     }
 
     void collect_visible_binding_column_positions(std::set<int>& column_positions) const {
-        for (const auto& _frame : std::ranges::reverse_view(_frames)) {
-            for (const auto& binding : _frame.argument_bindings) {
+        for (auto frame_it = _frames.rbegin(); frame_it != _frames.rend(); ++frame_it) {
+            for (const auto& binding : frame_it->argument_bindings) {
                 if (binding.column_position >= 0) {
                     column_positions.insert(binding.column_position);
                 }
             }
-            if (!_frame.parent_bindings_visible) {
+            if (!frame_it->parent_bindings_visible) {
+                break;
+            }
+        }
+    }
+
+    /// Collects the named bindings visible at the current execution point, innermost first so
+    /// that an inner binding shadows an outer one with the same name. A function that executes
+    /// its lambda against a block of its own can publish these values under their names, which
+    /// is how a lambda references an enclosing lambda's argument.
+    void collect_visible_bindings(std::vector<Binding>& bindings) const {
+        std::set<std::string> seen_names;
+        for (auto frame_it = _frames.rbegin(); frame_it != _frames.rend(); ++frame_it) {
+            for (auto binding_it = frame_it->argument_bindings.rbegin();
+                 binding_it != frame_it->argument_bindings.rend(); ++binding_it) {
+                if (seen_names.insert(binding_it->name).second) {
+                    bindings.push_back(*binding_it);
+                }
+            }
+            if (!frame_it->parent_bindings_visible) {
                 break;
             }
         }

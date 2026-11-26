@@ -60,6 +60,7 @@ Hive 启动被拆分为三层互相独立的抽象：
 | `test` | `scripts/data/test/` | 轻量级冒烟测试数据 |
 | `preinstalled_hql` | `scripts/create_preinstalled_scripts/*.hql` | 约 77 个 HQL 文件，通过 `xargs -P` 并行执行 |
 | `view` | `scripts/create_view_scripts/create_view.hql` | View 定义 |
+| `paimon_hms` | `scripts/create_external_paimon_scripts/create_paimon_tables.hql` | 注册到 HMS 的 Paimon 表（`hdfs_db`、`ali_db` 等），仅在 `enablePaimonHms=true` 时纳入 |
 
 ### Layer 3 — 按版本自动选文件
 

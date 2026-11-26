@@ -248,17 +248,22 @@ public class ExprToStringValueVisitorTest {
     public void testFloatLiteralDouble() {
         FloatLiteral f = new FloatLiteral(3.14, Type.DOUBLE);
         String result = V.visitFloatLiteral(f, StringValueContext.forQuery(FormatOptions.getDefault()));
-        // FractionalFormat should produce a numeric string
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.contains("3.14"));
+        Assertions.assertEquals("3.14", result);
+        Assertions.assertEquals("1e+23", V.visitFloatLiteral(new FloatLiteral(1e23, Type.DOUBLE),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("5e-324", V.visitFloatLiteral(new FloatLiteral(Double.MIN_VALUE, Type.DOUBLE),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
     public void testFloatLiteralFloat() {
         FloatLiteral f = new FloatLiteral(2.5, Type.FLOAT);
         String result = V.visitFloatLiteral(f, StringValueContext.forQuery(FormatOptions.getDefault()));
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.contains("2.5"));
+        Assertions.assertEquals("2.5", result);
+        Assertions.assertEquals("111.1111", V.visitFloatLiteral(new FloatLiteral(111.1111, Type.FLOAT),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("1e-45", V.visitFloatLiteral(new FloatLiteral((double) Float.MIN_VALUE, Type.FLOAT),
+                StringValueContext.forQuery(FormatOptions.getDefault())));
     }
 
     @Test
@@ -312,6 +317,17 @@ public class ExprToStringValueVisitorTest {
         DateLiteral d = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("\"2024-01-15\"",
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
+    }
+
+    @Test
+    public void testTimeStampNsLiteral() {
+        TimeStampNsLiteral timestampNs = new TimeStampNsLiteral(
+                2024, 1, 15, 10, 30, 0, 123456789);
+        Assertions.assertEquals("2024-01-15 10:30:00.123456789",
+                timestampNs.accept(V, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("\"2024-01-15 10:30:00.123456789\"",
+                timestampNs.accept(V,
+                        StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
     }
 
     // ======================== TimeStampTz ========================

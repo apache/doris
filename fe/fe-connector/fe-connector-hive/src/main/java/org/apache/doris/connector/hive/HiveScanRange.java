@@ -17,16 +17,13 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
-import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,9 +35,6 @@ import java.util.Optional;
  * Unlike JNI-based scan ranges (ES, JDBC, MaxCompute), Hive scan ranges
  * carry real file paths with byte offsets, native file format types
  * (PARQUET/ORC/TEXT), and partition values.</p>
- *
- * <p>For ACID tables, additional properties carry transaction info
- * (partition location, delete delta paths).</p>
  */
 public class HiveScanRange implements ConnectorScanRange {
 
@@ -74,11 +68,6 @@ public class HiveScanRange implements ConnectorScanRange {
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(builder.properties)
                 : Collections.emptyMap();
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override
@@ -141,40 +130,39 @@ public class HiveScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc,
             TFileRangeDesc rangeDesc) {
-        if ("transactional_hive".equals(getTableFormatType())) {
-            populateTransactionalHiveParams(formatDesc);
-        }
-        // Non-transactional hive needs no per-split TTableFormatFileDesc fields.
-    }
-
-    private void populateTransactionalHiveParams(TTableFormatFileDesc formatDesc) {
-        Map<String, String> props = getProperties();
-        TTransactionalHiveDesc txnDesc = new TTransactionalHiveDesc();
-
-        String partLoc = props.get("acid.partition_location");
-        if (partLoc != null) {
-            txnDesc.setPartition(partLoc);
-        }
-
-        String countStr = props.get("acid.delete_delta_count");
-        if (countStr != null) {
-            int count = Integer.parseInt(countStr);
-            List<TTransactionalHiveDeleteDeltaDesc> deltas = new ArrayList<>(count);
-            for (int i = 0; i < count; i++) {
-                String deltaStr = props.get("acid.delete_delta." + i);
-                if (deltaStr != null) {
-                    TTransactionalHiveDeleteDeltaDesc delta =
-                            new TTransactionalHiveDeleteDeltaDesc();
-                    delta.setDirectoryLocation(deltaStr.contains("|")
-                            ? deltaStr.substring(0, deltaStr.indexOf('|'))
-                            : deltaStr);
-                    deltas.add(delta);
-                }
+        // Rewrite columns-from-path from the connector's partition values, mirroring
+        // IcebergScanRange/PaimonScanRange. This connector now OWNS the Hive default-partition
+        // sentinel (__HIVE_DEFAULT_PARTITION__ -> SQL NULL) mapping that fe-core's
+        // FilePartitionUtils.normalizeColumnsFromPath used to do — hive was the last connector
+        // relying on that engine-side string match. The parent (FileQueryScanNode) has pre-filled a
+        // path-parsed columns-from-path; unset it, then re-set from partitionValues so BE receives the
+        // authoritative keys/values/is_null. partitionValues keys are the partition column names (same
+        // order as path_partition_keys, both from HiveTableHandle.getPartitionKeyNames), so the emitted
+        // bytes are unchanged from the legacy path. Use the NARROW NULL_PARTITION_NAME.equals — hudi's
+        // wider directory-name rule (HudiScanRange.populateRangeParams, which also nulls a literal "\N")
+        // must NOT be reused here: an HMS partition value is either a real value or the
+        // __HIVE_DEFAULT_PARTITION__ directory sentinel, never a Java null, and a hive column may carry the
+        // two characters "\N" as DATA; matching legacy normalizeColumnsFromPath, a null value maps to SQL
+        // NULL defensively.
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPathIsNull();
+        if (!partitionValues.isEmpty()) {
+            List<String> keys = new ArrayList<>(partitionValues.size());
+            List<String> values = new ArrayList<>(partitionValues.size());
+            List<Boolean> isNull = new ArrayList<>(partitionValues.size());
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                String value = entry.getValue();
+                boolean nullValue = value == null
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value);
+                keys.add(entry.getKey());
+                values.add(nullValue ? "" : value);
+                isNull.add(nullValue);
             }
-            txnDesc.setDeleteDeltas(deltas);
+            rangeDesc.setColumnsFromPathKeys(keys);
+            rangeDesc.setColumnsFromPath(values);
+            rangeDesc.setColumnsFromPathIsNull(isNull);
         }
-
-        formatDesc.setTransactionalHiveParams(txnDesc);
     }
 
     public static Builder builder() {
@@ -246,28 +234,6 @@ public class HiveScanRange implements ConnectorScanRange {
 
         public Builder properties(Map<String, String> val) {
             this.properties = val;
-            return this;
-        }
-
-        /**
-         * Adds ACID-related properties for transactional Hive tables.
-         *
-         * @param partitionLocation the partition directory path
-         * @param deleteDeltas      list of delete delta descriptors (dir|file1,file2)
-         */
-        public Builder acidInfo(String partitionLocation, List<String> deleteDeltas) {
-            if (this.properties == null) {
-                this.properties = new HashMap<>();
-            }
-            this.tableFormatType = "transactional_hive";
-            this.properties.put("acid.partition_location", partitionLocation);
-            if (deleteDeltas != null) {
-                this.properties.put("acid.delete_delta_count",
-                        String.valueOf(deleteDeltas.size()));
-                for (int i = 0; i < deleteDeltas.size(); i++) {
-                    this.properties.put("acid.delete_delta." + i, deleteDeltas.get(i));
-                }
-            }
             return this;
         }
 

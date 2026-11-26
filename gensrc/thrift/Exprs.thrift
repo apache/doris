@@ -92,6 +92,7 @@ enum TExprNodeType {
   PREDICATE = 43,
   // Normal literal
   LITERAL = 44,
+  UUID_LITERAL = 45,
 }
 
 //enum TAggregationOp {
@@ -155,6 +156,11 @@ struct TIPv4Literal {
 
 struct TIPv6Literal {
   1: required string value
+}
+
+struct TUUIDLiteral {
+  1: required i64 hi
+  2: required i64 lo
 }
 
 struct TInPredicate {
@@ -333,13 +339,16 @@ struct TExprNode {
   // distinguish current-scope lambda arguments from captured outer lambda
   // arguments when nested lambda expressions contain duplicated column ids.
   42: optional list<string> lambda_argument_names
+  // Force this CAST to fail on invalid input regardless of the query-level strict-cast setting.
+  43: optional bool is_strict_cast
+  44: optional TUUIDLiteral uuid_literal
 
   // Set by the planner on a filter conjunct's root node when the predicate is safe to
   // evaluate on a column's dictionary (deterministic, NULL-insensitive, single dict
   // column). Lets ORC/Parquet scans run a heavy string predicate once per distinct value.
   // Authoritative determinism/nullability check lives in the FE; when unset (older FE),
   // BE falls back to a conservative allowlist.
-  43: optional bool can_dict_filter
+  45: optional bool can_dict_filter
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

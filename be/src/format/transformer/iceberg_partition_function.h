@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "core/block/column_with_type_and_name.h"
 #include "exec/partitioner/partitioner.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
@@ -43,8 +44,6 @@ public:
     HashValType partition_count() const override { return _partition_count; }
     Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
 
-    bool fallback_to_random() const { return _fallback_to_random; }
-
 private:
     struct InsertPartitionField {
         std::string transform;
@@ -52,8 +51,11 @@ private:
         std::unique_ptr<PartitionColumnTransform> transformer;
         int32_t source_id = 0;
         std::string name;
+        std::vector<int32_t> source_field_path;
     };
 
+    Status _nested_partition_source(size_t rows, const InsertPartitionField& field,
+                                    ColumnWithTypeAndName* source) const;
     Status _compute_hashes_with_transform(Block* block, std::vector<HashValType>& partitions) const;
     Status _compute_hashes_with_exprs(Block* block, std::vector<HashValType>& partitions) const;
     Status _clone_expr_ctxs(RuntimeState* state, const VExprContextSPtrs& src,
@@ -65,7 +67,6 @@ private:
     std::vector<TIcebergPartitionField> _partition_fields_spec;
     VExprContextSPtrs _partition_expr_ctxs;
     std::vector<InsertPartitionField> _partition_fields;
-    bool _fallback_to_random = false;
 };
 
 class IcebergDeletePartitionFunction final : public PartitionFunction {

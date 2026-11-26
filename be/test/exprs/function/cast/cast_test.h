@@ -163,6 +163,8 @@ struct FunctionCastTest : public testing::Test {
             return "datev2";
         case TYPE_DATETIMEV2: /* 26 */
             return precision > 0 ? fmt::format("datetimev2{}", precision) : "datetimev2";
+        case TYPE_TIMESTAMP_NS:
+            return "timestamp_ns";
         case TYPE_TIMEV2: /* 27 */
             return "time";
         case TYPE_DECIMAL32: /* 28 */
@@ -214,7 +216,8 @@ struct FunctionCastTest : public testing::Test {
                 {nullptr, to_type, "to"},
         };
 
-        EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        EXPECT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr));
 
         auto result = block.get_by_position(1).column;
         auto expected = to.column;

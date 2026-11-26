@@ -159,8 +159,8 @@ public class TabletStatMgr extends MasterDaemon {
 
                 long tableRowCount = 0L;
 
-                Long tableBinlogSize = 0L;
-                Long tableTotalBinlogSize = 0L;
+                Long tableChangelogSize = 0L;
+                Long tableTotalChangelogSize = 0L;
 
                 if (!table.readLockIfExist()) {
                     continue;
@@ -188,7 +188,8 @@ public class TabletStatMgr extends MasterDaemon {
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex index
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             List<Tablet> tablets = index.getTablets();
@@ -200,7 +201,7 @@ public class TabletStatMgr extends MasterDaemon {
 
                                 long tabletRowCount = Long.MAX_VALUE;
 
-                                Long tabletBinlogSize = 0L;
+                                Long tabletChangelogSize = 0L;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -242,10 +243,14 @@ public class TabletStatMgr extends MasterDaemon {
                                     tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
                                     tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
 
-                                    if (replica.getBinlogSize() > tabletBinlogSize) {
-                                        tabletBinlogSize = replica.getBinlogSize();
+                                    // Changelog is now an independent index. Its data is counted in table data size
+                                    // for quota, and also tracked separately as changelog size.
+                                    if (index.isChangelog()) {
+                                        if (replica.getDataSize() > tabletChangelogSize) {
+                                            tabletChangelogSize = replica.getDataSize();
+                                        }
+                                        tableTotalChangelogSize += replica.getDataSize();
                                     }
-                                    tableTotalBinlogSize += replica.getBinlogSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -262,12 +267,14 @@ public class TabletStatMgr extends MasterDaemon {
                                 if (tabletRowCount == Long.MAX_VALUE) {
                                     tabletRowCount = 0L;
                                 }
-                                tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
+                                if (!index.isChangelog()) {
+                                    tableRowCount += tabletRowCount;
+                                }
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
 
-                                tableBinlogSize += tabletBinlogSize;
+                                tableChangelogSize += tabletChangelogSize;
                             } // end for tablets
                             index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
@@ -295,7 +302,7 @@ public class TabletStatMgr extends MasterDaemon {
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
                             tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize,
-                            tableBinlogSize, tableTotalBinlogSize));
+                            tableChangelogSize, tableTotalChangelogSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
@@ -404,11 +411,6 @@ public class TabletStatMgr extends MasterDaemon {
                         // Older version BE doesn't set visible version. Set it to max for compatibility.
                         replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
                                 : Long.MAX_VALUE);
-
-                        if (stat.isSetBinlogSize()) {
-                            replica.setBinlogSize(stat.getBinlogSize());
-                            replica.setBinlogFileNum(stat.getBinlogFileNum());
-                        }
                     }
                 }
             }

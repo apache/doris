@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 /**
  * Opaque table handle carrying the remote database/table coordinates.

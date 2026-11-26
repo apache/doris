@@ -72,6 +72,21 @@ TEST_F(PathTrieTest, TemplateTest) {
     EXPECT_STREQ("c", params["rollup"].c_str());
 }
 
+TEST_F(PathTrieTest, PathWinsOverQueryParamTest) {
+    // EvHttpServer parses the query string into the same map before it routes, so a
+    // "?db=" must not survive into the {db} the path matched.
+    PathTrie<int> root;
+    EXPECT_TRUE(root.insert("/api/{db}/{table}/_stream_load", 1));
+
+    std::map<std::string, std::string> params;
+    params.emplace("db", "from_query_string");
+
+    int value;
+    EXPECT_TRUE(root.retrieve("/api/realdb/tbl/_stream_load", &value, &params));
+    EXPECT_STREQ("realdb", params["db"].c_str());
+    EXPECT_STREQ("tbl", params["table"].c_str());
+}
+
 TEST_F(PathTrieTest, ExactTest) {
     PathTrie<int> root;
     std::string path = "/db/table/rollup";

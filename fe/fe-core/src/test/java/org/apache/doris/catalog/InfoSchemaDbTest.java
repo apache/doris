@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
@@ -29,10 +29,10 @@ public class InfoSchemaDbTest {
     public void testNormal() throws IOException, DdlException {
         Database db = new InfoSchemaDb();
 
-        Assert.assertFalse(db.registerTable(null));
-        Assert.assertFalse(db.createTableWithLock(null, false, false).first);
+        Assertions.assertFalse(db.registerTable(null));
+        Assertions.assertFalse(db.createTableWithLock(null, false, false).first);
         db.unregisterTable("authors");
-        Assert.assertThrows(IOException.class, () -> db.write(null));
-        Assert.assertNull(db.getTableNullable("authors"));
+        Assertions.assertThrows(IOException.class, () -> db.write(null));
+        Assertions.assertNull(db.getTableNullable("authors"));
     }
 }

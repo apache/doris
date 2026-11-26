@@ -21,12 +21,18 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -34,6 +40,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 class SumLiteralRewriteTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -118,6 +126,8 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
     @Test
     void testSumOnce() {
         Slot slot1 = scan1.getOutput().get(0);
+        // Create the independent slot before PlanChecker initializes a new statement ID scope.
+        Slot slot2 = new Alias(scan1.getOutput().get(0)).toSlot();
         Alias add1 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(1))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
                 ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1), scan1);
@@ -126,7 +136,6 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matches(logicalAggregate().when(p -> p.getOutputs().size() == 1));
 
-        Slot slot2 = new Alias(scan1.getOutput().get(0)).toSlot();
         Alias add2 = new Alias(new Sum(false, true, new Add(slot2, Literal.of(2))));
         agg = new LogicalAggregate<>(
                 ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2), scan1);
@@ -144,6 +153,48 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matches(logicalAggregate().when(p -> p.getOutputs().size() == 3));
 
+    }
+
+    @Test
+    void testOnlyRewriteIntegerArithmetic() {
+        Slot integerSlot = scan1.getOutput().get(0);
+        LogicalAggregate<?> integerAgg = new LogicalAggregate<>(
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new Alias(new Sum(new Add(integerSlot, Literal.of(1)))),
+                        new Alias(new Sum(new Add(integerSlot, Literal.of(2))))),
+                scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), integerAgg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .matchesFromRoot(logicalProject(logicalAggregate()));
+
+        assertSumLiteralNotRewritten(
+                new SlotReference("float_slot", FloatType.INSTANCE),
+                new FloatLiteral(1.0F), new FloatLiteral(2.0F));
+        assertSumLiteralNotRewritten(
+                new SlotReference("double_slot", DoubleType.INSTANCE),
+                new DoubleLiteral(1.0), new DoubleLiteral(2.0));
+
+        DecimalV3Literal decimalOne = new DecimalV3Literal(new BigDecimal("1.0"));
+        DecimalV3Literal decimalTwo = new DecimalV3Literal(new BigDecimal("2.0"));
+        assertSumLiteralNotRewritten(
+                new SlotReference("decimal_slot", decimalOne.getDataType()), decimalOne, decimalTwo);
+
+        // Also reject a non-integer input if an uncoerced integer literal reaches this rule.
+        assertSumLiteralNotRewritten(
+                new SlotReference("mixed_slot", DoubleType.INSTANCE), Literal.of(1), Literal.of(2));
+    }
+
+    private void assertSumLiteralNotRewritten(Slot slot, Literal first, Literal second) {
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new Alias(new Sum(new Add(slot, first))),
+                        new Alias(new Sum(new Add(slot, second)))),
+                scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .matchesFromRoot(logicalAggregate());
     }
 
     @Test

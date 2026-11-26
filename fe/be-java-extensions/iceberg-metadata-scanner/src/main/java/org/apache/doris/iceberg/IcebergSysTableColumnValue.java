@@ -17,9 +17,11 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -38,14 +40,20 @@ public class IcebergSysTableColumnValue implements ColumnValue {
 
     private final Object fieldData;
     private final String timezone;
+    private final Type icebergType;
 
     public IcebergSysTableColumnValue(Object fieldData) {
         this(fieldData, DEFAULT_TIME_ZONE);
     }
 
     public IcebergSysTableColumnValue(Object fieldData, String timezone) {
+        this(fieldData, timezone, null);
+    }
+
+    public IcebergSysTableColumnValue(Object fieldData, String timezone, Type icebergType) {
         this.fieldData = fieldData;
         this.timezone = timezone;
+        this.icebergType = icebergType;
     }
 
     @Override
@@ -136,14 +144,22 @@ public class IcebergSysTableColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        Instant instant = Instant.ofEpochMilli((((long) fieldData) / 1000));
-        return LocalDateTime.ofInstant(instant, ZoneId.of(timezone));
+        // NTZ is a wall-clock value; only timestamptz mapped to DATETIME uses the session zone.
+        ZoneId zone = icebergType instanceof Types.TimestampType
+                && !((Types.TimestampType) icebergType).shouldAdjustToUTC()
+                ? ZoneOffset.UTC : ZoneId.of(timezone);
+        return LocalDateTime.ofInstant(timestampInstant(), zone);
     }
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        Instant instant = Instant.ofEpochMilli((((long) fieldData) / 1000));
-        return LocalDateTime.ofInstant(instant, ZoneId.of("UTC"));
+        return LocalDateTime.ofInstant(timestampInstant(), ZoneOffset.UTC);
+    }
+
+    private Instant timestampInstant() {
+        long micros = (long) fieldData;
+        return Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
+                Math.floorMod(micros, 1_000_000L) * 1_000L);
     }
 
     @Override
@@ -162,7 +178,8 @@ public class IcebergSysTableColumnValue implements ColumnValue {
     public void unpackArray(List<ColumnValue> values) {
         List<?> items = (List<?>) fieldData;
         for (Object item : items) {
-            values.add(new IcebergSysTableColumnValue(item, timezone));
+            values.add(new IcebergSysTableColumnValue(item, timezone,
+                    icebergType == null ? null : icebergType.asListType().elementType()));
         }
     }
 
@@ -170,8 +187,10 @@ public class IcebergSysTableColumnValue implements ColumnValue {
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         Map<?, ?> data = (Map<?, ?>) fieldData;
         data.forEach((key, value) -> {
-            keys.add(new IcebergSysTableColumnValue(key, timezone));
-            values.add(new IcebergSysTableColumnValue(value, timezone));
+            keys.add(new IcebergSysTableColumnValue(key, timezone,
+                    icebergType == null ? null : icebergType.asMapType().keyType()));
+            values.add(new IcebergSysTableColumnValue(value, timezone,
+                    icebergType == null ? null : icebergType.asMapType().valueType()));
         });
     }
 
@@ -180,7 +199,8 @@ public class IcebergSysTableColumnValue implements ColumnValue {
         StructLike record = (StructLike) fieldData;
         for (Integer fieldIndex : structFieldIndex) {
             Object rawValue = record.get(fieldIndex, Object.class);
-            values.add(new IcebergSysTableColumnValue(rawValue, timezone));
+            values.add(new IcebergSysTableColumnValue(rawValue, timezone,
+                    icebergType == null ? null : icebergType.asStructType().fields().get(fieldIndex).type()));
         }
     }
 }

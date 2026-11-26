@@ -567,6 +567,23 @@ TEST(VariantBatchBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
     EXPECT_EQ(value.array_at(integers.size() + decimals.size()).get_decimal().width, 16);
 }
 
+TEST(VariantBatchBuilderTest, AddValuePreservesExplicitPrimitiveWidths) {
+    const OwnedBuilderValue source = build_owned_value([](VariantBatchBuilder::Row& row) {
+        auto array = row.start_array();
+        row.add_scalar(VariantScalarRef::integer(7, 8));
+        row.add_scalar(VariantScalarRef::decimal(8, 2, 16));
+        array.finish();
+    });
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    row.add_value(source.ref());
+    row.finish();
+    VariantBatchBuilder imported = builder.finish_batch();
+
+    EXPECT_EQ(imported.value_at(0).array_at(0).primitive_id(), VariantPrimitiveId::INT64);
+    EXPECT_EQ(imported.value_at(0).array_at(1).primitive_id(), VariantPrimitiveId::DECIMAL16);
+}
+
 TEST(VariantBatchBuilderTest, DecimalValidationLargeIntFallbackAndExplicitWidths) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();
@@ -651,6 +668,21 @@ TEST(VariantBatchBuilderTest, StringBoundariesAndUtf8ValidationPreserveRowState)
     EXPECT_EQ(required_field(value, "long").get_string(), StringRef(long_text));
     EXPECT_EQ(required_field(value, "\xE9\x94\xAE").get_binary(), StringRef(non_utf8_binary));
     ASSERT_EQ(block.metadata_ref().dict_size(), 3);
+}
+
+TEST(VariantMetadataBuilderTest, RegisterKeyPreservesValidationOnDictionaryMiss) {
+    VariantMetadataBuilder metadata;
+    EXPECT_EQ(metadata.register_key(string_ref("valid")), 0);
+    EXPECT_EQ(metadata.register_key(string_ref("valid")), 0);
+
+    const std::string invalid_utf8("\xC0\xAF", 2);
+    EXPECT_THROW(metadata.register_key(StringRef(invalid_utf8)), Exception);
+    EXPECT_THROW(metadata.register_key(StringRef(static_cast<const char*>(nullptr), 1)), Exception);
+    EXPECT_EQ(metadata.num_keys(), 1);
+
+    metadata.seal();
+    ASSERT_EQ(metadata.metadata_ref().dict_size(), 1);
+    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("valid"));
 }
 
 std::string build_array_with_nulls(uint32_t count, uint8_t* value_header_out) {

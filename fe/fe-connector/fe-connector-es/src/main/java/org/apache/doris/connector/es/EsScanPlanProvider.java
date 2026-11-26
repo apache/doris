@@ -17,15 +17,17 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.NamedColumnHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
-import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -68,43 +70,61 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_PASSWORD = "password";
     public static final String PROP_HTTP_SSL_ENABLED = "http_ssl_enabled";
     public static final String PROP_DOC_VALUES_MODE = "doc_values_mode";
+    private static final String PROP_READ_FULL_SOURCE = "read_full_source";
     public static final String PROP_ES_INDEX = "_es_index";
 
     public static final String PROP_DOCVALUE_CONTEXT_JSON = "docvalue_context_json";
     public static final String PROP_FIELDS_CONTEXT_JSON = "fields_context_json";
 
+    /**
+     * BE contract: ES reads this out of {@code es_properties} and stops the search after that many hits
+     * instead of scrolling the whole result ({@code ESScanReader::KEY_TERMINATE_AFTER}). The literal is the
+     * wire value and must not change.
+     */
+    private static final String PROP_LIMIT = "limit";
+
+    /**
+     * Connector-private: how many rows BE reads per batch, taken from the session while the properties are
+     * built (populateScanLevelParams gets no session) and read back there. Namespaced so it can never collide
+     * with an engine-read key.
+     */
+    private static final String PROP_BATCH_SIZE = "es.batch_size";
+
+    /** Session variable carrying BE's per-batch row count; the engine exports every visible variable. */
+    private static final String SESSION_BATCH_SIZE = "batch_size";
+
     private final EsConnectorRestClient restClient;
-    private final Map<String, String> properties;
+    private final EsCatalogProperties props;
+
+    // ES-F1 per-scan hoist. planScan and buildScanNodeProperties of one scan node run on the same
+    // per-scan-node provider instance on the synchronous FE planning thread, and each used to fetch
+    // the full metadata state (mapping + shard routing + node topology) independently. Memoizing the
+    // last resolved state lets the second call reuse the first. Guarded on (index, columns) so a
+    // provider reused for a different request refetches; shard routing stays per-scan (fresh) because
+    // the provider is discarded at scan end. Plain field: safe ONLY because ES never enters batch mode
+    // (no off-thread scan pool) -- make it volatile if this provider ever declares batch scan.
+    private EsMetadataState memoizedState;
 
     public EsScanPlanProvider(EsConnectorRestClient restClient,
-            Map<String, String> properties) {
+            EsCatalogProperties props) {
         this.restClient = restClient;
-        this.properties = properties;
+        this.props = props;
     }
 
     @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        EsTableHandle esHandle = (EsTableHandle) handle;
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        EsTableHandle esHandle = (EsTableHandle) request.getTableHandle();
         String indexName = esHandle.getIndexName();
 
-        EsMetadataState state = fetchMetadataState(esHandle, columns);
+        EsMetadataState state = fetchMetadataState(session, esHandle, columns);
         EsShardPartitions shardPartitions = state.getShardPartitions();
         if (shardPartitions == null) {
             LOG.warn("No shard partitions found for index {}", indexName);
             return Collections.emptyList();
         }
 
-        String mappingType = properties.getOrDefault(
-                EsConnectorProperties.MAPPING_TYPE, null);
+        String mappingType = props.getMappingType();
 
         boolean enableParallelScroll = Boolean.parseBoolean(
                 session.getSessionProperties()
@@ -113,7 +133,11 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         Map<Integer, List<EsShardRouting>> routingsMap = shardPartitions.getShardRoutings();
 
-        if (!enableParallelScroll) {
+        // Replacing an alias with a backing index loses its filter and search routing. Keep one
+        // scroll on the original target: per-shard requests on a multi-index alias repeat shard IDs.
+        boolean resolvesToBackingIndices = routingsMap.values().stream().flatMap(List::stream)
+                .anyMatch(routing -> !indexName.equals(routing.getIndexName()));
+        if (!enableParallelScroll || resolvesToBackingIndices) {
             // Single query mode: one scan range for the whole index
             List<String> hosts = collectAllHosts(routingsMap);
             ranges.add(new EsScanRange(
@@ -144,61 +168,61 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public Map<String, String> getScanNodeProperties(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return buildScanNodeProperties(handle, columns, filter).getProperties();
-    }
-
-    @Override
     public ScanNodePropertiesResult getScanNodePropertiesResult(
             ConnectorSession session,
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        return buildScanNodeProperties(handle, columns, filter);
+        return buildScanNodeProperties(session, handle, columns, filter);
     }
 
     private ScanNodePropertiesResult buildScanNodeProperties(
+            ConnectorSession session,
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
         EsTableHandle esHandle = (EsTableHandle) handle;
-        EsMetadataState state = fetchMetadataState(esHandle, columns);
+        EsMetadataState state = fetchMetadataState(session, esHandle, columns);
 
         Map<String, String> nodeProps = new HashMap<>();
 
         // File format type for PluginDrivenScanNode.getFileFormatType()
-        nodeProps.put("file_format_type", "es_http");
+        nodeProps.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "es_http");
+
+        // Carry BE's per-batch row count forward: populateScanLevelParams decides there whether the pushed
+        // limit is small enough to ask ES to stop early, and it receives no session.
+        String batchSize = session.getSessionProperties().get(SESSION_BATCH_SIZE);
+        if (batchSize != null) {
+            nodeProps.put(PROP_BATCH_SIZE, batchSize);
+        }
 
         // Table/index metadata for EXPLAIN
         nodeProps.put("_table_name", esHandle.getIndexName());
         nodeProps.put(PROP_ES_INDEX, esHandle.getIndexName());
 
         // Auth properties
-        String user = properties.getOrDefault(EsConnectorProperties.USER, null);
-        if (user != null && !user.isEmpty()) {
-            nodeProps.put(PROP_USER, user);
+        if (!props.getUser().isEmpty()) {
+            nodeProps.put(PROP_USER, props.getUser());
         }
-        String password = properties.getOrDefault(EsConnectorProperties.PASSWORD, null);
-        if (password != null && !password.isEmpty()) {
-            nodeProps.put(PROP_PASSWORD, password);
+        if (!props.getPassword().isEmpty()) {
+            nodeProps.put(PROP_PASSWORD, props.getPassword());
         }
-        nodeProps.put(PROP_HTTP_SSL_ENABLED, properties.getOrDefault(
-                EsConnectorProperties.HTTP_SSL_ENABLED,
-                EsConnectorProperties.HTTP_SSL_ENABLED_DEFAULT));
+        // Rendered from the parsed flag, not copied from what the user typed: BE parses this with
+        // std::boolalpha, which only accepts lower-case "true"/"false", while Boolean.parseBoolean here
+        // accepts any casing. Passing the raw string through let "TRUE" mean https to FE and http to BE.
+        nodeProps.put(PROP_HTTP_SSL_ENABLED, String.valueOf(props.isHttpSslEnabled()));
 
-        // Query DSL (with not-pushed conjunct tracking)
-        EsQueryDslResult dslResult = buildQueryDsl(filter, state);
+        // The read mode is scan-wide: losing a's docvalue path also changes a keyword sibling b
+        // from scalar docvalues to source JSON (e.g. ["cat"]). Decide it before pruning b's predicate.
+        int docValuesMode = useDocValueScan(columns, state);
+        nodeProps.put(PROP_DOC_VALUES_MODE, String.valueOf(docValuesMode));
+        if (docValuesMode == 0 && state.getFieldContext() != null
+                && state.getFieldContext().requiresFullSourceRead()) {
+            nodeProps.put(PROP_READ_FULL_SOURCE, "true");
+        }
+
+        EsQueryDslResult dslResult = buildQueryDsl(filter, state, docValuesMode);
         nodeProps.put(PROP_QUERY_DSL, dslResult.getQueryDsl());
-
-        // Doc values mode — two-gate check matching old EsScanNode.useDocValueScan():
-        // Gate 1: selected field count must not exceed maxDocValueFields
-        // Gate 2: every selected field must exist in the docValueFieldsContext map
-        nodeProps.put(PROP_DOC_VALUES_MODE,
-                String.valueOf(useDocValueScan(columns, state)));
 
         // Serialize docvalue_context and fields_context as JSON into flat properties
         // so we don't need the ES-specific getScanNodeMapProperties() on the generic SPI.
@@ -207,28 +231,22 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         // Build not-pushed conjunct indices set for structured reporting
         Set<Integer> notPushedSet = new HashSet<>(dslResult.getNotPushedIndices());
 
-        return new ScanNodePropertiesResult(nodeProps, notPushedSet);
+        return ScanNodePropertiesResult.withPushdownTracking(nodeProps, notPushedSet);
     }
 
     private void serializeFieldContexts(EsMetadataState state, Map<String, String> nodeProps) {
         if (state.getFieldContext() == null) {
             return;
         }
-        boolean enableDocValueScan = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.DOC_VALUE_SCAN,
-                EsConnectorProperties.DOC_VALUE_SCAN_DEFAULT));
-        boolean enableKeywordSniff = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.KEYWORD_SNIFF,
-                EsConnectorProperties.KEYWORD_SNIFF_DEFAULT));
         try {
-            if (enableDocValueScan) {
+            if (props.isDocValuesMode()) {
                 Map<String, String> docCtx = state.getFieldContext().getDocValueFieldsContext();
                 if (docCtx != null && !docCtx.isEmpty()) {
                     nodeProps.put(PROP_DOCVALUE_CONTEXT_JSON,
                             JSON_MAPPER.writeValueAsString(docCtx));
                 }
             }
-            if (enableKeywordSniff) {
+            if (props.isKeywordSniff()) {
                 Map<String, String> fieldsCtx = state.getFieldContext().getFetchFieldsContext();
                 if (fieldsCtx != null && !fieldsCtx.isEmpty()) {
                     nodeProps.put(PROP_FIELDS_CONTEXT_JSON,
@@ -241,7 +259,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private EsQueryDslResult buildQueryDsl(Optional<ConnectorExpression> filter,
-            EsMetadataState state) {
+            EsMetadataState state, int docValuesMode) {
         if (!filter.isPresent()) {
             return new EsQueryDslResult("{\"match_all\":{}}", Collections.emptyList());
         }
@@ -249,28 +267,53 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> fieldsContext = Collections.emptyMap();
         List<String> needCompatDateFields = Collections.emptyList();
         Map<String, String> column2typeMap = Collections.emptyMap();
+        Set<String> unsafeFields = new HashSet<>();
 
         if (state.getFieldContext() != null) {
-            boolean enableKeywordSniff = Boolean.parseBoolean(properties.getOrDefault(
-                    EsConnectorProperties.KEYWORD_SNIFF,
-                    EsConnectorProperties.KEYWORD_SNIFF_DEFAULT));
-            if (enableKeywordSniff) {
+            if (props.isKeywordSniff()) {
                 fieldsContext = state.getFieldContext().getFetchFieldsContext();
             }
             needCompatDateFields = state.getFieldContext().getNeedCompatDateFields();
             column2typeMap = state.getFieldContext().getColumn2typeMap();
+            unsafeFields.addAll(state.getFieldContext().getSourceValueUnsafeFields());
+            if (docValuesMode == 0) {
+                unsafeFields.addAll(state.getFieldContext().getSourceModeUnsafeFields());
+            }
+            if (!props.isKeywordSniff()) {
+                // Without keyword sniff a term targets analyzed text, even when a safe raw subfield
+                // exists. Do not apply the unused raw path's safety to the actual text query.
+                unsafeFields.addAll(state.getFieldContext().getFetchFieldsContext().keySet());
+            }
         }
 
-        boolean likePushDown = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.LIKE_PUSH_DOWN,
-                EsConnectorProperties.LIKE_PUSH_DOWN_DEFAULT));
+        if (docValuesMode == 0) {
+            collectSourceUnsafeFields(filter.get(), unsafeFields);
+        }
 
         return EsQueryDslBuilder.buildQueryDslWithResult(
                 filter.get(), fieldsContext, column2typeMap,
-                likePushDown, needCompatDateFields);
+                props.isLikePushDown(), needCompatDateFields, unsafeFields);
     }
 
-    private EsMetadataState fetchMetadataState(EsTableHandle handle,
+    private static void collectSourceUnsafeFields(ConnectorExpression expression, Set<String> fields) {
+        if (expression instanceof ConnectorColumnRef) {
+            ConnectorColumnRef column = (ConnectorColumnRef) expression;
+            String type = column.getType().getTypeName();
+            // Source arrays preserve their container (or JSON STRING), whereas ES matches elements
+            // and treats an empty array as missing. Source nullness must retain the local predicate.
+            // _id comes from hit metadata and cannot acquire an array representation in source mode.
+            if (!"_id".equals(column.getColumnName())
+                    && ("STRING".equalsIgnoreCase(type) || "VARCHAR".equalsIgnoreCase(type)
+                            || "CHAR".equalsIgnoreCase(type) || "ARRAY".equalsIgnoreCase(type))) {
+                fields.add(column.getColumnName());
+            }
+        }
+        for (ConnectorExpression child : expression.getChildren()) {
+            collectSourceUnsafeFields(child, fields);
+        }
+    }
+
+    private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,
             List<ConnectorColumnHandle> columns) {
         String indexName = handle.getIndexName();
         List<String> columnNames = new ArrayList<>();
@@ -279,18 +322,19 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 columnNames.add(((NamedColumnHandle) col).getName());
             }
         }
-        String mappingType = properties.getOrDefault(
-                EsConnectorProperties.MAPPING_TYPE, null);
-        boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.NODES_DISCOVERY,
-                EsConnectorProperties.NODES_DISCOVERY_DEFAULT));
-        String hostsStr = properties.getOrDefault(EsConnectorProperties.HOSTS, "");
-        String[] seeds = hostsStr.split(",");
+        EsMetadataState cached = memoizedState;
+        if (cached != null && cached.getSourceIndex().equals(indexName)
+                && cached.getColumnNames().equals(columnNames)) {
+            return cached;
+        }
 
         EsMetadataState state = new EsMetadataState(
-                indexName, mappingType, columnNames, nodesDiscovery, seeds);
-        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state);
-        return fetcher.fetch();
+                indexName, props.getMappingType(), columnNames, props.isNodesDiscovery(),
+                props.getSeeds());
+        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state, session);
+        state = fetcher.fetch();
+        memoizedState = state;
+        return state;
     }
 
     /**
@@ -307,10 +351,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private int useDocValueScan(List<ConnectorColumnHandle> columns,
             EsMetadataState state) {
-        boolean enableDocValueScan = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.DOC_VALUE_SCAN,
-                EsConnectorProperties.DOC_VALUE_SCAN_DEFAULT));
-        if (!enableDocValueScan || state.getFieldContext() == null) {
+        if (!props.isDocValuesMode() || state.getFieldContext() == null) {
             return 0;
         }
 
@@ -323,10 +364,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Gate 1: field count limit
-        int maxDocValueFields = Integer.parseInt(properties.getOrDefault(
-                EsConnectorProperties.MAX_DOCVALUE_FIELDS,
-                String.valueOf(EsConnectorProperties.MAX_DOCVALUE_FIELDS_DEFAULT)));
-        if (selectedFields.size() > maxDocValueFields) {
+        if (selectedFields.size() > props.getMaxDocValueFields()) {
             return 0;
         }
 
@@ -350,6 +388,18 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         copyIfPresent(properties, PROP_PASSWORD, esProperties);
         copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
         copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
+        copyIfPresent(properties, PROP_READ_FULL_SOURCE, esProperties);
+        // Ask ES to stop after N hits instead of scrolling everything. Only correct when the engine has NO
+        // filtering left to do after the scan (otherwise rows ES returns could still be filtered out, and
+        // stopping early would lose rows), and only worth it when the limit fits in one BE batch. The engine
+        // supplies both facts; used to live in the generic scan node, which had to recognize this connector
+        // by its format string to do it.
+        long pushdownLimit = parseLongOrDefault(properties.get(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT), -1L);
+        long batchSize = parseLongOrDefault(properties.get(PROP_BATCH_SIZE), -1L);
+        if (pushdownLimit > 0 && batchSize > 0 && pushdownLimit <= batchSize
+                && allConjunctsPushed(properties)) {
+            esProperties.put(PROP_LIMIT, String.valueOf(pushdownLimit));
+        }
         params.setEsProperties(esProperties);
 
         // Deserialize docvalue_context and fields_context from JSON
@@ -388,6 +438,21 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    private static boolean allConjunctsPushed(Map<String, String> properties) {
+        return "true".equals(properties.get(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED));
+    }
+
+    private static long parseLongOrDefault(String value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix,
             Map<String, String> properties) {
@@ -423,6 +488,16 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 output.append(prefix).append("ES source fields: ")
                         .append("(parse error)").append("\n");
             }
+        }
+        // ATTN this deliberately does NOT repeat populateScanLevelParams' "limit fits in one batch" test, so
+        // with a batch size below the limit EXPLAIN claims an early stop that is not actually requested. That
+        // mismatch predates the move (the two halves used to live in different files, one with the test and
+        // one without) and is preserved byte for byte here: the acceptance baseline for this relocation is
+        // that EXPLAIN text does not change. Fixing it changes user-visible EXPLAIN and needs a live ES
+        // cluster to verify, so it is tracked separately.
+        long pushdownLimit = parseLongOrDefault(properties.get(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT), -1L);
+        if (pushdownLimit > 0 && allConjunctsPushed(properties)) {
+            output.append(prefix).append("ES terminate_after: ").append(pushdownLimit).append("\n");
         }
     }
 

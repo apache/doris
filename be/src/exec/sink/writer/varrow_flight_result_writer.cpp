@@ -21,8 +21,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <utility>
+
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/query_context.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -96,15 +99,44 @@ Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* 
                                              print_id(_fragment_id), _status));
 }
 
-Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result) {
+ArrowFlightResultBlockBuffer::ArrowFlightResultBlockBuffer(TUniqueId id, RuntimeState* state,
+                                                           std::shared_ptr<arrow::Schema> schema,
+                                                           int buffer_size)
+        : ResultBlockBuffer<GetArrowResultBatchCtx>(id, state, buffer_size),
+          _arrow_schema(std::move(schema)),
+          _profile("ResultBlockBuffer " + print_id(_fragment_id)),
+          _timezone_obj(state->timezone_obj()),
+          _query_id(state->query_id()),
+          _query_ctx(state->get_query_ctx() ? state->get_query_ctx()->weak_from_this()
+                                            : std::weak_ptr<QueryContext> {}) {
+    _serialize_batch_ns_timer = ADD_TIMER(&_profile, "SerializeBatchNsTime");
+    _uncompressed_bytes_counter = ADD_COUNTER(&_profile, "UncompressedBytes", TUnit::BYTES);
+    _compressed_bytes_counter = ADD_COUNTER(&_profile, "CompressedBytes", TUnit::BYTES);
+}
+
+void ArrowFlightResultBlockBuffer::cancel_query(const Status& reason) {
+    cancel(reason);
+    // The result buffer can be keyed by a fragment instance id rather than the query id.
+    // Keep only a weak query reference, and cancel outside the buffer/map locks.
+    if (auto query_ctx = _query_ctx.lock()) {
+        query_ctx->cancel(reason);
+    }
+}
+
+Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result, bool* eos) {
+    *result = nullptr;
+    *eos = false;
     std::unique_lock<std::mutex> l(_lock);
     Defer defer {[&]() { _update_dependency(); }};
     if (!_status.ok()) {
         return _status;
     }
 
-    while (_result_batch_queue.empty() && _status.ok() && !_is_close) {
-        _arrow_data_arrival.wait_for(l, std::chrono::milliseconds(20));
+    if (!_arrow_data_arrival.wait_for(l, std::chrono::milliseconds(20), [&] {
+            return !_result_batch_queue.empty() || !_status.ok() || _is_close;
+        })) {
+        // Let the reader check RPC cancellation without treating an empty wait as EOF.
+        return Status::OK();
     }
 
     if (!_status.ok()) {
@@ -125,6 +157,7 @@ Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* res
 
     // normal path end
     if (_is_close) {
+        *eos = true;
         if (!_status.ok()) {
             return _status;
         }

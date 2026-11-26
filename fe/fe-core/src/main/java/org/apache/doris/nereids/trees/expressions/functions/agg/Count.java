@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -38,7 +37,8 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -94,16 +94,8 @@ public class Count extends NotNullableAggregateFunction
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
             if (distinct) {
-                checkLegacyVariantArgument(argument, this);
                 checkDistinctArgument(argument, this);
             }
-        }
-    }
-
-    static void checkLegacyVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType instanceof VariantType && !((VariantType) argumentType).isComputeV2()) {
-            throwDistinctArgumentException(function);
         }
     }
 
@@ -196,7 +188,8 @@ public class Count extends NotNullableAggregateFunction
         if (this.isDistinct()) {
             return new BitmapUnionCount(param);
         } else {
-            return new Sum(param);
+            // sum0, not sum: count returns 0 on empty input while sum returns NULL
+            return new Sum0(param);
         }
     }
 

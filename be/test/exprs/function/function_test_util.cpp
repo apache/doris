@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -197,6 +198,10 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         type = std::make_shared<DataTypeDateTimeV2>(input_types[index].scale_or(0));
         desc = type;
         return 1;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        type = std::make_shared<DataTypeTimeStampNs>();
+        desc = type;
+        return 1;
     case PrimitiveType::TYPE_TIMEV2:
         type = std::make_shared<DataTypeTimeV2>(input_types[index].scale_or(0));
         desc = type;
@@ -318,7 +323,16 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, c
         auto datetime_str = any_cast<std::string>(cell);
 
         CastParameters params;
-        if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
+        if constexpr (PType == PrimitiveType::TYPE_TIMESTAMP_NS) {
+            StringRef value {datetime_str};
+            result = date_type_ptr->get_serde()
+                             ->from_string(value, *column, DataTypeSerDe::FormatOptions {})
+                             .ok();
+            if (!result) {
+                column->insert_default();
+            }
+            return result;
+        } else if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
             result = CastToDatetimeV2::from_string_non_strict_mode(
                     {datetime_str.c_str(), datetime_str.size()}, date_value, nullptr,
                     date_type_ptr->get_scale(), params);
@@ -529,6 +543,11 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
                     column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
+        case PrimitiveType::TYPE_TIMESTAMP_NS: {
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_TIMESTAMP_NS>(
+                    column, type_ptr, cell, datetime_is_string_format)));
+            break;
+        }
         case PrimitiveType::TYPE_TIMEV2: {
             TimeValue::TimeType time_value = 0;
             if (datetime_is_string_format) {
@@ -599,7 +618,8 @@ static Block* create_block_from_inputset(const InputTypeSet& input_types,
                                     ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
                                     : desc.data_type;
 
-            for (int r = 0; r < row_size; r++) {
+            const size_t rows_to_insert = desc.is_const ? 1 : row_size;
+            for (size_t r = 0; r < rows_to_insert; r++) {
                 if (!insert_cell(column, type_ptr, input_set[r][i * input_col_size + j])) {
                     return nullptr;
                 }

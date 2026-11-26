@@ -60,9 +60,16 @@
 
 #include <fmt/format.h>
 
-#include "util/uid_util.h"
+#include <string>
 
 namespace doris {
+
+// TaggableLogger::tag only needs these declarations; TUs that actually log a
+// TUniqueId/PUniqueId have the full types from their own includes.
+class TUniqueId;
+class PUniqueId;
+std::string print_id(const TUniqueId& id);
+std::string print_id(const PUniqueId& id);
 
 // glog doesn't allow multiple invocations of InitGoogleLogging. This method conditionally
 // calls InitGoogleLogging only if it hasn't been called before.

@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +46,9 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     private final Logger logger = LogManager.getLogger(getClass());
 
     protected final AtomicBoolean finished = new AtomicBoolean(false);
+    // FINISHED cleanup must wait until all fragment dispatch RPCs, including phase-two starts, complete.
+    private final AtomicBoolean executionFinished = new AtomicBoolean(false);
+    private final AtomicBoolean fragmentDispatchCompleted = new AtomicBoolean(false);
     protected final CoordinatorContext coordinatorContext;
     protected volatile Optional<PipelineExecutionTask> executionTask;
     protected volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
@@ -74,6 +78,20 @@ public abstract class AbstractJobProcessor implements JobProcessor {
 
     @Override
     public void tryFinishSchedule() {
+        executionFinished.set(true);
+        tryBroadcastExecutionFinished();
+    }
+
+    @Override
+    public void markFragmentDispatchCompleted() {
+        fragmentDispatchCompleted.set(true);
+        tryBroadcastExecutionFinished();
+    }
+
+    private void tryBroadcastExecutionFinished() {
+        if (!executionFinished.get() || !fragmentDispatchCompleted.get()) {
+            return;
+        }
         if (finished.compareAndSet(false, true)) {
             this.executionTask.ifPresent(sqlPipelineTask -> {
                 for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
@@ -84,14 +102,17 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     }
 
     @Override
-    public final void updateFragmentExecStatus(TReportExecStatusParams params) {
+    public final boolean updateFragmentExecStatus(TReportExecStatusParams params) {
         if (params.status.status_code == TStatusCode.FINISHED) {
             params.status = new TStatus(TStatusCode.OK);
         }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {
-            return;
+            if (CommitDataSerializer.hasCommitData(params)) {
+                throw new IllegalStateException("Missing fragment handler for external-file report");
+            }
+            return false;
         }
 
         TUniqueId queryId = coordinatorContext.queryId;
@@ -117,6 +138,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             }
         }
         doProcessReportExecStatus(params, fragmentTask);
+        return !CommitDataSerializer.hasCommitData(params) || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(

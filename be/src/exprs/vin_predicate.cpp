@@ -34,6 +34,8 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/in.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/hybrid_set_min_max.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
@@ -64,6 +66,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DATETIME);
         RETURN_RAW_IN_SIZE(TYPE_DATEV2);
         RETURN_RAW_IN_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_IN_SIZE(TYPE_TIMESTAMP_NS);
         RETURN_RAW_IN_SIZE(TYPE_TIMESTAMPTZ);
         RETURN_RAW_IN_SIZE(TYPE_TIMEV2);
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL32);
@@ -73,6 +76,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_IN_SIZE(TYPE_IPV4);
         RETURN_RAW_IN_SIZE(TYPE_IPV6);
+        RETURN_RAW_IN_SIZE(TYPE_UUID);
 #undef RETURN_RAW_IN_SIZE
     default:
         return 0;
@@ -83,6 +87,10 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
 
 VInPredicate::VInPredicate(const TExprNode& node)
         : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
+
+#ifdef BE_TEST
+VInPredicate::VInPredicate() = default;
+#endif
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
@@ -130,15 +138,15 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
 
     _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
                                         [](const VExprSPtr& expr) { return expr->is_constant(); });
-    if (scope == FunctionContext::FRAGMENT_LOCAL && _is_args_all_constant &&
-        !_zonemap_materialized) {
-        RETURN_IF_ERROR(_materialize_for_zonemap_filter(context));
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL && _is_args_all_constant &&
+        _zonemap_min_max == nullptr) {
+        _prepare_zonemap_min_max(context);
     }
     _open_finished = true;
     return Status::OK();
@@ -154,76 +162,79 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
-    _seg_filter_values.clear();
-    _seg_filter_contains_null = false;
-    _zonemap_materialized = false;
+void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
+    _zonemap_min_max.reset();
     _direct_filter_set.reset();
-    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
-        return Status::OK();
+    if (_children.size() < 2) {
+        return;
     }
 
-    const auto data_type = remove_nullable(_children[0]->data_type());
+    auto bloom_probe = expr_zonemap::extract_metadata_probe(_children[0]);
+    if (!bloom_probe.has_value()) {
+        return;
+    }
+    // Materialization is shared by all pruning paths. Their capability checks keep ZoneMap,
+    // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
+    const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
-    if (is_complex_type(data_type->get_primitive_type())) {
-        return Status::OK();
+    // Binary IN is rejected by the SQL function; do not build storage predicates for its keys.
+    if (is_complex_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_VARBINARY) {
+        return;
     }
 
     DORIS_CHECK(context != nullptr);
     auto* fn_ctx = context->fn_context(_fn_context_index);
     DORIS_CHECK(fn_ctx != nullptr);
-    auto* in_state =
-            reinterpret_cast<InState*>(fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    auto* in_state = reinterpret_cast<InState*>(
+            fn_ctx->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     DORIS_CHECK(in_state != nullptr);
     DORIS_CHECK(in_state->use_set);
     DORIS_CHECK(in_state->hybrid_set != nullptr);
     _direct_filter_set = in_state->hybrid_set;
 
-    expr_zonemap::InZonemapMaterializedSet materialized;
-    RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
-            *in_state->hybrid_set, data_type, &materialized));
-    _seg_filter_contains_null = materialized.contains_null;
-    _seg_filter_values = std::move(materialized.values);
-    _seg_filter_min = std::move(materialized.min_value);
-    _seg_filter_max = std::move(materialized.max_value);
-    _zonemap_materialized = true;
-    return Status::OK();
+    auto zonemap_min_max = std::make_shared<HybridSetMinMax>();
+    expr_zonemap::get_hybrid_set_min_max_for_zonemap_filter(in_state->hybrid_set, data_type,
+                                                            *zonemap_min_max);
+    _zonemap_min_max = std::move(zonemap_min_max);
 }
 
 ZoneMapFilterResult VInPredicate::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
-    if (_is_not_in && _seg_filter_contains_null) {
-        return ZoneMapFilterResult::kNoMatch;
-    }
-    return expr_zonemap::eval_in_zonemap(ctx, get_child(0), _is_not_in, _seg_filter_values,
-                                         _seg_filter_min, _seg_filter_max);
+    DORIS_CHECK(_zonemap_min_max != nullptr);
+    DORIS_CHECK(_direct_filter_set != nullptr);
+    return expr_zonemap::eval_in_zonemap(ctx, get_child(0), _is_not_in, *_zonemap_min_max,
+                                         *_direct_filter_set);
 }
 
 bool VInPredicate::can_evaluate_zonemap_filter() const {
-    return _zonemap_materialized && std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    return _zonemap_min_max != nullptr &&
+           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
 ZoneMapFilterResult VInPredicate::evaluate_dictionary_filter(
         const DictionaryEvalContext& ctx) const {
-    return expr_zonemap::eval_in_dictionary(ctx, get_child(0), _is_not_in, _seg_filter_values);
+    DORIS_CHECK(_direct_filter_set != nullptr);
+    return expr_zonemap::eval_in_dictionary(ctx, get_child(0), _is_not_in, *_direct_filter_set);
 }
 
 bool VInPredicate::can_evaluate_dictionary_filter() const {
-    return _zonemap_materialized && !_is_not_in &&
+    return _zonemap_min_max != nullptr && !_is_not_in &&
            std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
 ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const {
-    return expr_zonemap::eval_in_bloom_filter(ctx, get_child(0), _is_not_in, _seg_filter_values);
+    DORIS_CHECK(_direct_filter_set != nullptr);
+    return expr_zonemap::eval_in_bloom_filter(ctx, get_child(0), _is_not_in, *_direct_filter_set);
 }
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
-    return _zonemap_materialized && !_is_not_in &&
-           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    return _zonemap_min_max != nullptr && !_is_not_in &&
+           expr_zonemap::extract_metadata_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
                                                    int column_id) const {
-    if (!_zonemap_materialized || _direct_filter_set == nullptr || data_type == nullptr ||
+    if (_zonemap_min_max == nullptr || _direct_filter_set == nullptr || data_type == nullptr ||
         !_is_args_all_constant) {
         return false;
     }
@@ -252,7 +263,7 @@ Status VInPredicate::execute_on_raw_fixed_values(const uint8_t* values, size_t n
     }
     // NOT IN with a NULL literal is UNKNOWN for every non-null physical value. Definition levels
     // handle input NULLs, while this guard preserves the remaining three-valued SQL invariant.
-    if (_is_not_in && _seg_filter_contains_null) {
+    if (_is_not_in && _direct_filter_set->contain_null()) {
         std::fill(matches, matches + num_values, uint8_t {0});
     } else if (_is_not_in) {
         _direct_filter_set->find_batch_raw_fixed_negative(values, num_values, value_width, matches);
@@ -264,7 +275,7 @@ Status VInPredicate::execute_on_raw_fixed_values(const uint8_t* values, size_t n
 
 bool VInPredicate::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
                                                     int column_id) const {
-    if (!_zonemap_materialized || _direct_filter_set == nullptr || data_type == nullptr ||
+    if (_zonemap_min_max == nullptr || _direct_filter_set == nullptr || data_type == nullptr ||
         !_is_args_all_constant ||
         !is_string_type(remove_nullable(data_type)->get_primitive_type())) {
         return false;
@@ -282,7 +293,7 @@ Status VInPredicate::execute_on_raw_binary_values(const StringRef* values, size_
     }
     DORIS_CHECK(values != nullptr || num_values == 0);
     DORIS_CHECK(matches != nullptr || num_values == 0);
-    if (_is_not_in && _seg_filter_contains_null) {
+    if (_is_not_in && _direct_filter_set->contain_null()) {
         std::fill(matches, matches + num_values, uint8_t {0});
     } else if (_is_not_in) {
         _direct_filter_set->find_batch_raw_binary_negative(values, num_values, matches);

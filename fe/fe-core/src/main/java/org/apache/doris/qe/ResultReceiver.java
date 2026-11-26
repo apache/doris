@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
@@ -35,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -157,6 +159,23 @@ public class ResultReceiver {
                     return null;
                 }
 
+                // Test hook: lose the first response that carries rows, the way a failed fetch_data RPC
+                // does (THRIFT_RPC_ERROR, as the ExecutionException branch below reports it), at a point
+                // where the BE has produced the rows -- and so the query's scans have read their input.
+                // StmtExecutor.handleQueryWithRetry then retries the query, which is what this exercises.
+                // Only a session's own query qualifies: the point is armed for a number of hits, which
+                // isEnable spends, and an internal query (auto-analyze, say) fetching rows at the same
+                // time would otherwise take the hit meant for the query under test.
+                if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0
+                        && ConnectContext.get() != null && !ConnectContext.get().getState().isInternal()
+                        && DebugPointUtil.isEnable("ResultReceiver.getNext.dropDataBatch")) {
+                    LOG.warn("debug point ResultReceiver.getNext.dropDataBatch: dropping packet {} of finstId={}",
+                            pResult.getPacketSeq(), DebugUtil.printId(getRealFinstId()));
+                    status.updateStatus(TStatusCode.THRIFT_RPC_ERROR,
+                            "fetch result rpc failed (debug point ResultReceiver.getNext.dropDataBatch)");
+                    return null;
+                }
+
                 packetIdx++;
                 isDone = pResult.getEos();
 
@@ -172,7 +191,7 @@ public class ResultReceiver {
                     try {
                         deserializer.deserialize(resultBatch, serialResult);
                     } catch (TException e) {
-                        if (e.getMessage().contains("MaxMessageSize reached")) {
+                        if (isMessageSizeExceeded(e)) {
                             throw new TException(
                                     "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
                         } else {
@@ -207,6 +226,16 @@ public class ResultReceiver {
             status.updateStatus(runStatus.getErrorCode(), runStatus.getErrorMsg());
         }
         return rowBatch;
+    }
+
+    // Thrift 0.24 reports an exceeded max message size as MESSAGE_SIZE_LIMIT; older
+    // versions only carried the "MaxMessageSize reached" text on END_OF_FILE.
+    static boolean isMessageSizeExceeded(TException e) {
+        if (e instanceof TTransportException
+                && ((TTransportException) e).getType() == TTransportException.MESSAGE_SIZE_LIMIT) {
+            return true;
+        }
+        return e.getMessage() != null && e.getMessage().contains("MaxMessageSize reached");
     }
 
     public synchronized void cancel(Status reason) {

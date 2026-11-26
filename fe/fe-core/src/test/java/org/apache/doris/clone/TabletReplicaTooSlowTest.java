@@ -34,7 +34,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -42,35 +41,27 @@ import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
-public class TabletReplicaTooSlowTest {
+public class TabletReplicaTooSlowTest extends TestWithFeService {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/TabletReplicaTooSlowTest/" + UUID.randomUUID() + "/";
-    private static ConnectContext connectContext;
 
     private static Random random = new Random(System.currentTimeMillis());
 
-    private static List<Backend> backends = Lists.newArrayList();
+    private List<Backend> backends = Lists.newArrayList();
 
     private long id = 10086;
 
@@ -78,8 +69,13 @@ public class TabletReplicaTooSlowTest {
     private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
     private Table<String, Tag, LoadStatisticForTag> statisticMap;
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected int backendNum() {
+        return 5;
+    }
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
@@ -92,9 +88,10 @@ public class TabletReplicaTooSlowTest {
         // 127.0.0.3
         // 127.0.0.4
         // 127.0.0.5
-        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
-        connectContext = UtFrameUtils.createDefaultCtx();
+    }
 
+    @Override
+    protected void runBeforeAll() throws Exception {
         // create database
         String createDbStmtStr = "create database test;";
         NereidsParser nereidsParser = new NereidsParser();
@@ -132,12 +129,7 @@ public class TabletReplicaTooSlowTest {
         }
     }
 
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
-    }
-
-    private static void createTable(String sql) throws Exception {
+    private void createTableStmt(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
@@ -164,8 +156,8 @@ public class TabletReplicaTooSlowTest {
         }
 
         List<List<String>> result = Diagnoser.diagnoseTablet(tabletId);
-        Assert.assertEquals(12, result.size());
-        Assert.assertTrue(result.get(11).get(1).contains("version count is too high"));
+        Assertions.assertEquals(12, result.size());
+        Assertions.assertTrue(result.get(11).get(1).contains("version count is too high"));
     }
 
     private static String getDiagnosisInfo(List<List<String>> rows, String item) {
@@ -221,12 +213,12 @@ public class TabletReplicaTooSlowTest {
                 + "(\n"
                 + "    \"replication_num\" = \"3\"\n"
                 + ")";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
 
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assert.assertNotNull(db);
+        Assertions.assertNotNull(db);
         OlapTable table = (OlapTable) db.getTableNullable(tableName);
-        Assert.assertNotNull(table);
+        Assertions.assertNotNull(table);
         Partition partition = table.getAllPartitions().iterator().next();
         MaterializedIndex index = partition.getBaseIndex();
         Tablet tablet = index.getTablets().get(0);
@@ -234,7 +226,7 @@ public class TabletReplicaTooSlowTest {
         long tabletId = tablet.getId();
         long visibleVersion = partition.getCachedVisibleVersion();
         Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
-        Assert.assertNotNull(backend);
+        Assertions.assertNotNull(backend);
 
         Map<String, TDisk> originalDisks = copyBackendDisks(backend);
         String originCloudUniqueId = Config.cloud_unique_id;
@@ -246,13 +238,13 @@ public class TabletReplicaTooSlowTest {
             replica.adminUpdateVersionInfo(mismatchVersion, null, null, System.currentTimeMillis());
 
             List<List<String>> localResult = Diagnoser.diagnoseTablet(tabletId);
-            Assert.assertTrue(getDiagnosisInfo(localResult, "ReplicaBackendStatus").contains("has no space left"));
-            Assert.assertTrue(getDiagnosisInfo(localResult, "ReplicaVersionStatus").contains("does not equal"));
+            Assertions.assertTrue(getDiagnosisInfo(localResult, "ReplicaBackendStatus").contains("has no space left"));
+            Assertions.assertTrue(getDiagnosisInfo(localResult, "ReplicaVersionStatus").contains("does not equal"));
 
             Config.cloud_unique_id = "diagnose-tablet-cloud-mode-ut";
             List<List<String>> cloudResult = Diagnoser.diagnoseTablet(tabletId);
-            Assert.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaBackendStatus"));
-            Assert.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaVersionStatus"));
+            Assertions.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaBackendStatus"));
+            Assertions.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaVersionStatus"));
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
             backend.updateDisks(originalDisks);
@@ -270,7 +262,7 @@ public class TabletReplicaTooSlowTest {
                 + "(\n"
                 + "    \"replication_num\" = \"3\"\n"
                 + ")";
-        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
 
         int maxLoop = 300;
         boolean delete = false;
@@ -292,6 +284,6 @@ public class TabletReplicaTooSlowTest {
             }
             Thread.sleep(1000);
         }
-        Assert.assertTrue(delete);
+        Assertions.assertTrue(delete);
     }
 }

@@ -1049,4 +1049,17 @@ class Syncer {
         )
         """
     }
+
+    void createObjectStorageIamRepository(String name, Map iamConfig, Map authCase, boolean readOnly = false) {
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE ${readOnly ? "READ ONLY" : ""} REPOSITORY `${name}`
+        WITH S3
+        ON LOCATION "${iamConfig.scheme}://${iamConfig.bucket}/${iamConfig.prefix}/${name}"
+        PROPERTIES
+        (
+            ${authCase.storageSqlProperties}
+        )
+        """
+    }
 }

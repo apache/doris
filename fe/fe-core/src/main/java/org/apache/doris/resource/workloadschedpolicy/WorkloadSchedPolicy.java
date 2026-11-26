@@ -73,8 +73,6 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     private List<WorkloadCondition> workloadConditionList;
     private List<WorkloadAction> workloadActionList;
 
-    private Boolean isFePolicy = null;
-
     // for ut
     public WorkloadSchedPolicy() {
     }
@@ -207,21 +205,6 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         return actionMetaList;
     }
 
-    // true, current policy can only run in FE;
-    // false, current policy can only run in BE
-    public boolean isFePolicy() {
-        if (isFePolicy == null) {
-            isFePolicy = false;
-            for (WorkloadAction action : workloadActionList) {
-                if (WorkloadSchedPolicyMgr.FE_ACTION_SET.contains(action.getWorkloadActionType())) {
-                    isFePolicy = true;
-                    break;
-                }
-            }
-        }
-        return isFePolicy;
-    }
-
     public TopicInfo toTopicInfo() {
         TWorkloadSchedPolicy tPolicy = new TWorkloadSchedPolicy();
         tPolicy.setId(id);
@@ -292,6 +275,10 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         List<WorkloadAction> actionList = new ArrayList<>();
         for (WorkloadActionMeta actionMeta : actionMetaList) {
             try {
+                if (WorkloadActionType.SET_SESSION_VARIABLE.equals(actionMeta.action)) {
+                    Log.warn("skip deprecated workload policy action " + actionMeta.action);
+                    continue;
+                }
                 WorkloadAction ret = WorkloadAction.createWorkloadAction(actionMeta);
                 actionList.add(ret);
             } catch (UserException ue) {

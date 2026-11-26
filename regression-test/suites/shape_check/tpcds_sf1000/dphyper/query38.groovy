@@ -24,6 +24,8 @@ suite("query38") {
     set enable_nereids_planner=true;
     set enable_nereids_distribute_planner=false;
     set enable_fallback_to_original_planner=false;
+    set enable_spill = false;
+    set enable_force_spill = false;
     set exec_mem_limit=21G;
     set be_number_for_test=3;
     set enable_runtime_filter_prune=false;
@@ -39,6 +41,7 @@ suite("query38") {
     set topn_opt_limit_threshold=1024;
     set enable_dphyp_optimizer = true;
     set max_table_count_use_cascades_join_reorder = 1;
+    set join_order_time_limit=10000;
     set dphyper_limit=2600;
     """
 

@@ -20,9 +20,9 @@ package org.apache.doris.load;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.common.FeConstants;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -33,7 +33,7 @@ import java.io.FileOutputStream;
 public class TabletLoadInfoTest {
     private FakeEnv fakeEnv;
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -66,12 +66,12 @@ public class TabletLoadInfoTest {
         TabletLoadInfo tabletLoadInfo1 = new TabletLoadInfo();
         tabletLoadInfo1.readFields(dis);
 
-        Assert.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
-        Assert.assertEquals(1L, tabletLoadInfo1.getFileSize());
+        Assertions.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
+        Assertions.assertEquals(1L, tabletLoadInfo1.getFileSize());
 
-        Assert.assertEquals(tabletLoadInfo1, tabletLoadInfo);
-        Assert.assertEquals(rTabletLoadInfo0, tabletLoadInfo0);
-        Assert.assertNotEquals(rTabletLoadInfo0, tabletLoadInfo1);
+        Assertions.assertEquals(tabletLoadInfo1, tabletLoadInfo);
+        Assertions.assertEquals(rTabletLoadInfo0, tabletLoadInfo0);
+        Assertions.assertNotEquals(rTabletLoadInfo0, tabletLoadInfo1);
 
         dis.close();
         file.delete();

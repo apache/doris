@@ -46,6 +46,7 @@ public enum PrimitiveType {
     DATETIME("DATETIME", 16, TPrimitiveType.DATETIME, true),
     IPV4("IPV4", 4, TPrimitiveType.IPV4, true),
     IPV6("IPV6", 16, TPrimitiveType.IPV6, true),
+    UUID("UUID", 16, TPrimitiveType.UUID, true),
     // Fixed length char array.
     CHAR("CHAR", 16, TPrimitiveType.CHAR, true),
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
@@ -66,6 +67,7 @@ public enum PrimitiveType {
     AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
+    TIMESTAMP_NS("TIMESTAMP_NS", 8, TPrimitiveType.TIMESTAMP_NS, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
     TIMESTAMPTZ("TIMESTAMPTZ", 8, TPrimitiveType.TIMESTAMPTZ, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
@@ -135,10 +137,12 @@ public enum PrimitiveType {
         supportedTypes.add(DATETIME);
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
+        supportedTypes.add(TIMESTAMP_NS);
         supportedTypes.add(TIMEV2);
         supportedTypes.add(TIMESTAMPTZ);
         supportedTypes.add(IPV4);
         supportedTypes.add(IPV6);
+        supportedTypes.add(UUID);
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(DECIMAL32);
         supportedTypes.add(DECIMAL64);
@@ -213,10 +217,14 @@ public enum PrimitiveType {
                 return DATEV2;
             case DATETIMEV2:
                 return DATETIMEV2;
+            case TIMESTAMP_NS:
+                return TIMESTAMP_NS;
             case IPV4:
                 return IPV4;
             case IPV6:
                 return IPV6;
+            case UUID:
+                return UUID;
             case BINARY:
                 return BINARY;
             case DECIMALV2:
@@ -283,6 +291,11 @@ public enum PrimitiveType {
     }
 
     public TPrimitiveType toThrift() {
+        if (this == TIMESTAMP_NS && Config.be_exec_version < Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION) {
+            throw new IllegalStateException("TIMESTAMP_NS requires all participating backends to support "
+                    + "execution version " + Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION
+                    + " or newer; current be_exec_version is " + Config.be_exec_version);
+        }
         return thriftType;
     }
 
@@ -328,11 +341,12 @@ public enum PrimitiveType {
     }
 
     public boolean isDateLikeType() {
-        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
+        return this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2
+                || this == TIMESTAMP_NS || this == TIMESTAMPTZ;
     }
 
     public boolean isDateV2LikeType() {
-        return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
+        return this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMP_NS || this == TIMESTAMPTZ;
     }
 
     public boolean isTimeStampTzType() {
@@ -395,6 +409,10 @@ public enum PrimitiveType {
         return (this == IPV6);
     }
 
+    public boolean isUuidType() {
+        return this == UUID;
+    }
+
     public boolean isVarbinaryType() {
         return (this == VARBINARY);
     }
@@ -428,6 +446,7 @@ public enum PrimitiveType {
             case DATEV2:
                 return MysqlColType.MYSQL_TYPE_DATE;
             case TIMESTAMPTZ:
+            case TIMESTAMP_NS:
                 return MysqlColType.MYSQL_TYPE_STRING;
             case DATETIME:
             case DATETIMEV2: {
@@ -463,6 +482,7 @@ public enum PrimitiveType {
                 return DATEV2_INDEX_LEN;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 return DATETIME_INDEX_LEN;
             case VARCHAR:

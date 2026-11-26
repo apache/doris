@@ -45,14 +45,21 @@ enum TPartitionType {
   // used for shuffle data by parititon and tablet
   OLAP_TABLE_SINK_HASH_PARTITIONED = 6,
 
-  // used for shuffle data by hive parititon
-  HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
+  // used for shuffle data by external table sink ownership key
+  EXTERNAL_TABLE_SINK_HASH_PARTITIONED = 7,
 
-  // used for hive unparititoned table
-  HIVE_TABLE_SINK_UNPARTITIONED = 8,
+  // adaptive writer distribution without an ownership key
+  EXTERNAL_TABLE_SINK_UNPARTITIONED = 8,
 
   // used for merge partitioning: insert by partition columns, delete by row_id
-  MERGE_PARTITIONED = 9
+  MERGE_PARTITIONED = 9,
+
+  // used for shuffle data by hive parititon. These master-only values were moved
+  // before release so values 7 and 8 keep the branch-4.1 external-sink meaning.
+  HIVE_TABLE_SINK_HASH_PARTITIONED = 10,
+
+  // used for hive unparititoned table
+  HIVE_TABLE_SINK_UNPARTITIONED = 11
 }
 
 enum TLocalPartitionType {
@@ -128,10 +135,8 @@ enum TLocalPartitionType {
   //   Scan(build side) -> LocalExchangeNode(BROADCAST) -> HashJoin(build)
   BROADCAST = 6,
   // PASS_TO_ONE: funnel all rows to a single local instance (channel 0); every other instance gets EOS
-  // immediately and produces nothing (PassToOneExchanger). used for a broadcast join with a shared
-  // hash table, where only instance 0 needs the build data and the others share its hash table.
-  // NOTE: BE only uses PassToOneExchanger when `enable_share_hash_table_for_broadcast_join` is on;
-  // when it is off the same PASS_TO_ONE type degrades to BROADCAST (each instance keeps its own copy).
+  // immediately and produces nothing (PassToOneExchanger). Used at parallel-to-serial boundaries and
+  // for a broadcast join with a shared hash table. A private broadcast hash table uses BROADCAST.
   PASS_TO_ONE = 7,
   // LOCAL_MERGE_SORT: k-way merge of several already-sorted local inputs into one globally sorted
   // stream on a single instance (paired with LocalMergeSortSourceOperator, for a SortNode with
@@ -183,6 +188,8 @@ struct TIcebergPartitionField {
   3: required Exprs.TExpr source_expr
   4: optional string name
   5: optional i32 source_id
+  // Zero-based STRUCT child indexes below source_expr; empty/unset means a top-level source.
+  6: optional list<i32> source_field_path
 }
 
 struct TMergePartitionInfo {
@@ -194,6 +201,42 @@ struct TMergePartitionInfo {
   6: optional i32 partition_spec_id
 }
 
+enum TExternalTableSinkWriterAssignment {
+  IDENTITY = 0,
+  SKEWED = 1
+}
+
+// Deprecated branch-4.1 routing algorithm. Kept at its original field id in
+// TExternalTableSinkHashPartitionInfo for wire compatibility.
+enum TExternalTableSinkHashAlgorithm {
+  DIRECT_HASH = 0,
+  ICEBERG_TRANSFORM = 1,
+  PAIMON_FIXED_BUCKET = 2
+}
+
+// Deprecated branch-4.1 Paimon routing metadata. The generic connector-owned
+// partition function encodes this information in partition_function_options.
+struct TPaimonFixedBucketInfo {
+  1: required i32 num_buckets
+  2: required list<i32> partition_field_indexes
+  3: required list<i32> bucket_field_indexes
+}
+
+// Fields 1-4 retain their branch-4.1 meanings and are deprecated on master.
+// Master appends its generic connector-owned function representation instead
+// of reusing an existing field id for a different type or meaning.
+struct TExternalTableSinkHashPartitionInfo {
+  1: optional TExternalTableSinkHashAlgorithm algorithm
+  2: optional list<string> partition_transforms
+  3: required TExternalTableSinkWriterAssignment writer_assignment
+  4: optional TPaimonFixedBucketInfo paimon_fixed_bucket_info
+
+  // FE treats these fields as opaque connector-owned data. BE validates the
+  // named function before processing rows.
+  5: optional string partition_function
+  6: optional map<string, string> partition_function_options
+}
+
 // Specification of how a single logical data stream is partitioned.
 // This leaves out the parameters that determine the physical partition (for hash
 // partitions, the number of partitions; for range partitions, the partitions'
@@ -203,4 +246,5 @@ struct TDataPartition {
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
+  5: optional TExternalTableSinkHashPartitionInfo external_table_sink_hash_partition_info
 }
