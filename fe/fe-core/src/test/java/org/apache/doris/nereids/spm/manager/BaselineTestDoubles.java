@@ -222,6 +222,7 @@ public final class BaselineTestDoubles {
         public java.util.function.BiFunction<Long, Integer, List<BaselinePlan>>
                 byHashTimedReader;
         public Supplier<Map<Long, BaselinePlan>> snapshotReader;
+        public Supplier<Map<Long, Long>> cloudVersionReader;
         public boolean snapshotUsesDurableHashReads;
         public DurableVisibilityProbe visibilityProbe;
         /** Explicit durable override; null = durable exactly when a hook is installed. */
@@ -270,6 +271,16 @@ public final class BaselineTestDoubles {
         @Override
         public boolean isDurable() {
             return durableOverride != null ? durableOverride : anyHookInstalled();
+        }
+
+        @Override
+        public boolean usesCloudVersions() {
+            return cloudVersionReader != null;
+        }
+
+        @Override
+        public Map<Long, Long> readCloudVersions() {
+            return cloudVersionReader.get();
         }
 
         @Override

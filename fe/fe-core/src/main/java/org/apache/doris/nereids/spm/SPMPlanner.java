@@ -47,10 +47,10 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.collect.Iterables;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +63,7 @@ import java.util.Set;
  * and plan trees with one builder, optimizes the plan, and stores either decompiled frozen SQL or the original SQL
  * for fallback planning.
  *
+ * SESSION candidates are resolved before opening the GLOBAL candidate store.
  * Replay uses a structural hash, exact canonical digest and tree comparison to select candidates and collect
  * replacements. It tries frozen SQL first, then the parameterized fallback tree when available. Output labels, row
  * limits, ordering and metadata are checked before the caller plans the returned unbound tree. No usable match
@@ -114,8 +115,8 @@ public class SPMPlanner {
         // Fast path: with no baseline anywhere (global or session) there is nothing to
         // match, so skip the whole-tree digest rendering below - it walks every literal
         // of the whole query and is the most expensive part of a rewrite attempt.
-        if (!BaselineManager.getInstance().hasBaselines()
-                && (sessionStore == null || sessionStore.isEmpty())) {
+        if ((sessionStore == null || sessionStore.isEmpty())
+                && !BaselineManager.getInstance().hasBaselines()) {
             return null;
         }
         // SELECT... INTO OUTFILE writes to a destination that lives OUTSIDE the plan
@@ -146,15 +147,16 @@ public class SPMPlanner {
         // SESSION-scope baselines of the current connection are consulted BEFORE the
         // global ones, so a session baseline can override a global baseline for this
         // session only; each candidate list is already priority-ordered.
-        List<BaselinePlan> candidates = new ArrayList<>();
-        if (sessionStore != null) {
-            candidates.addAll(sessionStore.findCandidateBaselines(queryDigest, queryHash));
-        }
-        candidates.addAll(
-                BaselineManager.getInstance().findCandidateBaselines(queryDigest, queryHash, deadline));
-        if (candidates.isEmpty()) {
-            return null;
-        }
+        List<BaselinePlan> sessionCandidates = sessionStore == null ? List.of()
+                : sessionStore.findCandidateBaselines(queryDigest, queryHash);
+        // Iterables.concat opens the second iterator only after exhausting the first.
+        // A usable SESSION baseline never waits for a GLOBAL cold-bucket read.
+        Iterable<BaselinePlan> candidates = Iterables.concat(sessionCandidates, () -> {
+            if (System.currentTimeMillis() >= deadline) {
+                return java.util.Collections.emptyIterator();
+            }
+            return BaselineManager.getInstance().findCandidateBaselines(queryDigest, queryHash, deadline).iterator();
+        });
         // View guard (computed lazily on the first structural match, so the per-query
         // hot path pays nothing): the replay of a matched baseline is planned before the
         // normal authorization pass and resolves a view to its base tables, so

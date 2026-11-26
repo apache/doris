@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands.spm;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 /**
  * SHOW BASELINE PLANS LIKE operand semantics.
@@ -33,6 +38,28 @@ import org.junit.jupiter.api.Test;
  * although none of the searched SQL / status / source fields is empty.
  */
 public class ShowBaselinePlansCommandTest {
+
+    @Test
+    public void testCloudSupportsBothBaselineScopes() {
+        String original = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "spm-cloud-test";
+            for (String statement : List.of(
+                    "CREATE SESSION BASELINE PLAN \"SELECT 1\"",
+                    "CREATE GLOBAL BASELINE PLAN \"SELECT 1\"",
+                    "ALTER BASELINE PLAN 1 DISABLE",
+                    "ALTER BASELINE PLAN 4611686018427387904 DISABLE",
+                    "DROP BASELINE PLAN 1",
+                    "DROP BASELINE PLAN 4611686018427387904",
+                    "SHOW BASELINE PLANS",
+                    "SHOW BASELINE PLANS WHERE scope = 'SESSION'")) {
+                Command command = (Command) new NereidsParser().parseSingle(statement);
+                Assertions.assertDoesNotThrow(() -> command.verifyCommandSupported(null), statement);
+            }
+        } finally {
+            Config.cloud_unique_id = original;
+        }
+    }
 
     @Test
     public void testEmptyLikeIsARealPattern() throws Exception {
@@ -177,6 +204,12 @@ public class ShowBaselinePlansCommandTest {
                 .isSessionScopeOnlyFilter(), "the filter is case-insensitive");
         Assertions.assertTrue(new ShowBaselinePlansCommand(null, " scope ", " SESSION ")
                 .isSessionScopeOnlyFilter(), "surrounding blanks are trimmed");
+        Assertions.assertTrue(new ShowBaselinePlansCommand(null, "id", "4611686018427387904")
+                .isSessionScopeOnlyFilter(), "a session-range id cannot match GLOBAL rows");
+        Assertions.assertFalse(new ShowBaselinePlansCommand(null, "id", "4611686018427387903")
+                .isSessionScopeOnlyFilter());
+        Assertions.assertFalse(new ShowBaselinePlansCommand(null, "id", "invalid")
+                .isSessionScopeOnlyFilter());
     }
 
     @Test

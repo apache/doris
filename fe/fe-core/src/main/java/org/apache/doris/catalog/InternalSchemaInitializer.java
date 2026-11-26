@@ -109,19 +109,13 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
-        // Runs even when every table already exists: the three SPM internal tables are
-        // created IF NOT EXISTS, so a table left behind by a PRE-RELEASE build of this
-        // branch keeps its pre-release columns (nullable, `last_id`) while BaselineManager
-        // reads / writes the published ones. This release publishes that schema for the
-        // FIRST time, so a differing table carries no data to keep and is rebuilt (see
-        // ensureSpmTablesSchema), WATING until the table really matches - run() reaches
-        // this point only once and the replica-upgrade loop below never comes back, so a
-        // transient DDL failure has to be retried here. Must precede the replica-upgrade
-        // loop: that loop WAITS for enough BEs (sleeping), so anything after it would be
-        // deferred indefinitely on a small cluster.
-        ensureSpmTablesSchema();
+        // First release: create missing SPM tables but never drop an existing definition.
+        // A mismatched table makes the GLOBAL store unavailable, not the statistics tables.
+        boolean spmReady = ensureSpmTablesSchema();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
-            modifyTblReplicaCount(database, tblName);
+            if (spmReady || !SPM_INTERNAL_TABLES.containsKey(tblName)) {
+                modifyTblReplicaCount(database, tblName);
+            }
         }
     }
 
@@ -445,17 +439,7 @@ public class InternalSchemaInitializer extends Thread {
         createTable(getSpmBaselinesHwmCreateSql());
     }
 
-    /**
-     * The THREE SPM internal tables and the schema this release publishes for them.
-     *
-     * There is NO upgrade path: spm_baselines / spm_baselines_seq / spm_baselines_hwm are
-     * published for the FIRST time in this release (the reservation column is
-     * `baseline_id`, the compact watermark column is `watermark`, every column is NOT NULL
-     * and every instant column is TIMESTAMPTZ(6)), so no earlier release ever wrote a row
-     * a user could keep - and no additive ALTER can rename a column or turn a nullable one
-     * into NOT NULL. A table whose shape differs is therefore a PRE-RELEASE artifact of
-     * this branch and is rebuilt from the declared schema (see rebuildSpmTable).
-     */
+    /** The three SPM internal tables and their first-release schemas. */
     @VisibleForTesting
     static final Map<String, List<ColumnDef>> SPM_INTERNAL_TABLES = new LinkedHashMap<>();
 
@@ -468,48 +452,38 @@ public class InternalSchemaInitializer extends Thread {
                 InternalSchema.SPM_BASELINES_HWM_SCHEMA);
     }
 
-    /**
-     * Makes every SPM internal table match the schema this release declares (see
-     * SPM_INTERNAL_TABLES). Runs even when the completion gate already saw the tables:
-     * createTbl() is IF NOT EXISTS, so a table created by a PRE-RELEASE build of this
-     * branch would otherwise keep its old columns (nullable, `last_id`) while
-     * BaselineManager reads and writes the published ones.
-     */
-    static void ensureSpmTablesSchema() {
+    /** Validates the first-release schemas without modifying any existing table. */
+    static boolean ensureSpmTablesSchema() {
+        boolean ready = true;
         for (Map.Entry<String, List<ColumnDef>> entry : SPM_INTERNAL_TABLES.entrySet()) {
-            ensureSpmTableSchema(entry.getKey(), entry.getValue());
+            ready &= ensureSpmTableSchema(entry.getKey(), entry.getValue());
         }
+        return ready;
     }
 
-    /**
-     * The wait loop of ONE SPM table: a transient DDL failure (the BE / tablet is not ready
-     * yet) is retried HERE - run() calls this once and the replica-upgrade loop below never
-     * comes back, so a one-shot attempt would leave the table missing / stale until a
-     * restart although BaselineManager always reads and writes it.
-     *
-     * @param tableName the table to converge
-     * @param expected  the declared column list (in create order)
-     */
+    /** Used by the GLOBAL store before loading durable rows. Missing or mismatched tables are unavailable. */
+    public static boolean spmTablesMatchSchema() {
+        return SPM_INTERNAL_TABLES.entrySet().stream()
+                .allMatch(entry -> spmTableMatchesSchema(entry.getKey(), entry.getValue()));
+    }
+
     @VisibleForTesting
-    static void ensureSpmTableSchema(String tableName, List<ColumnDef> expected) {
-        while (true) {
+    static boolean ensureSpmTableSchema(String tableName, List<ColumnDef> expected) {
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!db.isPresent() || !db.get().getTable(tableName).isPresent()) {
             try {
-                if (spmTableMatchesSchema(tableName, expected)) {
-                    return;
-                }
-                rebuildSpmTable(tableName);
-                if (spmTableMatchesSchema(tableName, expected)) {
-                    return;
-                }
-            } catch (Throwable t) {
-                LOG.warn("SPM: failed to converge the schema of {}, will retry", tableName, t);
-            }
-            try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
-            } catch (InterruptedException e) {
-                LOG.info("Sleep interrupted. {}", e.getMessage());
+                createSpmTable(tableName);
+            } catch (UserException e) {
+                LOG.warn("SPM: failed to initialize {}", tableName, e);
+                return false;
             }
         }
+        if (!spmTableMatchesSchema(tableName, expected)) {
+            LOG.error("SPM: initialization failed: {} is missing or does not match the declared schema;"
+                    + " GLOBAL baselines are unavailable", tableName);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -533,23 +507,34 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Table table = dbOpt.get().getTable(tableName).orElse(null);
-        if (table == null) {
+        if (!(table instanceof OlapTable)) {
             return false;
         }
-        List<Column> actual = table.getBaseSchema();
-        if (actual.size() != expected.size()) {
-            return false;
-        }
-        for (int i = 0; i < expected.size(); i++) {
-            Column column = actual.get(i);
-            ColumnDef declared = expected.get(i);
-            if (!column.getName().equalsIgnoreCase(declared.getName())
-                    || column.isAllowNull() != declared.isAllowNull()
-                    || !spmColumnTypeMatches(column.getType(), declared.getType())) {
+        table.readLock();
+        try {
+            // The durable protocol requires append-only DUPLICATE KEY rows, including
+            // distinct versions with identical ids. Matching columns alone is insufficient.
+            if (((OlapTable) table).getKeysType() != KeysType.DUP_KEYS) {
                 return false;
             }
+            List<Column> actual = table.getBaseSchema();
+            if (actual.size() != expected.size()) {
+                return false;
+            }
+            for (int i = 0; i < expected.size(); i++) {
+                Column column = actual.get(i);
+                ColumnDef declared = expected.get(i);
+                if (!column.getName().equalsIgnoreCase(declared.getName())
+                        || column.isKey() != (i == 0)
+                        || column.isAllowNull() != declared.isAllowNull()
+                        || !spmColumnTypeMatches(column.getType(), declared.getType())) {
+                    return false;
+                }
+            }
+            return true;
+        } finally {
+            table.readUnlock();
         }
-        return true;
     }
 
     /**
@@ -608,38 +593,16 @@ public class InternalSchemaInitializer extends Thread {
         return type == PrimitiveType.STRING || type == PrimitiveType.VARCHAR;
     }
 
-    /**
-     * Rebuilds one SPM internal table from the declared schema when its shape differs
-     * (see SPM_INTERNAL_TABLES).
-     *
-     * The table is DROPPED, not altered: the published schema renames the pre-release
-     * `last_id` columns and declares every column NOT NULL, and neither can be produced by
-     * ALTER on the existing table (an ADD COLUMN would leave the old column - and the
-     * writers' explicit column lists disagree with its position - while a MODIFY cannot
-     * invent the values a NOT NULL conversion needs). Nothing is lost: this release
-     * publishes the schema for the first time, so the only rows a differing table can hold
-     * are pre-release test rows.
-     *
-     * @param tableName the table to rebuild
-     * @throws UserException when the drop is rejected (the caller's wait loop retries)
-     */
-    private static void rebuildSpmTable(String tableName) throws UserException {
-        Optional<Database> dbOpt =
-                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
-        if (!dbOpt.isPresent()) {
-            return;
-        }
-        if (dbOpt.get().getTable(tableName).isPresent()) {
-            LOG.warn("SPM: rebuilding the {} internal table: its columns are a PRE-RELEASE"
-                    + " schema and this release publishes the schema for the first time"
-                    + " (renamed baseline_id / watermark columns, every column NOT NULL,"
-                    + " TIMESTAMPTZ(6) instants), so there is no data to keep", tableName);
-            Env.getCurrentEnv().getInternalCatalog().dropTable(FeConstants.INTERNAL_DB_NAME,
-                    tableName, false, false, false, true, false, true);
-        }
-        createTbl();
+    /** Idempotently creates just the requested SPM table. */
+    private static void createSpmTable(String tableName) throws UserException {
+        String sql = switch (tableName) {
+            case InternalSchema.SPM_BASELINES_TBL_NAME -> getSpmBaselinesCreateSql();
+            case InternalSchema.SPM_BASELINES_SEQ_TBL_NAME -> getSpmBaselinesSeqCreateSql();
+            case InternalSchema.SPM_BASELINES_HWM_TBL_NAME -> getSpmBaselinesHwmCreateSql();
+            default -> throw new IllegalArgumentException("Unknown SPM table " + tableName);
+        };
+        createTable(sql);
     }
-
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
         String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;

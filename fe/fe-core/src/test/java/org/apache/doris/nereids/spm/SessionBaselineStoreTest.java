@@ -35,6 +35,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -201,6 +203,22 @@ public class SessionBaselineStoreTest {
                 "the user value must be substituted: " + exprSqls);
         Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
                 "no placeholder call may remain: " + exprSqls);
+    }
+
+    @Test
+    public void testSessionHitDoesNotAccessGlobalStore() throws Exception {
+        installConnectContext();
+        long id = ConnectContext.get().getSessionBaselineStore().createBaseline(
+                frozenBaseline("SELECT * FROM t1 WHERE a = 100",
+                        "SELECT * FROM t1 WHERE (a = CAST(_spm_const_var(1) AS INT))"));
+        try (MockedStatic<BaselineManager> global = Mockito.mockStatic(BaselineManager.class)) {
+            global.when(BaselineManager::getInstance).thenThrow(new AssertionError("GLOBAL store unavailable"));
+            SPMPlanner planner = new SPMPlanner();
+            Assertions.assertNotNull(planner.tryRewritePlan(parse("SELECT * FROM t1 WHERE a = 42"),
+                    System.currentTimeMillis() + 1000));
+            Assertions.assertEquals(id, planner.getUsedBaselineId());
+            global.verifyNoInteractions();
+        }
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.spm.manager;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.qe.SqlModeHelper;
@@ -53,9 +54,11 @@ public class BaselineManagerCacheTest {
             new BaselineTestDoubles.TestClusterGateway();
     private BaselineManager manager;
     private int originalCacheSize;
+    private boolean originalInternalSchemaDb;
 
     @BeforeEach
     public void setUp() {
+        originalInternalSchemaDb = FeConstants.enableInternalSchemaDb;
         originalCacheSize = VariableMgr.getDefaultSessionVariable().getSpmBaselineCacheSize();
         manager = new BaselineManager(store, gateway, System::currentTimeMillis);
         BaselineManagerTestAccess.clear(manager);
@@ -65,6 +68,7 @@ public class BaselineManagerCacheTest {
     public void tearDown() {
         BaselineManagerTestAccess.clear(manager);
         VariableMgr.getDefaultSessionVariable().setSpmBaselineCacheSize(originalCacheSize);
+        FeConstants.enableInternalSchemaDb = originalInternalSchemaDb;
     }
 
     private static BaselinePlan row(long id, String digest, long hash, BaselineStatus status) {
@@ -78,6 +82,80 @@ public class BaselineManagerCacheTest {
         p.setQueryTimeMs(-1L);
         p.setStatus(status);
         return p;
+    }
+
+    private void enableCloudFixture() {
+        FeConstants.enableInternalSchemaDb = true;
+        store.durableOverride = true;
+        store.snapshotUsesDurableHashReads = true;
+        BaselineManagerTestAccess.enableDurableRefresh(manager);
+    }
+
+    private static BaselinePlan cloudRow(long id, String digest, long hash, BaselineStatus status) {
+        BaselinePlan p = row(id, digest, hash, status);
+        p.setBindSql("SELECT 1 FROM t WHERE k = 1");
+        p.setPlanFrozen(true);
+        return p;
+    }
+
+    @Test
+    public void testCloudColdHashReadRequiresStableVersionsAndHotHitDoesNotReadVersions() {
+        enableCloudFixture();
+        AtomicLong version = new AtomicLong(1);
+        AtomicInteger versionReads = new AtomicInteger();
+        store.cloudVersionReader = () -> {
+            versionReads.incrementAndGet();
+            return Map.of(1L, version.get(), 2L, 1L, 3L, 1L);
+        };
+        BaselinePlan first = cloudRow(101L, "first", 11L, BaselineStatus.ENABLED);
+        BaselinePlan second = cloudRow(102L, "second", 12L, BaselineStatus.ENABLED);
+        store.snapshotReader = () -> Map.of(101L, first, 102L, second);
+        store.byHashReader = h -> h == 11L ? List.of(first) : List.of(second);
+        BaselineManagerTestAccess.prepareLoad(manager);
+        manager.loadFromInternalTable();
+        Assertions.assertEquals(0, BaselineManagerTestAccess.cachedHashCount(manager));
+        Assertions.assertEquals(1, manager.findCandidateBaselines("first", 11L).size());
+        int warmReads = versionReads.get();
+        Assertions.assertEquals(1, manager.findCandidateBaselines("first", 11L).size());
+        Assertions.assertEquals(warmReads, versionReads.get(), "hot reuse requires no Meta Service RPC");
+
+        store.byHashReader = h -> {
+            version.incrementAndGet();
+            return List.of(second);
+        };
+        Assertions.assertTrue(manager.findCandidateBaselines("second", 12L).isEmpty());
+        Assertions.assertTrue(manager.findCandidateBaselines("first", 11L).isEmpty(),
+                "a conflicting Cloud read suspends GLOBAL replay, including old hot entries");
+        store.byHashReader = h -> h == 11L ? List.of(first) : List.of(second);
+        manager.refreshFromInternalTable();
+        Assertions.assertEquals(1, manager.findCandidateBaselines("first", 11L).size());
+        Assertions.assertEquals(1, manager.findCandidateBaselines("second", 12L).size());
+    }
+
+    @Test
+    public void testCloudUnstableRefreshDoesNotPublishAndSuspendsOldCandidates() {
+        enableCloudFixture();
+        AtomicLong version = new AtomicLong(1);
+        store.cloudVersionReader = () -> Map.of(1L, 1L, 2L, version.get(), 3L, 1L);
+        BaselinePlan old = cloudRow(103L, "digest", 13L, BaselineStatus.ENABLED);
+        store.snapshotReader = () -> Map.of(103L, old);
+        store.byHashReader = h -> List.of(old);
+        BaselineManagerTestAccess.prepareLoad(manager);
+        manager.loadFromInternalTable();
+        Assertions.assertEquals(0, BaselineManagerTestAccess.cachedHashCount(manager));
+        Assertions.assertEquals(1, manager.findCandidateBaselines("digest", 13L).size());
+        BaselinePlan disabled = cloudRow(103L, "digest", 13L, BaselineStatus.DISABLED);
+        store.snapshotReader = () -> {
+            version.incrementAndGet();
+            return Map.of(103L, disabled);
+        };
+        manager.refreshFromInternalTable();
+        Assertions.assertTrue(manager.findCandidateBaselines("digest", 13L).isEmpty());
+        store.snapshotReader = () -> Map.of(103L, disabled);
+        store.byHashReader = h -> List.of(disabled);
+        manager.refreshFromInternalTable();
+        Assertions.assertTrue(manager.findCandidateBaselines("digest", 13L).isEmpty());
+        Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(103L).getStatus());
     }
 
     /**

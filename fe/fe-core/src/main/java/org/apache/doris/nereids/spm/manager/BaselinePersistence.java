@@ -102,6 +102,15 @@ public interface BaselinePersistence {
         return false;
     }
 
+    /** Cloud reads must be bracketed by authoritative versions of the three SPM tables. */
+    default boolean usesCloudVersions() {
+        return false;
+    }
+
+    default Map<Long, Long> readCloudVersions() {
+        throw new UnsupportedOperationException("Cloud version reads are not supported");
+    }
+
     /**
      * Whether durable by-hash and snapshot reads are available for matching and SHOW. Defaults to isDurable;
      * substituted stores can override it when they model writes without those reads.

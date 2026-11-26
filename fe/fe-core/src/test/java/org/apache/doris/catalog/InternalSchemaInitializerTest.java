@@ -19,7 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
@@ -31,6 +33,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -244,7 +247,44 @@ class InternalSchemaInitializerTest {
         }).collect(Collectors.toList());
     }
 
-    // ==================== SPM baselines table: upgrade path ====================
+    @Test
+    public void testSpmFirstReleaseSchemaRejectsMismatchWithoutDropping() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDb(FeConstants.INTERNAL_DB_NAME)).thenReturn(Optional.of(db));
+        try (MockedStatic<Env> environments = Mockito.mockStatic(Env.class)) {
+            environments.when(Env::getCurrentEnv).thenReturn(env);
+            for (Map.Entry<String, List<ColumnDef>> entry : InternalSchemaInitializer.SPM_INTERNAL_TABLES.entrySet()) {
+                Mockito.when(db.getTable(entry.getKey())).thenReturn(Optional.empty());
+            }
+            Assertions.assertFalse(InternalSchemaInitializer.spmTablesMatchSchema());
+            for (Map.Entry<String, List<ColumnDef>> entry : InternalSchemaInitializer.SPM_INTERNAL_TABLES.entrySet()) {
+                OlapTable table = Mockito.mock(OlapTable.class);
+                Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+                List<Column> columns = Lists.newArrayList();
+                for (ColumnDef def : entry.getValue()) {
+                    columns.add(new Column(def.getName(), def.getType(), columns.isEmpty(),
+                            null, def.isAllowNull(), null, ""));
+                }
+                Mockito.when(table.getBaseSchema()).thenReturn(columns);
+                Mockito.when(db.getTable(entry.getKey())).thenReturn(Optional.of(table));
+            }
+            Assertions.assertTrue(InternalSchemaInitializer.spmTablesMatchSchema());
+            String name = InternalSchema.SPM_BASELINES_TBL_NAME;
+            OlapTable table = (OlapTable) db.getTable(name).get();
+            Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+            Assertions.assertFalse(InternalSchemaInitializer.ensureSpmTableSchema(
+                    name, InternalSchema.SPM_BASELINES_SCHEMA));
+            Assertions.assertFalse(InternalSchemaInitializer.spmTablesMatchSchema());
+            Mockito.verify(catalog, Mockito.never()).dropTable(Mockito.anyString(), Mockito.anyString(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean());
+        }
+    }
+
+    // ==================== SPM baselines table: first creation ====================
 
     /**
      * An UPGRADED cluster already contains every legacy statistics/audit table, so the

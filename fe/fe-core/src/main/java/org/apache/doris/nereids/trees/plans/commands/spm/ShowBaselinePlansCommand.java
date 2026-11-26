@@ -23,12 +23,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.spm.BaselinePlan;
+import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ShowCommand;
@@ -212,7 +212,7 @@ public class ShowBaselinePlansCommand extends ShowCommand {
 
     /**
      * Whether the exact WHERE filter can only ever match SESSION rows
-     * (WHERE scope = 'SESSION'): those rows live in this connection's in-memory store, so
+     * (WHERE scope = 'SESSION' or a SESSION-range id): those rows live in this connection's in-memory store, so
      * the GLOBAL store is neither read nor confirmed for such a SHOW. Every other form
      * (including the LIKE-only one, whose operand is also matched against the stored SQL
      * text of GLOBAL rows) can return GLOBAL rows and keeps the confirmed read.
@@ -221,9 +221,21 @@ public class ShowBaselinePlansCommand extends ShowCommand {
      */
     @VisibleForTesting
     boolean isSessionScopeOnlyFilter() {
-        return filterColumn != null && filterValue != null
-                && "scope".equalsIgnoreCase(filterColumn.trim())
-                && "SESSION".equalsIgnoreCase(filterValue.trim());
+        if (filterColumn == null || filterValue == null) {
+            return false;
+        }
+        if ("scope".equalsIgnoreCase(filterColumn.trim())) {
+            return "SESSION".equalsIgnoreCase(filterValue.trim());
+        }
+        if ("id".equalsIgnoreCase(filterColumn.trim())) {
+            try {
+                return BaselineScope.ofId(Long.parseLong(filterValue.trim())) == BaselineScope.SESSION;
+            } catch (NumberFormatException e) {
+                // Not a session id; ordinary SHOW filtering handles invalid values.
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
@@ -345,10 +357,5 @@ public class ShowBaselinePlansCommand extends ShowCommand {
     @Override
     public StmtType stmtType() {
         return StmtType.SHOW;
-    }
-
-    @Override
-    public void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        throw new DdlException("SHOW BASELINE PLANS is not supported in cloud mode");
     }
 }

@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
  * TIMESTAMPTZ({@link InternalSchema#SPM_TIMESTAMP_SCALE}), and a pre-existing column of another
  * precision must NOT count as the published schema - a scale-blind comparison accepted the
  * second-precision column and the module kept comparing truncated instants forever. (A
- * differing table is REBUILT, see InternalSchemaInitializer#rebuildSpmTable.)
+ * differing table is rejected without rewriting its schema.)
  */
 public class InternalSchemaTypeUpgradeTest {
 

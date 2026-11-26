@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -27,6 +28,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
@@ -1004,6 +1006,9 @@ public class BaselineManager {
      *  the store's reset.
      */
     private volatile boolean loaded = false;
+    // A failed Cloud consistency read may have observed a newer durable state.
+    // Only publication of a complete stable snapshot can resume GLOBAL replay.
+    private volatile boolean cloudReplaySuspended;
 
     /**
      * Coalesces the internal-table loads: at most ONE read may be in flight. The query
@@ -3056,7 +3061,7 @@ public class BaselineManager {
         params.put("id", String.valueOf(id));
         boolean anyRow = false;
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_BY_ID_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             List<BaselinePlan> result = new ArrayList<>();
             if (rows != null) {
@@ -3857,6 +3862,20 @@ public class BaselineManager {
         });
     }
 
+    private static List<ResultRow> readInternalRows(String sql, Map<String, String> params, int timeoutSeconds)
+            throws Exception {
+        return Config.isCloudMode()
+                ? StatisticsUtil.executeQueryWithFreshCloudVersions(sql, params, timeoutSeconds)
+                : StatisticsUtil.executeQuery(sql, params, timeoutSeconds);
+    }
+
+    private static QueryState writeInternalRows(String sql, Map<String, String> params, int timeoutSeconds)
+            throws Exception {
+        return Config.isCloudMode()
+                ? StatisticsUtil.execUpdateWithFreshCloudVersions(sql, params, timeoutSeconds)
+                : StatisticsUtil.execUpdate(sql, params, timeoutSeconds);
+    }
+
     /**
      * Number of durable rows currently carrying (id, status) AND the identity's schema
      * fingerprint: the status protocol must never read a REUSED id's newer incarnation
@@ -3881,7 +3900,7 @@ public class BaselineManager {
         params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
                 schemaFingerprint == null ? "" : schemaFingerprint));
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     COUNT_BY_ID_AND_STATUS_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return 0;
@@ -3925,13 +3944,17 @@ public class BaselineManager {
     public List<BaselinePlan> findCandidateBaselines(String digest, long hash,
             long deadlineMillis) {
         ensureLoaded();
-        if (!knownHashes.containsKey(hash)) {
+        if (cloudReplaySuspended || !knownHashes.containsKey(hash)) {
             return List.of();
         }
         // digest filter + priority ordering happen on a snapshot of the rows: the cached
         // objects are immutable for matching purposes except a status flip, which races as
         // harmlessly as an ALTER landing right after the read
-        return completeRowsForHash(hash, deadlineMillis).stream()
+        List<BaselinePlan> rows = completeRowsForHash(hash, deadlineMillis);
+        if (cloudReplaySuspended) {
+            return List.of();
+        }
+        return rows.stream()
                 .filter(p -> p.getStatus().isActive())
                 .filter(p -> p.getBindSqlDigest().equals(digest)) // Level 2 exact digest match
                 .sorted(comparator)
@@ -4011,12 +4034,13 @@ public class BaselineManager {
             } catch (RuntimeException e) {
                 LOG.warn("SPM cannot load the baselines of one bindSql for matching (the query"
                         + " runs without SPM): {}", e.getMessage());
+                suspendCloudReplay(generationBefore);
                 return List.of();
             }
             rows = reconcileMatchingRows(rows);
             stateLock.writeLock().lock();
             try {
-                if (System.currentTimeMillis() >= deadlineMillis
+                if (System.currentTimeMillis() >= deadlineMillis || cloudReplaySuspended
                         || storeGeneration.get() != generationBefore
                         || !Objects.equals(seqBefore, knownHashes.get(hash))) {
                     // A snapshot or mutation superseded the read. Discard it from both the cache and result.
@@ -4107,7 +4131,7 @@ public class BaselineManager {
      */
     public boolean hasBaselines() {
         ensureLoaded();
-        return !knownHashes.isEmpty();
+        return !cloudReplaySuspended && !knownHashes.isEmpty();
     }
 
     /**
@@ -4241,9 +4265,34 @@ public class BaselineManager {
 
     /** Reads a complete hash bucket and verifies its tombstones before publishing it. */
     private List<BaselinePlan> readPersistedRowsByHash(long hash, long deadlineMillis) {
+        Map<Long, Long> before = persistence.usesCloudVersions() ? persistence.readCloudVersions() : null;
         List<BaselinePlan> rows = new ArrayList<>(
                 persistence.readRowsByHash(hash, remainingReadTimeout(deadlineMillis)));
-        return filterTombstonedDurableRows(rows, deadlineMillis);
+        rows = filterTombstonedDurableRows(rows, deadlineMillis);
+        verifyCloudVersions(before);
+        return rows;
+    }
+
+    private void verifyCloudVersions(Map<Long, Long> before) {
+        if (before != null && !before.equals(persistence.readCloudVersions())) {
+            throw new IllegalStateException("SPM Cloud internal table versions changed during the read; retry");
+        }
+    }
+
+    private void suspendCloudReplay(long generationAtRead) {
+        if (!persistence.usesCloudVersions()) {
+            return;
+        }
+        stateLock.writeLock().lock();
+        try {
+            if (storeGeneration.get() == generationAtRead && !cloudReplaySuspended) {
+                cloudReplaySuspended = true;
+                stateVersion++;
+                storeGeneration.incrementAndGet();
+            }
+        } finally {
+            stateLock.writeLock().unlock();
+        }
     }
 
     /** The live implementation half of BaselinePersistence.readRowsByHash(long, int). */
@@ -4253,7 +4302,7 @@ public class BaselineManager {
         }
         Map<String, String> params = new HashMap<>();
         params.put("hash", String.valueOf(hash));
-        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+        List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                 SELECT_BY_HASH_SQL, params, timeoutSeconds));
         List<BaselinePlan> parsed = new ArrayList<>();
         if (rows != null) {
@@ -4461,6 +4510,11 @@ public class BaselineManager {
      * while the store is unavailable).
      */
     private Map<Long, BaselinePlan> ensureLoadedOrThrow() {
+        if (persistence instanceof TablePersistence
+                && ((persistence.isDurable() && !InternalSchemaInitializer.spmTablesMatchSchema())
+                        || (Config.isCloudMode() && !persistence.isDurable()))) {
+            throw new IllegalStateException("SPM GLOBAL store is not ready: internal table schema mismatch or missing");
+        }
         if (!persistence.isDurable()) {
             loaded = true;
             return null;
@@ -4541,6 +4595,7 @@ public class BaselineManager {
         }
         stateVersion++;
         storeGeneration.incrementAndGet();
+        cloudReplaySuspended = false;
         LOG.info("SPM loaded {} baselines from internal table", loadedPlans.size());
         return loadedPlans;
     }
@@ -4589,6 +4644,7 @@ public class BaselineManager {
             raw = readRawRefreshSnapshot();
         } catch (Throwable t) {
             LOG.warn("SPM baseline refresh read failed (will retry next cycle): {}", t.getMessage());
+            suspendCloudReplay(generationAtRead);
             return;
         }
         // Only the REPAIR half of the read (the tombstone match and its best-effort delete)
@@ -4608,6 +4664,7 @@ public class BaselineManager {
                 snapshot = resolveRefreshSnapshot(raw);
             } catch (Throwable t) {
                 LOG.warn("SPM baseline refresh read failed (will retry next cycle): {}", t.getMessage());
+                suspendCloudReplay(generationAtRead);
                 return;
             }
             // The version guard is what makes a snapshot read without the writer lock
@@ -5395,6 +5452,7 @@ public class BaselineManager {
         }
         stateVersion++;
         storeGeneration.incrementAndGet();
+        cloudReplaySuspended = false;
         if (added > 0 || removed > 0 || !applied.changedHashes.isEmpty()) {
             LOG.info("SPM baseline refresh applied: added={}, removed={}, changedHashes={},"
                     + " cacheRowsChanged={}, knownHashes={}", added, removed,
@@ -5739,7 +5797,7 @@ public class BaselineManager {
             return 0;
         }
         try {
-            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_MAX_ID_SQL,
+            List<ResultRow> rows = readInternalRows(SELECT_MAX_ID_SQL,
                     Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS);
             if (rows == null || rows.isEmpty()) {
                 return 0; // an empty table yields one row with a NULL MAX(id)
@@ -5806,7 +5864,7 @@ public class BaselineManager {
             return 0;
         }
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_HWM_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
             return rows == null || rows.isEmpty()
                     ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
@@ -5822,7 +5880,7 @@ public class BaselineManager {
             return 0;
         }
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_SEQ_ID_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
             return rows == null || rows.isEmpty()
                     ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
@@ -5844,7 +5902,7 @@ public class BaselineManager {
         Map<String, String> params = new HashMap<>();
         params.put("floor", String.valueOf(floor));
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_SEQ_TAIL_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             return rows == null || rows.isEmpty()
                     ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
@@ -5918,7 +5976,7 @@ public class BaselineManager {
             return new long[] {0L, 0L};
         }
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     sql, Collections.emptyMap(),
                     INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
@@ -5939,7 +5997,7 @@ public class BaselineManager {
         }
         try {
             Map<String, String> params = Map.of("tick", String.valueOf(tick), "owner", owner);
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_PENDING_TICK_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             return rows.isEmpty() ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
         } catch (Exception e) {
@@ -6483,7 +6541,7 @@ public class BaselineManager {
         params.put("unconfirmed", "1");
         params.put("dropped", "0");
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_COMPACT_SEQ_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(INSERT_COMPACT_SEQ_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             LOG.warn("SPM could not persist the unconfirmed-create marker of baseline {}: {}", id, e.getMessage());
@@ -6726,7 +6784,7 @@ public class BaselineManager {
         Map<String, String> params = new HashMap<>();
         params.put("ids", idList.toString());
         params.put("tombstoneIds", tombstoneIdList.toString());
-        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+        List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                 SELECT_SEQ_DROPPED_SQL, params, timeoutSeconds));
         if (rows == null) {
             return;
@@ -7094,7 +7152,7 @@ public class BaselineManager {
         }
         Map<String, String> params = sequenceIdentityParams(bindSqlDigest, planSqlHash, markerId);
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(DELETE_PENDING_SEQ_MARKER_SQL,
+            inInternalIoMode(() -> writeInternalRows(DELETE_PENDING_SEQ_MARKER_SQL,
                     params, BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             LOG.warn("SPM could not retire the unconfirmed-create marker of baseline {}: {}", markerId, e.getMessage());
@@ -7122,13 +7180,13 @@ public class BaselineManager {
         params.put("reserveTime", toTs(time));
         params.put("dropped", dropped ? "1" : "0");
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_SEQ_STATE_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(INSERT_SEQ_STATE_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_COMPACT_SEQ_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(PRUNE_COMPACT_SEQ_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             LOG.debug("SPM compact identity prune skipped: {}", e.getMessage());
@@ -7479,7 +7537,7 @@ public class BaselineManager {
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSqlHash", String.valueOf(planSqlHash));
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_COMPACT_SEQ_SQL, params, remainingReadTimeout(deadlineMillis)));
             return rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
         } catch (Exception e) {
@@ -7546,7 +7604,7 @@ public class BaselineManager {
         params.put("compactIds", ids.toString());
         List<ResultRow> rows;
         try {
-            rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_COMPACT_SEQ_BATCH_SQL, params, timeoutSeconds));
         } catch (Exception e) {
             throw new RuntimeException("SPM batched baseline identity read failed: "
@@ -7588,7 +7646,13 @@ public class BaselineManager {
      * walks the id space forward until a short page ends the snapshot.
      */
     private Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
-        return resolveRefreshSnapshot(readRawRefreshSnapshot());
+        long generationAtRead = storeGeneration.get();
+        try {
+            return resolveRefreshSnapshot(readRawRefreshSnapshot());
+        } catch (Exception e) {
+            suspendCloudReplay(generationAtRead);
+            throw e;
+        }
     }
 
     /**
@@ -7603,11 +7667,13 @@ public class BaselineManager {
         private final Map<Long, List<BaselinePlan>> rowsById;
         /** substituted store: the whole snapshot (a substituted store has no page reader) */
         private final Map<Long, BaselinePlan> whole;
+        private final Map<Long, Long> cloudVersions;
 
         private RawRefreshSnapshot(Map<Long, List<BaselinePlan>> rowsById,
-                Map<Long, BaselinePlan> whole) {
+                Map<Long, BaselinePlan> whole, Map<Long, Long> cloudVersions) {
             this.rowsById = rowsById;
             this.whole = whole;
+            this.cloudVersions = cloudVersions;
         }
     }
 
@@ -7620,10 +7686,19 @@ public class BaselineManager {
      */
     private RawRefreshSnapshot readRawRefreshSnapshot() throws Exception {
         if (persistence instanceof TablePersistence) {
-            return new RawRefreshSnapshot(readRawSnapshotFromTable(), null);
+            if (!InternalSchemaInitializer.spmTablesMatchSchema()) {
+                throw new IllegalStateException("SPM GLOBAL store is not ready: missing or mismatched tables");
+            }
+            SnapshotFence[] accepted = new SnapshotFence[1];
+            Map<Long, List<BaselinePlan>> rows = readStableRawSnapshot(BaselineManager::readSnapshotPage,
+                    this::readPaginatedSnapshotFence, this::settleHeldMutationWindowsBeforeSnapshot,
+                    fence -> accepted[0] = fence);
+            return new RawRefreshSnapshot(rows, null,
+                    persistence.usesCloudVersions() ? accepted[0].partitionVersions : null);
         }
-        // a substituted store hands out the whole snapshot
-        return new RawRefreshSnapshot(null, persistence.readSnapshot());
+        // A substituted store can model the same version bracket around its whole snapshot.
+        Map<Long, Long> before = persistence.usesCloudVersions() ? persistence.readCloudVersions() : null;
+        return new RawRefreshSnapshot(null, persistence.readSnapshot(), before);
     }
 
     /**
@@ -7639,45 +7714,28 @@ public class BaselineManager {
         if (raw.rowsById != null) {
             // the raw rows are filtered BEFORE the per-id winner is picked: collapsing
             // first would let a condemned row remove a valid twin of the same id
-            return filterResurrectedRowsById(raw.rowsById);
+            Map<Long, BaselinePlan> rows = filterResurrectedRowsById(raw.rowsById);
+            verifyCloudVersions(raw.cloudVersions);
+            return rows;
         }
         // The live loader applies the drop-tombstone filter per page (see
         // collectFilteredSnapshot); a substituted store hands out the whole snapshot, so
         // the same filter (and its repair of a revived row) runs here. The map is copied:
         // every publish path mutates the snapshot it is handed
-        return filterResurrectedRows(new java.util.LinkedHashMap<>(raw.whole));
+        Map<Long, BaselinePlan> rows = filterResurrectedRows(new java.util.LinkedHashMap<>(raw.whole));
+        verifyCloudVersions(raw.cloudVersions);
+        return rows;
     }
 
     /** The live implementation half of BaselinePersistence.readSnapshot. */
     private Map<Long, BaselinePlan> readSnapshotFromTable() throws Exception {
-        return filterResurrectedRowsById(readRawSnapshotFromTable());
-    }
-
-    /**
-     * The RAW-row half of readSnapshotFromTable, WITHOUT the DROP-tombstone filter: the raw rows
-     * of one stable state, so a refresh can read them outside the writer lock and keep only the
-     * filter (and its best-effort repair delete) serialized with the writers (see
-     * readRawRefreshSnapshot). The pre-attempt settlement probes this FE's HELD mutation windows
-     * and closes the ones whose outcome is confirmed - the quiet gate of the read would
-     * otherwise reject their pending marker forever (see
-     * settleHeldMutationWindowsBeforeSnapshot). Settlement is limited to windows this FE opened.
-     */
-    private Map<Long, List<BaselinePlan>> readRawSnapshotFromTable() throws Exception {
-        return readStableRawSnapshot(BaselineManager::readSnapshotPage,
-                this::readPaginatedSnapshotFence,
-                this::settleHeldMutationWindowsBeforeSnapshot);
+        return resolveRefreshSnapshot(readRawRefreshSnapshot());
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
     private static List<ResultRow> readSnapshotPage(Long pageStart, long offset) throws Exception {
-        String sql = snapshotPageSql(pageStart, offset);
-        if (Config.isCloudMode()) {
-            // A cached version on one page and a fresh version on another would escape
-            // a bracket that reads the authoritative versions on both sides.
-            sql = "SELECT /*+ SET_VAR(cloud_partition_version_cache_ttl_ms=0) */" + sql.substring("SELECT".length());
-        }
-        String pageSql = sql;
-        return inInternalIoMode(() -> StatisticsUtil.executeQuery(
+        String pageSql = snapshotPageSql(pageStart, offset);
+        return inInternalIoMode(() -> readInternalRows(
                 pageSql, Collections.emptyMap(),
                 INTERNAL_QUERY_TIMEOUT_SECONDS));
     }
@@ -7694,6 +7752,12 @@ public class BaselineManager {
      */
     private static Map<Long, List<BaselinePlan>> readStableRawSnapshot(SnapshotPageReader reader,
             SnapshotFenceReader fenceReader, Runnable settleBeforeAttempt) throws Exception {
+        return readStableRawSnapshot(reader, fenceReader, settleBeforeAttempt, fence -> { });
+    }
+
+    private static Map<Long, List<BaselinePlan>> readStableRawSnapshot(SnapshotPageReader reader,
+            SnapshotFenceReader fenceReader, Runnable settleBeforeAttempt,
+            java.util.function.Consumer<SnapshotFence> acceptedFence) throws Exception {
         for (int attempt = 1; attempt <= SNAPSHOT_STABILITY_ATTEMPTS; attempt++) {
             if (settleBeforeAttempt != null) {
                 try {
@@ -7726,6 +7790,7 @@ public class BaselineManager {
             // completed page, and the probe is the bounded replacement of the former
             // table-wide row-count cross-check).
             if (before.matches(after) && after.quiet() && completion.endProven) {
+                acceptedFence.accept(after);
                 return snapshot;
             }
             LOG.warn("SPM baseline table changed while its paginated snapshot was read"
@@ -7808,6 +7873,10 @@ public class BaselineManager {
         if (!clock.quiet()) {
             return clock;
         }
+        if (persistence.usesCloudVersions()) {
+            return new SnapshotFence(clock.tickMax, clock.tickCount, clock.tickSum, clock.pending,
+                    persistence.readCloudVersions());
+        }
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog()
                 .getDbOrMetaException(FeConstants.INTERNAL_DB_NAME)
                 .getTableOrMetaException(InternalSchema.SPM_BASELINES_TBL_NAME, TableIf.TableType.OLAP);
@@ -7816,22 +7885,40 @@ public class BaselineManager {
         table.readLock();
         try {
             partitions = List.copyOf(table.getPartitions());
-            if (Config.isNotCloudMode()) {
-                for (Partition partition : partitions) {
-                    published.put(partition.getId(), partition.getVisibleVersion());
-                }
+            for (Partition partition : partitions) {
+                published.put(partition.getId(), partition.getVisibleVersion());
             }
         } finally {
             table.readUnlock();
         }
-        if (Config.isCloudMode()) {
-            List<CloudPartition> cloudPartitions = partitions.stream().map(CloudPartition.class::cast).toList();
-            List<Long> versions = CloudPartition.getSnapshotVisibleVersionFromMs(cloudPartitions, false);
-            for (int i = 0; i < partitions.size(); i++) {
-                published.put(partitions.get(i).getId(), versions.get(i));
-            }
-        }
         return new SnapshotFence(clock.tickMax, clock.tickCount, clock.tickSum, clock.pending, published);
+    }
+
+    /** Reads authoritative versions without holding catalog locks across the Meta Service RPC. */
+    private static Map<Long, Long> readCloudInternalTableVersions() {
+        try {
+            List<CloudPartition> partitions = new ArrayList<>();
+            for (String name : List.of(InternalSchema.SPM_BASELINES_TBL_NAME,
+                    InternalSchema.SPM_BASELINES_SEQ_TBL_NAME, InternalSchema.SPM_BASELINES_HWM_TBL_NAME)) {
+                OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog()
+                        .getDbOrMetaException(FeConstants.INTERNAL_DB_NAME)
+                        .getTableOrMetaException(name, TableIf.TableType.OLAP);
+                table.readLock();
+                try {
+                    table.getPartitions().forEach(partition -> partitions.add((CloudPartition) partition));
+                } finally {
+                    table.readUnlock();
+                }
+            }
+            List<Long> versions = CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false, 1);
+            Map<Long, Long> result = new HashMap<>();
+            for (int i = 0; i < partitions.size(); i++) {
+                result.put(partitions.get(i).getId(), Math.max(Partition.PARTITION_INIT_VERSION, versions.get(i)));
+            }
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("SPM cannot read Cloud internal table versions; retry", e);
+        }
     }
 
     /** The live implementation half of BaselinePersistence.clock. */
@@ -7840,7 +7927,7 @@ public class BaselineManager {
             return new long[] {0L, 0L, 0L, 0L};
         }
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_CLOCK_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return new long[] {0L, 0L, 0L, 0L};
@@ -8238,7 +8325,7 @@ public class BaselineManager {
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSql", StatisticsUtil.escapeSQL(planSql));
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_BY_KEY_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             List<BaselinePlan> result = new ArrayList<>();
             for (ResultRow row : rows) {
@@ -8627,7 +8714,7 @@ public class BaselineManager {
         // previous-status row to the CACHED row's fingerprint, so a reused id carrying a
         // DIFFERENT incarnation's (digest, planSql, fingerprint) cannot be flipped
         try {
-            QueryState state = inInternalIoMode(() -> StatisticsUtil.execUpdate(
+            QueryState state = inInternalIoMode(() -> writeInternalRows(
                     conditionalStatusInsertSql(previousUpdateMicros), params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
             long affectedRows = state == null ? -1 : state.getAffectedRows();
@@ -8727,7 +8814,7 @@ public class BaselineManager {
         Map<String, String> params = insertParams(p);
         try {
             inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
+                writeInternalRows(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
                 return null;
             });
         } catch (Exception e) {
@@ -8831,8 +8918,9 @@ public class BaselineManager {
         if (!persistence.isDurable()) {
             return;
         }
+        boolean hideReadback = DebugPointUtil.isEnable("SPM.BaselineManager.confirmInsertVisible.unreadable");
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            if (persistence.isRowReadable(p)) {
+            if (!hideReadback && persistence.isRowReadable(p)) {
                 return;
             }
             sleepBeforeVisibilityRetry();
@@ -9035,7 +9123,7 @@ public class BaselineManager {
         Map<String, String> params = new HashMap<>();
         params.put("id", String.valueOf(id));
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_MAX_UPDATE_TIME_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return 0;
@@ -9139,13 +9227,13 @@ public class BaselineManager {
                 // needs IS NULL OR = '' and DeleteFromCommand rejects it, so the row
                 // could never be deleted. Two supported SIMPLE predicates cover both
                 // stored shapes (NULL = pre-column rows, '' = current writes).
-                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT,
+                writeInternalRows(DELETE_BY_IDENTITY_SQL_NULL_FINGERPRINT,
                         nullFingerprintParams, BASELINE_WRITE_TIMEOUT_SECONDS);
-                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL_EMPTY_FINGERPRINT,
+                writeInternalRows(DELETE_BY_IDENTITY_SQL_EMPTY_FINGERPRINT,
                         nullFingerprintParams, BASELINE_WRITE_TIMEOUT_SECONDS);
                 return null;
             }
-            StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
+            writeInternalRows(DELETE_BY_IDENTITY_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS);
             return null;
         });
@@ -9243,7 +9331,7 @@ public class BaselineManager {
         List<String> deleteSqls = deleteByIdAndStatusSql(oldUpdateTimeMicros, fingerprint);
         inInternalIoMode(() -> {
             for (String deleteSql : deleteSqls) {
-                StatisticsUtil.execUpdate(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
+                writeInternalRows(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
             }
             return null;
         });
@@ -9273,7 +9361,7 @@ public class BaselineManager {
         List<String> deleteSqls = pruneSupersededVersionsSql(fingerprint);
         inInternalIoMode(() -> {
             for (String deleteSql : deleteSqls) {
-                StatisticsUtil.execUpdate(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
+                writeInternalRows(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
             }
             return null;
         });
@@ -9342,7 +9430,7 @@ public class BaselineManager {
     /** One reclaimed-version count statement (see countVersionsBeforeFromTable). */
     private static long countVersionsBeforeSql(String sql, Map<String, String> params) {
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     sql, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return 0;
@@ -9485,6 +9573,16 @@ public class BaselineManager {
         @Override
         public boolean isDurable() {
             return owner.durableWritesEnabled();
+        }
+
+        @Override
+        public boolean usesCloudVersions() {
+            return Config.isCloudMode() && owner.durableWritesEnabled();
+        }
+
+        @Override
+        public Map<Long, Long> readCloudVersions() {
+            return readCloudInternalTableVersions();
         }
 
         @Override
@@ -9710,7 +9808,7 @@ public class BaselineManager {
 
         @Override
         public long coveringCompletedTick(long lastId) {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+            List<ResultRow> rows = inInternalIoMode(() -> readInternalRows(
                     SELECT_COVERING_CLOCK_SQL, Map.of("lastId", String.valueOf(lastId)),
                     INTERNAL_QUERY_TIMEOUT_SECONDS));
             return rows.isEmpty() ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
@@ -9719,7 +9817,7 @@ public class BaselineManager {
         @Override
         public void pruneExpiredMutationWindows(long lastId, long tick) {
             Map<String, String> params = Map.of("lastId", String.valueOf(lastId), "tick", String.valueOf(tick));
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_EXPIRED_WINDOWS_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(PRUNE_EXPIRED_WINDOWS_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         }
 
@@ -9765,7 +9863,7 @@ public class BaselineManager {
         params.put("pending", String.valueOf(pending));
         params.put("owner", owner);
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(INSERT_HWM_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
@@ -9780,9 +9878,9 @@ public class BaselineManager {
         params.put("lastId", String.valueOf(id));
         params.put("tick", String.valueOf(tick));
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(PRUNE_HWM_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SAME_WATERMARK_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(PRUNE_HWM_SAME_WATERMARK_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
@@ -9797,7 +9895,7 @@ public class BaselineManager {
         params.put("windowTick", String.valueOf(windowTick));
         params.put("owner", owner);
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_OPEN_SQL, params,
+            inInternalIoMode(() -> writeInternalRows(PRUNE_HWM_OPEN_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);

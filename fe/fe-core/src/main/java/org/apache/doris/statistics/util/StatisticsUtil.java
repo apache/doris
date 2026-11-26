@@ -132,6 +132,19 @@ public class StatisticsUtil {
         return execStatisticQuery(sql, true, timeoutSeconds);
     }
 
+    /** Executes a persistence read without treating an unavailable compute group as an empty table. */
+    public static List<ResultRow> executeQueryWithFreshCloudVersions(String template,
+            Map<String, String> params, int timeoutSeconds) throws Exception {
+        String sql = sqlSubstitutor(params).replace(template);
+        return execStatisticQueryOrThrow(sql, timeoutSeconds, true);
+    }
+
+    /** Executes a persistence write, including its source scans, against fresh cloud versions. */
+    public static QueryState execUpdateWithFreshCloudVersions(String template,
+            Map<String, String> params, int timeoutSeconds) throws Exception {
+        return execUpdate(sqlSubstitutor(params).replace(template), timeoutSeconds, true);
+    }
+
     /**
      * Runs one parameterized internal write; the returned state carries the AFFECTED ROW
      * count - a conditional {@code INSERT ... SELECT ... WHERE ...} that matches no row
@@ -214,13 +227,21 @@ public class StatisticsUtil {
      * rows - e.g. "there is nothing stored" - must not mistake an unreadable table for an empty one.
      */
     public static List<ResultRow> execStatisticQueryOrThrow(String sql) throws Exception {
+        return execStatisticQueryOrThrow(sql, getAnalyzeTimeout(), false);
+    }
+
+    private static List<ResultRow> execStatisticQueryOrThrow(String sql, int timeoutSeconds,
+            boolean freshCloudVersions) throws Exception {
         if (!FeConstants.enableInternalSchemaDb) {
             throw new IllegalStateException("the internal schema database is disabled");
         }
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, timeoutSeconds)) {
             if (Config.isCloudMode()) {
                 // throws ComputeGroupException when no compute group is reachable
                 r.connectContext.getCloudCluster();
+                if (freshCloudVersions) {
+                    disableCloudVersionCache(r.connectContext);
+                }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             return stmtExecutor.executeInternalQuery();
@@ -233,9 +254,18 @@ public class StatisticsUtil {
 
     /** Same as {@link #execUpdate(String)} with an explicit statement timeout. */
     public static QueryState execUpdate(String sql, int timeoutSeconds) throws Exception {
+        return execUpdate(sql, timeoutSeconds, false);
+    }
+
+    private static QueryState execUpdate(String sql, int timeoutSeconds, boolean freshCloudVersions)
+            throws Exception {
         StmtExecutor stmtExecutor = null;
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, timeoutSeconds);
         try {
+            if (freshCloudVersions && Config.isCloudMode()) {
+                r.connectContext.getCloudCluster();
+                disableCloudVersionCache(r.connectContext);
+            }
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
@@ -250,6 +280,12 @@ public class StatisticsUtil {
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
         }
+    }
+
+    private static void disableCloudVersionCache(ConnectContext ctx) {
+        SessionVariable session = ctx.getSessionVariable();
+        session.cloudPartitionVersionCacheTtlMs = 0;
+        session.cloudTableVersionCacheTtlMs = 0;
     }
 
     public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {

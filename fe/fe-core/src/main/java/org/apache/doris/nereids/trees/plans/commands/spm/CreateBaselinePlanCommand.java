@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.DebugUtil;
@@ -242,10 +241,5 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
-    }
-
-    @Override
-    public void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        throw new DdlException("CREATE BASELINE PLAN is not supported in cloud mode");
     }
 }
