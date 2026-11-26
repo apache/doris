@@ -27,7 +27,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
     def orderedViews = []
     for (def model : ["dup", "mow"]) {
         orderedViews.addAll(["ivm_build_${model}_inner_ordered", "ivm_build_${model}_cross_ordered",
-                             "ivm_build_${model}_cross"])
+                             "ivm_build_${model}_cross", "ivm_build_${model}_cross_leading"])
     }
     for (def mv : orderedViews) {
         sql "DROP MATERIALIZED VIEW IF EXISTS ${mv}"
@@ -90,8 +90,9 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
     """
     for (def model : ["dup", "mow"]) {
         def modelProperty = model == "mow" ? ', "ivm_force_mow" = "true"' : ""
-        for (def kind : ["inner_ordered", "cross_ordered", "cross"]) {
-            def hint = kind.endsWith("_ordered") ? "/*+ ORDERED */" : ""
+        for (def kind : ["inner_ordered", "cross_ordered", "cross", "cross_leading"]) {
+            def hint = kind.endsWith("_ordered") ? "/*+ ORDERED */"
+                     : kind.endsWith("_leading") ? "/*+ LEADING(l r) */" : ""
             def join = kind.startsWith("inner") ? "INNER JOIN ivm_build_snapshot r ON l.k = r.k"
                                                : "CROSS JOIN ivm_build_snapshot r"
             sql """
@@ -117,12 +118,12 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
     sql """ALTER TABLE ivm_build_snapshot MODIFY COLUMN k SET STATS
            ('row_count'='2', 'ndv'='1', 'min_value'='1', 'max_value'='1')"""
 
-    // Keep scan order and join type while ignoring distribution, filters and generated IDs.
+    // Keep scan order, join type and the applied LEADING hint.
     def checkJoinAndScanOrder = { String tag, String mv ->
         def plan = sql_return_maparray "EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
         def nodes = plan.findResults { row ->
             row["Explain String(Nereids Planner)"]
-                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|hashAgg\b/)
+                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|hashAgg\b|Used: leading\([^)]+\)/)
                     ?.replace("hashJoin[", "")
         }
         try (def stmt = prepareStatement("SELECT ?")) {
@@ -134,11 +135,17 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
     // Refresh EXPLAIN uses a fresh FE context, which inherits the global default.
     def previous = sql_return_maparray("SHOW GLOBAL VARIABLES LIKE 'disable_join_reorder'")[0]["Value"]
     try {
+        // LEADING is applied only while join reorder is enabled.
+        sql "SET GLOBAL disable_join_reorder = false"
+        checkJoinAndScanOrder("dup_cross_leading", "ivm_build_dup_cross_leading")
+        checkJoinAndScanOrder("mow_cross_leading", "ivm_build_mow_cross_leading")
         sql "SET GLOBAL disable_join_reorder = true"
         checkJoinAndScanOrder("dup_inner", "ivm_build_dup")
         checkJoinAndScanOrder("mow_inner", "ivm_build_mow")
         for (def mv : orderedViews) {
-            checkJoinAndScanOrder(mv.substring("ivm_build_".length()), mv)
+            if (!mv.endsWith("_leading")) {
+                checkJoinAndScanOrder(mv.substring("ivm_build_".length()), mv)
+            }
         }
         checkJoinAndScanOrder("mow_outer", "ivm_build_outer")
         // Folding IF removes the cross-input equality. Keep the parallel left nested-loop join.

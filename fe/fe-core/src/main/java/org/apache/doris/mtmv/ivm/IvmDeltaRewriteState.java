@@ -118,7 +118,7 @@ class IvmDeltaRewriteState {
         }
         applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
         return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(),
-                ctx.getConnectContext().getStatementContext().hasOrderedHint(), sequenceCalculator,
+                ctx.getConnectContext().getStatementContext().hasSuccessfulJoinOrderHint(), sequenceCalculator,
                 windowPartitionIdsByTable);
     }
 

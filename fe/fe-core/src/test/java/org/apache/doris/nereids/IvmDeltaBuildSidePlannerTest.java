@@ -31,6 +31,8 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
@@ -96,6 +98,29 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
     }
 
     @Test
+    void testUnreliableSnapshotFilterKeepsAutomaticBroadcast() throws Exception {
+        String sql = "SELECT d.k, s.k FROM delta_input d"
+                + " LEFT JOIN (SELECT k FROM snapshot_input WHERE p = 1) s ON d.k = s.k";
+        for (boolean disableFallback : ImmutableList.of(true, false)) {
+            Assertions.assertEquals(DistributionSpecReplicated.class, checkFinalPlan(sql, "snapshot_input", "p", 10,
+                    disableFallback, JoinType.LEFT_OUTER_JOIN, "snapshot_input", false));
+        }
+    }
+
+    @Test
+    void testInputEstimateFailurePreservesNormalPlanning() throws Exception {
+        String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE p IN (1.0, CAST('Infinity' AS DOUBLE))) d"
+                + " LEFT JOIN snapshot_input s ON d.k = s.k UNION ALL SELECT k, k FROM unrelated_input";
+        boolean oldFeDebug = connectContext.getSessionVariable().feDebug;
+        try {
+            connectContext.getSessionVariable().feDebug = false;
+            checkFinalPlan(sql, "unrelated_input", 100_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+        } finally {
+            connectContext.getSessionVariable().feDebug = oldFeDebug;
+        }
+    }
+
+    @Test
     void testReliableInputsKeepOrderAboveBroadcastLimit() throws Exception {
         String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN snapshot_input s ON d.k = s.k";
         checkFinalPlan(sql, "delta_input", 10_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
@@ -106,7 +131,7 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
         String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
                 + " LEFT JOIN (SELECT s.k FROM snapshot_input s JOIN unrelated_input u"
                 + " ON s.k = u.k OR s.p = u.p) s ON d.k = s.k";
-        checkFinalPlan(sql, "delta_input", 100_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input", true);
+        checkFinalPlan(sql, "delta_input", "k", 100_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input", true);
     }
 
     private void assertAutomaticSnapshotBroadcast(String sql, JoinType joinType) throws Exception {
@@ -118,9 +143,10 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
 
     @Test
     void testBroadcastDecisionTakesPrecedence() throws Exception {
-        String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN [BROADCAST] snapshot_input s ON d.k = s.k";
+        String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE k = 1) d"
+                + " LEFT JOIN [BROADCAST] snapshot_input s ON d.k = s.k";
         Class<? extends DistributionSpec> buildDistribution =
-                checkFinalPlan(sql, "delta_input", 10, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
+                checkFinalPlan(sql, "delta_input", 100_000, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input");
         Assertions.assertEquals(DistributionSpecReplicated.class, buildDistribution);
     }
 
@@ -138,11 +164,11 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
     private Class<? extends DistributionSpec> checkFinalPlan(String sql, String invalidTable,
             long snapshotRows, boolean disableFallback,
             JoinType expectedType, String expectedBuildTable) throws Exception {
-        return checkFinalPlan(sql, invalidTable, snapshotRows, disableFallback,
+        return checkFinalPlan(sql, invalidTable, "k", snapshotRows, disableFallback,
                 expectedType, expectedBuildTable, false);
     }
 
-    private Class<? extends DistributionSpec> checkFinalPlan(String sql, String invalidTable,
+    private Class<? extends DistributionSpec> checkFinalPlan(String sql, String invalidTable, String invalidColumn,
             long snapshotRows, boolean disableFallback,
             JoinType expectedType, String expectedBuildTable, boolean materializeOrExpansion) throws Exception {
         connectContext.getSessionVariable().setDisableJoinReorder(false);
@@ -157,7 +183,9 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
                     PhysicalProperties.ANY);
             context.newAnalyzer().analyze();
             Rewriter.getCteChildrenRewriter(context, ImmutableList.of(
-                    Rewriter.topDown(new LogicalSubQueryAliasToLogicalProject(), new FindHashConditionForJoin()),
+                    Rewriter.topDown(new LogicalSubQueryAliasToLogicalProject(),
+                            new ExpressionRewrite(FoldConstantRuleOnFE.VISITOR_INSTANCE),
+                            new FindHashConditionForJoin()),
                     Rewriter.custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                     Rewriter.custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new))).execute();
             if (materializeOrExpansion) {
@@ -169,7 +197,8 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
             for (LogicalOlapScan scan : scans) {
                 String tableName = scan.getTable().getName();
                 boolean delta = tableName.equals("delta_input");
-                installStats(scan.getTable(), delta ? 1000L : snapshotRows, tableName.equals(invalidTable));
+                installStats(scan.getTable(), delta ? 1000L : snapshotRows,
+                        tableName.equals(invalidTable) ? invalidColumn : "");
                 if (delta) {
                     statement.markIvmDeltaScan(scan.getRelationId());
                 }
@@ -187,7 +216,7 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
                 planner.optimize(false);
                 Assertions.assertTrue(connectContext.getSessionVariable().isDisableJoinReorder());
                 Assertions.assertTrue(statement.getDisableJoinReorderReason().orElseThrow()
-                        .contains("slot k has invalid column stats"));
+                        .contains("slot " + invalidColumn + " has invalid column stats"));
             } finally {
                 FeConstants.runningUnitTest = oldRunningUnitTest;
                 FeConstants.enableInternalSchemaDb = oldInternalSchema;
@@ -211,20 +240,22 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
         }
     }
 
-    private void installStats(OlapTable table, long rows, boolean invalidNdv) {
+    private void installStats(OlapTable table, long rows, String invalidColumn) {
         Env env = Env.getCurrentEnv();
         TableStatsMeta tableStats = Mockito.spy(new TableStatsMeta(table));
         tableStats.userInjected = true;
         Mockito.doReturn(rows).when(tableStats).getRowCount(table.getBaseIndexId());
         env.getAnalysisManager().replayUpdateTableStatsStatus(tableStats);
-        env.getStatisticsCache().updateColStatsCache(table.getDatabase().getCatalog().getId(),
-                table.getDatabase().getId(), table.getId(), -1, "k", new ColumnStatisticBuilder(rows)
-                        .setNdv(invalidNdv ? 0 : rows)
-                        .setMinExpr(new IntLiteral(1))
-                        .setMaxExpr(new IntLiteral(rows))
-                        .setMinValue(1)
-                        .setMaxValue(rows)
-                        .setAvgSizeByte(4)
-                        .build());
+        for (String column : ImmutableList.of("p", "k")) {
+            env.getStatisticsCache().updateColStatsCache(table.getDatabase().getCatalog().getId(),
+                    table.getDatabase().getId(), table.getId(), -1, column, new ColumnStatisticBuilder(rows)
+                            .setNdv(column.equals(invalidColumn) ? 0 : rows)
+                            .setMinExpr(new IntLiteral(1))
+                            .setMaxExpr(new IntLiteral(rows))
+                            .setMinValue(1)
+                            .setMaxValue(rows)
+                            .setAvgSizeByte(4)
+                            .build());
+        }
     }
 }
