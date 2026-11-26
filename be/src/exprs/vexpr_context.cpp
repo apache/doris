@@ -90,10 +90,17 @@ Status IndexExecContext::is_variant_path_absent(int32_t read_ordinal,
         }
         ancestor.resize(dot);
     }
+    // Without escaped keys the key `a.b` and the path a -> b are stored alike, and the read plan
+    // reads FE's component ['a.b'] through the split path. For example, a stored `a.b.c` gives
+    // `v['a.b']` the value {"c":...}, so the split path must count as a prefix too.
+    const bool has_prefix =
+            reader->has_prefix_path(relative_path, _column_iter_opts.stats,
+                                    &_column_iter_opts.io_ctx) ||
+            (reader->path_encoding() == 0 &&
+             reader->has_prefix_path(PathInData(relative_path.get_path()), _column_iter_opts.stats,
+                                     &_column_iter_opts.io_ctx));
     // Truncated sparse statistics cannot prove absence, nor can an existing unindexed path.
-    *absent = reader->get_subcolumn_meta_by_path(relative_path) == nullptr &&
-              !reader->has_prefix_path(relative_path, _column_iter_opts.stats,
-                                       &_column_iter_opts.io_ctx) &&
+    *absent = reader->get_subcolumn_meta_by_path(relative_path) == nullptr && !has_prefix &&
               !reader->exist_in_sparse_column(relative_path) &&
               !reader->is_exceeded_sparse_column_limit() && !in_doc && !stats->has_nested_group;
     return Status::OK();
