@@ -172,7 +172,8 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
         return true;
     }
 
-    Engine engine(DeltaLakeTableReference reference, Engine configured) {
+    @Override
+    public Engine engine(DeltaLakeTableReference reference, Engine configured) {
         if (!needsVendedStorage(reference)) {
             return configured;
         }
@@ -192,7 +193,8 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
                 response.path("expiration_time").asLong(0));
     }
 
-    Map<String, String> backendProperties(DeltaLakeTableReference reference, Map<String, String> configured)
+    @Override
+    public Map<String, String> backendProperties(DeltaLakeTableReference reference, Map<String, String> configured)
             throws IOException {
         // A cached handle may predate a revocation. Recheck UC before preparing each BE scan.
         JsonNode grant = readGrant(reference);

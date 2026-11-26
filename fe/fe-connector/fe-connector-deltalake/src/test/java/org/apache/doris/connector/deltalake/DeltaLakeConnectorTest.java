@@ -71,12 +71,15 @@ class DeltaLakeConnectorTest {
     }
 
     @Test
-    void declaresUcCredentialsAndEndpoints() {
+    void declaresCatalogCredentialsAndEndpoints() {
         ConnectorSecuritySurface surface = new DeltaLakeConnectorProvider().securitySurface();
         Assertions.assertTrue(surface.sensitiveKeys().containsAll(
-                List.of("deltalake.uc.token", "deltalake.uc.oauth.client-secret")));
+                List.of("deltalake.uc.token", "deltalake.uc.oauth.client-secret", "glue.access_key",
+                        "aws.glue.access-key", "glue.secret_key", "aws.glue.secret-key",
+                        "glue.session_token", "aws.glue.session-token")));
         Assertions.assertTrue(surface.ssrfEndpointKeys().containsAll(
-                List.of("deltalake.uc.uri", "deltalake.uc.oauth.token-uri")));
+                List.of("deltalake.uc.uri", "deltalake.uc.oauth.token-uri",
+                        "glue.endpoint", "aws.endpoint", "aws.glue.endpoint")));
     }
 
     @Test

@@ -24,18 +24,15 @@ import org.apache.doris.foundation.property.ConnectorProperty;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 
 /** Catalog-owned choices; metastore and storage properties stay with their respective binders. */
 final class DeltaLakeCatalogProperties {
     static final String CATALOG_TYPE = "deltalake.catalog.type";
-    static final String FILESYSTEM = "filesystem";
-    static final String UC = "uc";
 
     @ConnectorProperty(names = {CATALOG_TYPE}, required = false,
-            description = "Delta metadata source: filesystem (default) or uc.")
-    private String catalogType = FILESYSTEM;
+            description = "Delta catalog backend (defaults to filesystem).")
+    private String catalogType = DeltaLakeCatalogType.FILESYSTEM.token();
 
     @ConnectorProperty(names = {"enable.mapping.timestamp_tz"}, required = false,
             description = "Map Delta timestamps representing instants to TIMESTAMPTZ.")
@@ -55,19 +52,15 @@ final class DeltaLakeCatalogProperties {
     static DeltaLakeCatalogProperties of(Map<String, String> properties) {
         DeltaLakeCatalogProperties result = new DeltaLakeCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(result, properties);
-        result.catalogType = result.catalogType.toLowerCase(Locale.ROOT);
-        if (!FILESYSTEM.equals(result.catalogType) && !UC.equals(result.catalogType)) {
-            throw new IllegalArgumentException("Unsupported " + CATALOG_TYPE + ": " + result.catalogType
-                    + "; expected filesystem or uc");
-        }
-        result.metastore = MetaStoreProviders.bindForType(result.catalogType, properties, Collections.emptyMap());
+        result.metastore = MetaStoreProviders.bindForType(result.getCatalogType().token(), result.raw,
+                Collections.emptyMap());
         result.metastore.validate();
         DeltaLakeSnapshotCache.validate(properties);
         return result;
     }
 
-    String getCatalogType() {
-        return catalogType;
+    DeltaLakeCatalogType getCatalogType() {
+        return DeltaLakeCatalogType.from(catalogType);
     }
 
     MetaStoreProperties getMetastore() {

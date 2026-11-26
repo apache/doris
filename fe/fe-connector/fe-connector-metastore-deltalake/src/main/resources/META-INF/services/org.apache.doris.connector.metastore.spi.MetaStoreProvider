@@ -1,2 +1,3 @@
 org.apache.doris.connector.metastore.deltalake.fs.DeltaLakeFileSystemMetaStoreProvider
 org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProvider
+org.apache.doris.connector.metastore.deltalake.glue.GlueCatalogProvider
