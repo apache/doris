@@ -162,7 +162,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
             undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240101T210405123999America/New_York',
             rounded_zoned_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
             rounded_ts DATETIME(3) NOT NULL DEFAULT '2024-01-02 03:04:05.123999',
-            amount DECIMAL(10,2) NOT NULL DEFAULT '1.5', label STRING NOT NULL DEFAULT 'owner''s')"""
+            amount DECIMAL(10,2) NOT NULL DEFAULT '1.500', label STRING NOT NULL DEFAULT 'owner''s')"""
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.truth BOOLEAN NOT NULL DEFAULT ' 0 '"
         sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.day DATE NOT NULL DEFAULT '2024-01-02'"
         sql """ALTER TABLE typed_defaults_${format}
@@ -184,7 +184,7 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
         sql "SET time_zone = 'America/New_York'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN s.undotted_named_ts TIMESTAMPTZ(3) NOT NULL DEFAULT '20240101T210405123999'"""
-        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1'"
+        sql "ALTER TABLE typed_defaults_${format} ADD COLUMN s.amount DECIMAL(10,2) NOT NULL DEFAULT '1.000'"
         sql """ALTER TABLE typed_defaults_${format}
             ADD COLUMN uuid_value UUID NOT NULL DEFAULT '00112233445566778899aabbccddeeff'"""
         sql """ALTER TABLE typed_defaults_${format}
@@ -290,6 +290,13 @@ suite("test_iceberg_add_column_defaults", "p0,external") {
                     (not_committed INT, bad ${type} NOT NULL DEFAULT '${value}')"""
                 exception expectedError
             }
+        }
+    }
+    for (String value : ["1.001", "100000000"]) {
+        test {
+            sql """ALTER TABLE conversion_defaults ADD COLUMN
+                (not_committed INT, bad DECIMAL(10,2) NOT NULL DEFAULT '${value}')"""
+            exception "Invalid precision and scale"
         }
     }
     for (def boundary : [["-08:00", "9999-12-31 23:59:59", 6], ["+08:00", "0000-01-01 00:00:00", 6],

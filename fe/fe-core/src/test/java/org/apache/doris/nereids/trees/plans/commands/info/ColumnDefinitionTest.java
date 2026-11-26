@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
@@ -62,6 +63,27 @@ public class ColumnDefinitionTest {
     @AfterEach
     public void tearDown() {
         Config.enable_non_aggregate_table_state_types = false;
+    }
+
+    @Test
+    public void testIcebergAddChecksDecimalDefaultsAtDeclaredScale() {
+        DecimalV3Type type = DecimalV3Type.createDecimalV3Type(10, 2);
+        for (String[] pair : new String[][] {{"1.500", "1.50"}, {"-99999999.9900", "-99999999.99"},
+                {"1e2", "100.00"}, {"0.0000", "0.00"}}) {
+            ColumnDefinition column = new ColumnDefinition("d", type, false, null, false,
+                    Optional.of(new DefaultValue(pair[0])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(pair[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+        for (String value : new String[] {"1.001", "100000000", "1e999"}) {
+            ColumnDefinition column = new ColumnDefinition("d", type, false, null, false,
+                    Optional.of(new DefaultValue(value)), "");
+            Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column), value);
+        }
+        ColumnDefinition otherConnector = new ColumnDefinition("d", type, false, null, false,
+                Optional.of(new DefaultValue("1.500")), "");
+        Assertions.assertThrows(AnalysisException.class, () -> otherConnector.validateForAddColumn(
+                false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false, false));
     }
 
     @Test

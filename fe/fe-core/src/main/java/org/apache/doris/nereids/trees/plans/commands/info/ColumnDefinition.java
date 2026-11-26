@@ -31,6 +31,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
@@ -56,6 +58,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -596,15 +599,20 @@ public class ColumnDefinition {
             try {
                 DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
                 String value = defaultValue.get().getValue();
-                // The Iceberg TIMESTAMPTZ literal parser below validates named zones and the rounding guard.
-                // The legacy validator accepts neither the full zone syntax nor the guard digit.
-                if (!(icebergAddDefault && type.isTimeStampTzType() && exprDef == null)) {
+                boolean icebergLiteral = icebergAddDefault && exprDef == null;
+                if (icebergLiteral && type.isDecimalV3Type()) {
+                    // Check the significant digits against the column type before formatting at its declared scale.
+                    BigDecimal decimal = new BigDecimal(value).stripTrailingZeros();
+                    DecimalV3Literal literal = new DecimalV3Literal((DecimalV3Type) type, decimal);
+                    defaultValue = Optional.of(new DefaultValue(literal.getStringValue()));
+                } else if (!(icebergLiteral && type.isTimeStampTzType())) {
+                    // The Iceberg TIMESTAMPTZ parser below validates named zones and the rounding guard.
                     ColumnDef.validateDefaultValue(type.toCatalogDataType(), value, exprDef);
                 }
                 if (!isOlap && type.isTimeStampNsType() && exprDef == null) {
                     // All connectors receive civil SQL defaults for nanosecond timestamps.
                     defaultValue = Optional.of(new DefaultValue(new TimeStampNsLiteral(value).getStringValue()));
-                } else if (icebergAddDefault && type.isDateLikeType() && exprDef == null) {
+                } else if (icebergLiteral && type.isDateLikeType()) {
                     // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
                     if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
                         value = normalizeCompactDateTimeFraction(value);
@@ -619,7 +627,7 @@ public class ColumnDefinition {
                                 type.toCatalogDataType()).getStringValue();
                     }
                     defaultValue = Optional.of(new DefaultValue(value));
-                } else if (icebergAddDefault && type.isUuidType() && exprDef == null) {
+                } else if (icebergLiteral && type.isUuidType()) {
                     defaultValue = Optional.of(new DefaultValue(new UuidLiteral(value).getStringValue()));
                 }
             } catch (Exception e) {
