@@ -26,8 +26,30 @@
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
 # choose a base image
-ARG JAVA_VERSION=17
-ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
+# Standalone builds can use the published legacy base. The release build
+# script supplies its locally built base through BASE_IMAGE.
+ARG BASE_IMAGE=doris-legacy-base
+FROM apache/doris:base-6.0@sha256:ff69bd48c3f36d06403fbc8647be007d9c218f949637cfb34e5939f6946f415b AS doris-legacy-base
+
+ARG JAVA_VERSION
+ARG DORIS_VERSION="x.x.x"
+
+RUN set -eu; \
+    if [ -z "${JAVA_VERSION:-}" ]; then \
+        if printf '%s\n' "${DORIS_VERSION}" | grep -Eq '^(master|(branch-)?([3-9]|[1-9][0-9]))'; then \
+            JAVA_VERSION=17; \
+        else \
+            JAVA_VERSION=8; \
+        fi; \
+    fi; \
+    case "${JAVA_VERSION}" in \
+        8) unused_jdk=17 ;; \
+        17) unused_jdk=8 ;; \
+        *) echo "Unsupported JAVA_VERSION: ${JAVA_VERSION}" >&2; exit 1 ;; \
+    esac; \
+    ln -s "jdk-${JAVA_VERSION}" /usr/lib/jvm/java; \
+    rm -rf "/usr/lib/jvm/jdk-${unused_jdk}"
+
 FROM ${BASE_IMAGE}
 
 ARG TARGETARCH

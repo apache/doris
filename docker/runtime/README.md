@@ -125,9 +125,17 @@ docker build --build-arg DORIS_VERSION=4.1.5 \
     -f docker/runtime/fe/Dockerfile -t doris.fe:4.1.5 docker/runtime/fe
 ```
 
-Manual builds default to Java 17. For an older release, build the Java 8 base
-and pass `JAVA_VERSION=8` or its explicit `BASE_IMAGE` to the component build.
-Do not use `--pull` on a component build that consumes a locally built base.
+Build the base locally before using the explicit `BASE_IMAGE` shown above.
+For older releases, build the Java 8 base and pass its image tag through
+`BASE_IMAGE`. Do not use `--pull` on a component build that consumes a
+locally built base.
+
+Standalone FE, BE and MS builds without `BASE_IMAGE` use the published
+`apache/doris:base-6.0` for compatibility. They select Java 17 for Doris 3.x
+and newer, or Java 8 for older releases. Set `JAVA_VERSION=8` or
+`JAVA_VERSION=17` to override the selection on this compatibility path.
+This path inherits the legacy OS and JDK layers. Use the release build
+scripts above to build and consume a hardened Ubuntu or UBI base.
 
 ## Runtime changes
 
@@ -199,7 +207,7 @@ Run the release verification tests without Docker or network:
 python3 docker/runtime/tests/test_docker_build.py -v
 ```
 
-Inspect every shipped layer of a built image for removed artifacts:
+Inspect every shipped layer of an image built with a hardened base:
 
 ```bash
 python3 docker/runtime/tests/check_image_layers.py doris.fe:4.1.5
