@@ -46,7 +46,7 @@ suite("test_select_column_auth_union_distinct", "p0,auth") {
     sql """insert into ${dbName}.${tableName} values (1, 'alice', 111111111)"""
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
 
-    connect(user, "${pwd}", context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.buildUrlWithDb(context.config.jdbcUrl, dbName)) {
         // Reading the unauthorized name/secret columns through a DISTINCT union must be denied.
         test {
             sql """
