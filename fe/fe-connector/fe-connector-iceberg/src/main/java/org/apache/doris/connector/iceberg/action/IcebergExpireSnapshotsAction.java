@@ -239,6 +239,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                 if (fileKind == null) {
                     fileKind = metadataFileKindByName(path);
                 }
+                // Failed attempts may be retried; count only delete calls that return normally.
+                icebergTable.io().deleteFile(path);
                 if (fileKind == FileKind.POSITION_DELETES) {
                     deletedPositionDeleteFilesCount.incrementAndGet();
                 } else if (fileKind == FileKind.EQUALITY_DELETES) {
@@ -252,7 +254,6 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                 } else {
                     deletedDataFilesCount.incrementAndGet();
                 }
-                icebergTable.io().deleteFile(path);
             });
 
             // Execute and commit
