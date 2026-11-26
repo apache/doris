@@ -24,10 +24,10 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -945,23 +945,28 @@ public class LogicalOlapScan extends LogicalCatalogRelation
         return getTable().getKeysType() == KeysType.DUP_KEYS;
     }
 
-    @Override
-    public LogicalPlan withSnapshot(boolean preSnapshot, BaseTableStream stream) {
-        if (!preSnapshot) {
-            return LogicalPlanDeepCopier.INSTANCE.deepCopy(
-                    (LogicalPlan) this, new DeepCopierContext());
+    /** Provides one OLAP table's Stream and its captured partition read states. */
+    public record OlapSnapshotContext(OlapTableStream stream,
+            Optional<Map<Long, Cloud.TableStreamPartitionReadStatePB>> cloudReadStates) implements SnapshotContext {
+        public OlapTableStreamWrapper wrap(OlapTable table, List<Long> partitionIds) {
+            return new OlapTableStreamWrapper(stream, table, partitionIds, cloudReadStates);
         }
-        OlapTableStream olapStream = (OlapTableStream) stream;
-        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
-                olapStream, getTable(), selectedPartitionIds);
-        return withStreamSnapshot(streamWrapper);
     }
 
-    /** Rebuild the table at the Stream's consumption point. */
-    public LogicalOlapTableStreamScan withStreamSnapshot(OlapTableStreamWrapper streamWrapper) {
+    @Override
+    public LogicalPlan withSnapshot(boolean preSnapshot, SnapshotContext snapshotContext) {
+        OlapSnapshotContext context = (OlapSnapshotContext) snapshotContext;
+        if (!preSnapshot) {
+            Map<Long, Long> visibleVersions = context.cloudReadStates()
+                    .<Map<Long, Long>>map(states -> Maps.transformValues(
+                            states, Cloud.TableStreamPartitionReadStatePB::getVisibleVersion))
+                    .orElseGet(ImmutableMap::of);
+            return LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                    withFixedVisibleVersions(visibleVersions), new DeepCopierContext());
+        }
         return new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(),
-                streamWrapper,
+                context.wrap(getTable(), selectedPartitionIds),
                 qualifier,
                 selectedPartitionIds,
                 selectedTabletIds,
@@ -972,8 +977,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation
     }
 
     /** Scan the base table at the supplied partition versions. */
-    public LogicalOlapScan withFixedVisibleVersions(Map<Long, Long> visibleVersions) {
-        return withTableScanParams(TableScanParams.forFixedPartitionVersions(visibleVersions));
+    private LogicalOlapScan withFixedVisibleVersions(Map<Long, Long> visibleVersions) {
+        if (visibleVersions.isEmpty()) {
+            return this;
+        }
+        return withTableScanParams(scanParams.map(params -> params.withFixedPartitionVersions(visibleVersions))
+                .orElseGet(() -> TableScanParams.forFixedPartitionVersions(visibleVersions)));
     }
 
     /** Prunes empty partitions at the scan's read boundary. */

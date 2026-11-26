@@ -23,7 +23,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
-import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
@@ -557,7 +556,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     }
 
     @Override
-    public LogicalPlan withSnapshot(boolean preSnapshot, BaseTableStream stream) {
+    public LogicalPlan withSnapshot(boolean preSnapshot, SnapshotContext snapshotContext) {
         throw unsupportedChangelogScan();
     }
 

@@ -17,18 +17,23 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan.OlapSnapshotContext;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TChangelogScanType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -226,23 +231,35 @@ public class LogicalOlapScanTest {
         LogicalOlapScan scan = createMockScan(ImmutableList.of());
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
 
-        LogicalPlan snapshot = scan.withSnapshot(true, stream);
-        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
-        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) snapshot;
+        LogicalPlan snapshot = scan.withSnapshot(true, new OlapSnapshotContext(stream, Optional.empty()));
+        LogicalOlapTableStreamScan streamScan = Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
         Assertions.assertTrue(streamScan.isSnapshot());
         Assertions.assertFalse(streamScan.isIncremental());
         Assertions.assertFalse(streamScan.isReset());
     }
 
     @Test
-    public void testWithPostSnapshotReturnsRegularScan() {
-        LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
+    public void testPostSnapshotPreservesIncrementalScanParams() throws Exception {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of());
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
-        LogicalPlan snapshot = scan1.withSnapshot(false, stream);
+        Cloud.TableStreamPartitionReadStatePB readState = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setPartitionId(1L).setVisibleVersion(2L).build();
+        OlapSnapshotContext snapshotContext = new OlapSnapshotContext(stream, Optional.of(Map.of(1L, readState)));
 
-        Assertions.assertInstanceOf(LogicalOlapScan.class, snapshot);
-        Assertions.assertFalse(snapshot instanceof LogicalOlapTableStreamScan);
-        Assertions.assertNotSame(scan1, snapshot);
+        Map<String, String> incrementalOptions = Map.of(OlapScanNode.OLAP_INCREMENT_TYPE, "DETAIL");
+        LogicalOlapScan incremental = scan.withTableScanParams(
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, incrementalOptions, List.of()));
+        LogicalOlapScan pinned = Assertions.assertInstanceOf(
+                LogicalOlapScan.class, incremental.withSnapshot(false, snapshotContext));
+
+        Assertions.assertSame(scan.getTable(), pinned.getTable());
+        Assertions.assertFalse(pinned instanceof LogicalOlapTableStreamScan);
+        Assertions.assertNotSame(incremental, pinned);
+        TableScanParams params = pinned.getScanParams().orElseThrow();
+        Assertions.assertTrue(params.incrementalRead());
+        Assertions.assertEquals(incrementalOptions, params.getMapParams());
+        Assertions.assertEquals(Map.of(1L, 2L), params.getFixedPartitionVersions());
+        Assertions.assertEquals(TChangelogScanType.DETAIL, OlapScanNode.parseChangelogScanType(params, pinned.getTable()));
     }
 
     @Test
@@ -256,7 +273,7 @@ public class LogicalOlapScanTest {
 
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
         LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan
-                .withSnapshot(true, stream);
+                .withSnapshot(true, new OlapSnapshotContext(stream, Optional.empty()));
         streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(), true);
 
         LogicalOlapTableStreamScan copiedStreamScan = streamScan.withSelectedPartitionIds(ImmutableList.of());

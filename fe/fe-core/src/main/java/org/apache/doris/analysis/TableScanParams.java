@@ -85,23 +85,30 @@ public class TableScanParams {
     }
 
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
-        this.paramType = Strings.toLowerCase(paramType);
-        this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
-        this.listParams = listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams);
-        this.fixedPartitionVersions = ImmutableMap.of();
+        this(Strings.toLowerCase(paramType),
+                mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams),
+                listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams), ImmutableMap.of());
         validate();
     }
 
-    private TableScanParams(Map<Long, Long> fixedPartitionVersions) {
-        this.paramType = FIXED_PARTITION_VERSIONS;
-        this.mapParams = ImmutableMap.of();
-        this.listParams = ImmutableList.of();
+    private TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams,
+            Map<Long, Long> fixedPartitionVersions) {
+        this.paramType = paramType;
+        this.mapParams = mapParams;
+        this.listParams = listParams;
         this.fixedPartitionVersions = ImmutableMap.copyOf(fixedPartitionVersions);
     }
 
     /** Pins a full OLAP scan to the versions already read by IVM. This is an internal scan option. */
     public static TableScanParams forFixedPartitionVersions(Map<Long, Long> fixedPartitionVersions) {
-        return new TableScanParams(fixedPartitionVersions);
+        return new TableScanParams(FIXED_PARTITION_VERSIONS, ImmutableMap.of(), ImmutableList.of(),
+                fixedPartitionVersions);
+    }
+
+    public TableScanParams withFixedPartitionVersions(Map<Long, Long> fixedPartitionVersions) {
+        TableScanParams pinned = new TableScanParams(paramType, mapParams, listParams, fixedPartitionVersions);
+        pinned.resolvedMapParams = resolvedMapParams;
+        return pinned;
     }
 
     public Map<Long, Long> getFixedPartitionVersions() {

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan.OlapSnapshotContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.types.DataType;
 
@@ -322,10 +323,14 @@ class IvmDeltaRewriteState {
     }
 
     OlapTableStreamWrapper createStreamWrapper(LogicalOlapScan scan) {
+        return snapshotContext(scan).wrap(scan.getTable(), scan.getSelectedPartitionIds());
+    }
+
+    OlapSnapshotContext snapshotContext(LogicalOlapScan scan) {
         OlapTableStream stream = getStream(scan);
         List<Long> partitionIds = scan.getSelectedPartitionIds();
         if (cloudReadStates == null) {
-            return new OlapTableStreamWrapper(stream, scan.getTable(), partitionIds);
+            return new OlapSnapshotContext(stream, Optional.empty());
         }
         ImmutableMap.Builder<Long, Cloud.TableStreamPartitionReadStatePB> states = ImmutableMap.builder();
         if (!partitionIds.isEmpty()) {
@@ -335,18 +340,7 @@ class IvmDeltaRewriteState {
                 states.put(partitionId, streamStates.get(partitionId));
             }
         }
-        return new OlapTableStreamWrapper(stream, scan.getTable(), partitionIds, Optional.of(states.build()));
-    }
-
-    LogicalOlapScan pinPostSnapshot(LogicalOlapScan scan) {
-        if (cloudReadStates == null || scan.getSelectedPartitionIds().isEmpty()) {
-            return scan;
-        }
-        Map<Long, Cloud.TableStreamPartitionReadStatePB> streamStates =
-                cloudReadStates.get(getStream(scan).getCloudIdentity());
-        Map<Long, Long> versions = scan.getSelectedPartitionIds().stream()
-                .collect(Collectors.toMap(id -> id, id -> streamStates.get(id).getVisibleVersion()));
-        return scan.withFixedVisibleVersions(versions);
+        return new OlapSnapshotContext(stream, Optional.of(states.build()));
     }
 
     boolean isExcluded(LogicalOlapScan scan) {

@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan.OlapSnapshotContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -162,7 +163,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
                     .getDbOrAnalysisException("test_db")
                     .getTableOrAnalysisException(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
 
-            LogicalPlan preSnapshot = scan.withSnapshot(true, stream);
+            LogicalPlan preSnapshot = scan.withSnapshot(true, new OlapSnapshotContext(stream, Optional.empty()));
             LogicalPlan remapped = helper.remapOlapScanToPlan(scan, preSnapshot);
 
             Assertions.assertInstanceOf(LogicalProject.class, remapped);
@@ -183,8 +184,8 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     @Test
     void testRemapScanOutputForPostSnapshotPreservesExprId() {
         LogicalOlapScan scan = buildScanForTable(2, "t_post");
-
-        LogicalPlan postSnapshot = scan.withSnapshot(false, getRegisteredStream(scan.getTable(), 0L));
+        OlapTableStream stream = getRegisteredStream(scan.getTable(), 0L);
+        LogicalPlan postSnapshot = scan.withSnapshot(false, new OlapSnapshotContext(stream, Optional.empty()));
         LogicalPlan remapped = helper.remapOlapScanToPlan(scan, postSnapshot);
 
         Assertions.assertInstanceOf(LogicalProject.class, remapped);

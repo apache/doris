@@ -23,12 +23,16 @@ import org.apache.doris.catalog.stream.BaseTableStream;
  * A scan that can expose a changelog and answer its shape.
  *
  * <p>Implementations answer whether the changelog is enabled and whether the changelog this scan
- * reads contains only appends, and build the pre- and post-refresh snapshots an incremental
- * refresh reads. It says nothing about the plan a refresh runs: an {@link LogicalOlapTableStreamScan}
+ * reads contains only appends. An {@link LogicalOlapTableStreamScan}
  * inherits this interface only through {@link LogicalOlapScan}, and it rejects every method because
  * a stream scan is never a base scan of an IVM query.
  */
 public interface SupportChangelog {
+    /** Stream and the read state needed by the scan implementation that owns it. */
+    interface SnapshotContext {
+        BaseTableStream stream();
+    }
+
     /** Whether the changelog this scan reads is enabled on its source. */
     boolean isChangelogEnabled();
 
@@ -38,9 +42,6 @@ public interface SupportChangelog {
      */
     boolean isChangelogAppendOnly();
 
-    /**
-     * Build a snapshot of this scan from {@code stream}: the pre-refresh snapshot when
-     * {@code preSnapshot} is true, the post-refresh snapshot otherwise.
-     */
-    LogicalPlan withSnapshot(boolean preSnapshot, BaseTableStream stream);
+    /** Builds the base-table image before or after the refresh's changes. */
+    LogicalPlan withSnapshot(boolean preSnapshot, SnapshotContext snapshotContext);
 }
