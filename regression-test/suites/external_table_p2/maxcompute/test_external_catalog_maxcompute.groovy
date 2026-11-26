@@ -415,6 +415,7 @@ suite("test_external_catalog_maxcompute", "p2,external") {
 
 
 
+        sql """drop catalog if exists ${mc_catalog_name}_2;"""
         sql """
             create catalog if not exists ${mc_catalog_name}_2 properties (
                 "type" = "max_compute",
