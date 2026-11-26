@@ -41,6 +41,7 @@
 #include "storage/index/inverted/snii/writer/encoded_spill_run.h"
 #include "storage/index/inverted/snii/writer/global_memory_limiter.h"
 #include "storage/index/inverted/snii/writer/posting_external_sort.h"
+#include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 #include "storage/index/inverted/snii/writer/spill_run_codec.h"
 #include "storage/index/inverted/snii/writer/temp_dir.h"
 
@@ -101,7 +102,7 @@ std::string make_run_path(const std::string& dir) {
 std::atomic<uint64_t> g_vocab_materializations {0};
 #endif
 
-// G09 seam: spills that consumed a pending process-wide forced-spill request
+// Seam: spills that consumed a pending process-wide forced-spill request
 // (the limiter flagged this buffer as one of the largest reclaimable-arena
 // consumers while SNII was over its memory share). Incremented under BE_TEST only
 // (per-token path shared by concurrent writers).
@@ -115,14 +116,14 @@ std::atomic<uint64_t> g_dense_rank_inversions {0};
 std::atomic<uint64_t> g_rank_comparison_sorts {0};
 #endif
 
-// G11 bench seam: when set (BE_TEST paths only), the add-path prefetch hints
+// Bench seam: when set (BE_TEST paths only), the add-path prefetch hints
 // are skipped so the locality bench can A/B them in one process. Production
 // builds never read it (the hint compiles in unconditionally there).
 std::atomic<bool> g_bench_disable_g11_prefetch {false};
 
-// G11 add-path prefetch gate: always-on in production; toggleable under
+// Add-path prefetch gate: always-on in production; toggleable under
 // BE_TEST for the in-process A/B bench. The branch is perfectly predicted, so
-// the bench's OFF arm measures the pre-G11 code path faithfully.
+// the bench's OFF arm measures the path without prefetching.
 inline bool g11_prefetch_enabled() {
 #ifdef BE_TEST
     return !g_bench_disable_g11_prefetch.load(std::memory_order_relaxed);
@@ -131,7 +132,7 @@ inline bool g11_prefetch_enabled() {
 #endif
 }
 
-// G08: heap payload of one owned-vocab string -- 0 while it fits the SSO buffer
+// Heap payload of one owned-vocab string -- 0 while it fits the SSO buffer
 // (those bytes live inside the 32 B header owned_vocab_.capacity() charges), else
 // the allocated buffer (capacity + NUL). The SSO capacity is probed from the
 // running stdlib so the classification is exact, not hardcoded.
@@ -314,7 +315,7 @@ SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_byte
 }
 
 SpimiTermBuffer::~SpimiTermBuffer() {
-    // G09: leave the process-wide registry FIRST. unregister_buffer removes the
+    // Leave the process-wide registry FIRST. unregister_buffer removes the
     // entry (and its bytes) under the registry mutex -- the same mutex every
     // flag store is made under -- so once it returns, no other thread can touch
     // global_spill_requested_ while this buffer dies.
@@ -346,8 +347,10 @@ void SpimiTermBuffer::attach_global_limiter(GlobalMemoryLimiter* limiter) {
     // moment. The buffer's total memory needs no reporting here: it already
     // reaches the limiter through the SniiIndexBuild observation tracker that
     // mem_reporter_ feeds.
+    reported_arena_ = pool_.arena_bytes();
+    decided_resident_ = static_cast<int64_t>(resident_bytes());
     global_limiter_->register_buffer(&global_spill_requested_,
-                                     static_cast<int64_t>(pool_.arena_bytes()));
+                                     static_cast<int64_t>(reported_arena_));
 }
 
 void SpimiTermBuffer::report_arena_delta() {
@@ -373,20 +376,14 @@ void SpimiTermBuffer::report_arena_delta() {
     if (mem_reporter_ != nullptr) {
         mem_reporter_->report(now - reported_resident_);
     }
-    // G09: forward the current SPILLABLE arena bytes -- as an ABSOLUTE,
-    // self-healing value -- to the process-wide registry (the victim-selection
-    // key: only the arena is reclaimable by a forced spill; the persistent
-    // vocab/pair structures are not). The delta reported above has already
-    // moved the observation tracker the limiter judges the SUM by, so this
-    // report carries no total of its own. This is the limiter's decision point:
-    // report() flags the largest-arena eligible buffers (possibly this one)
-    // while SNII is over its share. It only ever takes the registry mutex and
-    // flips advisory atomics; no lock is held here while spilling (any spill
-    // this buffer performs happens AFTER this returns, back in
-    // maybe_spill_after_token, on this thread).
-    if (global_limiter_ != nullptr) {
-        global_limiter_->report(&global_spill_requested_,
-                                static_cast<int64_t>(pool_.arena_bytes()));
+    // Refresh the limiter when the arena changes or resident bytes move by a publish step.
+    // This keeps per-term changes off the process-wide mutex.
+    if (global_limiter_ != nullptr &&
+        (pool_.arena_bytes() != reported_arena_ ||
+         std::abs(now - decided_resident_) >= kBuildBytesPublishStep)) {
+        reported_arena_ = pool_.arena_bytes();
+        decided_resident_ = now;
+        global_limiter_->report(&global_spill_requested_, static_cast<int64_t>(reported_arena_));
     }
     reported_resident_ = now;
 }
@@ -405,9 +402,8 @@ uint64_t SpimiTermBuffer::resident_bytes() const {
     b += static_cast<uint64_t>(touched_ids_.capacity()) * sizeof(uint32_t);
     // Owned-vocab machinery (all zero in borrowed mode): string headers by vector
     // capacity, heap payloads via the incrementally-maintained counter, and the
-    // intern set's entries at a fixed per-entry estimate (kept at the
-    // pre-G10 node-set value so the gate-2 spill points are unchanged; see the
-    // constant's comment).
+    // intern set's entries at a fixed per-entry estimate. The estimate keeps
+    // spill points stable across set implementations.
     b += static_cast<uint64_t>(owned_vocab_.capacity()) * sizeof(std::string);
     b += owned_vocab_heap_bytes_;
     b += static_cast<uint64_t>(intern_.size()) * kInternEntryEstimateBytes;
@@ -676,7 +672,7 @@ uint32_t SpimiTermBuffer::append_owned_vocab_term(std::string&& term_str) {
     const uint32_t term_id = static_cast<uint32_t>(owned_vocab_.size());
     owned_vocab_.emplace_back(std::move(term_str));
     slot_of_.push_back(0); // vocab grows: new id starts with no live slot
-    // G08: credit the stored string's heap payload (0 for SSO); the header is
+    // Credit the stored string's heap payload (0 for SSO); the header is
     // charged via owned_vocab_.capacity().
     owned_vocab_heap_bytes_ += string_heap_bytes(owned_vocab_[term_id]);
 #ifdef BE_TEST

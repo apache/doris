@@ -89,6 +89,7 @@ public:
                     DORIS_CHECK(_block.freq_many != nullptr);
                     DORIS_CHECK_GE(_block.freq_many_size_, _block.doc_many_size_);
                 }
+                // CLucene fills norm_many with zeroes when the field omits norms.
                 *out = {.docs = {_block.doc_many->data(), _block.doc_many_size_},
                         .freqs = _block.freq_many
                                          ? std::span<const uint32_t>(_block.freq_many->data(),

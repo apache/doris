@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora. A changed digest requires checking format and analyzer compatibility before updating it.
+// Pins ordinary SNII writer bytes for fixed analyzed and keyword corpora.
+// A changed digest requires checking format and analyzer compatibility before updating it.
 
 #include <gtest/gtest.h>
 

@@ -52,6 +52,10 @@ expressionWithEof
     : expression EOF
     ;
 
+propertyItemListWithEof
+    : propertyItemList EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
@@ -378,7 +382,8 @@ supportedDropStatement
     | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
-    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                            #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
@@ -808,7 +813,7 @@ alterTableClause
     | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
     | RENAME COLUMN name=qualifiedName TO? newName=identifier                       #renameColumnClause
     | ADD indexDef                                                                  #addIndexClause
-    | DROP INDEX (IF EXISTS)? name=identifier                                       #dropIndexClause
+    | DROP INDEX (IF EXISTS)? name=identifier partitionSpec?                          #dropIndexClause
     | ENABLE FEATURE name=STRING_LITERAL (WITH properties=propertyClause)?          #enableFeatureClause
     | MODIFY DISTRIBUTION (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
         (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause

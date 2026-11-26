@@ -461,14 +461,35 @@ Observation observe(const Sample& sample, const OpenedSample& opened, const Quer
 
 // ---------------------------------------------------------------- fixture
 
+std::filesystem::path corpus_directory(std::string_view explicit_dir) {
+    // Explicit directories select an external corpus or a write destination.
+    if (!explicit_dir.empty()) return std::filesystem::path(explicit_dir);
+    return std::filesystem::path(SNII_GOLDEN_CORPUS_DIR);
+}
+
+TEST(SniiGoldenCorpusPath, ExplicitDirectoryOverridesBundledCorpus) {
+    EXPECT_EQ(corpus_directory("/external/corpus"), std::filesystem::path("/external/corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, RelativeDirectoryIsPreserved) {
+    EXPECT_EQ(corpus_directory("relative/corpus"), std::filesystem::path("relative/corpus"));
+}
+
+TEST(SniiGoldenCorpusPath, BundledDirectoryContainsAllSamples) {
+    const auto dir = corpus_directory("");
+    for (const auto& sample : samples()) {
+        const auto index = dir / (sample.name + ".idx");
+        const auto expectation = dir / (sample.name + ".expect");
+        EXPECT_TRUE(std::filesystem::is_regular_file(index)) << index;
+        EXPECT_TRUE(std::filesystem::is_regular_file(expectation)) << expectation;
+    }
+}
+
 class SniiGoldenCorpus : public testing::Test {
 protected:
     void SetUp() override {
         const char* dir = std::getenv("SNII_GOLDEN_DIR");
-        _dir = dir != nullptr && *dir != '\0' ? dir
-                                              : (std::filesystem::path(__FILE__).parent_path() /
-                                                 "testdata" / "compatibility_corpus")
-                                                        .string();
+        _dir = corpus_directory(dir != nullptr ? dir : "").string();
         const char* mode = std::getenv("SNII_GOLDEN_MODE");
         _write_mode = mode != nullptr && std::string_view(mode) == "write";
         if (_write_mode && (dir == nullptr || *dir == '\0')) {

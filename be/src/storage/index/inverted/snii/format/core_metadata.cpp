@@ -123,7 +123,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
-    // Segments without scoring statistics or norms can still serve filtering queries.
+    // Missing optional fields default to zero or empty; filtering remains available.
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),

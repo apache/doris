@@ -68,8 +68,8 @@ constexpr int kRawFrqRegion = 0;
 // zstd level for whole-DICT-block compression comes from
 // SniiIndexInput::dict_block_zstd_level (default 3: ~40% on the 64KiB
 // front-coded blocks at ~120 MiB/s encode / ~600 MiB/s decode; higher levels
-// trade import CPU for size, decode speed unchanged). G16-h made it (and the
-// .prx auto level) caller-tunable.
+// trade import CPU for size, decode speed unchanged). The level and the
+// .prx auto level are caller-tunable.
 
 using format::FrqRegionMeta;
 
@@ -521,9 +521,6 @@ uint32_t high_df_floor_for(const SniiIndexInput& in) {
     return static_cast<uint32_t>(static_cast<uint64_t>(in.doc_count) /
                                  format::kHighDfDigestDivisor);
 }
-
-LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
-        : LogicalIndexWriter(in, TrackedNullDocids(std::vector<uint32_t>(in.null_docids))) {}
 
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDocids null_docids)
         : index_id_(in.index_id),

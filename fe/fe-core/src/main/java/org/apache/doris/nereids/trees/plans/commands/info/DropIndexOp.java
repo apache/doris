@@ -21,12 +21,16 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,12 +42,26 @@ public class DropIndexOp extends AlterTableOp {
 
     private boolean alter;
 
+    private final PartitionNamesInfo partitionNamesInfo;
+
+    /**
+     * DropIndexOp without partition spec.
+     */
     public DropIndexOp(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter) {
+        this(indexName, ifExists, tableName, alter, null);
+    }
+
+    /**
+     * DropIndexOp with optional partition spec.
+     */
+    public DropIndexOp(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter,
+            PartitionNamesInfo partitionNamesInfo) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
         this.tableName = tableName;
         this.alter = alter;
+        this.partitionNamesInfo = partitionNamesInfo;
     }
 
     public String getIndexName() {
@@ -62,6 +80,16 @@ public class DropIndexOp extends AlterTableOp {
         return alter;
     }
 
+    public boolean hasPartitionSpec() {
+        return partitionNamesInfo != null;
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNamesInfo == null
+                ? Collections.emptyList()
+                : partitionNamesInfo.getPartitionNames();
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return null;
@@ -75,12 +103,29 @@ public class DropIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
+        if (partitionNamesInfo != null) {
+            // Cloud mode keeps one rowset schema per schema version, so it cannot drop an index from
+            // only some partitions while the table schema keeps it.
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("DROP INDEX ON PARTITION is not supported in cloud mode");
+            }
+            if (partitionNamesInfo.isTemp()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION does not support temporary partitions");
+            }
+            if (partitionNamesInfo.getPartitionNames() == null
+                    || partitionNamesInfo.getPartitionNames().isEmpty()) {
+                throw new AnalysisException(
+                        "DROP INDEX ON PARTITION requires explicit partition names, "
+                                + "PARTITIONS (*) is not supported");
+            }
+        }
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
         return new DropIndexClause(indexName, ifExists, tableName != null ? tableName.transferToTableName() : null,
-                alter);
+                alter, partitionNamesInfo);
     }
 
     @Override
@@ -99,6 +144,9 @@ public class DropIndexOp extends AlterTableOp {
         stringBuilder.append("DROP INDEX ").append(indexName);
         if (!alter) {
             stringBuilder.append(" ON ").append(tableName != null ? tableName.toSql() : null);
+        }
+        if (partitionNamesInfo != null) {
+            stringBuilder.append(" ").append(partitionNamesInfo.toSql());
         }
         return stringBuilder.toString();
     }
