@@ -36,16 +36,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/defer.h"
 #include "common/http_helper.h"
+#include "common/http_token_manager.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -3750,6 +3753,471 @@ TEST(MetaServiceHttpTest, FixTabletIndexDbId) {
     TabletIndexPB tablet_index;
     ASSERT_TRUE(tablet_index.ParseFromString(value));
     ASSERT_EQ(tablet_index.db_id(), 2000);
+}
+
+TEST(MetaServiceHttpTest, RotateHttpTokenLifecycleAuthAndFailures) {
+    namespace fs = std::filesystem;
+    fs::path temp_dir =
+            fs::temp_directory_path() / fmt::format("ms_rotate_http_token_{}", ::getpid());
+    fs::create_directories(temp_dir);
+    DORIS_CLOUD_DEFER {
+        std::error_code ec;
+        fs::remove_all(temp_dir, ec);
+    };
+
+    fs::path base_conf = temp_dir / "doris_cloud.conf";
+    fs::path custom_conf = temp_dir / "doris_cloud_custom.conf";
+    auto write_file = [](const fs::path& p, const std::string& content) {
+        std::ofstream out(p, std::ios::trunc);
+        ASSERT_TRUE(out.is_open());
+        out << content;
+        out.close();
+    };
+
+    std::string origin_token = config::http_token;
+    std::string origin_base_path = config::get_base_conf_path();
+    std::string origin_custom_path = config::custom_conf_path;
+    int64_t origin_max_body = config::brpc_max_body_size;
+    DORIS_CLOUD_DEFER {
+        config::http_token = origin_token;
+        config::set_base_conf_path(origin_base_path);
+        config::custom_conf_path = origin_custom_path;
+        config::brpc_max_body_size = origin_max_body;
+        HttpTokenManager::instance().reset_for_test(origin_token);
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    write_file(base_conf, "http_token = token-A\n");
+    config::http_token = "token-A";
+    config::set_base_conf_path(base_conf.string());
+    config::custom_conf_path = custom_conf.string();
+    HttpTokenManager::instance().init("token-A");
+
+    int64_t fake_now_ms = 1000000;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("HttpTokenManager::now_ms",
+                      [&](auto&& args) { *try_any_cast<int64_t*>(args[0]) = fake_now_ms; });
+    sp->enable_processing();
+
+    HttpContext ctx(true);
+    auto send_req = [&](brpc::HttpMethod method, std::string_view path_and_query) {
+        butil::EndPoint endpoint = ctx.server.listen_address();
+        brpc::Channel channel;
+        brpc::ChannelOptions options;
+        options.protocol = brpc::PROTOCOL_HTTP;
+        EXPECT_EQ(channel.Init(endpoint, &options), 0);
+        brpc::Controller ctrl;
+        ctrl.http_request().set_method(method);
+        ctrl.http_request().uri() =
+                fmt::format("0.0.0.0:{}/MetaService/http/{}", endpoint.port, path_and_query);
+        channel.CallMethod(nullptr, &ctrl, nullptr, nullptr, nullptr);
+        return std::make_pair(ctrl.http_response().status_code(),
+                              ctrl.response_attachment().to_string());
+    };
+
+    // Write B to custom_conf (overrides base_conf) plus unrelated config change.
+    write_file(base_conf, "http_token = token-base\nbrpc_max_body_size = 123456\n");
+    write_file(custom_conf, "http_token = token-B\n");
+
+    // 1. New token on disk cannot authenticate before rotate.
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-B");
+        ASSERT_EQ(code, 403);
+        EXPECT_NE(body.find("incorrect token"), std::string::npos);
+    }
+
+    // 2. Missing / empty token returns 403 with "(not given)".
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token");
+        ASSERT_EQ(code, 403);
+        EXPECT_NE(body.find("incorrect token, token=(not given)"), std::string::npos);
+    }
+
+    // 3. GET must not trigger rotation.
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_GET, "rotate_http_token?token=token-A");
+        ASSERT_EQ(code, 405);
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-A"));
+        EXPECT_FALSE(HttpTokenManager::instance().verify("token-B"));
+    }
+
+    // 4. POST without body rotates A -> B using custom_conf override; unrelated config untouched.
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-A");
+        ASSERT_EQ(code, 200) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "OK");
+        EXPECT_STREQ(d["msg"].GetString(), "OK");
+        EXPECT_EQ(config::brpc_max_body_size, origin_max_body);
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-A"));
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-B"));
+        EXPECT_FALSE(HttpTokenManager::instance().verify("token-base"));
+    }
+
+    // 5. show_config masks http_token and update_config rejects modifying http_token.
+    {
+        std::string shown = config::show_config("http_token");
+        EXPECT_EQ(shown.find("token-B"), std::string::npos);
+        EXPECT_EQ(shown.find("token-A"), std::string::npos);
+        auto [ok, cause] =
+                config::update_config("http_token=bypassed", false, custom_conf.string());
+        EXPECT_FALSE(ok);
+    }
+
+    // 6. Idempotent retry at T + 1000s must not refresh A's expiry or clear A.
+    fake_now_ms = 1000000 + 1000 * 1000;
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-B");
+        ASSERT_EQ(code, 200) << body;
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-A"));
+    }
+
+    // 7. Strictly before 1800s: A still valid; at 1800s: A rejected, B valid.
+    fake_now_ms = 1000000 + HttpTokenManager::kHttpTokenGracePeriodMs - 1;
+    EXPECT_TRUE(HttpTokenManager::instance().verify("token-A"));
+    fake_now_ms = 1000000 + HttpTokenManager::kHttpTokenGracePeriodMs;
+    EXPECT_FALSE(HttpTokenManager::instance().verify("token-A"));
+    EXPECT_TRUE(HttpTokenManager::instance().verify("token-B"));
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-A");
+        ASSERT_EQ(code, 403);
+    }
+
+    // 8. Empty configured http_token -> HTTP 400 INVALID_ARGUMENT, runtime state unchanged.
+    write_file(custom_conf, "http_token = \n");
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-B");
+        ASSERT_EQ(code, 400) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "INVALID_ARGUMENT");
+        EXPECT_STREQ(d["msg"].GetString(), "Configured http_token must not be empty");
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-B"));
+    }
+
+    // 9. Corrupted config file -> HTTP 500 INTERNAL_ERROR, runtime state unchanged.
+    write_file(custom_conf, "corrupted_line_without_equals\n");
+    {
+        auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-B");
+        ASSERT_EQ(code, 500) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "INTERNAL_ERROR");
+        EXPECT_STREQ(d["msg"].GetString(), "Failed to read configured http_token");
+        EXPECT_TRUE(HttpTokenManager::instance().verify("token-B"));
+    }
+
+    // 10. Concurrent rotations stay consistent.
+    write_file(custom_conf, "http_token = token-C\n");
+    std::vector<std::thread> workers;
+    std::atomic<int> ok_count {0};
+    for (int i = 0; i < 8; ++i) {
+        workers.emplace_back([&]() {
+            auto [code, body] = send_req(brpc::HTTP_METHOD_POST, "rotate_http_token?token=token-B");
+            if (code == 200) {
+                ok_count.fetch_add(1);
+            }
+        });
+    }
+    for (auto& t : workers) {
+        t.join();
+    }
+    EXPECT_EQ(ok_count.load(), 8);
+    EXPECT_TRUE(HttpTokenManager::instance().verify("token-C"));
+    EXPECT_TRUE(HttpTokenManager::instance().verify("token-B"));
+}
+
+TEST(MetaServiceHttpTest, RotateCloudUniqueIdLifecycleExpiryCrossReplicaAndAtomicity) {
+    const bool origin_check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    int64_t fake_now_ms = 1795000000000LL;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("ResourceManager::now_ms",
+                      [&](auto&& args) { *try_any_cast<int64_t*>(args[0]) = fake_now_ms; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = origin_check_instance_id;
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    HttpContext ctx(false);
+    auto& meta_service = ctx.meta_service_;
+    auto txn_kv = meta_service->txn_kv();
+
+    // Seed two instances: inst1 (1 FE + 2 BE sharing an ID) and inst2 (1 BE).
+    auto seed_instance = [&](const std::string& inst_id, const InstanceInfoPB& pb) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        instance_key({inst_id}, &key);
+        txn->put(key, pb.SerializeAsString());
+        txn->atomic_add(system_meta_service_instance_update_key(), 1);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(inst_id, pb);
+    };
+
+    InstanceInfoPB inst1;
+    inst1.set_instance_id("inst1");
+    inst1.set_status(InstanceInfoPB::NORMAL);
+    {
+        auto* sql = inst1.add_clusters();
+        sql->set_cluster_id("fe_cluster");
+        sql->set_cluster_name("fe_cluster_name");
+        sql->set_type(ClusterPB::SQL);
+        auto* fe = sql->add_nodes();
+        fe->set_host("fe-1.internal");
+        fe->set_edit_log_port(9010);
+        fe->set_node_type(NodeInfoPB::FE_MASTER);
+        fe->set_cloud_unique_id("1:inst1:fe-old");
+
+        auto* compute = inst1.add_clusters();
+        compute->set_cluster_id("be_cluster");
+        compute->set_cluster_name("be_cluster_name");
+        compute->set_type(ClusterPB::COMPUTE);
+        auto* be1 = compute->add_nodes();
+        be1->set_host("be-1.internal");
+        be1->set_heartbeat_port(9050);
+        be1->set_cloud_unique_id("1:inst1:be-shared");
+        auto* be2 = compute->add_nodes();
+        be2->set_host("be-2.internal");
+        be2->set_heartbeat_port(9050);
+        be2->set_cloud_unique_id("1:inst1:be-shared");
+    }
+    seed_instance("inst1", inst1);
+
+    InstanceInfoPB inst2;
+    inst2.set_instance_id("inst2");
+    inst2.set_status(InstanceInfoPB::NORMAL);
+    {
+        auto* compute = inst2.add_clusters();
+        compute->set_cluster_id("be_cluster_2");
+        compute->set_cluster_name("be_cluster_2_name");
+        compute->set_type(ClusterPB::COMPUTE);
+        auto* be = compute->add_nodes();
+        be->set_host("be-other.internal");
+        be->set_heartbeat_port(9050);
+        be->set_cloud_unique_id("opaque-inst2-id");
+    }
+    seed_instance("inst2", inst2);
+
+    // Create a second ResourceManager simulating another MS replica with stale cache.
+    auto replica2_rm = std::make_shared<ResourceManager>(txn_kv);
+    ASSERT_EQ(replica2_rm->init(), 0);
+
+    auto send_rotate = [&](brpc::HttpMethod method, const std::string& body) {
+        butil::EndPoint endpoint = ctx.server.listen_address();
+        brpc::Channel channel;
+        brpc::ChannelOptions options;
+        options.protocol = brpc::PROTOCOL_HTTP;
+        EXPECT_EQ(channel.Init(endpoint, &options), 0);
+        brpc::Controller ctrl;
+        ctrl.http_request().set_method(method);
+        ctrl.http_request().uri() =
+                fmt::format("0.0.0.0:{}/MetaService/http/rotate_cloud_unique_id?token={}",
+                            endpoint.port, config::http_token);
+        ctrl.request_attachment().append(body);
+        channel.CallMethod(nullptr, &ctrl, nullptr, nullptr, nullptr);
+        return std::make_pair(ctrl.http_response().status_code(),
+                              ctrl.response_attachment().to_string());
+    };
+
+    // 1. Non-POST method rejected.
+    {
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_GET, R"({"nodes":[]})");
+        ASSERT_EQ(code, 405);
+    }
+
+    // 2. Validation errors: empty new_cloud_unique_id, duplicate node, missing instance/cluster,
+    //    cross-instance occupancy. None may partially commit.
+    {
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":""}]})");
+        ASSERT_EQ(code, 400) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "INVALID_ARGUMENT");
+        EXPECT_STREQ(d["msg"].GetString(), "new_cloud_unique_id must not be empty");
+    }
+    {
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"no_such_inst","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"new-id"}]})");
+        ASSERT_EQ(code, 404) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "NOT_FOUND");
+    }
+    {
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"inst1","cluster_id":"no_such_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"new-id"}]})");
+        ASSERT_EQ(code, 404) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "NOT_FOUND");
+    }
+    {
+        // Batch with 1 valid node + 1 node colliding with inst2's cloud_unique_id -> atomic reject.
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_POST,
+                                        R"({"nodes":[
+                    {"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-new"},
+                    {"instance_id":"inst1","cluster_id":"be_cluster","host":"be-1.internal","port":9050,"new_cloud_unique_id":"opaque-inst2-id"}
+                ]})");
+        ASSERT_EQ(code, 400) << body;
+        EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "opaque-fe-new"), "");
+    }
+    {
+        // Duplicate node in batch -> reject.
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_POST,
+                                        R"({"nodes":[
+                    {"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-new"},
+                    {"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-new"}
+                ]})");
+        ASSERT_EQ(code, 400) << body;
+    }
+
+    // 3. Simulated FDB commit failure -> HTTP 500 INTERNAL_ERROR, no partial state change.
+    {
+        sp->set_call_back("ResourceManager::rotate_cloud_unique_id:commit", [](auto&& args) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_CONFLICT;
+        });
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-new"}]})");
+        ASSERT_EQ(code, 500) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "INTERNAL_ERROR");
+        EXPECT_STREQ(d["msg"].GetString(), "Failed to persist cloud_unique_id rotation");
+        EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "opaque-fe-new"), "");
+        sp->clear_call_back("ResourceManager::rotate_cloud_unique_id:commit");
+    }
+
+    // 4. Successful batch rotation of FE (edit_log_port) and BE1 (heartbeat_port, sharing ID with BE2).
+    const std::string rotate_batch_body = R"({"nodes":[
+        {"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-new"},
+        {"instance_id":"inst1","cluster_id":"be_cluster","host":"be-1.internal","port":9050,"new_cloud_unique_id":"opaque-be1-new"}
+    ]})";
+    {
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_POST, rotate_batch_body);
+        ASSERT_EQ(code, 200) << body;
+        // Response must never echo plaintext IDs, version, or expire_at.
+        EXPECT_EQ(body.find("opaque-fe-new"), std::string::npos);
+        EXPECT_EQ(body.find("opaque-be1-new"), std::string::npos);
+        EXPECT_EQ(body.find("fe-old"), std::string::npos);
+        EXPECT_EQ(body.find("expire_at"), std::string::npos);
+        EXPECT_EQ(body.find("version"), std::string::npos);
+
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "OK");
+        EXPECT_STREQ(d["msg"].GetString(), "OK");
+        ASSERT_TRUE(d["result"]["nodes"].IsArray());
+        ASSERT_EQ(d["result"]["nodes"].Size(), 2);
+        EXPECT_STREQ(d["result"]["nodes"][0]["instance_id"].GetString(), "inst1");
+        EXPECT_STREQ(d["result"]["nodes"][0]["cluster_id"].GetString(), "fe_cluster");
+        EXPECT_STREQ(d["result"]["nodes"][0]["host"].GetString(), "fe-1.internal");
+        EXPECT_EQ(d["result"]["nodes"][0]["port"].GetInt(), 9010);
+        EXPECT_STREQ(d["result"]["nodes"][0]["mtime"].GetString(), "1795000000000");
+        EXPECT_EQ(d["result"]["nodes"][1]["port"].GetInt(), 9050);
+        EXPECT_STREQ(d["result"]["nodes"][1]["mtime"].GetString(), "1795000000000");
+    }
+
+    // 5. Cross-replica immediate visibility for opaque new IDs without waiting for async watcher.
+    EXPECT_EQ(get_instance_id(replica2_rm, "opaque-fe-new"), "inst1");
+    EXPECT_EQ(get_instance_id(replica2_rm, "opaque-be1-new"), "inst1");
+    EXPECT_EQ(get_instance_id(replica2_rm, "1:inst1:fe-old"), "inst1");
+
+    // 6. Reject rotating to a different target while previous grace period is still active.
+    fake_now_ms += 1000 * 1000; // T + 1000s
+    {
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-third"}]})");
+        ASSERT_EQ(code, 400) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["code"].GetString(), "INVALID_ARGUMENT");
+        EXPECT_STREQ(d["msg"].GetString(), "Previous cloud_unique_id grace period has not ended");
+    }
+
+    // 7. Idempotent retry returns original mtime and does not extend grace period.
+    {
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_POST, rotate_batch_body);
+        ASSERT_EQ(code, 200) << body;
+        rapidjson::Document d;
+        ASSERT_FALSE(d.Parse(body.c_str()).HasParseError());
+        EXPECT_STREQ(d["result"]["nodes"][0]["mtime"].GetString(), "1795000000000");
+        EXPECT_STREQ(d["result"]["nodes"][1]["mtime"].GetString(), "1795000000000");
+    }
+
+    // 8. Just before 3600s boundary: old FE ID still valid.
+    fake_now_ms = 1795000000000LL + ResourceManager::kCloudUniqueIdGracePeriodMs - 1;
+    EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "1:inst1:fe-old"), "inst1");
+    EXPECT_EQ(get_instance_id(replica2_rm, "1:inst1:fe-old"), "inst1");
+
+    // 9. At exact 3600s boundary: old FE ID rejected on ALL paths (cache hit, degraded format with
+    //    enable_check_instance_id true/false, get_cluster instance_id fallback, and restarted MS).
+    fake_now_ms = 1795000000000LL + ResourceManager::kCloudUniqueIdGracePeriodMs;
+    EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "1:inst1:fe-old"), "");
+    EXPECT_EQ(get_instance_id(replica2_rm, "1:inst1:fe-old"), "");
+    EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "opaque-fe-new"), "inst1");
+
+    // Degraded format with enable_check_instance_id = false must still reject expired previous ID.
+    config::enable_check_instance_id = false;
+    EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "1:inst1:fe-old"), "");
+    config::enable_check_instance_id = true;
+
+    // get_cluster with expired cloud_unique_id + instance_id must reject.
+    {
+        brpc::Controller ctrl;
+        GetClusterRequest req;
+        GetClusterResponse resp;
+        req.set_cloud_unique_id("1:inst1:fe-old");
+        req.set_instance_id("inst1");
+        meta_service->get_cluster(&ctrl, &req, &resp, nullptr);
+        EXPECT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Shared ID isolation: be-2 still owns "1:inst1:be-shared", so it remains valid after be-1's
+    // old mapping expires.
+    EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "1:inst1:be-shared"), "inst1");
+
+    // Simulated MS restart: persisted expiry is honored and does not reset the 1-hour clock.
+    auto restarted_rm = std::make_shared<ResourceManager>(txn_kv);
+    ASSERT_EQ(restarted_rm->init(), 0);
+    EXPECT_EQ(get_instance_id(restarted_rm, "1:inst1:fe-old"), "");
+    EXPECT_EQ(get_instance_id(restarted_rm, "opaque-fe-new"), "inst1");
+
+    // Idempotent retry after expiry must not revive expired old ID.
+    {
+        auto [code, body] = send_rotate(brpc::HTTP_METHOD_POST, rotate_batch_body);
+        ASSERT_EQ(code, 200) << body;
+        EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "1:inst1:fe-old"), "");
+    }
+
+    // After grace period ends, rotating FE to a third ID succeeds.
+    {
+        const int old_vlog_level = google::SetVLOGLevel("meta_service_http", DEBUG);
+        ServerLogSink sink;
+        DORIS_CLOUD_DEFER {
+            google::SetVLOGLevel("meta_service_http", old_vlog_level);
+        };
+        auto [code, body] = send_rotate(
+                brpc::HTTP_METHOD_POST,
+                R"({"nodes":[{"instance_id":"inst1","cluster_id":"fe_cluster","host":"fe-1.internal","port":9010,"new_cloud_unique_id":"opaque-fe-third"}]})");
+        ASSERT_EQ(code, 200) << body;
+        EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "opaque-fe-third"), "inst1");
+        EXPECT_EQ(get_instance_id(meta_service->resource_mgr(), "opaque-fe-new"), "inst1");
+        for (const auto& msg : sink.messages()) {
+            EXPECT_EQ(msg.find("opaque-fe-third"), std::string::npos) << msg;
+            EXPECT_EQ(msg.find(config::http_token), std::string::npos) << msg;
+        }
+    }
 }
 
 } // namespace doris::cloud

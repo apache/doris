@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/encryption_util.h"
+#include "common/http_token_manager.h"
 #include "common/logging.h"
 #include "common/network_util.h"
 #include "common/thread_name.h"
@@ -208,6 +209,8 @@ int main(int argc, char** argv) {
                   << std::endl;
         return -1;
     }
+    config::set_base_conf_path(conf_file);
+    HttpTokenManager::instance().init(config::http_token);
 
     if (auto ret = prepare_extra_conf_file(); !ret.empty()) {
         std::cerr << "failed to prepare extra conf file, err=" << ret << std::endl;

@@ -189,4 +189,19 @@ std::string show_config(const std::string& conf_name);
 std::pair<bool, std::string> update_config(const std::string& configs, bool persist,
                                            const std::string& custom_conf_path);
 
+enum class ReadConfigStatus {
+    OK = 0,
+    NOT_FOUND = 1,
+    READ_ERROR = 2,
+};
+
+void set_base_conf_path(const std::string& conf_path);
+std::string get_base_conf_path();
+
+// Read a single string config from effective config files (base_conf_path overridden by
+// custom_conf_path if different and present) without reloading unrelated in-memory configs.
+ReadConfigStatus read_effective_string_config(const std::string& key, std::string* value,
+                                              const std::string& base_conf_path = "",
+                                              const std::string& custom_conf_path = "");
+
 } // namespace doris::cloud::config

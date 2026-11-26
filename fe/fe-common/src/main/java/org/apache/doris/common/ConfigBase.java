@@ -575,4 +575,71 @@ public class ConfigBase {
         }
         return num;
     }
+
+    /**
+     * Reads a single string config value from the effective FE config files (fe.conf overlaid by
+     * fe_custom.conf if present) without mutating or reloading unrelated config fields.
+     */
+    public static String readEffectiveConfigValue(String key) throws IOException {
+        return readEffectiveConfigValue(key, confFile, customConfFile);
+    }
+
+    public static String readEffectiveConfigValue(String key, String baseConfPath, String customConfPath)
+            throws IOException {
+        if (Strings.isNullOrEmpty(baseConfPath)) {
+            throw new IOException("FE config file path is not initialized");
+        }
+        Properties merged = loadConfigProperties(baseConfPath, true);
+        if (!Strings.isNullOrEmpty(customConfPath)) {
+            File customFile = new File(customConfPath);
+            if (customFile.exists()) {
+                Properties customProps = loadConfigProperties(customConfPath, true);
+                for (String propName : customProps.stringPropertyNames()) {
+                    merged.setProperty(propName, customProps.getProperty(propName));
+                }
+            }
+        }
+        String rawValue = merged.getProperty(key);
+        if (rawValue == null) {
+            return "";
+        }
+        String resolved = resolveEnvValue(rawValue);
+        return resolved.trim();
+    }
+
+    private static Properties loadConfigProperties(String path, boolean mustExist) throws IOException {
+        File file = new File(path);
+        if (!file.exists()) {
+            if (mustExist) {
+                throw new IOException("Config file does not exist: " + path);
+            }
+            return new Properties();
+        }
+        if (!file.isFile()) {
+            throw new IOException("Config path is not a regular file: " + path);
+        }
+        Properties props = new Properties();
+        try (FileReader fr = new FileReader(file)) {
+            props.load(fr);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Failed to parse config file: " + path, e);
+        }
+        return props;
+    }
+
+    private static String resolveEnvValue(String value) throws IOException {
+        Pattern pattern = Pattern.compile("\\$\\{([^}]*)\\}");
+        Matcher m = pattern.matcher(value);
+        String resolved = value;
+        while (m.find()) {
+            String envName = m.group(1);
+            String envValue = System.getProperty(envName);
+            envValue = (envValue != null) ? envValue : System.getenv(envName);
+            if (envValue == null) {
+                throw new IOException("No such env variable: " + envName);
+            }
+            resolved = resolved.replace("${" + envName + "}", envValue);
+        }
+        return resolved;
+    }
 }

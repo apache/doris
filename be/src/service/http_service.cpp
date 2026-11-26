@@ -68,6 +68,7 @@
 #include "service/http/action/report_action.h"
 #include "service/http/action/reset_rpc_channel_action.h"
 #include "service/http/action/restore_tablet_action.h"
+#include "service/http/action/rotate_credential_action.h"
 #include "service/http/action/show_hotspot_action.h"
 #include "service/http/action/show_nested_index_file_action.h"
 #include "service/http/action/shrink_mem_action.h"
@@ -270,6 +271,15 @@ Status HttpService::start() {
     ConfigAction* show_config_action =
             _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
+
+    RotateHttpTokenAction* rotate_http_token_action = _pool.add(new RotateHttpTokenAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/rotate_http_token",
+                                      rotate_http_token_action);
+
+    RotateCloudUniqueIdAction* rotate_cloud_unique_id_action =
+            _pool.add(new RotateCloudUniqueIdAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/rotate_cloud_unique_id",
+                                      rotate_cloud_unique_id_action);
 
     // 3 check action
     CheckRPCChannelAction* check_rpc_channel_action = _pool.add(

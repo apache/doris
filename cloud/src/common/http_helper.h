@@ -228,4 +228,9 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_update_config(MetaServiceImpl* service,
                                                     brpc::Controller* cntl);
 
+[[maybe_unused]] HttpResponse process_rotate_http_token(void* service, brpc::Controller* cntl);
+
+[[maybe_unused]] HttpResponse process_rotate_cloud_unique_id(MetaServiceImpl* service,
+                                                             brpc::Controller* cntl);
+
 } // namespace doris::cloud

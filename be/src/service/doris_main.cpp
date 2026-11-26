@@ -81,6 +81,7 @@
 #include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
+#include "service/http/http_token_manager.h"
 #include "service/http_service.h"
 #include "service/server/be_server_starter_factory.h"
 #include "storage/options.h"
@@ -441,6 +442,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
+    doris::HttpTokenManager::instance().init(doris::config::http_token);
 
     doris::init_be_version_metrics();
 

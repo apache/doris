@@ -35,6 +35,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
+import org.apache.doris.httpv2.HttpTokenManager;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
@@ -152,6 +153,7 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+            HttpTokenManager.getInstance().init(Config.http_token);
             Config.validateWebSqlConfig();
             Config.validateMtmvCacheConfig();
             // inverted_index_storage_format's runtime callback is not invoked while parsing

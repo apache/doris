@@ -19,10 +19,14 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <atomic>
+#include <cstdint>
 #include <map>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -41,6 +45,16 @@ struct NodeInfo {
     std::string cluster_name;
     std::string cluster_id;
     NodeInfoPB node_info;
+    bool is_previous = false;
+    int64_t expire_at_ms = 0;
+};
+
+struct RotateCloudUniqueIdNodeReq {
+    std::string instance_id;
+    std::string cluster_id;
+    std::string host;
+    int32_t port = 0;
+    std::string new_cloud_unique_id;
 };
 
 struct ClusterInfo {
@@ -228,12 +242,36 @@ public:
                                           std::string* source_instance_id,
                                           Versionstamp* source_snapshot_version);
 
+    static constexpr int64_t kCloudUniqueIdGracePeriodSeconds = 3600;
+    static constexpr int64_t kCloudUniqueIdGracePeriodMs = kCloudUniqueIdGracePeriodSeconds * 1000;
+
+    static int64_t now_ms();
+
+    static bool is_node_cloud_unique_id_valid(const NodeInfoPB& node,
+                                              std::string_view cloud_unique_id, int64_t now_ms);
+
+    static bool is_node_cloud_unique_id_expired_previous(const NodeInfoPB& node,
+                                                         std::string_view cloud_unique_id,
+                                                         int64_t now_ms);
+
+    // Returns true if cloud_unique_id matches an expired previous_cloud_unique_id in instance_id
+    // and is not actively valid on any node of that instance.
+    virtual bool is_expired_previous_cloud_unique_id(const std::string& cloud_unique_id,
+                                                     const std::string& instance_id);
+
+    virtual std::pair<MetaServiceCode, std::string> rotate_cloud_unique_id(
+            const std::vector<RotateCloudUniqueIdNodeReq>& req_nodes,
+            RotateCloudUniqueIdResultPB* result, std::vector<std::string>* modified_instances);
+
     std::pair<MetaServiceCode, std::string> validate_sub_clusters(
             const std::vector<std::string>& check_clusters,
             const std::vector<ClusterPB>& clusters_in_instance);
 
 private:
-    void add_cluster_to_index_no_lock(const std::string& instance_id, const ClusterPB& cluster);
+    void add_cluster_to_index_no_lock(const std::string& instance_id, const ClusterPB& cluster,
+                                      int64_t now_ms);
+    void sync_instances_if_updated(bool force_check);
+    int reload_all_instances(const std::string* synced_update_val = nullptr);
 
     MultiVersionStatus get_instance_multi_version_status(std::string_view instance_id) const;
 
@@ -247,6 +285,10 @@ private:
     // instance_id -> (source_instance_id, source_snapshot_version)
     std::unordered_map<std::string, std::pair<std::string, Versionstamp>>
             instance_source_snapshot_info_;
+
+    std::mutex sync_mtx_;
+    std::string last_synced_instance_update_val_;
+    std::atomic<int64_t> last_update_key_check_ms_ {0};
 
     std::shared_ptr<TxnKv> txn_kv_;
 };

@@ -165,12 +165,25 @@ inline std::string hide_ak(std::string debug_string) {
     return debug_string;
 }
 
+inline std::string hide_cloud_unique_ids(std::string debug_string) {
+    process_ak_sk_pattern(debug_string, "\"cloud_unique_id\"", false);
+    process_ak_sk_pattern(debug_string, "\"new_cloud_unique_id\"", false);
+    process_ak_sk_pattern(debug_string, "\"previous_cloud_unique_id\"", false);
+    process_ak_sk_pattern(debug_string, "cloud_unique_id: ", false);
+    process_ak_sk_pattern(debug_string, "new_cloud_unique_id: ", false);
+    process_ak_sk_pattern(debug_string, "previous_cloud_unique_id: ", false);
+    return debug_string;
+}
+
 inline constexpr char kMaskedCloudUniqueId[] = "***MASKED***";
 
 inline void mask_cluster_cloud_unique_ids(ClusterPB& cluster) {
     for (auto& node : *cluster.mutable_nodes()) {
         if (node.has_cloud_unique_id()) {
             node.set_cloud_unique_id(kMaskedCloudUniqueId);
+        }
+        if (node.has_previous_cloud_unique_id()) {
+            node.set_previous_cloud_unique_id(kMaskedCloudUniqueId);
         }
     }
     auto& properties = *cluster.mutable_properties();

@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream> // IWYU pragma: keep
 #include <functional>
 #include <iostream>
@@ -62,6 +63,9 @@ namespace doris::config {
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
+
+// Operations HTTP token for node-local credential rotation endpoints.
+DEFINE_String(http_token, "");
 
 // Dir of jdbc drivers
 DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
@@ -2525,6 +2529,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     if (!props.load(conf_file, must_exist)) {
         return false;
     }
+    if (conf_file != nullptr) {
+        if (set_to_default) {
+            set_base_conf_path(conf_file);
+        } else {
+            set_custom_conf_path(conf_file);
+        }
+    }
     // fill full_conf_map ?
     if (fill_conf_map && full_conf_map == nullptr) {
         full_conf_map = new std::map<std::string, std::string>();
@@ -2788,7 +2799,8 @@ std::vector<std::vector<std::string>> get_config_info() {
         if (it.first == "sys_log_dir" && config_val == "") {
             config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
         }
-        if (it.first == "tls_private_key_password") {
+        if (it.first == "tls_private_key_password" ||
+            ((it.first == "http_token" || it.first == "cloud_unique_id") && !config_val.empty())) {
             config_val = "******";
         }
 
@@ -2803,6 +2815,148 @@ std::vector<std::vector<std::string>> get_config_info() {
         configs.push_back(_config);
     }
     return configs;
+}
+
+namespace {
+std::mutex g_conf_paths_lock;
+std::string g_base_conf_path;
+std::string g_custom_conf_path;
+
+Status read_single_string_from_file(const std::string& path, const std::string& target_key,
+                                    bool must_exist, std::string* value, bool* found) {
+    *found = false;
+    std::error_code ec;
+    bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        return Status::InternalError("Failed to stat config file");
+    }
+    if (!exists) {
+        if (must_exist) {
+            return Status::InternalError("Config file does not exist");
+        }
+        return Status::OK();
+    }
+    if (!std::filesystem::is_regular_file(path, ec) || ec) {
+        return Status::InternalError("Config path is not a regular file");
+    }
+
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        return Status::InternalError("Failed to open config file");
+    }
+
+    std::string line;
+    std::string key;
+    std::string val;
+    bool key_found = false;
+    std::string raw_value;
+    while (std::getline(input, line)) {
+        trim(line);
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        if (line.find('=') == std::string::npos) {
+            return Status::InternalError("Malformed config line");
+        }
+        splitkv(line, key, val);
+        trim(key);
+        trim(val);
+        if (key.empty()) {
+            return Status::InternalError("Malformed config key");
+        }
+        if (key == target_key) {
+            key_found = true;
+            raw_value = val;
+        }
+    }
+    if (input.bad()) {
+        return Status::InternalError("I/O error while reading config file");
+    }
+
+    if (!key_found) {
+        return Status::OK();
+    }
+    std::string converted;
+    if (!convert(raw_value, converted)) {
+        return Status::InternalError("Failed to resolve config value");
+    }
+    *value = std::move(converted);
+    *found = true;
+    return Status::OK();
+}
+} // namespace
+
+void set_base_conf_path(const std::string& conf_path) {
+    std::lock_guard<std::mutex> lock(g_conf_paths_lock);
+    g_base_conf_path = conf_path;
+}
+
+std::string get_base_conf_path() {
+    std::lock_guard<std::mutex> lock(g_conf_paths_lock);
+    return g_base_conf_path;
+}
+
+void set_custom_conf_path(const std::string& conf_path) {
+    std::lock_guard<std::mutex> lock(g_conf_paths_lock);
+    g_custom_conf_path = conf_path;
+}
+
+std::string get_custom_conf_path() {
+    std::lock_guard<std::mutex> lock(g_conf_paths_lock);
+    return g_custom_conf_path;
+}
+
+Status read_effective_string_config(const std::string& key, std::string* value, bool* found,
+                                    const std::string& base_conf_path,
+                                    const std::string& custom_conf_path) {
+    *found = false;
+    value->clear();
+    std::string base_path = base_conf_path.empty() ? get_base_conf_path() : base_conf_path;
+    if (base_path.empty()) {
+        return Status::InternalError("BE base config path is not initialized");
+    }
+    std::string custom_path = custom_conf_path;
+    if (custom_path.empty()) {
+        custom_path = get_custom_conf_path();
+        if (custom_path.empty() && !config::custom_config_dir.empty()) {
+            custom_path = config::custom_config_dir + "/be_custom.conf";
+        }
+    }
+
+    std::string effective_value;
+    bool base_found = false;
+    RETURN_IF_ERROR(
+            read_single_string_from_file(base_path, key, true, &effective_value, &base_found));
+
+    if (!custom_path.empty()) {
+        std::error_code ec;
+        bool same_file = false;
+        if (std::filesystem::exists(custom_path, ec) && !ec) {
+            same_file = std::filesystem::equivalent(base_path, custom_path, ec);
+            if (ec) {
+                return Status::InternalError("Failed to compare config file paths");
+            }
+        } else if (ec) {
+            return Status::InternalError("Failed to stat custom config file");
+        }
+
+        if (!same_file) {
+            std::string custom_value;
+            bool custom_found = false;
+            RETURN_IF_ERROR(read_single_string_from_file(custom_path, key, false, &custom_value,
+                                                         &custom_found));
+            if (custom_found) {
+                effective_value = std::move(custom_value);
+                base_found = true;
+            }
+        }
+    }
+
+    *found = base_found;
+    if (base_found) {
+        *value = std::move(effective_value);
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_avoid_end.h"

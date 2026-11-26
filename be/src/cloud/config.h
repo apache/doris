@@ -23,10 +23,16 @@ namespace doris::config {
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
-DECLARE_mString(cloud_unique_id);
+DECLARE_String(cloud_unique_id);
+
+bool is_cloud_unique_id_set();
+std::string get_cloud_unique_id();
+void set_cloud_unique_id(const std::string& new_id, bool from_rotate = false);
+bool is_cloud_unique_id_rotated();
+void reset_cloud_unique_id_override_for_test();
 
 static inline bool is_cloud_mode() {
-    return deploy_mode == "cloud" || !cloud_unique_id.empty();
+    return deploy_mode == "cloud" || is_cloud_unique_id_set();
 }
 
 // Set the endpoint of meta service.

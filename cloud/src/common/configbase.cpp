@@ -44,6 +44,8 @@ std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_va
 std::map<std::string, std::string>* full_conf_map = nullptr;
 std::shared_mutex mutable_string_config_lock;
 std::mutex conf_persist_lock;
+std::mutex base_conf_path_lock;
+std::string g_base_conf_path;
 
 // trim string
 std::string& trim(std::string& s) {
@@ -377,6 +379,9 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     if (!props.load(conf_file, must_exist)) {
         return false;
     }
+    if (conf_file != nullptr && set_to_default) {
+        set_base_conf_path(conf_file);
+    }
     // fill full_conf_map ?
     if (fill_conf_map && full_conf_map == nullptr) {
         full_conf_map = new std::map<std::string, std::string>();
@@ -472,6 +477,7 @@ std::string show_config(const std::string& conf_name) {
         return "";
     }
 
+    std::shared_lock<std::shared_mutex> lock(mutable_string_config_lock);
     rapidjson::Document doc;
     doc.SetArray();
     auto& allocator = doc.GetAllocator();
@@ -481,6 +487,9 @@ std::string show_config(const std::string& conf_name) {
         }
         auto it = full_conf_map->find(name);
         std::string value = (it != full_conf_map->end()) ? it->second : "";
+        if (name == "http_token" && !value.empty()) {
+            value = "******";
+        }
 
         rapidjson::Value item(rapidjson::kArrayType);
         item.PushBack(rapidjson::Value(name.data(), name.size(), allocator), allocator);
@@ -494,6 +503,134 @@ std::string show_config(const std::string& conf_name) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
     doc.Accept(writer);
     return sb.GetString();
+}
+
+void set_base_conf_path(const std::string& conf_path) {
+    std::lock_guard<std::mutex> lock(base_conf_path_lock);
+    g_base_conf_path = conf_path;
+}
+
+std::string get_base_conf_path() {
+    std::lock_guard<std::mutex> lock(base_conf_path_lock);
+    return g_base_conf_path;
+}
+
+namespace {
+
+ReadConfigStatus read_single_string_config_from_file(const std::string& conf_path,
+                                                     const std::string& target_key, bool must_exist,
+                                                     std::string* value, bool* found) {
+    *found = false;
+    std::error_code ec;
+    bool exists = std::filesystem::exists(conf_path, ec);
+    if (ec) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+    if (!exists) {
+        return must_exist ? ReadConfigStatus::READ_ERROR : ReadConfigStatus::NOT_FOUND;
+    }
+    if (!std::filesystem::is_regular_file(conf_path, ec) || ec) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+
+    std::ifstream input(conf_path);
+    if (!input.is_open()) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+
+    std::string line;
+    std::string key;
+    std::string val;
+    bool key_found = false;
+    std::string raw_value;
+    while (std::getline(input, line)) {
+        trim(line);
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        if (line.find('=') == std::string::npos) {
+            return ReadConfigStatus::READ_ERROR;
+        }
+        splitkv(line, key, val);
+        trim(key);
+        trim(val);
+        if (key.empty()) {
+            return ReadConfigStatus::READ_ERROR;
+        }
+        if (key == target_key) {
+            key_found = true;
+            raw_value = val;
+        }
+    }
+    if (input.bad()) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+
+    if (!key_found) {
+        return ReadConfigStatus::NOT_FOUND;
+    }
+    std::string converted;
+    if (!convert(raw_value, converted)) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+    *value = std::move(converted);
+    *found = true;
+    return ReadConfigStatus::OK;
+}
+
+} // namespace
+
+ReadConfigStatus read_effective_string_config(const std::string& key, std::string* value,
+                                              const std::string& base_conf_path,
+                                              const std::string& custom_conf_path) {
+    std::string base_path = base_conf_path.empty() ? get_base_conf_path() : base_conf_path;
+    std::string custom_path =
+            custom_conf_path.empty() ? config::custom_conf_path : custom_conf_path;
+    if (base_path.empty()) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+
+    std::string effective_value;
+    bool found = false;
+    auto base_status =
+            read_single_string_config_from_file(base_path, key, true, &effective_value, &found);
+    if (base_status == ReadConfigStatus::READ_ERROR) {
+        return ReadConfigStatus::READ_ERROR;
+    }
+
+    if (!custom_path.empty()) {
+        std::error_code ec;
+        bool same_file = false;
+        if (std::filesystem::exists(custom_path, ec) && !ec) {
+            same_file = std::filesystem::equivalent(base_path, custom_path, ec);
+            if (ec) {
+                return ReadConfigStatus::READ_ERROR;
+            }
+        } else if (ec) {
+            return ReadConfigStatus::READ_ERROR;
+        }
+
+        if (!same_file) {
+            std::string custom_value;
+            bool custom_found = false;
+            auto custom_status = read_single_string_config_from_file(custom_path, key, false,
+                                                                     &custom_value, &custom_found);
+            if (custom_status == ReadConfigStatus::READ_ERROR) {
+                return ReadConfigStatus::READ_ERROR;
+            }
+            if (custom_found) {
+                effective_value = std::move(custom_value);
+                found = true;
+            }
+        }
+    }
+
+    if (!found) {
+        value->clear();
+        return ReadConfigStatus::NOT_FOUND;
+    }
+    *value = std::move(effective_value);
+    return ReadConfigStatus::OK;
 }
 
 std::pair<bool, std::string> update_config(const std::string& configs, bool persist,

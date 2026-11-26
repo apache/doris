@@ -3273,10 +3273,15 @@ public class Config extends ConfigBase {
     @ConfField
     public static String deploy_mode = "";
 
+    @ConfField(sensitive = true,
+            description = "Operations HTTP token for node-local credential rotation endpoints.")
+    public static volatile String http_token = "";
+
     // compatibily with elder version.
     // cloud_unique_id has higher priority than cluster_id.
-    @ConfField
-    public static String cloud_unique_id = "";
+    @ConfField(sensitive = true,
+            description = "Cloud unique ID identifying this FE node to MetaService.")
+    public static volatile String cloud_unique_id = "";
 
     public static boolean isCloudMode() {
         return deploy_mode.equals("cloud") || !cloud_unique_id.isEmpty();

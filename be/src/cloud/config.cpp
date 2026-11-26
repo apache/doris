@@ -17,12 +17,66 @@
 
 #include "cloud/config.h"
 
+#include <atomic>
+#include <shared_mutex>
+
 #include "common/status.h"
 
 namespace doris::config {
 
 DEFINE_String(deploy_mode, "");
-DEFINE_mString(cloud_unique_id, "");
+DEFINE_String(cloud_unique_id, "");
+
+namespace {
+std::shared_mutex g_cloud_unique_id_mtx;
+std::string g_runtime_cloud_unique_id;
+std::atomic<bool> g_cloud_unique_id_overridden {false};
+std::atomic<bool> g_has_runtime_cloud_unique_id {false};
+std::atomic<bool> g_cloud_unique_id_rotated {false};
+} // namespace
+
+bool is_cloud_unique_id_set() {
+    if (g_cloud_unique_id_overridden.load(std::memory_order_acquire)) {
+        return g_has_runtime_cloud_unique_id.load(std::memory_order_acquire);
+    }
+    return !cloud_unique_id.empty();
+}
+
+std::string get_cloud_unique_id() {
+    std::shared_lock lock(g_cloud_unique_id_mtx);
+    if (g_cloud_unique_id_overridden.load(std::memory_order_acquire)) {
+        return g_runtime_cloud_unique_id;
+    }
+    return cloud_unique_id;
+}
+
+void set_cloud_unique_id(const std::string& new_id, bool from_rotate) {
+    {
+        std::unique_lock lock(g_cloud_unique_id_mtx);
+        g_runtime_cloud_unique_id = new_id;
+        g_has_runtime_cloud_unique_id.store(!new_id.empty(), std::memory_order_release);
+        g_cloud_unique_id_overridden.store(true, std::memory_order_release);
+        if (from_rotate) {
+            g_cloud_unique_id_rotated.store(true, std::memory_order_release);
+        }
+    }
+    if (full_conf_map != nullptr) {
+        std::lock_guard<std::mutex> conf_lock(*get_mutable_string_config_lock());
+        (*full_conf_map)["cloud_unique_id"] = new_id;
+    }
+}
+
+bool is_cloud_unique_id_rotated() {
+    return g_cloud_unique_id_rotated.load(std::memory_order_acquire);
+}
+
+void reset_cloud_unique_id_override_for_test() {
+    std::unique_lock lock(g_cloud_unique_id_mtx);
+    g_runtime_cloud_unique_id.clear();
+    g_has_runtime_cloud_unique_id.store(false, std::memory_order_release);
+    g_cloud_unique_id_overridden.store(false, std::memory_order_release);
+    g_cloud_unique_id_rotated.store(false, std::memory_order_release);
+}
 DEFINE_mString(meta_service_endpoint, "");
 DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
 DEFINE_Bool(meta_service_connection_pooled, "true");

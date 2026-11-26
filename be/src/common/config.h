@@ -105,6 +105,9 @@ namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
 
+// Operations HTTP token for node-local credential rotation endpoints.
+DECLARE_String(http_token);
+
 // Dir of jdbc drivers
 DECLARE_String(jdbc_drivers_dir);
 
@@ -2268,6 +2271,17 @@ std::vector<std::vector<std::string>> get_config_info();
 Status set_fuzzy_configs();
 
 void update_config(const std::string& field, const std::string& value);
+
+void set_base_conf_path(const std::string& conf_path);
+std::string get_base_conf_path();
+void set_custom_conf_path(const std::string& conf_path);
+std::string get_custom_conf_path();
+
+// Read a single string config from the effective BE config files (be.conf overlaid by
+// be_custom.conf if present) without reloading unrelated in-memory configs.
+Status read_effective_string_config(const std::string& key, std::string* value, bool* found,
+                                    const std::string& base_conf_path = "",
+                                    const std::string& custom_conf_path = "");
 
 } // namespace config
 } // namespace doris
