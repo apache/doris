@@ -19,6 +19,7 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
@@ -60,6 +61,14 @@ class DeltaLakeConnectorTest {
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void supportsFullColumnAnalysisOnly() throws Exception {
+        try (Connector delta = connector()) {
+            Assertions.assertTrue(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+            Assertions.assertFalse(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+        }
+    }
 
     @Test
     void declaresUcCredentialsAndEndpoints() {

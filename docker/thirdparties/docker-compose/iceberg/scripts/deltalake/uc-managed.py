@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Prepare the latest and historical managed-table fixtures in local OSS Unity Catalog."""
+"""Prepare the managed history and external statistics fixtures in local OSS Unity Catalog."""
 
 import argparse
 import json
@@ -34,6 +34,8 @@ mode = parser.add_mutually_exclusive_group()
 mode.add_argument("--history", action="store_true", help="Prepare uc_managed_history for the version-as-of suite")
 mode.add_argument("--time-travel-edges", type=Path, metavar="NEW_DIR",
                   help="Prepare the dedicated UC and local filesystem time-travel regression fixtures")
+mode.add_argument("--column-statistics-external", type=Path, metavar="SHARED_DIR",
+                  help="Prepare the external table for the Unity Catalog column-statistics regression")
 args = parser.parse_args()
 spark = (SparkSession.builder.appName("doris-delta-uc-fixture")
          .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
@@ -126,6 +128,14 @@ try:
     if args.time_travel_edges is not None:
         from time_travel_edges import prepare
         prepare(spark, args.time_travel_edges, hold_numbered_copies)
+    elif args.column_statistics_external is not None:
+        location = args.column_statistics_external.resolve()
+        table = "doris_delta.m1.uc_external_statistics"
+        spark.sql(f"""CREATE TABLE IF NOT EXISTS {table} USING DELTA LOCATION '{location.as_uri()}'
+                  AS SELECT * FROM VALUES (1L, 'first'), (2L, CAST(NULL AS STRING)), (3L, 'last') AS t(id, label)""")
+        detail = spark.sql(f"DESCRIBE DETAIL {table}").first()
+        target = urlparse(detail.location)
+        assert target.scheme == "file" and Path(unquote(target.path)).resolve() == location
     elif args.history:
         prepare_history()
     else:

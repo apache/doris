@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -43,6 +44,9 @@ import java.util.concurrent.TimeUnit;
 
 final class DeltaLakeConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(DeltaLakeConnector.class);
+    private static final Set<ConnectorCapability> CAPABILITIES = Collections.unmodifiableSet(
+            EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
+                    ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
     private static final ExecutorService RESOURCE_CLOSER = resourceCloser();
 
     private final DeltaLakeCatalogProperties properties;
@@ -90,7 +94,7 @@ final class DeltaLakeConnector implements Connector {
 
     @Override
     public Set<ConnectorCapability> getCapabilities() {
-        return Collections.singleton(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT);
+        return CAPABILITIES;
     }
 
     @Override
