@@ -32,8 +32,13 @@ suite("test_abs") {
     sql "SET enable_fold_constant_by_be=false"
     explain {
         verbose true
-        sql "SELECT ABS(CAST(-0.2045 AS DECIMAL(5,4)))"
+        // Separate output slots expose the folded types before UNION coerces its inputs.
+        sql """
+            SELECT ABS(CAST(-0.2045 AS DECIMAL(5,4))) AS a,
+                   ABS(CAST(-1.0101 AS DECIMAL(5,4))) AS b
+        """
         contains "type=decimalv3(5,4)"
+        notContains "type=decimalv3(4,4)"
     }
 
     qt_decimal_abs_union """
