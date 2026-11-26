@@ -26,7 +26,7 @@ read from configuration; do not commit local configuration or credential values.
 For concurrent runs, give each run its own `iceberg_view_catalog`,
 `iceberg_view_source_namespace`, and `iceberg_view_store_namespace`. Each run
 also uses `<iceberg_view_catalog>_rooted` for its rooted catalog and
-`internal.<iceberg_view_catalog>_internal` for its CTAS database. Reserve both
+`internal.<iceberg_view_catalog>_ctas` for its CTAS database. Reserve both
 catalog names and both Iceberg namespaces for that run. All runs share the
 `demo` catalog and must use the same Docker fixture.
 

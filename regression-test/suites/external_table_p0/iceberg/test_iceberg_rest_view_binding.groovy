@@ -29,7 +29,7 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     String storeDb = config.get("iceberg_view_store_namespace") ?: "iceberg_rest_view_store"
     String catalog = config.get("iceberg_view_catalog") ?: "iceberg_rest_view_binding"
     String rootedCatalog = "${catalog}_rooted"
-    String ctasDb = "${catalog}_internal"
+    String ctasDb = "${catalog}_ctas"
     String accessKey = config.get("iceberg_view_access_key")
     String secretKey = config.get("iceberg_view_secret_key")
 
