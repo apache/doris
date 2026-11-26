@@ -122,8 +122,10 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         streamingCount = false;
-        if (((DeltaLakeTableHandle) handle).kind() != DeltaLakeTableKind.DATA) {
-            return -1;
+        DeltaLakeSystemTable systemTable = ((DeltaLakeTableHandle) handle).kind().systemTable;
+        if (systemTable != null) {
+            streamingCount = countPushdown && filter.isEmpty();
+            return systemTable.streamingSplitEstimate(session);
         }
         String enabled = session.getProperty("enable_external_table_batch_mode", String.class);
         if (enabled != null && !Boolean.parseBoolean(enabled)) {
@@ -149,8 +151,10 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
         planningReuseHit = false;
         request.getScanContext().checkCancelled();
-        if (((DeltaLakeTableHandle) request.getTableHandle()).kind() != DeltaLakeTableKind.DATA) {
-            return ConnectorScanPlanProvider.super.streamSplits(session, request);
+        DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
+        if (handle.kind().systemTable != null) {
+            return runtime.execute(() -> handle.kind().systemTable.streamSplits(
+                    session, runtime, handle, request, streamingCount || request.isCountPushdown()));
         }
         return runtime.execute(() -> new StreamingSource(session, request));
     }
@@ -303,7 +307,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             DeltaLakeTableHandle handle = (DeltaLakeTableHandle) request.getTableHandle();
             if (handle.kind().systemTable != null) {
-                return handle.kind().systemTable.planScan(runtime, handle, request);
+                return handle.kind().systemTable.planScan(session, runtime, handle, request);
             }
             Snapshot snapshot = handle.snapshot(runtime);
             if (session == null || !session.isExternalScanTaskReuseEnabled()) {
@@ -418,8 +422,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean canServeMetadataOnlyCount(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
-        return filter.isEmpty() && runtime.execute(() -> countSummary(session, (DeltaLakeTableHandle) handle)
-                .count.isPresent());
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        return delta.kind() == DeltaLakeTableKind.DATA && filter.isEmpty()
+                && runtime.execute(() -> countSummary(session, delta).count.isPresent());
     }
 
     private CountSummary countSummary(ConnectorSession session, DeltaLakeTableHandle handle) {
@@ -477,7 +482,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 String name = delta.kind().systemTable.name();
                 return Map.of(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet",
                         ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake " + name + " reads",
-                        "deltalake." + name + "_version", String.valueOf(delta.getVersion()));
+                        "deltalake.system_table", name,
+                        "deltalake.snapshot_version", String.valueOf(delta.getVersion()));
             }
             Snapshot snapshot = delta.snapshot(runtime);
             Map<String, String> properties = new HashMap<>();
@@ -519,9 +525,12 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> properties) {
-        String historyVersion = properties.get("deltalake.history_version");
-        if (historyVersion != null) {
-            output.append(prefix).append("Delta history through version: ").append(historyVersion).append("\n");
+        String systemTable = properties.get("deltalake.system_table");
+        if (systemTable != null) {
+            DeltaLakeSystemTable view = DeltaLakeTableKind.systemTableNamed(systemTable).orElseThrow().systemTable;
+            output.append(prefix).append("Delta ").append(systemTable)
+                    .append(view.supportsTimeTravel() ? " at version: " : " through version: ")
+                    .append(properties.get("deltalake.snapshot_version")).append('\n');
             return;
         }
         output.append(prefix).append("Delta snapshot: ").append(properties.get("deltalake.snapshot_version"))

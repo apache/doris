@@ -109,12 +109,17 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
     }
 
     @Override
+    public String registeredTableName(String database, String table) {
+        return catalog + "." + database + "." + table;
+    }
+
+    @Override
     public Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException {
         // UC's tables API identifies tables by one three-part name; dots in a part are not valid UC names.
         if (database.contains(".") || table.contains(".")) {
             return Optional.empty();
         }
-        String name = catalog + "." + database + "." + table;
+        String name = registeredTableName(database, table);
         JsonNode entry = request("tables/" + encode(name), null, true);
         if (entry == null || !isDelta(entry)) {
             return Optional.empty();

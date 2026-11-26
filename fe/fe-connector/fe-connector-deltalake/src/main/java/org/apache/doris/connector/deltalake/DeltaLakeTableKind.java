@@ -24,7 +24,11 @@ import java.util.Optional;
 
 enum DeltaLakeTableKind {
     DATA(null),
-    HISTORY(new DeltaLakeHistorySystemTable());
+    HISTORY(new DeltaLakeHistorySystemTable()),
+    DETAIL(new DeltaLakeDetailSystemTable()),
+    FILES(new DeltaLakeFilesSystemTable()),
+    PROPERTIES(new DeltaLakePropertiesSystemTable()),
+    PARTITIONS(new DeltaLakePartitionsSystemTable());
 
     final DeltaLakeSystemTable systemTable;
 

@@ -35,6 +35,11 @@ interface DeltaLakeTableResolver extends Closeable {
 
     Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException;
 
+    // Spark DESCRIBE DETAIL returns a name only when it resolves a catalog registration.
+    default String registeredTableName(String database, String table) {
+        return null;
+    }
+
     default Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
             Optional<Long> version, Optional<Long> timestampMillis) {
         throw new UnsupportedOperationException("Catalog-managed snapshots require Unity Catalog");

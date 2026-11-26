@@ -20,6 +20,8 @@
 #include <cctz/time_zone.h>
 
 #include <algorithm>
+#include <limits>
+#include <unordered_set>
 #include <utility>
 
 #include "core/block/block.h"
@@ -75,6 +77,17 @@ Status decode_cell(const TDeltaLakeSysTableField& cell, const DataTypePtr& type,
     case TYPE_BOOLEAN:
         if (set.bool_val) {
             *value = Field::create_field<TYPE_BOOLEAN>(cell.bool_val);
+            return Status::OK();
+        }
+        break;
+    case TYPE_INT:
+        if (set.int64_val) {
+            if (cell.int64_val < std::numeric_limits<int32_t>::min() ||
+                cell.int64_val > std::numeric_limits<int32_t>::max()) {
+                return Status::DataQualityError("Delta system table INT out of range: {}",
+                                                cell.int64_val);
+            }
+            *value = Field::create_field<TYPE_INT>(cast_set<int32_t>(cell.int64_val));
             return Status::OK();
         }
         break;
@@ -183,11 +196,15 @@ Status DeltaSysTableReader::init(RuntimeState*) {
 
 Status DeltaSysTableReader::get_schema(std::vector<ColumnDefinition>* schema) const {
     schema->clear();
+    std::unordered_set<std::string> names;
     for (size_t i = 0; i < _batch.columns.size(); ++i) {
         const auto& column = _batch.columns[i];
         if (!column.__isset.name || !column.__isset.schema_ordinal || column.schema_ordinal < 0) {
             return Status::DataQualityError("Incomplete Delta system table column at position {}",
                                             i);
+        }
+        if (!names.insert(to_lower(column.name)).second) {
+            return Status::DataQualityError("Duplicate Delta system table column: {}", column.name);
         }
         auto target = std::ranges::find_if(_projected_columns, [&](const ColumnDefinition& def) {
             return iequal(def.name, column.name);

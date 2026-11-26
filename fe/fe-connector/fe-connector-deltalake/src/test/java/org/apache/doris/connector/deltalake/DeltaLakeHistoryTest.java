@@ -71,8 +71,9 @@ class DeltaLakeHistoryTest {
 
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(null)) {
             ConnectorTableHandle base = metadata.getTableHandle(null, "db", "table").orElseThrow();
-            Assertions.assertEquals(List.of("history"), metadata.listSupportedSysTables(null, base));
-            Assertions.assertTrue(metadata.getSysTableHandle(null, base, "files").isEmpty());
+            Assertions.assertEquals(List.of("history", "detail", "files", "properties", "partitions"),
+                    metadata.listSupportedSysTables(null, base));
+            Assertions.assertTrue(metadata.getSysTableHandle(null, base, "unknown").isEmpty());
             ConnectorTableHandle history = metadata.getSysTableHandle(null, base, "HISTORY").orElseThrow();
             Assertions.assertEquals(List.of("version", "timestamp", "userId", "userName", "operation",
                     "operationParameters", "job", "notebook", "clusterId", "readVersion", "isolationLevel",
@@ -86,8 +87,11 @@ class DeltaLakeHistoryTest {
 
             ConnectorScanRequest.Builder all = ConnectorScanRequest.builder(history,
                     List.copyOf(metadata.getColumnHandles(null, history).values()));
-            Assertions.assertThrows(UnsupportedOperationException.class,
-                    () -> provider.streamSplits(null, all.build()));
+            try (var source = provider.streamSplits(null, all.build())) {
+                Assertions.assertTrue(source.hasNext());
+                Assertions.assertEquals(2, batch(source.next()).getRowsSize());
+                Assertions.assertFalse(source.hasNext());
+            }
             List<TDeltaLakeSysTableRow> rows = rows(provider.planScan(null, all.build()));
             Assertions.assertEquals(List.of(1L, 0L),
                     rows.stream().map(row -> row.getCells().get(0).getInt64Val()).toList());

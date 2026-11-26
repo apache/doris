@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -78,7 +79,8 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle,
+    public List<ConnectorScanRange> planScan(ConnectorSession session, DeltaLakeRuntime runtime,
+            DeltaLakeTableHandle handle,
             ConnectorScanRequest request) {
         Bounds bounds = request.getFilter()
                 .map(filter -> restrict(filter, new Bounds(0, handle.getVersion())))
@@ -100,14 +102,41 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
             // For a timestamp projection, earlier mtimes can move the selected timestamp forward
             // by a millisecond even when those earlier versions are filtered out.
             long rangeStart = timestamp ? earliest.getAsLong() : first;
-            CommitRange range = reference.managed
-                    ? runtime.resolver.managedCommitRange(engine, handle.getDatabase(), handle.getTable(), reference,
-                            rangeStart, bounds.end)
-                    : TableManager.loadCommitRange(reference.path, CommitBoundary.atVersion(rangeStart))
-                            .withEndBoundary(CommitBoundary.atVersion(bounds.end)).build(engine);
+            CommitRange range = commitRange(runtime, handle, engine, rangeStart, bounds.end);
             return readRange(engine, snapshot, range, first, columns, timestamp, request.getScanContext());
         } catch (IOException e) {
             throw new DorisConnectorException("Cannot read Delta commit history for " + handle.getPath(), e);
+        }
+    }
+
+    private static CommitRange commitRange(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle, Engine engine,
+            long start, long end) {
+        DeltaLakeTableReference reference = handle.reference();
+        return reference.managed
+                ? runtime.resolver.managedCommitRange(engine, handle.getDatabase(), handle.getTable(), reference,
+                        start, end)
+                : TableManager.loadCommitRange(reference.path, CommitBoundary.atVersion(start))
+                        .withEndBoundary(CommitBoundary.atVersion(end)).build(engine);
+    }
+
+    // The detail row and the corresponding history row must describe the same instant, even
+    // when several retained pre-ICT commits have equal or decreasing modification times.
+    static long lastModified(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle, Snapshot snapshot) {
+        Engine engine = runtime.engine(handle.reference());
+        OptionalLong ict = DeltaKernelCompat.historyIctStart(snapshot);
+        if (ict.isPresent() && handle.getVersion() >= ict.getAsLong()) {
+            return snapshot.getTimestamp(engine);
+        }
+        try {
+            OptionalLong first = DeltaKernelCompat.earliestHistoryVersion(engine, snapshot);
+            if (first.isEmpty()) {
+                return snapshot.getTimestamp(engine);
+            }
+            List<FileStatus> files = commitRange(runtime, handle, engine, first.getAsLong(),
+                    handle.getVersion()).getDeltaFiles();
+            return normalizedMtimes(files, files.size() - 1)[0];
+        } catch (IOException e) {
+            throw new DorisConnectorException("Cannot read Delta commit timestamp for " + handle.getPath(), e);
         }
     }
 

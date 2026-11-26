@@ -163,6 +163,33 @@ final class DeltaKernelCompat {
         return Utils.toCloseableIterator(List.of(file).iterator());
     }
 
+    record FileTotals(long files, long bytes) {
+    }
+
+    static Optional<FileTotals> fileTotals(Snapshot snapshot) {
+        return snapshot.getCurrentCrcInfo().map(crc -> new FileTotals(crc.getNumFiles(), crc.getTableSizeBytes()));
+    }
+
+    static String tableDescription(Snapshot snapshot) {
+        return snapshot.getMetadata().getDescription().orElse(null);
+    }
+
+    static Optional<Long> createdTime(Snapshot snapshot) {
+        return snapshot.getMetadata().getCreatedTime();
+    }
+
+    static int minReaderVersion(Snapshot snapshot) {
+        return snapshot.getProtocol().getMinReaderVersion();
+    }
+
+    static int minWriterVersion(Snapshot snapshot) {
+        return snapshot.getProtocol().getMinWriterVersion();
+    }
+
+    static List<String> tableFeatures(Snapshot snapshot) {
+        return snapshot.getProtocol().getReaderAndWriterFeatures().stream().sorted().toList();
+    }
+
     static OptionalLong fileCount(Snapshot snapshot) {
         return snapshot.getCurrentCrcInfo().map(crc -> OptionalLong.of(crc.getNumFiles()))
                 .orElseGet(OptionalLong::empty);
@@ -271,6 +298,18 @@ final class DeltaKernelCompat {
     static long deletionCardinality(Row file) {
         DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(file);
         return dv == null ? 0 : dv.getCardinality();
+    }
+
+    record FileDeletionVector(String storageType, String path, long cardinality) {
+    }
+
+    static FileDeletionVector fileDeletionVector(Row row, String tablePath, boolean needPath) {
+        DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(row);
+        if (dv == null) {
+            return null;
+        }
+        String path = needPath && !dv.isInline() ? dv.getAbsolutePath(tablePath) : null;
+        return new FileDeletionVector(dv.getStorageType(), path, dv.getCardinality());
     }
 
     static Optional<TDeltaLakeDeletionVectorDesc> deletionVector(Row file, String tablePath) {

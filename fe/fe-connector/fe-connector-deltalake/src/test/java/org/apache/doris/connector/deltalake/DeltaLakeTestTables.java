@@ -77,4 +77,14 @@ final class DeltaLakeTestTables {
         }
         return commitFile;
     }
+
+    static void checksum(Path table, long version, long files, long bytes) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        List<String> actions = Files.readAllLines(table.resolve("_delta_log/00000000000000000000.json"));
+        Files.writeString(table.resolve(String.format("_delta_log/%020d.crc", version)),
+                mapper.writeValueAsString(Map.of(
+                    "tableSizeBytes", bytes, "numFiles", files, "numMetadata", 1, "numProtocol", 1,
+                    "metadata", mapper.readTree(actions.get(1)).get("metaData"),
+                    "protocol", mapper.readTree(actions.get(0)).get("protocol"))));
+    }
 }

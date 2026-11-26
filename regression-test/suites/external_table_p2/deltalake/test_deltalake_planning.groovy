@@ -44,4 +44,18 @@ suite("test_deltalake_planning", "p2,external") {
         // The streaming range carries its row count; the scan node has no table-level count yet.
         contains "pushdown agg=COUNT"
     }
+    String files = 'test_deltalake_planning.delta_bench.`million_files$files`'
+    String root = sql('select location from test_deltalake_planning.delta_bench.`million_files$detail`')[0][0]
+    String lastPath = root.replaceFirst('^s3a://', 's3://') + '/planning-only-00999999.parquet'
+    for (boolean batch in [true, false]) {
+        sql "set enable_external_table_batch_mode=${batch}"
+        quickTest("files_full_" + batch, "select count(*), sum(size) from ${files}")
+        // Every file is 527 bytes; LIMIT exercises early close without imposing a sort.
+        quickTest("files_limit_" + batch, "select size from ${files} limit 1")
+        quickTest("files_late_" + batch, """select substring_index(path, '/', -1) from ${files}
+            where path='${lastPath}' limit 1""")
+        quickTest("files_top_" + batch, """select size,substring_index(path, '/', -1) from ${files}
+            order by size desc, path limit 1""")
+    }
+
 }

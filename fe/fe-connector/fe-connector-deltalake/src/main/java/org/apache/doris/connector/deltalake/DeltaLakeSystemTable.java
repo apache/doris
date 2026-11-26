@@ -19,16 +19,20 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.thrift.TDeltaLakeSysTableColumn;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -39,14 +43,57 @@ interface DeltaLakeSystemTable {
 
     boolean supportsTimeTravel();
 
-    List<ConnectorScanRange> planScan(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle,
+    List<ConnectorScanRange> planScan(ConnectorSession session, DeltaLakeRuntime runtime, DeltaLakeTableHandle handle,
             ConnectorScanRequest request);
+
+    default long streamingSplitEstimate(ConnectorSession session) {
+        return -1;
+    }
+
+    default ConnectorSplitSource streamSplits(ConnectorSession session, DeltaLakeRuntime runtime,
+            DeltaLakeTableHandle handle, ConnectorScanRequest request, boolean countOnly) {
+        return new ConnectorSplitSource() {
+            private Iterator<ConnectorScanRange> ranges;
+            private boolean closed;
+
+            @Override
+            public boolean hasNext() {
+                if (closed) {
+                    return false;
+                }
+                request.getScanContext().checkCancelled();
+                if (ranges == null) {
+                    ranges = runtime.execute(() -> planScan(session, runtime, handle, request)).iterator();
+                }
+                return ranges.hasNext();
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return ranges.next();
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                ranges = null;
+            }
+        };
+    }
 
     default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeTableHandle handle,
             ConnectorScanRequest request) {
+        return projectedColumns(handle, request, request.isCountPushdown());
+    }
+
+    default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeTableHandle handle,
+            ConnectorScanRequest request, boolean countOnly) {
         Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         // A pure COUNT(*) may carry an arbitrary minimum-width slot in its scan tuple.
-        if (!request.isCountPushdown() || request.getFilter().isPresent()) {
+        if (!countOnly || request.getFilter().isPresent()) {
             request.getColumns().forEach(column -> names.add(((NamedColumnHandle) column).getName()));
         }
         request.getFilter().ifPresent(filter -> addFilterColumns(filter, names));

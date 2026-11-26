@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -172,6 +174,50 @@ TEST_F(DeltaSysTableReaderTest, CountOnlyAndEmptyBatches) {
         EXPECT_EQ(block.rows(), count);
         EXPECT_TRUE(eof);
     }
+}
+
+TEST_F(DeltaSysTableReaderTest, IntValuesAndOverflow) {
+    const auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    add_column("protocol", type, 0);
+    const int64_t min = std::numeric_limits<int32_t>::min();
+    const int64_t max = std::numeric_limits<int32_t>::max();
+    for (int64_t number : {min, int64_t(0), max, min - 1, max + 1}) {
+        batch.rows.clear();
+        TDeltaLakeSysTableField cell;
+        cell.__set_int64_val(number);
+        add_row({cell});
+        add_row({{}});
+        DeltaSysTableReader reader(fs, file, nullptr, nullptr, batch, projection);
+        ASSERT_TRUE(reader.init(nullptr).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        FileScanRequestBuilder builder(request.get());
+        ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+        ASSERT_TRUE(reader.open(request).ok());
+        Block block;
+        block.insert({type->create_column(), type, "protocol"});
+        size_t rows = 0;
+        bool eof = false;
+        auto status = reader.get_block(&block, &rows, &eof);
+        if (number < min || number > max) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("INT out of range"), std::string::npos);
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(rows, 2);
+            EXPECT_EQ((*block.get_by_position(0).column)[0].get<TYPE_INT>(), number);
+            EXPECT_TRUE((*block.get_by_position(0).column)[1].is_null());
+        }
+    }
+}
+
+TEST_F(DeltaSysTableReaderTest, DuplicateWireColumnNames) {
+    add_column("protocol", std::make_shared<DataTypeInt32>(), 0);
+    add_column("PROTOCOL", std::make_shared<DataTypeInt32>(), 1);
+    DeltaSysTableReader reader(fs, file, nullptr, nullptr, batch, projection);
+    std::vector<ColumnDefinition> schema;
+    auto status = reader.get_schema(&schema);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Duplicate Delta system table column"), std::string::npos);
 }
 
 TEST_F(DeltaSysTableReaderTest, InvalidRowWidth) {
