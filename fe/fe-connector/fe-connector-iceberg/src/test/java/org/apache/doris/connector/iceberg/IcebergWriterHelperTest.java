@@ -332,9 +332,10 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
-    public void partitionNullBitmapUsesOptionalField16() throws Exception {
+    public void partitionNullBitmapUsesOptionalField17() throws Exception {
+        // The same commit fragment can carry the MERGE delete count at field 16.
         String encoded = "{\"5\":{\"lst\":[\"str\",2,\"null\",\"null\"]},"
-                + "\"16\":{\"lst\":[\"tf\",2,0,1]}}";
+                + "\"16\":{\"i64\":1},\"17\":{\"lst\":[\"tf\",2,0,1]}}";
         TIcebergCommitData commit = new TIcebergCommitData();
         new TDeserializer(new TJSONProtocol.Factory()).deserialize(commit, encoded.getBytes(StandardCharsets.UTF_8));
         Assertions.assertTrue(commit.isSetPartitionValuesIsNull());
