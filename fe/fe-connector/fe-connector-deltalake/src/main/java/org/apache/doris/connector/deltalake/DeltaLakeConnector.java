@@ -54,6 +54,7 @@ final class DeltaLakeConnector implements Connector {
     private final CatalogMetaCache metaCache;
     private final DeltaLakeSnapshotCache snapshotCache;
     private final DeltaLakeStatisticsCache statisticsCache;
+    private final DeltaLakePartitionFreshness freshness;
     private DeltaLakeRuntime runtime;
     private boolean closed;
 
@@ -63,11 +64,12 @@ final class DeltaLakeConnector implements Connector {
         metaCache = CatalogMetaCache.managed(context.getCatalogId(), "deltalake", properties);
         snapshotCache = new DeltaLakeSnapshotCache(metaCache, properties);
         statisticsCache = new DeltaLakeStatisticsCache(metaCache, properties);
+        freshness = new DeltaLakePartitionFreshness(metaCache, properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new DeltaLakeConnectorMetadata(runtime(), properties, snapshotCache, statisticsCache);
+        return new DeltaLakeConnectorMetadata(runtime(), properties, snapshotCache, statisticsCache, freshness);
     }
 
     @Override

@@ -22,7 +22,10 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
+import io.delta.kernel.CommitRange;
+import io.delta.kernel.CommitRangeBuilder.CommitBoundary;
 import io.delta.kernel.Snapshot;
+import io.delta.kernel.TableManager;
 import io.delta.kernel.engine.Engine;
 
 import java.util.Optional;
@@ -97,6 +100,13 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     long getVersion() {
         return version;
+    }
+
+    CommitRange commitRange(DeltaLakeRuntime runtime, Engine engine, long start, long end) {
+        return reference.managed
+                ? runtime.resolver.managedCommitRange(engine, database, table, reference, start, end)
+                : TableManager.loadCommitRange(reference.path, CommitBoundary.atVersion(start))
+                        .withEndBoundary(CommitBoundary.atVersion(end)).build(engine);
     }
 
     DeltaLakeTableHandle atVersion(DeltaLakeRuntime runtime, long requestedVersion) {

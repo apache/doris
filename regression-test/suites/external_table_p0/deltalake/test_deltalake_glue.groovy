@@ -52,6 +52,7 @@ suite("test_deltalake_glue", "p0,external,deltalake,external_docker") {
         hive_table: [Parameters: [classification: "parquet"], StorageDescriptor: [Location: changes]]
     ].collectEntries { name, definition -> [(name): [Name: name, DatabaseName: "glue_db"] + definition] }
 
+    sql "drop materialized view if exists delta_glue_mtmv"
     def calls = new AtomicInteger()
     HttpServer glue = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
     glue.createContext("/", { HttpExchange exchange ->
@@ -171,6 +172,20 @@ suite("test_deltalake_glue", "p0,external,deltalake,external_docker") {
             qt_stats """select col_id,count,ndv,null_count,min,max from internal.__internal_schema.column_statistics
                         where catalog_id='${cid}' and db_id='${dbid}' and tbl_id='${tid}' and col_id='id'
                           and idx_id='-1' and part_id is null order by col_id"""
+
+            sql """create materialized view delta_glue_mtmv build deferred refresh auto on manual partition by(p)
+                distributed by random buckets 1 properties ('replication_num'='1')
+                as select p,id from test_deltalake_glue.glue_db.events"""
+            sql "refresh materialized view delta_glue_mtmv auto"
+            waitingMTMVTaskFinishedByMvName("delta_glue_mtmv")
+            write("insert into delta_glue_p0.events values (5L,'five','b')")
+            sql "refresh table test_deltalake_glue.glue_db.events"
+            sql "refresh materialized view delta_glue_mtmv auto"
+            waitingMTMVTaskFinishedByMvName("delta_glue_mtmv")
+            qt_glue_auto """select RefreshMode,NeedRefreshPartitions,CompletedPartitions from tasks('type'='mv')
+                where MvDatabaseName='${context.dbName}' and MvName='delta_glue_mtmv'
+                order by CreateTime desc,TaskId desc limit 1"""
+            qt_glue_mv "select p,id from delta_glue_mtmv order by p,id"
         } finally {
             spark.close()
         }

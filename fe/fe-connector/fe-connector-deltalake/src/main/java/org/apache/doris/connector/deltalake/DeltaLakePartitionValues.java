@@ -95,7 +95,7 @@ final class DeltaLakePartitionValues {
         Map<String, String> result = new LinkedHashMap<>();
         for (String name : partitions) {
             StructField field = schema.get(name);
-            String key = mapped ? field.getMetadata().getString(PHYSICAL_NAME) : name;
+            String key = logKey(field, mapped);
             if (!rawValues.containsKey(key)) {
                 throw new DorisConnectorException("Delta file has no partition value for column " + name);
             }
@@ -107,6 +107,10 @@ final class DeltaLakePartitionValues {
             }
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    static String logKey(StructField field, boolean mapped) {
+        return mapped ? field.getMetadata().getString(PHYSICAL_NAME) : field.getName();
     }
 
     static boolean emptyStringIsNull(DataType type) {

@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.ColumnVector;
+import io.delta.kernel.data.MapValue;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.internal.data.DefaultColumnarBatch;
 import io.delta.kernel.defaults.internal.data.vector.DefaultGenericVector;
@@ -40,6 +41,7 @@ import io.delta.kernel.internal.util.FileNames;
 import io.delta.kernel.internal.util.IntervalParserUtils;
 import io.delta.kernel.internal.util.PartitionUtils;
 import io.delta.kernel.internal.util.Utils;
+import io.delta.kernel.internal.util.VectorUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.DataType;
@@ -123,6 +125,18 @@ final class DeltaKernelCompat {
             throw new IllegalArgumentException("Delta retention requires zero total calendar months: " + interval);
         }
         return term.appendTail(fixed).toString();
+    }
+
+    static long commitVersion(FileStatus file) {
+        return FileNames.deltaVersion(file.getPath());
+    }
+
+    static Map<String, String> partitionValues(MapValue values) {
+        return VectorUtils.toJavaMap(values);
+    }
+
+    static long monotonicMtime(long previous, long mtime) {
+        return mtime <= previous ? Math.incrementExact(previous) : mtime;
     }
 
     static OptionalLong earliestHistoryVersion(Engine engine, Snapshot snapshot) throws IOException {

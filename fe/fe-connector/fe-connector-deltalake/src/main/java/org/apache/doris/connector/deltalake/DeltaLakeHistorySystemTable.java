@@ -36,9 +36,7 @@ import org.apache.doris.thrift.TDeltaLakeSysTableMapEntry;
 import org.apache.doris.thrift.TDeltaLakeSysTableRow;
 
 import io.delta.kernel.CommitRange;
-import io.delta.kernel.CommitRangeBuilder.CommitBoundary;
 import io.delta.kernel.Snapshot;
-import io.delta.kernel.TableManager;
 import io.delta.kernel.data.ColumnVector;
 import io.delta.kernel.data.ColumnarBatch;
 import io.delta.kernel.data.MapValue;
@@ -102,21 +100,11 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
             // For a timestamp projection, earlier mtimes can move the selected timestamp forward
             // by a millisecond even when those earlier versions are filtered out.
             long rangeStart = timestamp ? earliest.getAsLong() : first;
-            CommitRange range = commitRange(runtime, handle, engine, rangeStart, bounds.end);
+            CommitRange range = handle.commitRange(runtime, engine, rangeStart, bounds.end);
             return readRange(engine, snapshot, range, first, columns, timestamp, request.getScanContext());
         } catch (IOException e) {
             throw new DorisConnectorException("Cannot read Delta commit history for " + handle.getPath(), e);
         }
-    }
-
-    private static CommitRange commitRange(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle, Engine engine,
-            long start, long end) {
-        DeltaLakeTableReference reference = handle.reference();
-        return reference.managed
-                ? runtime.resolver.managedCommitRange(engine, handle.getDatabase(), handle.getTable(), reference,
-                        start, end)
-                : TableManager.loadCommitRange(reference.path, CommitBoundary.atVersion(start))
-                        .withEndBoundary(CommitBoundary.atVersion(end)).build(engine);
     }
 
     // The detail row and the corresponding history row must describe the same instant, even
@@ -133,7 +121,7 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
             if (first.isEmpty() || first.getAsLong() > handle.getVersion()) {
                 return snapshot.getTimestamp(engine);
             }
-            List<FileStatus> files = commitRange(runtime, handle, engine, first.getAsLong(),
+            List<FileStatus> files = handle.commitRange(runtime, engine, first.getAsLong(),
                     handle.getVersion()).getDeltaFiles();
             return files.isEmpty() ? snapshot.getTimestamp(engine) : normalizedMtimes(files, files.size() - 1)[0];
         } catch (IOException e) {
@@ -183,7 +171,7 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
         long previous = Long.MIN_VALUE;
         for (int i = 0; i < files.size(); i++) {
             long mtime = files.get(i).getModificationTime();
-            previous = i > 0 && mtime <= previous ? Math.incrementExact(previous) : mtime;
+            previous = DeltaKernelCompat.monotonicMtime(previous, mtime);
             if (i >= first) {
                 timestamps[i - first] = previous;
             }

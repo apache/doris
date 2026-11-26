@@ -71,3 +71,12 @@ b	1	0
 -- !stats --
 id	3	3	0	1	4
 
+-- !glue_auto --
+PARTIAL	["p_b"]	["p_b"]
+
+-- !glue_mv --
+a	1
+a	4
+b	3
+b	5
+
