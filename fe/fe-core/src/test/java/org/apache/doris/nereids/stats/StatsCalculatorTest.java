@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -323,6 +324,26 @@ public class StatsCalculatorTest {
             Assertions.assertEquals(4, new StatsCalculator(null).computeFilter(filter, selected).getRowCount());
             Assertions.assertEquals(1, selected.findColumnStatistics(fixture.slot).ndv);
             Assertions.assertEquals(0, selected.findColumnStatistics(fixture.slot).numNulls);
+        }
+    }
+
+    @Test
+    public void testProvenPartitionFilterUsesAllPartitionRows() {
+        // Cached null counts can discount the IN predicate even though every partition satisfies it.
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(2), null)) {
+            List<Long> allPartitions = ImmutableList.of(1L, 2L, 3L);
+            Mockito.when(fixture.scan.getTable().getPartitionIds()).thenReturn(allPartitions);
+            Mockito.when(fixture.scan.getSelectedPartitionIds()).thenReturn(allPartitions);
+            InPredicate predicate = new InPredicate(fixture.slot,
+                    ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2)));
+            PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                    ImmutableSet.copyOf(allPartitions), ImmutableList.of(fixture.slot), ImmutableSet.of(predicate));
+            Mockito.when(fixture.scan.getPartitionPrunablePredicates()).thenReturn(Optional.of(proof));
+
+            LogicalFilter<Plan> filter = new LogicalFilter<>(ImmutableSet.of(predicate), new DummyPlan());
+            Statistics scanStatistics = fixture.computeOlapScan();
+            Assertions.assertEquals(12, scanStatistics.getRowCount());
+            Assertions.assertEquals(12, new StatsCalculator(null).computeFilter(filter, scanStatistics).getRowCount());
         }
     }
 

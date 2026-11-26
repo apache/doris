@@ -619,8 +619,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        if (!hasUserInjectedStats(olapScan)
-                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
+        boolean useSelectedPartitionStats = olapScan.getSelectedPartitionIds().size() < olapTable.getPartitionNum()
+                && !hasUserInjectedStats(olapScan);
+        if (useSelectedPartitionStats) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = hasScanRowCountEstimates(olapScan)
@@ -662,12 +663,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
-            Statistics selectedStats = computeVirtualColumnStats(olapScan, builder.build());
-            return olapScan.getPartitionPrunablePredicates()
-                    .map(proof -> proof.getPrunableConjunctsForScan(olapScan))
-                    .filter(conjuncts -> !conjuncts.isEmpty())
-                    .map(conjuncts -> withPartitionPredicateProof(selectedStats, conjuncts))
-                    .orElse(selectedStats);
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
@@ -679,7 +674,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
         }
-        return computeVirtualColumnStats(olapScan, builder.build());
+        Statistics scanStats = computeVirtualColumnStats(olapScan, builder.build());
+        // A table-level row estimate covers all permanent partitions.
+        return olapScan.getPartitionPrunablePredicates()
+                .filter(proof -> useSelectedPartitionStats || proof.coversPartitions(olapTable.getPartitionIds()))
+                .map(proof -> proof.getPrunableConjunctsForScan(olapScan))
+                .filter(conjuncts -> !conjuncts.isEmpty())
+                .map(conjuncts -> withPartitionPredicateProof(scanStats, conjuncts))
+                .orElse(scanStats);
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
