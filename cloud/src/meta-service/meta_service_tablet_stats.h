@@ -20,6 +20,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/keys.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -34,6 +35,9 @@ struct TabletStats {
     int64_t num_segs = 0;
     int64_t index_size = 0;
     int64_t segment_size = 0;
+    // Whether this commit contains a logical data mutation for the tablet. Delete-predicate
+    // rowsets have no segments but still change the visible contents and tablet owner.
+    bool has_data_change = false;
 };
 
 // Get tablet stats and detached tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
@@ -47,6 +51,21 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 // Merge `detached_stats` `stats` to `stats`.
 void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats);
 
+// Copy compaction read-write separation metadata between tablet stats.
+void copy_last_active_cluster_info(const TabletStatsPB& source, TabletStatsPB& target);
+
+bool has_valid_last_active_cluster(const TabletStatsPB& stats);
+
+bool rowset_has_data_change(const RowsetMetaCloudPB& rowset);
+
+void set_tablet_last_active_cluster(TabletStatsPB* stats, const std::string& cluster_id,
+                                    int64_t last_active_time_ms, int64_t last_active_epoch);
+
+void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
+                                       const std::string& cluster_id, int64_t last_active_time_ms,
+                                       std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                                       std::string& msg, int64_t* last_active_epoch);
+
 // Detach tablet stats from `stats` to `detached_stats`.
 void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats);
 
@@ -57,7 +76,8 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 
 // Get versioned load tablet stats via `txn`. If an error occurs, `code` will be set to non OK.
 //
-// If the versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+// If versioned load stats do not exist, fall back to single-version detached load statistics.
+// The exact aggregate owner always overlays the versioned owner for rolling-upgrade compatibility.
 void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
                                     CloneChainReader& meta_reader, Transaction* txn,
                                     const std::string& instance_id, const TabletIndexPB& idx,
@@ -66,7 +86,8 @@ void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
 // Batch version: Get versioned load tablet stats for multiple tablets via `txn`.
 // If an error occurs, `code` will be set to non OK.
 //
-// For tablets whose versioned load stats doesn't exist, fall back to get single version detached tablet stats.
+// For tablets without versioned load stats, fall back to single-version detached load statistics.
+// Exact aggregate owners always overlay versioned owners for rolling-upgrade compatibility.
 // tablet_indexes: map of tablet_id -> TabletIndexPB
 // tablet_stats: output map of tablet_id -> TabletStatsPB
 void internal_get_load_tablet_stats_batch(
