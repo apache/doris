@@ -20,13 +20,13 @@
 #include <cstdint>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
+
 class OlapTableSchemaParam;
 struct OlapTableIndexSchema;
 

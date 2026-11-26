@@ -26,8 +26,8 @@
 #include <utility>
 
 #include "bvar/bvar.h"
-#include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h"
 #include "util/sha.h"
 
 bvar::Adder<int64_t> g_tablet_schema_cache_count("tablet_schema_cache_count");
