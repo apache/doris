@@ -2290,11 +2290,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
+    // Versions 14-19 are allocated on master. Keep the Lance FILE wire version aligned with BE.
+    public static final int LANCE_BLOB_MIN_BE_EXEC_VERSION = 20;
+
     /**
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = LANCE_BLOB_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

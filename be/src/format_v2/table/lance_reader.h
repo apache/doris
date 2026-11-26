@@ -47,9 +47,9 @@ class LanceTableReader final : public TableReader {
 public:
     ~LanceTableReader() override;
 
-    // Fetch the schema using dataset identity from the common scan parameters, without initializing
-    // the scan path. Version zero opens latest for backend-local TVF schema discovery.
-    Status fetch_schema(const TFileScanRangeParams& scan_params,
+    // Old FEs carry dataset identity in the range; new FEs use common scan parameters.
+    // Version zero opens latest for backend-local TVF schema discovery.
+    Status fetch_schema(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
                         std::vector<std::string>* column_names,
                         std::vector<DataTypePtr>* column_types) const;
 
@@ -101,6 +101,9 @@ private:
                                  size_t* rows);
     Status _dataset_key(DatasetKey* key) const;
 
+    // During BE-first upgrades, resolve old FE split parameters into a reader-owned copy. Never
+    // modify common scan parameters shared with other scanners in the query.
+    std::optional<TFileScanRangeParams> _legacy_scan_params;
     LanceDataset* _dataset = nullptr;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -35,7 +36,8 @@ public final class LanceBlobResourcePlanner {
     private LanceBlobResourcePlanner() {
     }
 
-    public static Map<Integer, TLanceBlobResource> plan(Collection<? extends ScanNode> scanNodes) {
+    public static Map<Integer, TLanceBlobResource> plan(
+            Collection<? extends ScanNode> scanNodes, int beExecVersion) {
         Map<Integer, FileQueryScanNode> fileScans = new TreeMap<>();
         for (ScanNode scan : scanNodes) {
             if (scan instanceof FileQueryScanNode) {
@@ -53,6 +55,10 @@ public final class LanceBlobResourcePlanner {
             TLanceScanParams lance = scanParams.getLanceScanParams();
             if (!lance.isSetBlobReadSourceIds()) {
                 continue;
+            }
+            if (beExecVersion < Config.LANCE_BLOB_MIN_BE_EXEC_VERSION) {
+                throw new IllegalStateException("Lance BLOB reads require be_exec_version >= "
+                        + Config.LANCE_BLOB_MIN_BE_EXEC_VERSION + ", got " + beExecVersion);
             }
             for (Map.Entry<String, Integer> source : lance.getBlobReadSourceIds().entrySet()) {
                 TLanceBlobResource resource = new TLanceBlobResource()

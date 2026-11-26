@@ -258,9 +258,8 @@ Status QueryContext::init_lance_blob_resources(std::map<int32_t, TLanceBlobResou
     return Status::OK();
 }
 
-LanceBlobReader& QueryContext::get_lance_blob_reader() {
-    DCHECK(_lance_blob_reader != nullptr);
-    return *_lance_blob_reader;
+LanceBlobReader* QueryContext::get_lance_blob_reader() {
+    return _lance_blob_reader.get();
 }
 
 const TLanceBlobResource* QueryContext::get_lance_blob_resource(uint32_t source_id) const {

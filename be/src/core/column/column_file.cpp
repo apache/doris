@@ -157,8 +157,8 @@ void ColumnFile::fill_missing_blob_ids() {
 }
 
 void ColumnFile::reset_blob_ids() {
-    _blob_source_ids = ColumnPtr {};
-    _blob_row_ids = ColumnPtr {};
+    _blob_source_ids = nullptr;
+    _blob_row_ids = nullptr;
 }
 
 void ColumnFile::set_blob_ids(MutableColumnPtr blob_source_ids, MutableColumnPtr blob_row_ids) {

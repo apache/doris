@@ -94,8 +94,12 @@ public:
                 context->state()->get_query_ctx() == nullptr) {
                 return Status::InvalidArgument("External FILE content requires a query context");
             }
-            RETURN_IF_ERROR(context->state()->get_query_ctx()->get_lance_blob_reader().read_blob(
-                    context->state(), requests, values.get()));
+            auto* reader = context->state()->get_query_ctx()->get_lance_blob_reader();
+            if (reader == nullptr) {
+                return Status::InvalidArgument(
+                        "External FILE content requires Lance BLOB resources from FE");
+            }
+            RETURN_IF_ERROR(reader->read_blob(context->state(), requests, values.get()));
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(values), std::move(nulls)));

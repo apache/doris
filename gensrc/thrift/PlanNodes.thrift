@@ -602,11 +602,11 @@ struct TExternalSearchRequest {
 
 // Split-local scan work. Dataset identity and storage options live in TLanceScanParams.
 struct TLanceFileDesc {
-    // Deprecated. Use TLanceScanParams.dataset_uri; retain this field and its original ID.
+    // Deprecated. New FEs use TLanceScanParams.dataset_uri; BEs still read this for old FE plans.
     1: optional string dataset_uri
     // Unset for a local whole-dataset scan or a metadata-only COUNT split.
     2: optional list<i64> fragment_ids
-    // Deprecated. Use TLanceScanParams.version; retain this field and its original ID.
+    // Deprecated. New FEs use TLanceScanParams.version; BEs still read this for old FE plans.
     3: optional i64 version
     // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
     // most this many rows; the upper LIMIT operator still enforces the global bound.

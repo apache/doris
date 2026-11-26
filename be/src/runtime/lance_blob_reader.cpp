@@ -68,7 +68,10 @@ Status LanceBlobReader::read_blob(RuntimeState* state, const std::vector<BlobReq
     if (state == nullptr || state->get_query_ctx() == nullptr) {
         return Status::InvalidArgument("External FILE content requires a query read context");
     }
-    const auto* query = state->get_query_ctx();
+    const auto* query_ctx = state->get_query_ctx();
+    // source ID -> Lance row ID -> output row positions requesting that Blob.
+    // Group by source to batch handle resolution, and read each distinct Blob once even when
+    // multiple output rows reference it.
     std::map<uint32_t, std::map<uint64_t, std::vector<size_t>>> groups;
     for (const auto& request : requests) {
         if (request.output_row_index >= output->size()) {
@@ -78,7 +81,7 @@ Status LanceBlobReader::read_blob(RuntimeState* state, const std::vector<BlobReq
     }
     for (const auto& [source_id, rows] : groups) {
         RETURN_IF_CANCELLED(state);
-        const auto* resource = query->get_lance_blob_resource(source_id);
+        const auto* resource = query_ctx->get_lance_blob_resource(source_id);
         if (resource == nullptr) {
             return Status::InvalidArgument("Lance BLOB resource {} is not declared by FE",
                                            source_id);

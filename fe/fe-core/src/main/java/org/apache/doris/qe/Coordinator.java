@@ -748,7 +748,7 @@ public class Coordinator implements CoordInterface {
         // compute Fragment Instance
         computeScanRangeAssignment();
 
-        lanceBlobResources = LanceBlobResourcePlanner.plan(scanNodes);
+        lanceBlobResources = LanceBlobResourcePlanner.plan(scanNodes, queryOptions.getBeExecVersion());
         computeFragmentExecParams();
     }
 

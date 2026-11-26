@@ -132,7 +132,9 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support strict ownership hash routing for external table sink writers.
 //   b. support Paimon default fixed-bucket routing in the external sink exchange.
 
-const int BeExecVersionManager::max_be_exec_version = 13;
+// Versions 14-19 are allocated on master to other features; do not reuse them here.
+// 20: support query-scoped Lance BLOB resources and optional FILE reference serialization.
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_LANCE_BLOB_RESOURCES_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

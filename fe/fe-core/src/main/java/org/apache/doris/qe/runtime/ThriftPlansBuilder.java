@@ -135,7 +135,7 @@ public class ThriftPlansBuilder {
         // Freeze resource IDs before serializing any scan or consumer fragment.
         Map<Integer, TLanceBlobResource> lanceBlobResources = LanceBlobResourcePlanner.plan(
                 distributedPlans.stream().flatMap(plan -> plan.getFragmentJob().getScanNodes().stream())
-                        .collect(Collectors.toList()));
+                        .collect(Collectors.toList()), coordinatorContext.queryOptions.getBeExecVersion());
         Map<Integer, TFileScanRangeParams> sharedFileScanRangeParams = computeFileScanRangeParams(distributedPlans);
         for (PipelineDistributedPlan currentFragmentPlan : distributedPlans) {
             Map<Integer, Integer> exchangeSenderNum = computeExchangeSenderNum(currentFragmentPlan);

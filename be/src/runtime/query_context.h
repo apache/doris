@@ -111,7 +111,8 @@ public:
     ExecEnv* exec_env() const { return _exec_env; }
     // Install FE resources before starting any fragment; definitions stay fixed for this query.
     Status init_lance_blob_resources(std::map<int32_t, TLanceBlobResource> resources);
-    LanceBlobReader& get_lance_blob_reader();
+    // Returns nullptr when FE did not supply Lance BLOB resources.
+    LanceBlobReader* get_lance_blob_reader();
     const TLanceBlobResource* get_lance_blob_resource(uint32_t source_id) const;
 
     bool is_timeout(timespec now) const {
@@ -340,8 +341,6 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
-    std::unique_ptr<LanceBlobReader> _lance_blob_reader;
-    std::map<int32_t, TLanceBlobResource> _lance_blob_resources;
     // Task-level progress counters for current query.
     friend class QueryTaskController;
 
@@ -413,6 +412,8 @@ private:
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
     std::shared_ptr<const std::map<std::string, TS3Resource>> _s3_resources;
+    std::map<int32_t, TLanceBlobResource> _lance_blob_resources;
+    std::unique_ptr<LanceBlobReader> _lance_blob_reader;
 
     void _report_query_profile();
 

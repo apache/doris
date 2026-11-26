@@ -29,6 +29,7 @@
 #include <limits>
 #include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "core/data_type/data_type_file.h"
@@ -46,6 +47,25 @@
 namespace doris::format::lance {
 
 namespace {
+bool has_dataset_identity(const TFileScanRangeParams& scan_params) {
+    return scan_params.__isset.lance_scan_params &&
+           (scan_params.lance_scan_params.__isset.dataset_uri ||
+            scan_params.lance_scan_params.__isset.version);
+}
+
+Status set_legacy_dataset_identity(const TFileRangeDesc& range, TFileScanRangeParams* scan_params) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.lance_params ||
+        !range.table_format_params.lance_params.__isset.dataset_uri ||
+        !range.table_format_params.lance_params.__isset.version) {
+        return Status::InvalidArgument("Old FE Lance split has no dataset URI or version");
+    }
+    const auto& legacy = range.table_format_params.lance_params;
+    scan_params->__isset.lance_scan_params = true;
+    scan_params->lance_scan_params.__set_dataset_uri(legacy.dataset_uri);
+    scan_params->lance_scan_params.__set_version(legacy.version);
+    return Status::OK();
+}
+
 Status validate_dataset_params(const TFileScanRangeParams& scan_params) {
     const auto& lance = scan_params.lance_scan_params;
     if (!scan_params.__isset.lance_scan_params || !lance.__isset.dataset_uri ||
@@ -62,14 +82,19 @@ LanceTableReader::~LanceTableReader() {
     static_cast<void>(close());
 }
 
-Status LanceTableReader::fetch_schema(const TFileScanRangeParams& scan_params,
+Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
+                                      const TFileScanRangeParams& scan_params,
                                       std::vector<std::string>* column_names,
                                       std::vector<DataTypePtr>* column_types) const {
     if (column_names == nullptr || column_types == nullptr) {
         return Status::InvalidArgument("Lance schema output must not be null");
     }
-    RETURN_IF_ERROR(validate_dataset_params(scan_params));
-    const auto& params = scan_params.lance_scan_params;
+    auto resolved_scan_params = scan_params;
+    if (!has_dataset_identity(resolved_scan_params)) {
+        RETURN_IF_ERROR(set_legacy_dataset_identity(range, &resolved_scan_params));
+    }
+    RETURN_IF_ERROR(validate_dataset_params(resolved_scan_params));
+    const auto& params = resolved_scan_params.lance_scan_params;
     std::vector<std::string> storage_options;
     RETURN_IF_ERROR(build_lance_storage_options(&scan_params, &storage_options));
     std::vector<const char*> storage_option_ptrs;
@@ -123,11 +148,19 @@ Status require_fixed_version(const TLanceScanParams& params, std::string_view wh
 } // namespace
 
 Status LanceTableReader::init(TableReadOptions&& options) {
+    if (options.runtime_state != nullptr && options.scan_params != nullptr &&
+        options.runtime_state->be_exec_version() < SUPPORT_LANCE_BLOB_RESOURCES_VERSION &&
+        !has_dataset_identity(*options.scan_params)) {
+        _legacy_scan_params = *options.scan_params;
+        options.scan_params = &*_legacy_scan_params;
+    }
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
     DORIS_CHECK(_runtime_state != nullptr);
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
-    RETURN_IF_ERROR(validate_dataset_params(*_scan_params));
+    if (!_legacy_scan_params.has_value()) {
+        RETURN_IF_ERROR(validate_dataset_params(*_scan_params));
+    }
     RETURN_IF_ERROR(_resolve_search_kind());
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
@@ -185,6 +218,10 @@ Status LanceTableReader::init(TableReadOptions&& options) {
 
     RETURN_IF_ERROR(_record_batch_converter.init(_runtime_state, _projected_columns, _search_kind));
     if (_record_batch_converter.has_blob_columns()) {
+        if (_runtime_state->be_exec_version() < SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+            return Status::NotSupported("Lance BLOB reads require be_exec_version >= {}",
+                                        SUPPORT_LANCE_BLOB_RESOURCES_VERSION);
+        }
         if (!lance_scan_params.__isset.blob_read_source_ids) {
             return Status::NotSupported("Lance BLOB reads require sources assigned by FE");
         }
@@ -208,6 +245,10 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     // dataset scanner; get_block() synthesizes the counted rows.
     if (_is_table_level_count_active()) {
         return Status::OK();
+    }
+    if (_legacy_scan_params.has_value()) {
+        RETURN_IF_ERROR(set_legacy_dataset_identity(options.current_range, &*_legacy_scan_params));
+        RETURN_IF_ERROR(validate_dataset_params(*_legacy_scan_params));
     }
     if (_record_batch_converter.requires_global_rowid() && !_global_rowid_context.has_value()) {
         return Status::InvalidArgument(
