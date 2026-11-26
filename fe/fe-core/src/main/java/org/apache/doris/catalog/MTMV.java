@@ -465,9 +465,8 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
-            if (ivmInfo.isEnableIvm()) {
-                // From the task as the journal carries it, here and in the replay alike, so that the summary does
-                // not depend on how many tasks the history keeps and a follower that takes over has the same one.
+            if (ivmInfo.isEnableIvm() && task.belongsToMtmv(id)) {
+                // Summary sequences belong to one MV. A stale name can now refer to another MV.
                 ivmRefreshSummary.update(task, isReplay);
             }
             compatiblePctSnapshot(partitionSnapshots);

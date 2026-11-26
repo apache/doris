@@ -366,6 +366,7 @@ public class MTMVTask extends AbstractTask {
     // only for test
     public MTMVTask(MTMV mtmv, MTMVRelation relation, MTMVTaskContext taskContext) {
         this.mtmv = mtmv;
+        this.mtmvId = mtmv.getId();
         this.relation = relation;
         this.taskContext = taskContext;
     }
@@ -2229,6 +2230,10 @@ public class MTMVTask extends AbstractTask {
 
     public String getIvmFailureReason() {
         return ivmFailureReason;
+    }
+
+    public boolean belongsToMtmv(long mvId) {
+        return mtmvId == mvId;
     }
 
     public long getIvmSummarySeq() {

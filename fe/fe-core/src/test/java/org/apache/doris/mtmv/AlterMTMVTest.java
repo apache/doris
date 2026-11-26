@@ -550,9 +550,10 @@ public class AlterMTMVTest extends TestWithFeService {
         createTableWithChangelog("CREATE TABLE rename_base (k1 int, v1 int) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
-        createMvByNereids("CREATE MATERIALIZED VIEW ivm_old_name "
+        String createMv = "CREATE MATERIALIZED VIEW ivm_old_name "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 1 "
-                + "PROPERTIES ('replication_num' = '1') AS SELECT k1, v1 FROM rename_base");
+                + "PROPERTIES ('replication_num' = '1') AS SELECT k1, v1 FROM rename_base";
+        createMvByNereids(createMv);
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_rename_replay_test");
         MTMV mv = (MTMV) db.getTableOrMetaException("ivm_old_name");
         AlterMTMV oldNameResult = failedIvmTaskResult(db.getId(), mv, 1);
@@ -566,6 +567,22 @@ public class AlterMTMVTest extends TestWithFeService {
         Assertions.assertEquals("ivm_new_name", mv.getName());
         Assertions.assertEquals(1L, mv.getIvmRefreshMetricValues().failedTaskCount());
         Assertions.assertEquals(1, mv.getIvmRefreshMetricValues().consecutiveFailures());
+
+        createMvByNereids(createMv);
+        MTMV replacement = (MTMV) db.getTableOrMetaException("ivm_old_name");
+        Assertions.assertNotEquals(mv.getId(), replacement.getId());
+        replayFromJournal(oldNameResult);
+        Assertions.assertEquals(0L, replacement.getIvmRefreshMetricValues().failedTaskCount());
+
+        // A late live result addressed by the reused name must not get a sequence from this MV.
+        oldNameResult.getTask().setIvmSummarySeq(0);
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(oldNameResult, false);
+        Assertions.assertEquals(0L, oldNameResult.getTask().getIvmSummarySeq());
+        replayFromJournal(oldNameResult);
+        Assertions.assertEquals(0, replacement.getIvmRefreshMetricValues().consecutiveFailures());
+
+        replayFromJournal(failedIvmTaskResult(db.getId(), replacement, 1));
+        Assertions.assertEquals(1L, replacement.getIvmRefreshMetricValues().failedTaskCount());
     }
 
     private static AlterMTMV failedIvmTaskResult(long dbId, MTMV mv, long seq) {
