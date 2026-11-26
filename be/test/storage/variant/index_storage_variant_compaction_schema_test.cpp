@@ -61,22 +61,20 @@ Status IndexStorageVariantCompactionSchemaTest::write_desc_rowsets(
     return Status::OK();
 }
 
-TEST_F(IndexStorageVariantCompactionSchemaTest, DescCachesOnlyTheCapturedRowsets) {
+TEST_F(IndexStorageVariantCompactionSchemaTest, DescReadsOnlyTheCapturedRowsets) {
     std::vector<RowsetSharedPtr> rowsets;
     const auto status = write_desc_rowsets(rowsets);
     ASSERT_TRUE(status.ok()) << status;
     auto describe = [&](const std::vector<RowsetSharedPtr>& snapshot) {
-        return variant_util::VariantCompactionUtil::get_extended_desc_schema(
-                tablet()->get_tablet_info(), snapshot, tablet_schema());
+        return variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                snapshot, tablet_schema());
     };
 
     const std::vector<RowsetSharedPtr> original {rowsets.front()};
     auto first = describe(original);
     ASSERT_TRUE(first.has_value()) << first.error();
+    EXPECT_TRUE(schema_has_extracted_variant_path(*first.value(), 2, "existing"));
     EXPECT_FALSE(schema_has_extracted_variant_path(*first.value(), 2, "extra"));
-    auto repeated = describe(original);
-    ASSERT_TRUE(repeated.has_value()) << repeated.error();
-    EXPECT_EQ(first.value(), repeated.value());
 
     auto updated = describe(rowsets);
     ASSERT_TRUE(updated.has_value()) << updated.error();
@@ -84,13 +82,7 @@ TEST_F(IndexStorageVariantCompactionSchemaTest, DescCachesOnlyTheCapturedRowsets
     EXPECT_TRUE(schema_has_extracted_variant_path(*updated.value(), 2, "extra"));
     auto previous = describe(original);
     ASSERT_TRUE(previous.has_value()) << previous.error();
-    EXPECT_EQ(first.value(), previous.value());
-
-    TabletInfo recreated(tablet()->tablet_id(), UniqueId::gen_uid());
-    auto replacement = variant_util::VariantCompactionUtil::get_extended_desc_schema(
-            recreated, original, tablet_schema());
-    ASSERT_TRUE(replacement.has_value()) << replacement.error();
-    EXPECT_NE(first.value(), replacement.value());
+    EXPECT_FALSE(schema_has_extracted_variant_path(*previous.value(), 2, "extra"));
 }
 
 TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMetadata) {
@@ -111,13 +103,13 @@ TEST_F(IndexStorageVariantCompactionSchemaTest, DescFailsOnUnreadableExternalMet
     {
         sync->enable_processing();
         Defer cleanup {[&] { sync->disable_processing(); }};
-        auto result = variant_util::VariantCompactionUtil::get_extended_desc_schema(
-                tablet()->get_tablet_info(), rowsets, tablet_schema());
+        auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                rowsets, tablet_schema());
         ASSERT_FALSE(result.has_value()) << "DESC returned a partial schema";
         EXPECT_TRUE(result.error().is<ErrorCode::IO_ERROR>()) << result.error();
     }
-    auto recovered = variant_util::VariantCompactionUtil::get_extended_desc_schema(
-            tablet()->get_tablet_info(), rowsets, tablet_schema());
+    auto recovered = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, tablet_schema());
     ASSERT_TRUE(recovered.has_value()) << recovered.error();
     EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "existing"));
     EXPECT_TRUE(schema_has_extracted_variant_path(*recovered.value(), 2, "extra"));

@@ -42,7 +42,6 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-struct TabletInfo;
 class TabletSchema;
 enum class FieldType;
 namespace segment_v2 {
@@ -221,11 +220,6 @@ public:
     // Collect the complete extended DESC schema, or return a metadata/merge error.
     static Result<TabletSchemaSPtr> calculate_variant_extended_schema(
             const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema);
-
-    // Cache only results calculated from the complete rowset snapshot captured by DESC.
-    static Result<TabletSchemaSPtr> get_extended_desc_schema(
-            const TabletInfo& tablet, const std::vector<RowsetSharedPtr>& rowsets,
-            const TabletSchemaSPtr& base_schema);
 
     // Check if the path stats are consistent between inputs rowsets and output rowset.
     // Used to check the correctness of compaction.

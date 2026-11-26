@@ -95,7 +95,6 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/tablet/tablet_schema_cache.h"
 #include "util/client_cache.h"
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
@@ -1597,27 +1596,6 @@ Result<TabletSchemaSPtr> VariantCompactionUtil::calculate_variant_extended_schem
     RETURN_IF_ERROR_RESULT(
             get_least_common_schema(schemas, base_schema, least_common_schema, false));
     return least_common_schema;
-}
-
-Result<TabletSchemaSPtr> VariantCompactionUtil::get_extended_desc_schema(
-        const TabletInfo& tablet, const std::vector<RowsetSharedPtr>& rowsets,
-        const TabletSchemaSPtr& base_schema) {
-    auto* cache = TabletSchemaCache::instance();
-    const auto key =
-            TabletSchemaCache::build_extended_desc_cache_key(tablet, *base_schema, rowsets);
-    auto [handle, schema] = cache->lookup_schema(key);
-    if (handle != nullptr) {
-        cache->release(handle);
-        return schema;
-    }
-
-    auto merged_schema = calculate_variant_extended_schema(rowsets, base_schema);
-    if (!merged_schema.has_value()) {
-        return ResultError(std::move(merged_schema.error()));
-    }
-    auto [inserted_handle, cached_schema] = cache->insert(key, std::move(merged_schema).value());
-    cache->release(inserted_handle);
-    return cached_schema;
 }
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
