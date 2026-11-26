@@ -20,12 +20,15 @@
 #include <memory>
 #include <vector>
 
+#include "core/block/block.h"
 #include "cpp/sync_point.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "runtime/runtime_state.h"
 #include "storage/iterators.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/schema.h"
 #include "testutil/index_storage_test_util.h"
+#include "util/defer_op.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -72,7 +75,9 @@ TEST_F(IndexStorageVariantIoContextTest,
     query_id.lo = 202;
     io::RemoteScanCacheWriteLimiter limiter(query_id, 0);
     OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     StorageReadOptions read_options(stats);
+    read_options.runtime_state = &runtime_state;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.query_id = &query_id;
     read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
@@ -81,6 +86,7 @@ TEST_F(IndexStorageVariantIoContextTest,
 
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
     bool observed_key_reader_io_ctx = false;
     SyncPoint::CallbackGuard guard;
     sp->set_call_back(
@@ -100,10 +106,14 @@ TEST_F(IndexStorageVariantIoContextTest,
 
     std::unique_ptr<RowwiseIterator> iter;
     auto st = segments.front()->new_iterator(scan_schema, read_options, &iter);
-    sp->disable_processing();
-
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(iter, nullptr);
+
+    // Column metadata is initialized when the first batch is read.
+    Block block = scan_schema->create_read_block();
+    st = iter->next_batch(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(block.rows(), 1);
     EXPECT_TRUE(observed_key_reader_io_ctx);
 }
 
