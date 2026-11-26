@@ -262,8 +262,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (scan instanceof OlapScan) {
                 // ndv abnormal
-                Optional<String> reason = calculator.checkNdvValidation(
-                        (OlapScan) scan, rowCount, ((Plan) scan).getOutput());
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
                 if (reason.isPresent()) {
                     try {
                         context.getConnectContext().getSessionVariable()
@@ -515,57 +514,31 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
-    /** Estimate an IVM input scan, keeping its row count independent of its column NDVs. */
-    public Optional<Statistics> estimateIvmInputScan(LogicalOlapScan scan) {
-        double rowCount = getOlapTableRowCount(scan);
-        if (rowCount == -1) {
-            return Optional.empty();
-        }
-        Statistics stats = computeOlapScan(scan, false);
-        StatisticsBuilder estimate = new StatisticsBuilder(stats);
-        OlapTableStatistics tableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(scan);
-        boolean explicitScanEstimate = hasScanRowCountEstimates(scan);
-        for (Slot slot : scan.getOutput()) {
-            if (isVisibleSlotReference(slot)) {
-                ColumnStatistic column = tableStats.getColumnStatistics(slot.getName(), connectContext);
-                if (hasInvalidNdv(column, explicitScanEstimate ? column.count : rowCount)) {
-                    estimate.putColumnStatistics(slot, new ColumnStatisticBuilder(stats.findColumnStatistics(slot))
-                            .setIsUnknown(true).build());
-                }
-            }
-        }
-        return Optional.of(estimate.build());
-    }
-
-    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount, List<Slot> slots) {
+    // check validation of ndv.
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
         boolean explicitScanEstimate = hasScanRowCountEstimates(olapScan);
-        for (Slot slot : slots) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
-                // Stream scan estimates cover a window or selected partitions. Cached column stats
-                // still describe the underlying index, so use the population stored with the NDV.
-                if (hasInvalidNdv(cache, explicitScanEstimate ? cache.count : rowCount)) {
-                    return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                if (!cache.isUnKnown) {
+                    // Stream scan estimates cover a window or selected partitions. Cached column stats
+                    // still describe the underlying index, so use the population stored with the NDV.
+                    double columnPopulation = explicitScanEstimate ? cache.count : rowCount;
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
+                            || cache.ndv > columnPopulation * 10) {
+                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                    }
                 }
             }
         }
         return Optional.empty();
     }
 
-    private static boolean hasInvalidNdv(ColumnStatistic column, double population) {
-        return !column.isUnKnown && ((column.ndv == 0 && (column.minExpr != null || column.maxExpr != null))
-                || column.ndv > population * 10);
-    }
-
     /**
      * computeOlapScan
      */
     public Statistics computeOlapScan(OlapScan olapScan) {
-        return computeOlapScan(olapScan, true);
-    }
-
-    private Statistics computeOlapScan(OlapScan olapScan, boolean recordUnknownColumnStats) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = Math.max(1, getOlapTableRowCount(olapScan));
 
@@ -614,9 +587,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
-            if (recordUnknownColumnStats) {
-                setHasUnknownColStatsInStatementContext();
-            }
+            setHasUnknownColStatsInStatementContext();
             builder.setRowCount(tableRowCount);
             return builder.build();
         }
@@ -628,9 +599,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 builder.putColumnStatistics(slot,
                         new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, tableRowCount).build());
             }
-            if (recordUnknownColumnStats) {
-                setHasUnknownColStatsInStatementContext();
-            }
+            setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(tableRowCount).build();
         }
 
@@ -688,6 +657,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
+            checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
         } else {
             // get table level stats
@@ -697,10 +667,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
-            builder.setRowCount(tableRowCount);
-        }
-        if (recordUnknownColumnStats) {
             checkIfUnknownStatsUsedAsKey(builder);
+            builder.setRowCount(tableRowCount);
         }
         return computeVirtualColumnStats(olapScan, builder.build());
     }

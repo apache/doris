@@ -115,15 +115,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         if (scan.isSnapshot()) {
             return makeSnapshotScan(scan, cascadesContext);
         }
-        Plan incrementalPlan = makeTableStreamScan(scan, cascadesContext);
-        if (cascadesContext.getStatementContext().getIvmRewriteContext()
-                .filter(IvmRewriteContext::isIncrementalRefresh).isPresent()) {
-            for (LogicalOlapScan deltaScan : incrementalPlan.<LogicalOlapScan>collectToList(
-                    LogicalOlapScan.class::isInstance)) {
-                cascadesContext.getStatementContext().markIvmDeltaScan(deltaScan.getRelationId());
-            }
-        }
-        return incrementalPlan;
+        return makeTableStreamScan(scan, cascadesContext);
     }
 
     /**

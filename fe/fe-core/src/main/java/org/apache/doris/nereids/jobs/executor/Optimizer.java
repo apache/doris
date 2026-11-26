@@ -35,7 +35,6 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
-import org.apache.doris.nereids.rules.rewrite.PreferIvmDeltaBuildSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.stats.MemoStatsAndCostRecomputer;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -80,14 +79,10 @@ public class Optimizer {
             }
             // generate inlined CTE alternative for CBO comparison
             Plan cboInlinedPlan = generateCTEInlineAlternative();
-            // The planner has checked the final scans. Apply the IVM fallback before memo freezes the join order.
-            cascadesContext.setRewritePlan(PreferIvmDeltaBuildSide.rewrite(
-                    cascadesContext.getRewritePlan(), cascadesContext));
             // init memo
             cascadesContext.toMemo();
             if (cboInlinedPlan != null) {
-                Plan alternative = PreferIvmDeltaBuildSide.rewrite(cboInlinedPlan, cascadesContext);
-                cascadesContext.getMemo().copyIn(alternative, cascadesContext.getMemo().getRoot(), false);
+                cascadesContext.getMemo().copyIn(cboInlinedPlan, cascadesContext.getMemo().getRoot(), false);
             }
             // stats derive
             cascadesContext.getMemo().getRoot().getLogicalExpressions()

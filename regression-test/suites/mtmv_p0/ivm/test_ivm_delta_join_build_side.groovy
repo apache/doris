@@ -21,9 +21,6 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
 
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_dup"
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_mow"
-    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_outer"
-    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_outer_folded"
-    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_outer_hinted"
     def orderedViews = []
     for (def model : ["dup", "mow"]) {
         orderedViews.addAll(["ivm_build_${model}_inner_ordered", "ivm_build_${model}_cross_ordered",
@@ -63,31 +60,6 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         AS SELECT l.k, l.value AS lv, r.value AS rv
         FROM ivm_build_delta l INNER JOIN ivm_build_snapshot r ON l.k = r.k
     """
-    sql """
-        CREATE MATERIALIZED VIEW ivm_build_outer
-        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ("replication_num" = "1")
-        AS SELECT l.k, l.value AS lv, r.value AS rv
-        FROM ivm_build_delta l LEFT OUTER JOIN ivm_build_snapshot r ON l.k = r.k
-    """
-    sql """
-        CREATE MATERIALIZED VIEW ivm_build_outer_folded
-        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ("replication_num" = "1")
-        AS SELECT l.k, l.value AS lv, r.value AS rv
-        FROM ivm_build_delta l LEFT OUTER JOIN ivm_build_snapshot r
-        ON l.k = IF(FALSE, r.k, 1) AND l.value < r.value
-    """
-    sql """
-        CREATE MATERIALIZED VIEW ivm_build_outer_hinted
-        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ("replication_num" = "1")
-        AS SELECT l.k, l.value AS lv, r.value AS rv
-        FROM ivm_build_delta l LEFT OUTER JOIN [BROADCAST] ivm_build_snapshot r ON l.k = r.k
-    """
     for (def model : ["dup", "mow"]) {
         def modelProperty = model == "mow" ? ', "ivm_force_mow" = "true"' : ""
         for (def kind : ["inner_ordered", "cross_ordered", "cross", "cross_leading"]) {
@@ -108,8 +80,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
 
     sql "INSERT INTO ivm_build_delta VALUES (1, 10), (2, 20)"
     sql "INSERT INTO ivm_build_snapshot VALUES (1, 100), (1, 101)"
-    for (def mv : ["ivm_build_dup", "ivm_build_mow", "ivm_build_outer",
-                   "ivm_build_outer_folded", "ivm_build_outer_hinted"] + orderedViews) {
+    for (def mv : ["ivm_build_dup", "ivm_build_mow"] + orderedViews) {
         sql "REFRESH MATERIALIZED VIEW ${mv} COMPLETE"
         waitingMTMVTaskFinishedByMvName(mv)
     }
@@ -123,7 +94,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         def plan = sql_return_maparray "EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
         def nodes = plan.findResults { row ->
             row["Explain String(Nereids Planner)"]
-                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|hashAgg\b|^(?:Un)?Used: leading\([^)]+\)/)
+                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|^(?:Un)?Used: leading\([^)]+\)/)
                     ?.replace("hashJoin[", "")
         }
         try (def stmt = prepareStatement("SELECT ?")) {
@@ -146,23 +117,13 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
             def tag = mv.substring("ivm_build_".length())
             checkJoinAndScanOrder(mv.endsWith("_leading") ? tag + "_disabled" : tag, mv)
         }
-        checkJoinAndScanOrder("mow_outer", "ivm_build_outer")
-        // Folding IF removes the cross-input equality. Keep the parallel left nested-loop join.
-        checkJoinAndScanOrder("mow_outer_folded", "ivm_build_outer_folded")
-        checkJoinAndScanOrder("mow_outer_hinted", "ivm_build_outer_hinted")
-        sql "REFRESH MATERIALIZED VIEW ivm_build_outer INCREMENTAL"
-        waitingMTMVTaskFinishedByMvName("ivm_build_outer")
-
-        // Right-side appends produce NULL-repair events because the join key is non-unique.
         sql "INSERT INTO ivm_build_snapshot VALUES (2, 200), (2, 201)"
-        checkJoinAndScanOrder("mow_repair", "ivm_build_outer")
-        for (def mv : ["ivm_build_dup", "ivm_build_mow", "ivm_build_outer"]) {
+        for (def mv : ["ivm_build_dup", "ivm_build_mow"]) {
             sql "REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
             waitingMTMVTaskFinishedByMvName(mv)
         }
         order_qt_dup "SELECT k, lv, rv FROM ivm_build_dup"
         order_qt_mow "SELECT k, lv, rv FROM ivm_build_mow"
-        order_qt_outer "SELECT k, lv, rv FROM ivm_build_outer"
     } finally {
         sql "SET GLOBAL disable_join_reorder = '${previous}'"
     }

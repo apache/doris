@@ -83,21 +83,17 @@ public class JoinUtils {
     }
 
     /**
-     * Check the row count and size of the broadcast build input.
+     * check if the row count of the left child in the broadcast join is less than a threshold value.
      */
     public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
         SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double memLimit = sessionVariable.getMaxExecMemByte();
+        double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
+        double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
         double datasize = join.getGroupExpression().get().child(1)
                 .getStatistics().computeSize(join.right().getOutput());
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
-        return checkBroadcastJoinStats(sessionVariable, rowCount, datasize);
-    }
-
-    /** Shared build-size limits for automatic broadcast. */
-    public static boolean checkBroadcastJoinStats(SessionVariable sessionVariable, double rowCount, double dataSize) {
-        return rowCount <= sessionVariable.getBroadcastRowCountLimit()
-                && dataSize <= sessionVariable.getMaxExecMemByte()
-                        * sessionVariable.getBroadcastHashtableMemLimitPercentage();
+        return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
 
     /**

@@ -172,6 +172,13 @@ class IvmJoinDeltaHandler {
     private IvmDeltaRewriteResult rewriteOuterContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
             boolean deltaOnLeft, IvmDeltaRewriteResult delta, SideInput leftInput, SideInput rightInput,
             IvmDeltaRewriteState rewriteState) {
+        // Keep the current OUTER and repair ANTI join directions for now.
+        // 1. With join reordering enabled, SemiJoinCommute can turn RIGHT joins back into LEFT joins
+        //    and recover broadcast of a small snapshot.
+        // 2. With join reordering disabled, turning a LEFT equi-join into a RIGHT join removes the
+        //    small snapshot broadcast option and can require shuffle.
+        // 3. If simplification removes the cross-input equality while the RIGHT direction is retained,
+        //    the nested-loop join gathers both inputs. LEFT OUTER can still run in parallel.
         boolean preservedSideDelta = (deltaOnLeft && join.getJoinType().isLeftOuterJoin())
                 || (!deltaOnLeft && join.getJoinType().isRightOuterJoin());
         if (preservedSideDelta) {

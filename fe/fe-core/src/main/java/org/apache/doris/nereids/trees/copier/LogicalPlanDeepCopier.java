@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.copier;
 
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -64,7 +63,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -146,13 +144,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     frontendConjuncts);
         }
         context.putRelation(catalogRelation.getRelationId(), newRelation);
-        ConnectContext connection = ConnectContext.get();
-        if (connection != null) {
-            StatementContext statementContext = connection.getStatementContext();
-            if (statementContext != null && statementContext.isIvmDeltaScan(catalogRelation.getRelationId())) {
-                statementContext.markIvmDeltaScan(newRelation.getRelationId());
-            }
-        }
         return updateOperativeSlots(catalogRelation, newRelation);
     }
 

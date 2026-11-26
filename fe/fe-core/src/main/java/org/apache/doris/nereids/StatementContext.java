@@ -168,7 +168,6 @@ public class StatementContext implements Closeable {
     // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
     private CostWeight costWeight;
     private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
-    private final Set<RelationId> ivmDeltaScanIds = new HashSet<>();
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -1002,14 +1001,6 @@ public class StatementContext implements Closeable {
 
     public void setIvmRewriteContext(Optional<IvmRewriteContext> ivmRewriteContext) {
         this.ivmRewriteContext = Objects.requireNonNull(ivmRewriteContext, "ivmRewriteContext can not be null");
-    }
-
-    public void markIvmDeltaScan(RelationId relationId) {
-        ivmDeltaScanIds.add(relationId);
-    }
-
-    public boolean isIvmDeltaScan(RelationId relationId) {
-        return ivmDeltaScanIds.contains(relationId);
     }
 
     public boolean isIvmMTMVRewrite() {

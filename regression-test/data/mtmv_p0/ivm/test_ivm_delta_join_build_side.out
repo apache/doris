@@ -35,18 +35,6 @@ NestedLoopJoin[CROSS_JOIN]\nPhysicalOlapScan[ivm_build_snapshot]\nPhysicalOlapSc
 -- !mow_cross_leading_disabled --
 NestedLoopJoin[CROSS_JOIN]\nPhysicalOlapScan[ivm_build_snapshot]\nPhysicalOlapScan[ivm_build_delta]\nUnUsed: leading(l r)
 
--- !mow_outer --
-LEFT_OUTER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]
-
--- !mow_outer_folded --
-NestedLoopJoin[LEFT_OUTER_JOIN]\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]
-
--- !mow_outer_hinted --
-LEFT_OUTER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]
-
--- !mow_repair --
-INNER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapshot]\nLEFT_ANTI_JOIN\nhashAgg\nPhysicalOlapScan[ivm_build_snapshot]\nPhysicalOlapScan[ivm_build_snapshot]
-
 -- !dup --
 1	10	100
 1	10	101
@@ -56,15 +44,6 @@ INNER_JOIN\nPhysicalOlapScan[ivm_build_delta]\nPhysicalOlapScan[ivm_build_snapsh
 2	20	201
 
 -- !mow --
-1	10	100
-1	10	101
-1	11	100
-1	11	101
-2	20	200
-2	20	201
-
--- !outer --
-\N	30	\N
 1	10	100
 1	10	101
 1	11	100
