@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -330,7 +331,7 @@ TExprNode make_filter_in_node(TExprNodeType::type node_type) {
 
 class NullableInt32GreaterThanExpr final : public VExpr {
 public:
-    NullableInt32GreaterThanExpr(int column_id, int32_t value)
+    NullableInt32GreaterThanExpr(int column_id, int32_t value, const char* column_name = "id")
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
               _value(value) {
@@ -338,7 +339,7 @@ public:
         _opcode = TExprOpcode::GT;
         const auto int_type = std::make_shared<DataTypeInt32>();
         add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(int_type),
-                                              "id"));
+                                              column_name));
         add_child(TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
     }
 
@@ -4487,6 +4488,112 @@ void write_two_stripe_constant_timestamp_file(const std::string& file_path,
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_orc_floating_statistics_file(
+        const std::string& path, bool single_precision,
+        const std::vector<std::vector<std::optional<double>>>& stripes) {
+    const auto type = ::orc::Type::buildTypeFromString(
+            single_precision ? "struct<value:float,stripe_id:int,payload:string>"
+                             : "struct<value:double,stripe_id:int,payload:string>");
+    MemoryOutputStream output(4 * 1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setStripeSize(1);
+    options.setDictionaryKeySizeThreshold(0);
+    auto writer = ::orc::createWriter(*type, &output, options);
+    int64_t stripe_id = 0;
+    for (const auto& values : stripes) {
+        auto batch = writer->createRowBatch(values.size());
+        auto& rows = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& numbers = dynamic_cast<::orc::DoubleVectorBatch&>(*rows.fields[0]);
+        auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*rows.fields[1]);
+        auto& payload = dynamic_cast<::orc::StringVectorBatch&>(*rows.fields[2]);
+        numbers.hasNulls = std::any_of(values.begin(), values.end(),
+                                       [](const auto& value) { return !value.has_value(); });
+        std::vector<std::string> strings;
+        strings.reserve(values.size());
+        for (size_t row = 0; row < values.size(); ++row) {
+            numbers.notNull[row] = values[row].has_value();
+            numbers.data[row] = values[row].value_or(0);
+            ids.data[row] = stripe_id;
+            strings.push_back(std::string(2048, static_cast<char>('a' + row % 26)));
+            set_string_value(payload, row, strings.back());
+        }
+        rows.numElements = values.size();
+        numbers.numElements = values.size();
+        ids.numElements = values.size();
+        payload.numElements = values.size();
+        writer->add(*batch);
+        ++stripe_id;
+    }
+    writer->close();
+    std::ofstream file(path, std::ios::binary);
+    file.write(output.getData(), static_cast<std::streamsize>(output.getLength()));
+}
+
+size_t omit_orc_floating_sum(const std::string& path) {
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    const auto size = static_cast<size_t>(input.tellg());
+    input.seekg(0);
+    std::vector<char> data(size);
+    input.read(data.data(), static_cast<std::streamsize>(size));
+    auto reader = ::orc::createReader(std::make_unique<MemoryInputStream>(data.data(), size),
+                                      ::orc::ReaderOptions());
+    const size_t metadata_size = reader->getStripeStatisticsLength();
+    const size_t begin = size - metadata_size - reader->getFileFooterLength() -
+                         reader->getFilePostscriptLength() - 1;
+    auto varint = [&](size_t& offset) {
+        uint64_t value = 0;
+        for (int shift = 0; shift < 64; shift += 7) {
+            const auto byte = static_cast<uint8_t>(data.at(offset++));
+            value |= static_cast<uint64_t>(byte & 0x7f) << shift;
+            if ((byte & 0x80) == 0) {
+                return value;
+            }
+        }
+        throw std::runtime_error("Invalid fixture protobuf varint");
+    };
+    size_t omitted = 0;
+    auto visit = [&](auto&& self, size_t offset, size_t end, int depth) -> void {
+        while (offset < end) {
+            const auto tag_offset = offset;
+            const auto tag = varint(offset);
+            const auto field = tag >> 3;
+            switch (tag & 7) {
+            case 0:
+                varint(offset);
+                break;
+            case 1:
+                if (depth == 3 && field == 3) {
+                    // Rename the optional sum to an unknown fixed64 field without changing any lengths.
+                    // This valid compatibility fixture keeps min/max and every data stream intact.
+                    data[tag_offset] = 0x79;
+                    ++omitted;
+                }
+                offset += 8;
+                break;
+            case 2: {
+                const auto length = varint(offset);
+                // Metadata.stripeStats -> StripeStatistics.colStats -> ColumnStatistics.doubleStatistics.
+                if ((depth < 2 && field == 1) || (depth == 2 && field == 3)) {
+                    self(self, offset, offset + length, depth + 1);
+                }
+                offset += length;
+                break;
+            }
+            case 5:
+                offset += 4;
+                break;
+            default:
+                throw std::runtime_error("Unexpected fixture protobuf wire type");
+            }
+        }
+    };
+    visit(visit, begin, begin + metadata_size, 0);
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(data.data(), static_cast<std::streamsize>(size));
+    return omitted;
+}
+
 uint64_t get_orc_stripe_count(const std::string& file_path) {
     std::ifstream in(file_path, std::ios::binary | std::ios::ate);
     const auto file_size = in.tellg();
@@ -5046,6 +5153,277 @@ TEST_F(NewOrcReaderTest, InitReturnsEndOfFileWhenIoContextShouldStop) {
 
     auto status = reader->init(&state);
     EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownFloatingStatisticsRequireFiniteSums) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double infinity = std::numeric_limits<double>::infinity();
+    struct Case {
+        std::string name;
+        std::vector<std::optional<double>> values;
+        bool metadata;
+        bool has_values;
+        double minimum = 0;
+        double maximum = 0;
+    };
+    const std::vector<Case> cases {{"finite", {1, -2, 3}, true, true, -2, 3},
+                                   {"finite_nullable", {std::nullopt, 1, 2}, true, true, 1, 2},
+                                   {"all_null", {std::nullopt, std::nullopt}, false, false},
+                                   {"nan_middle", {1, nan, 2}, false, true},
+                                   {"nan_last", {1, 2, nan}, false, true},
+                                   {"nan_first", {nan, 1, 2}, false, true},
+                                   {"all_nan", {nan, nan}, false, true},
+                                   {"nan_nullable", {std::nullopt, 1, nan, 2}, false, true},
+                                   {"positive_infinity", {1, infinity}, false, true},
+                                   {"negative_infinity", {-infinity, 2}, false, true},
+                                   {"opposite_infinities", {-infinity, infinity}, false, true}};
+    for (bool single_precision : {false, true}) {
+        auto inputs = cases;
+        if (!single_precision) {
+            inputs.push_back(
+                    {"sum_overflow",
+                     {std::numeric_limits<double>::max(), std::numeric_limits<double>::max()},
+                     false,
+                     true});
+        } else {
+            const double maximum = std::numeric_limits<float>::max();
+            inputs.push_back(
+                    {"finite_float_max", {maximum, maximum}, true, true, maximum, maximum});
+        }
+        for (const auto& input : inputs) {
+            SCOPED_TRACE(input.name + (single_precision ? " float" : " double"));
+            const auto path =
+                    (_test_dir / (input.name + (single_precision ? "_f.orc" : "_d.orc"))).string();
+            write_orc_floating_statistics_file(path, single_precision, {input.values});
+            auto reader = create_reader_for_path(path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0)};
+            ASSERT_TRUE(reader->open(request).ok());
+            format::FileAggregateRequest aggregate_request;
+            aggregate_request.agg_type = TPushAggOp::MINMAX;
+            aggregate_request.columns.push_back({.projection = field_projection(0)});
+            format::FileAggregateResult result;
+            auto status = reader->get_aggregate_result(aggregate_request, &result);
+            if (!input.metadata) {
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                continue;
+            }
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(result.count, input.values.size());
+            ASSERT_EQ(result.columns.size(), 1);
+            EXPECT_EQ(result.columns[0].has_min, input.has_values);
+            EXPECT_EQ(result.columns[0].has_max, input.has_values);
+            if (input.has_values) {
+                const double minimum =
+                        single_precision
+                                ? static_cast<double>(result.columns[0].min_value.get<TYPE_FLOAT>())
+                                : result.columns[0].min_value.get<TYPE_DOUBLE>();
+                const double maximum =
+                        single_precision
+                                ? static_cast<double>(result.columns[0].max_value.get<TYPE_FLOAT>())
+                                : result.columns[0].max_value.get<TYPE_DOUBLE>();
+                EXPECT_DOUBLE_EQ(minimum, input.minimum);
+                EXPECT_DOUBLE_EQ(maximum, input.maximum);
+            }
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, MetadataFloatingFallbackPreservesRowsAndNaN) {
+    for (bool single_precision : {false, true}) {
+        for (bool include_nan : {false, true}) {
+            SCOPED_TRACE(single_precision);
+            SCOPED_TRACE(include_nan);
+            // Give each fixture its own identity: metadata cache keys can fall back to path and size.
+            const auto path = (_test_dir / (std::string("floating_metadata_") +
+                                            (single_precision ? "float_" : "double_") +
+                                            (include_nan ? "nan.orc" : "finite.orc")))
+                                      .string();
+            write_orc_floating_statistics_file(
+                    path, single_precision,
+                    {{{1}, {include_nan ? std::numeric_limits<double>::quiet_NaN() : 3}, {2}}});
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            format::ColumnDefinition column;
+            column.identifier = Field::create_field<TYPE_STRING>("value");
+            column.name = "value";
+            column.type = single_precision ? make_nullable(std::make_shared<DataTypeFloat32>())
+                                           : make_nullable(std::make_shared<DataTypeFloat64>());
+            format::TableReader reader;
+            ASSERT_TRUE(reader.init({.projected_columns = {column},
+                                     .conjuncts = {},
+                                     .format = format::FileFormat::ORC,
+                                     .scan_params = nullptr,
+                                     .io_ctx = nullptr,
+                                     .runtime_state = &state,
+                                     .scanner_profile = nullptr,
+                                     .push_down_agg_type = TPushAggOp::MINMAX})
+                                .ok());
+            format::SplitReadOptions options;
+            options.current_split_format = format::FileFormat::ORC;
+            options.current_range.__set_path(path);
+            options.current_range.__set_file_size(std::filesystem::file_size(path));
+            options.current_range.__set_start_offset(0);
+            options.current_range.__set_size(std::filesystem::file_size(path));
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            FileScanSplit source;
+            source.range = options.current_range;
+            source.is_source_split = true;
+            std::vector<FileScanSplit> children;
+            bool was_split = false;
+            ASSERT_TRUE(reader.build_physical_splits(source, &children, &was_split).ok());
+            EXPECT_FALSE(was_split);
+            EXPECT_EQ(reader._metadata_aggregate_result.has_value(), !include_nan);
+            Block block = build_file_block({column});
+            bool eos = false;
+            size_t rows = 0;
+            size_t nan_rows = 0;
+            while (!eos) {
+                block.clear_column_data();
+                ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+                const auto& nullable =
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    ASSERT_FALSE(nullable.is_null_at(row));
+                    const double value =
+                            single_precision
+                                    ? static_cast<double>(assert_cast<const ColumnFloat32&>(
+                                                                  nullable.get_nested_column())
+                                                                  .get_data()[row])
+                                    : assert_cast<const ColumnFloat64&>(
+                                              nullable.get_nested_column())
+                                              .get_data()[row];
+                    nan_rows += std::isnan(value);
+                }
+                rows += block.rows();
+            }
+            EXPECT_EQ(rows, include_nan ? 3 : 2);
+            EXPECT_EQ(nan_rows, include_nan ? 1 : 0);
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownFloatingMissingSumFallsBackOnValidFile) {
+    for (bool single_precision : {false, true}) {
+        const auto path =
+                (_test_dir / (single_precision ? "floating_no_sum_f.orc" : "floating_no_sum_d.orc"))
+                        .string();
+        write_orc_floating_statistics_file(path, single_precision, {{{1}, {2}, {3}}});
+        ASSERT_EQ(omit_orc_floating_sum(path), 1);
+        auto physical_reader =
+                ::orc::createReader(::orc::readLocalFile(path), ::orc::ReaderOptions());
+        auto statistics = physical_reader->getStripeStatistics(0);
+        const auto* numbers = dynamic_cast<const ::orc::DoubleColumnStatistics*>(
+                statistics->getColumnStatistics(1));
+        ASSERT_NE(numbers, nullptr);
+        ASSERT_TRUE(numbers->hasMinimum());
+        ASSERT_TRUE(numbers->hasMaximum());
+        EXPECT_DOUBLE_EQ(numbers->getMinimum(), 1);
+        EXPECT_DOUBLE_EQ(numbers->getMaximum(), 3);
+        EXPECT_FALSE(numbers->hasSum());
+
+        auto reader = create_reader_for_path(path);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0)};
+        ASSERT_TRUE(reader->open(request).ok());
+        format::FileAggregateRequest aggregate_request;
+        aggregate_request.agg_type = TPushAggOp::MINMAX;
+        aggregate_request.columns.push_back({.projection = field_projection(0)});
+        format::FileAggregateResult result;
+        EXPECT_TRUE(reader->get_aggregate_result(aggregate_request, &result)
+                            .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        bool eof = false;
+        while (!eof) {
+            block.clear_column_data();
+            size_t read_rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &read_rows, &eof).ok());
+            EXPECT_EQ(block.rows(), read_rows);
+            rows += read_rows;
+        }
+        EXPECT_EQ(rows, 3);
+    }
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownFloatingUsesOnlySelectedSafeStripes) {
+    for (bool single_precision : {false, true}) {
+        for (bool unsafe_first : {false, true}) {
+            SCOPED_TRACE(single_precision);
+            SCOPED_TRACE(unsafe_first);
+            std::vector<std::optional<double>> unsafe(200, 1);
+            unsafe[1] = std::numeric_limits<double>::quiet_NaN();
+            std::vector<std::optional<double>> safe(200, 1000);
+            const auto path = (_test_dir / (std::string("floating_stripes_") +
+                                            (single_precision ? "float_" : "double_") +
+                                            (unsafe_first ? "first.orc" : "last.orc")))
+                                      .string();
+            write_orc_floating_statistics_file(
+                    path, single_precision,
+                    unsafe_first ? std::vector {unsafe, safe} : std::vector {safe, unsafe});
+            const auto layout = get_orc_stripe_layout(path);
+            ASSERT_EQ(layout.size(), 2);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            format::FileAggregateRequest aggregate_request;
+            aggregate_request.agg_type = TPushAggOp::MINMAX;
+            aggregate_request.columns.push_back({.projection = field_projection(0)});
+            auto aggregate = [&](auto& reader, bool expect_metadata) {
+                format::FileAggregateResult result;
+                const auto status = reader->get_aggregate_result(aggregate_request, &result);
+                if (!expect_metadata) {
+                    EXPECT_TRUE(status.template is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                    return;
+                }
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(result.count, 200);
+                ASSERT_EQ(result.columns.size(), 1);
+                const auto& bounds = result.columns[0];
+                const double minimum = single_precision
+                                               ? bounds.min_value.template get<TYPE_FLOAT>()
+                                               : bounds.min_value.template get<TYPE_DOUBLE>();
+                const double maximum = single_precision
+                                               ? bounds.max_value.template get<TYPE_FLOAT>()
+                                               : bounds.max_value.template get<TYPE_DOUBLE>();
+                EXPECT_DOUBLE_EQ(minimum, 1000);
+                EXPECT_DOUBLE_EQ(maximum, 1000);
+            };
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0)};
+            auto whole = create_reader_for_path(path);
+            ASSERT_TRUE(whole->init(&state).ok());
+            ASSERT_TRUE(whole->open(request).ok());
+            aggregate(whole, false);
+            for (size_t stripe = 0; stripe < layout.size(); ++stripe) {
+                auto selected = create_reader_with_range(path, layout[stripe].offset,
+                                                         layout[stripe].length);
+                ASSERT_TRUE(selected->init(&state).ok());
+                ASSERT_TRUE(selected->open(request).ok());
+                aggregate(selected, stripe != (unsafe_first ? 0 : 1));
+            }
+            if (unsafe_first) {
+                auto pruned = create_reader_for_path(path);
+                ASSERT_TRUE(pruned->init(&state).ok());
+                std::vector<format::ColumnDefinition> file_schema;
+                ASSERT_TRUE(pruned->get_schema(&file_schema).ok());
+                ASSERT_EQ(file_schema.size(), 3);
+                auto filtered_request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(filtered_request.get());
+                ASSERT_TRUE(builder.add_non_predicate_column(field_projection(0)).ok());
+                ASSERT_TRUE(builder.add_predicate_column(field_projection(1)).ok());
+                filtered_request->conjuncts.push_back(VExprContext::create_shared(
+                        std::make_shared<NullableInt32GreaterThanExpr>(1, 0, "stripe_id")));
+                ASSERT_TRUE(pruned->open(filtered_request).ok());
+                aggregate(pruned, true);
+                EXPECT_EQ(pruned->reader_statistics().filtered_row_groups, 1);
+            }
+        }
+    }
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsMinMaxForPrimitiveColumn) {
