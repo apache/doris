@@ -80,6 +80,9 @@ final class IcebergWriterHelper {
 
     private static final Logger LOG = LogManager.getLogger(IcebergWriterHelper.class);
 
+    // Older FEs supply a Thrift class without this field when loading a newer connector.
+    private static final TIcebergCommitData._Fields PARTITION_VALUES_IS_NULL_FIELD =
+            TIcebergCommitData._Fields.findByName("partition_values_is_null");
     private static final String WRITE_FORMAT = "write-format";
     private static final String PARQUET_NAME = "parquet";
     private static final String ORC_NAME = "orc";
@@ -208,8 +211,8 @@ final class IcebergWriterHelper {
     /** Decode commit partition values once for file metadata and conflict detection. */
     static List<String> extractPartitionValues(TIcebergCommitData commitData) {
         List<String> values = commitData.getPartitionValues();
-        if (commitData.isSetPartitionValuesIsNull()) {
-            List<Boolean> isNull = commitData.getPartitionValuesIsNull();
+        if (PARTITION_VALUES_IS_NULL_FIELD != null && commitData.isSet(PARTITION_VALUES_IS_NULL_FIELD)) {
+            List<?> isNull = (List<?>) commitData.getFieldValue(PARTITION_VALUES_IS_NULL_FIELD);
             // A missing value or a shifted bitmap would commit the file under a different partition.
             if (values == null || values.size() != isNull.size()) {
                 throw new VerifyException("Partition values and NULL bitmap size mismatch for "
@@ -217,7 +220,7 @@ final class IcebergWriterHelper {
             }
             List<String> decoded = new ArrayList<>(values.size());
             for (int i = 0; i < values.size(); i++) {
-                decoded.add(isNull.get(i) ? null : values.get(i));
+                decoded.add((boolean) isNull.get(i) ? null : values.get(i));
             }
             return decoded;
         }
