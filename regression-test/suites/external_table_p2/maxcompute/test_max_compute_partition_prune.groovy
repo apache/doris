@@ -86,7 +86,11 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
     def two_partition_5_1 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' AND part2 = 2 AND id > 5 ORDER BY id;"""
 
     def three_partition_1_1 = """SELECT * FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2024 AND part3 = 'Q1' ORDER BY id;"""
-    def three_partition_3_3 = """SELECT * FROM three_partition_tb WHERE part1 = 'AS' AND part2 = 2025 ORDER BY id;"""
+    def three_partition_3_3 = """
+        SELECT /*+ SET_VAR(num_partitions_in_batch_mode=1, fetch_splits_max_wait_time_ms=10000) */ *
+        FROM three_partition_tb
+        WHERE part1 = 'AS' AND part2 = 2025 ORDER BY id;
+    """
     def three_partition_4_2 = """SELECT * FROM three_partition_tb WHERE part1 = 'US' AND part3 = 'Q1' ORDER BY id;"""
     def three_partition_5_all = """SELECT * FROM three_partition_tb ORDER BY id;"""
     def three_partition_7_7 = """SELECT * FROM three_partition_tb WHERE part2 = 2025 ORDER BY id;"""
@@ -181,12 +185,14 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
         explain {
             sql("${three_partition_3_3}")
             contains "partition=3/10"
+            contains "(approximate)inputSplitNum="
         }
 
         qt_three_partition_4_2 three_partition_4_2
         explain {
             sql("${three_partition_4_2}")
             contains "partition=2/10"
+            notContains "(approximate)inputSplitNum="
         }
 
         qt_three_partition_5_all three_partition_5_all
