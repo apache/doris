@@ -26,6 +26,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <unordered_map>
@@ -78,20 +79,115 @@ bool peer_connection_circuit_allows(const std::string& address) {
     return true;
 }
 
-// Completes an attempt admitted by peer_connection_circuit_allows().
-void finish_peer_connection_attempt(const std::string& address, bool succeeded) {
-    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
-    if (succeeded) {
-        peer_connection_health.erase(address);
+struct PeerShardedStubs {
+    std::vector<std::shared_ptr<PBackendService_Stub>> stubs;
+    std::atomic<uint64_t> next_idx {0};
+};
+
+bthread::Mutex peer_stub_cache_mutex;
+std::unordered_map<std::string, std::shared_ptr<PeerShardedStubs>> peer_stub_cache;
+
+void evict_all_peer_stubs(const std::string& address) {
+    std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
+    peer_stub_cache.erase(address);
+}
+
+void evict_peer_stub_slot(const std::string& address, size_t slot,
+                          const std::shared_ptr<PBackendService_Stub>& failed_stub) {
+    std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
+    auto it = peer_stub_cache.find(address);
+    if (it == peer_stub_cache.end() || slot >= it->second->stubs.size()) {
         return;
     }
-    auto& health = peer_connection_health[address];
-    health.probe_in_flight = false;
-    ++health.consecutive_failures;
-    if (health.consecutive_failures >= std::max(1, config::cache_peer_read_failure_threshold)) {
-        health.circuit_open_until =
-                std::chrono::steady_clock::now() +
-                std::chrono::seconds(std::max(0, config::cache_peer_read_circuit_open_seconds));
+    if (it->second->stubs[slot] == failed_stub) {
+        it->second->stubs[slot].reset();
+    }
+}
+
+std::pair<std::shared_ptr<PBackendService_Stub>, size_t> get_or_create_sharded_peer_stub(
+        const std::string& address) {
+    const size_t pool_size =
+            static_cast<size_t>(std::max(1, config::peer_read_brpc_connection_pool_size));
+    std::shared_ptr<PeerShardedStubs> entry;
+    size_t slot = 0;
+    {
+        std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
+        auto& ref = peer_stub_cache[address];
+        if (!ref || ref->stubs.size() != pool_size) {
+            ref = std::make_shared<PeerShardedStubs>();
+            ref->stubs.resize(pool_size);
+        }
+        entry = ref;
+        slot = entry->next_idx.fetch_add(1, std::memory_order_relaxed) % entry->stubs.size();
+        auto& existing = entry->stubs[slot];
+        if (existing) {
+            auto* ch = static_cast<FailureDetectChannel*>(existing->channel());
+            if (ch->channel_status()->ok()) {
+                return {existing, slot};
+            }
+            existing.reset();
+        }
+    }
+
+    auto stub = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
+            address, "baidu_std", "single", fmt::format("peer_file_cache_s{}_", slot), 200, 0);
+    if (!stub) {
+        return {nullptr, slot};
+    }
+
+    std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
+    auto it = peer_stub_cache.find(address);
+    if (it == peer_stub_cache.end() || it->second != entry || slot >= entry->stubs.size()) {
+        return {stub, slot};
+    }
+    if (entry->stubs[slot]) {
+        auto* ch = static_cast<FailureDetectChannel*>(entry->stubs[slot]->channel());
+        if (ch->channel_status()->ok()) {
+            return {entry->stubs[slot], slot};
+        }
+    }
+    entry->stubs[slot] = stub;
+    return {stub, slot};
+}
+
+enum class PeerAttemptOutcome {
+    SUCCEEDED,
+    BACKPRESSURED,
+    FAILED,
+};
+
+// Completes an attempt admitted by peer_connection_circuit_allows().
+void finish_peer_connection_attempt(const std::string& address, PeerAttemptOutcome outcome) {
+    bool circuit_opened = false;
+    {
+        std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+        if (outcome == PeerAttemptOutcome::SUCCEEDED) {
+            peer_connection_health.erase(address);
+            return;
+        }
+        if (outcome == PeerAttemptOutcome::BACKPRESSURED) {
+            // Server-side single-socket backpressure (EOVERCROWDED / E1011) indicates transient
+            // congestion on a live peer rather than an unreachable host. Do not count it toward
+            // the address circuit breaker or evict healthy sharded connections; only release any
+            // in-flight recovery probe slot.
+            auto it = peer_connection_health.find(address);
+            if (it != peer_connection_health.end()) {
+                it->second.probe_in_flight = false;
+            }
+            return;
+        }
+        auto& health = peer_connection_health[address];
+        health.probe_in_flight = false;
+        ++health.consecutive_failures;
+        if (health.consecutive_failures >= std::max(1, config::cache_peer_read_failure_threshold)) {
+            health.circuit_open_until =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::seconds(std::max(0, config::cache_peer_read_circuit_open_seconds));
+            circuit_opened = true;
+        }
+    }
+    if (circuit_opened) {
+        evict_all_peer_stubs(address);
     }
 }
 
@@ -267,12 +363,10 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ra
     if (!peer_connection_circuit_allows(brpc_addr)) {
         return Status::RpcError<false>("Peer connection circuit is open for {}", brpc_addr);
     }
-    bool transport_succeeded = false;
+    PeerAttemptOutcome attempt_outcome = PeerAttemptOutcome::FAILED;
     Defer finish_connection_attempt {
-            [&] { finish_peer_connection_attempt(brpc_addr, transport_succeeded); }};
-    std::shared_ptr<PBackendService_Stub> brpc_stub =
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
-                    brpc_addr, "", "", "", 200, 0);
+            [&] { finish_peer_connection_attempt(brpc_addr, attempt_outcome); }};
+    auto [brpc_stub, stub_slot] = get_or_create_sharded_peer_stub(brpc_addr);
     if (!brpc_stub) {
         peer_cache_reader_failed_counter << 1;
         LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
@@ -296,13 +390,22 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ra
     // Use a longer timeout when fill is requested: server may spend up to
     // peer_server_cache_fill_timeout_ms (default 6000ms) pulling from S3 before responding.
     cntl.set_timeout_ms(request_fill ? 7000 : 5000);
+    cntl.set_max_retry(0);
     PFetchPeerDataResponse resp;
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
     if (cntl.Failed()) {
+        if (cntl.ErrorCode() == brpc::EOVERCROWDED) {
+            attempt_outcome = PeerAttemptOutcome::BACKPRESSURED;
+            return Status::Error<ErrorCode::TOO_MANY_TASKS, false>(cntl.ErrorText());
+        }
+        if (cntl.ErrorCode() == brpc::EEOF || cntl.ErrorCode() == EHOSTDOWN ||
+            cntl.ErrorCode() == ECONNRESET || cntl.ErrorCode() == ECONNREFUSED) {
+            evict_peer_stub_slot(brpc_addr, stub_slot, brpc_stub);
+        }
         return Status::RpcError<false>(cntl.ErrorText());
     }
-    transport_succeeded = true;
+    attempt_outcome = PeerAttemptOutcome::SUCCEEDED;
     if (resp.has_status()) {
         Status st2 = Status::create<false>(resp.status());
         LOG_EVERY_N(WARNING, 1000) << "peer cache read failed, status=" << st2.msg();

@@ -213,6 +213,10 @@ DECLARE_mInt32(peer_rpc_failure_eviction_threshold);
 // Address-level circuit breaker shared by peer reads across tablets.
 DECLARE_mInt32(cache_peer_read_failure_threshold);
 DECLARE_mInt32(cache_peer_read_circuit_open_seconds);
+// Number of dedicated single bRPC connections per peer BE for peer file cache reads.
+// High-throughput clusters may increase this (e.g. 16) alongside brpc_socket_max_unwritten_bytes
+// to avoid EOVERCROWDED (E1011) backpressure under extreme concurrency.
+DECLARE_mInt32(peer_read_brpc_connection_pool_size);
 DECLARE_mInt32(peer_all_miss_cooldown_threshold);
 DECLARE_mInt64(peer_all_miss_cooldown_duration_s);
 

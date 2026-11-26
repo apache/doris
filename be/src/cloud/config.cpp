@@ -174,6 +174,7 @@ DEFINE_mInt32(peer_rpc_failure_eviction_threshold, "3");  // consecutive failure
 DEFINE_mInt32(cache_peer_read_failure_threshold, "3");
 // Seconds to reject reads to a peer address before allowing one recovery probe.
 DEFINE_mInt32(cache_peer_read_circuit_open_seconds, "30");
+DEFINE_mInt32(peer_read_brpc_connection_pool_size, "8");
 DEFINE_mInt32(peer_all_miss_cooldown_threshold,
               "5"); // consecutive all-miss races to trigger cooldown
 DEFINE_mInt64(peer_all_miss_cooldown_duration_s, "300"); // cooldown duration, 5 minutes

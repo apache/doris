@@ -32,6 +32,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <utility>
@@ -235,6 +236,8 @@ struct MockPeerCacheServiceOptions {
     bool duplicate_first_block = false;
     bool negative_block_offset = false;
     bool fail_status = false;
+    // Fail the first N RPCs with brpc::EOVERCROWDED (E1011) to simulate single-socket backpressure.
+    int fail_overcrowded_count = 0;
     bool append_trailing_attachment = false;
     size_t truncate_trailing_attachment_bytes = 0;
     int64_t response_offset_delta = 0;
@@ -250,7 +253,14 @@ struct MockPeerCacheServiceOptions {
 class MockPeerCacheService : public PBackendService {
 public:
     explicit MockPeerCacheService(std::string content, MockPeerCacheServiceOptions options = {})
-            : _content(std::move(content)), _options(options) {}
+            : _content(std::move(content)),
+              _options(options),
+              _overcrowded_remaining(options.fail_overcrowded_count) {}
+
+    size_t unique_client_port_count() const {
+        std::lock_guard lock(_request_mu);
+        return _client_ports.size();
+    }
 
     bool wait_for_rpc_count_at_least(int expected_count, std::chrono::milliseconds timeout) {
         std::unique_lock lock(_rpc_mu);
@@ -271,6 +281,7 @@ public:
         request_fill = request->has_request_cache_fill() && request->request_cache_fill();
         {
             std::lock_guard lock(_request_mu);
+            _client_ports.insert(cntl->remote_side().port);
             last_fill_resource_id =
                     request->has_rowset_meta() && request->rowset_meta().has_resource_id()
                             ? request->rowset_meta().resource_id()
@@ -279,6 +290,10 @@ public:
 
         if (before_response) {
             before_response();
+        }
+        if (_overcrowded_remaining.fetch_sub(1, std::memory_order_acq_rel) > 0) {
+            cntl->SetFailed(brpc::EOVERCROWDED, "Connection is overcrowded");
+            return;
         }
         if (_options.fail_status) {
             response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
@@ -394,6 +409,8 @@ private:
     MockPeerCacheServiceOptions _options;
     std::mutex _rpc_mu;
     std::condition_variable _rpc_cv;
+    std::atomic<int> _overcrowded_remaining {0};
+    std::set<int> _client_ports;
     mutable std::mutex _request_mu;
     std::string last_fill_resource_id;
 };
@@ -4185,6 +4202,64 @@ TEST_F(CachedRemoteFileReaderPeerTest, peer_connection_failures_open_address_cir
     EXPECT_EQ(peer_cache_reader_read_counter.get_value() - rpc_count_before, 3);
 }
 
+TEST_F(CachedRemoteFileReaderPeerTest, peer_sharded_single_connections_are_reused) {
+    const int32_t old_pool_size = config::peer_read_brpc_connection_pool_size;
+    Defer restore_pool_size {
+            [&]() { config::peer_read_brpc_connection_pool_size = old_pool_size; }};
+    config::peer_read_brpc_connection_pool_size = 4;
+
+    MockPeerCacheService service("abcd", {.use_attachment = true});
+    brpc::Server server;
+    const auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    const std::vector<FileBlockSPtr> blocks {
+            create_manual_peer_test_block("peer_sharded_reuse", 0, kPeerTestBlockSize)};
+    for (int i = 0; i < 24; ++i) {
+        PeerFileCacheReader peer_reader(Path("peer_sharded_reuse"), true, "127.0.0.1", addr.port);
+        PeerFetchResult result;
+        const auto st =
+                peer_reader.fetch_blocks(to_ranges(blocks), &result, kPeerTestBlockSize, nullptr);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(result.bytes_read, kPeerTestBlockSize);
+    }
+
+    EXPECT_EQ(service.rpc_count.load(), 24);
+    EXPECT_EQ(service.unique_client_port_count(), 4);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_overcrowded_does_not_open_address_circuit) {
+    const int32_t old_threshold = config::cache_peer_read_failure_threshold;
+    Defer restore_threshold {[&]() { config::cache_peer_read_failure_threshold = old_threshold; }};
+    config::cache_peer_read_failure_threshold = 3;
+
+    // Return EOVERCROWDED (E1011) 5 times (> threshold 3), then succeed on the 6th call.
+    MockPeerCacheService service("abcd", {.use_attachment = true, .fail_overcrowded_count = 5});
+    brpc::Server server;
+    const auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+
+    const std::vector<FileBlockSPtr> blocks {
+            create_manual_peer_test_block("peer_overcrowded_cb", 0, kPeerTestBlockSize)};
+    for (int i = 0; i < 5; ++i) {
+        PeerFileCacheReader peer_reader(Path("peer_overcrowded_cb"), true, "127.0.0.1", addr.port);
+        PeerFetchResult result;
+        const auto st =
+                peer_reader.fetch_blocks(to_ranges(blocks), &result, kPeerTestBlockSize, nullptr);
+        EXPECT_TRUE(st.is<ErrorCode::TOO_MANY_TASKS>()) << st;
+    }
+
+    // All 5 attempts must reach the peer (circuit never opened), and the 6th must succeed.
+    EXPECT_EQ(service.rpc_count.load(), 5);
+    PeerFileCacheReader peer_reader(Path("peer_overcrowded_cb"), true, "127.0.0.1", addr.port);
+    PeerFetchResult result;
+    const auto st =
+            peer_reader.fetch_blocks(to_ranges(blocks), &result, kPeerTestBlockSize, nullptr);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(result.bytes_read, kPeerTestBlockSize);
+    EXPECT_EQ(service.rpc_count.load(), 6);
+}
+
 TEST_F(CachedRemoteFileReaderAsyncPeerTest, async_write_reads_peer_and_persists_iobuf_payload) {
     MockPeerCacheService service(std::string(kPeerContent), {.use_attachment = true});
     start("async_peer_success", &service);
@@ -4657,6 +4732,47 @@ TEST_F(CrossCGAsyncWinnerRaceTest, async_race_s3_wins_before_slow_peer_returns) 
     }
     EXPECT_TRUE(slow_service.finished.load(std::memory_order_acquire));
     EXPECT_EQ(slow_service.request_block_count.load(), 3);
+}
+
+TEST_F(CrossCGAsyncWinnerRaceTest,
+       async_race_overcrowded_falls_back_to_s3_without_evicting_or_circuit_opening) {
+    const int32_t old_cb_threshold = config::cache_peer_read_failure_threshold;
+    const int32_t old_evict_threshold = config::peer_rpc_failure_eviction_threshold;
+    Defer restore_thresholds {[&]() {
+        config::cache_peer_read_failure_threshold = old_cb_threshold;
+        config::peer_rpc_failure_eviction_threshold = old_evict_threshold;
+    }};
+    config::cache_peer_read_failure_threshold = 3;
+    config::peer_rpc_failure_eviction_threshold = 3;
+
+    // Exceed both the BE-wide address circuit threshold (3) and tablet candidate eviction
+    // threshold (3) with EOVERCROWDED (E1011), then allow the 5th RPC to succeed.
+    MockPeerCacheService service(std::string(kPeerContent),
+                                 {.use_attachment = true, .fail_overcrowded_count = 4});
+    brpc::Server server;
+    auto addr = start_peer_test_server(&server, &service);
+    Defer stop_server {[&]() { stop_peer_test_server(&server); }};
+    register_cross_cg_candidate("127.0.0.1", addr.port);
+
+    for (int i = 0; i < 4; ++i) {
+        create_reader("async_race_overcrowded_" + std::to_string(i));
+        FileCacheStatistics stats;
+        EXPECT_EQ(read(1, 10, &stats), kRemoteContent.substr(1, 10));
+        expect_s3_win_persisted(&stats);
+    }
+    EXPECT_EQ(service.rpc_count.load(), 4);
+
+    // Peer must still be registered and un-circuited; the 5th read succeeds via peer.
+    const int32_t old_hedge_delay_ms = config::peer_race_hedge_delay_ms;
+    Defer restore_hedge {[&]() { config::peer_race_hedge_delay_ms = old_hedge_delay_ms; }};
+    config::peer_race_hedge_delay_ms = 5000;
+    create_reader("async_race_overcrowded_recovered");
+    FileCacheStatistics stats;
+    EXPECT_EQ(read(1, 10, &stats), kPeerContent.substr(1, 10));
+    EXPECT_EQ(service.rpc_count.load(), 5);
+    EXPECT_EQ(stats.bytes_read_from_peer, 10);
+    EXPECT_EQ(stats.bytes_read_from_remote, 0);
+    wait_for_async_writes(_cache);
 }
 
 } // namespace doris::io
