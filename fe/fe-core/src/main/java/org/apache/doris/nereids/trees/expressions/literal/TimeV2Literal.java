@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
 /**
  * Time literal in Nereids.
  */
-public class TimeV2Literal extends Literal {
+public class TimeV2Literal extends Literal implements ComparableLiteral {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, true);
@@ -411,10 +411,30 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public Object getValue() {
-        if (negative) {
-            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
+        return (double) getMicroSecondValue();
+    }
+
+    /**
+     * signed microseconds, BE stores TIMEV2 as double microseconds and compares it numerically
+     */
+    public long getMicroSecondValue() {
+        long value = ((hour * 60L + minute) * 60L + second) * 1000000L + microsecond;
+        return negative ? -value : value;
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof TimeV2Literal) {
+            return Long.compare(getMicroSecondValue(), ((TimeV2Literal) other).getMicroSecondValue());
         }
-        return (((double) (hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     @Override
