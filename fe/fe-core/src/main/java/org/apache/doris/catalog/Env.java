@@ -50,6 +50,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
+import org.apache.doris.changelog.ChangelogMonitor;
 import org.apache.doris.changelog.ChangelogTtlDiscovery;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -572,6 +573,7 @@ public class Env {
     private ConstraintManager constraintManager;
 
     private BinlogGcer binlogGcer;
+    private final ChangelogMonitor changelogMonitor = new ChangelogMonitor(this);
     private final ChangelogTtlDiscovery changelogTtlDiscovery = new ChangelogTtlDiscovery();
 
     private QueryCancelWorker queryCancelWorker;
@@ -2090,6 +2092,7 @@ public class Env {
         if (Config.isCloudMode()) {
             changelogTtlDiscovery.start();
         }
+        changelogMonitor.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
         dictionaryManager.start();
@@ -5667,6 +5670,10 @@ public class Env {
         return this.isElectable;
     }
 
+    public ChangelogMonitor getChangelogMonitor() {
+        return changelogMonitor;
+    }
+
     public boolean isMaster() {
         return feType == FrontendNodeType.MASTER;
     }
@@ -6998,6 +7005,9 @@ public class Env {
         ConfigBase.setMutableConfig(key, value);
         if ("ldap_default_roles".equals(key)) {
             getAuth().getLdapManager().refresh(true, null);
+        }
+        if ("enable_changelog_monitor".equals(key) && !Config.enable_changelog_monitor) {
+            changelogMonitor.reset();
         }
         if (configtoThreads.get(key) != null) {
             try {

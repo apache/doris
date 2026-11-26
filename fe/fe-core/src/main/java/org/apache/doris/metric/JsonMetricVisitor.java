@@ -25,6 +25,7 @@ import org.apache.doris.monitor.jvm.JvmStats.Threads;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
+import com.google.gson.JsonPrimitive;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -132,7 +133,8 @@ public class JsonMetricVisitor extends MetricVisitor {
                 if (i++ > 0) {
                     sb.append(",\n");
                 }
-                sb.append("\t\t\"").append(label.getKey()).append("\":\"").append(label.getValue()).append("\"");
+                sb.append("\t\t").append(new JsonPrimitive(label.getKey())).append(':')
+                        .append(new JsonPrimitive(String.valueOf(label.getValue())));
             }
         }
         sb.append("\n\t},\n");

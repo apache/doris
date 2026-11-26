@@ -557,6 +557,7 @@ public class MTMVTest {
         Assertions.assertEquals(5, journaled.size());
         IvmRefreshSummary summary = Deencapsulation.getField(master, "ivmRefreshSummary");
         Assertions.assertEquals(0, summary.getConsecutiveFailures());
+        Assertions.assertEquals(2L, summary.metricValues().failedTaskCount());
         Assertions.assertEquals(IvmRefreshFailureStage.EXECUTION_FAILED.name(), summary.getLastFailureReason());
         Assertions.assertEquals(IvmRefreshMethod.MIXED, summary.getLastRefreshMethod());
         Assertions.assertEquals(1L, summary.getFallbackCount());
@@ -564,6 +565,61 @@ public class MTMVTest {
         Assertions.assertTrue(master.hasSucceededIvmRefresh());
         IvmRefreshSummary replayed = Deencapsulation.getField(follower, "ivmRefreshSummary");
         Assertions.assertEquals(GsonUtils.GSON.toJson(summary), GsonUtils.GSON.toJson(replayed));
+    }
+
+    @Test
+    public void testIvmSummaryCountsOnlyNewResultsAcrossImageAndReplay() throws Exception {
+        MTMV master = buildSerializableMTMV();
+        master.getIvmInfo().setEnableIvm(true);
+        MTMVTask legacy = endedTask(master, TaskStatus.FAILED, IvmRefreshMethod.NONE, null, null);
+        withMockedEditLog(Lists.newArrayList(),
+                () -> Assertions.assertTrue(master.addTaskResult(taskResult(master, legacy), true)));
+        Assertions.assertEquals(new IvmRefreshSummary.MetricValues(1, 0, 0, true, 1000),
+                master.getIvmRefreshMetricValues());
+
+        JsonObject oldImage = JsonParser.parseString(GsonUtils.GSON.toJson(master)).getAsJsonObject();
+        oldImage.getAsJsonObject("irs").remove("ftc");
+        oldImage.getAsJsonObject("irs").remove("lass");
+        MTMV follower = GsonUtils.GSON.fromJson(oldImage, MTMV.class);
+        Assertions.assertEquals(master.getIvmRefreshMetricValues(), follower.getIvmRefreshMetricValues());
+
+        MTMVTask failed = endedTask(master, TaskStatus.FAILED, IvmRefreshMethod.COMPLETE, null,
+                IvmFailureReason.CHANGELOG_BROKEN.name());
+        failed.setTaskId(99L);
+        MTMVTask recovered = endedTask(master, TaskStatus.SUCCESS, IvmRefreshMethod.NONE, null, null);
+        recovered.setTaskId(3L);
+        recovered.setFinishTimeMs(1125L);
+        List<AlterMTMV> records = Lists.newArrayList();
+        int historyCount = Config.max_persistence_task_count;
+        try {
+            Config.max_persistence_task_count = 0;
+            withMockedEditLog(records, () -> {
+                Assertions.assertTrue(master.addTaskResult(taskResult(master, failed), false));
+                Assertions.assertTrue(master.addTaskResult(taskResult(master, recovered), false));
+                Assertions.assertTrue(master.addTaskResult(taskResult(master, failed), false));
+            });
+        } finally {
+            Config.max_persistence_task_count = historyCount;
+        }
+        IvmRefreshSummary.MetricValues expected = new IvmRefreshSummary.MetricValues(0, 1, 1, true, 125);
+        Assertions.assertEquals(expected, master.getIvmRefreshMetricValues());
+        Assertions.assertEquals(1L, failed.getIvmSummarySeq());
+        Assertions.assertEquals(2L, recovered.getIvmSummarySeq());
+
+        withMockedEditLog(Lists.newArrayList(), () -> {
+            for (AlterMTMV record : records) {
+                AlterMTMV replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(record), AlterMTMV.class);
+                Assertions.assertTrue(follower.addTaskResult(replayed, true));
+            }
+        });
+        Assertions.assertEquals(expected, follower.getIvmRefreshMetricValues());
+
+        MTMV promoted = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(follower), MTMV.class);
+        MTMVTask next = endedTask(promoted, TaskStatus.FAILED, IvmRefreshMethod.NONE, null, null);
+        withMockedEditLog(Lists.newArrayList(),
+                () -> Assertions.assertTrue(promoted.addTaskResult(taskResult(promoted, next), false)));
+        Assertions.assertEquals(3L, next.getIvmSummarySeq());
+        Assertions.assertEquals(2L, promoted.getIvmRefreshMetricValues().failedTaskCount());
     }
 
     /** An MV that is not an IVM MV records its task results without a refresh summary. */

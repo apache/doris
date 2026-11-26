@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+import org.apache.doris.changelog.ChangelogMonitorSnapshot;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
@@ -1816,6 +1817,10 @@ public final class MetricRepo {
 
         visitor.visitWorkloadGroup();
 
+        ChangelogMonitorSnapshot snapshot = Env.getCurrentEnv().getChangelogMonitor().getSnapshot();
+        if (snapshot != null) {
+            IvmRefreshSnapshotMetrics.visit(visitor, snapshot);
+        }
         return visitor.finish();
     }
 

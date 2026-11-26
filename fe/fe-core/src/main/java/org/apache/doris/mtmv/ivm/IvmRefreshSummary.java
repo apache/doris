@@ -17,8 +17,10 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
@@ -41,6 +43,10 @@ public class IvmRefreshSummary {
     // Failed tasks since the latest successful one.
     @SerializedName("cf")
     private int consecutiveFailures;
+    @SerializedName("ftc")
+    private long failedTaskCount;
+    @SerializedName("lass")
+    private long lastAppliedSummarySeq;
     // Finish times in milliseconds, 0 when there has been none.
     @SerializedName("lst")
     private long lastSuccessTimeMs;
@@ -67,8 +73,34 @@ public class IvmRefreshSummary {
     @SerializedName("s")
     private boolean succeeded;
 
-    /** Takes in the result of a task, which has ended as SUCCESS, FAILED or CANCELED. */
-    public void update(MTMVTask task) {
+    /** Applies a terminal result under the owning MV's write lock. */
+    public void update(MTMVTask task, boolean isReplay) {
+        if (task.getStatus() == TaskStatus.CANCELED) {
+            return;
+        }
+        Preconditions.checkState(task.getStatus() == TaskStatus.SUCCESS || task.getStatus() == TaskStatus.FAILED,
+                "A task result cannot be %s, taskId=%s", task.getStatus(), task.getTaskId());
+        long seq = task.getIvmSummarySeq();
+        if (seq == 0 && !isReplay) {
+            seq = lastAppliedSummarySeq + 1;
+            task.setIvmSummarySeq(seq);
+        }
+        if (seq != 0) {
+            if (seq <= lastAppliedSummarySeq) {
+                return;
+            }
+            Preconditions.checkState(seq == lastAppliedSummarySeq + 1,
+                    "Unexpected IVM summary sequence %s after %s, taskId=%s",
+                    seq, lastAppliedSummarySeq, task.getTaskId());
+        }
+        // Old journal records still restore the existing summary fields.
+        applyResult(task, seq != 0);
+        if (seq != 0) {
+            lastAppliedSummarySeq = seq;
+        }
+    }
+
+    private void applyResult(MTMVTask task, boolean countFailure) {
         switch (task.getStatus()) {
             case SUCCESS:
                 consecutiveFailures = 0;
@@ -77,12 +109,13 @@ public class IvmRefreshSummary {
                 break;
             case FAILED:
                 consecutiveFailures++;
+                if (countFailure) {
+                    failedTaskCount++;
+                }
                 lastFailureTimeMs = task.getFinishTimeMs();
                 lastFailureReason = task.getIvmFailureReason();
                 lastErrorMessage = StringUtils.abbreviate(task.getErrMsg(), MAX_ERROR_MESSAGE_LENGTH);
                 break;
-            case CANCELED:
-                return;
             default:
                 throw new IllegalStateException("A task result cannot be " + task.getStatus()
                         + ", taskId=" + task.getTaskId());
@@ -94,6 +127,15 @@ public class IvmRefreshSummary {
             lastFallbackReason = task.getIvmFallbackReason();
             lastFallbackTimeMs = task.getFinishTimeMs();
         }
+    }
+
+    public record MetricValues(int consecutiveFailures, long failedTaskCount, long fallbackCount,
+            boolean hasCompletedRefresh, long lastRefreshDurationMs) {
+    }
+
+    public MetricValues metricValues() {
+        return new MetricValues(consecutiveFailures, failedTaskCount, fallbackCount,
+                lastSuccessTimeMs != 0 || lastFailureTimeMs != 0, lastRefreshDurationMs);
     }
 
     public int getConsecutiveFailures() {

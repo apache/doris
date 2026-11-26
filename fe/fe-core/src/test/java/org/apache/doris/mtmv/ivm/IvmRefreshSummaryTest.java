@@ -35,15 +35,18 @@ public class IvmRefreshSummaryTest {
     public void testConsecutiveFailuresAreTheFailuresSinceTheLatestSuccess() {
         IvmRefreshSummary summary = new IvmRefreshSummary();
 
-        summary.update(failed(1000L, 2000L, IvmRefreshFailureStage.EXECUTION_FAILED.name(), "first"));
-        summary.update(failed(3000L, 4000L, IvmRefreshFailureStage.EXECUTION_FAILED.name(), "second"));
+        summary.update(failed(1000L, 2000L, IvmRefreshFailureStage.EXECUTION_FAILED.name(), "first"), false);
+        summary.update(failed(3000L, 4000L, IvmRefreshFailureStage.EXECUTION_FAILED.name(), "second"), false);
         Assertions.assertEquals(2, summary.getConsecutiveFailures());
-        summary.update(canceled());
+        Assertions.assertEquals(2L, summary.metricValues().failedTaskCount());
+        summary.update(canceled(), false);
         Assertions.assertEquals(2, summary.getConsecutiveFailures());
+        Assertions.assertEquals(2L, summary.metricValues().failedTaskCount());
 
-        summary.update(succeeded(5000L, 6000L, IvmRefreshMethod.NONE));
+        summary.update(succeeded(5000L, 6000L, IvmRefreshMethod.NONE), false);
         Assertions.assertEquals(0, summary.getConsecutiveFailures());
-        summary.update(failed(7000L, 8000L, IvmRefreshFailureStage.OTHER.name(), "third"));
+        Assertions.assertEquals(2L, summary.metricValues().failedTaskCount());
+        summary.update(failed(7000L, 8000L, IvmRefreshFailureStage.OTHER.name(), "third"), false);
         Assertions.assertEquals(1, summary.getConsecutiveFailures());
     }
 
@@ -57,7 +60,7 @@ public class IvmRefreshSummaryTest {
         IvmRefreshSummary summary = new IvmRefreshSummary();
 
         String longMessage = Strings.repeat("x", IvmRefreshSummary.MAX_ERROR_MESSAGE_LENGTH * 2);
-        summary.update(failed(1000L, 1500L, IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name(), longMessage));
+        summary.update(failed(1000L, 1500L, IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name(), longMessage), false);
         Assertions.assertEquals(1500L, summary.getLastFailureTimeMs());
         Assertions.assertEquals(IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name(), summary.getLastFailureReason());
         Assertions.assertEquals(IvmRefreshSummary.MAX_ERROR_MESSAGE_LENGTH, summary.getLastErrorMessage().length());
@@ -66,7 +69,7 @@ public class IvmRefreshSummaryTest {
         Assertions.assertEquals(500L, summary.getLastRefreshDurationMs());
         Assertions.assertEquals(0L, summary.getLastSuccessTimeMs());
 
-        summary.update(succeeded(2000L, 4500L, IvmRefreshMethod.COMPLETE));
+        summary.update(succeeded(2000L, 4500L, IvmRefreshMethod.COMPLETE), false);
         Assertions.assertEquals(4500L, summary.getLastSuccessTimeMs());
         Assertions.assertEquals(IvmRefreshMethod.COMPLETE, summary.getLastRefreshMethod());
         Assertions.assertEquals(2500L, summary.getLastRefreshDurationMs());
@@ -74,7 +77,7 @@ public class IvmRefreshSummaryTest {
         Assertions.assertEquals(IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name(), summary.getLastFailureReason());
 
         // A canceled task has no finish time, so it changes neither the latest method nor the latest duration.
-        summary.update(canceled());
+        summary.update(canceled(), false);
         Assertions.assertEquals(IvmRefreshMethod.COMPLETE, summary.getLastRefreshMethod());
         Assertions.assertEquals(2500L, summary.getLastRefreshDurationMs());
     }
@@ -84,18 +87,18 @@ public class IvmRefreshSummaryTest {
     public void testFallbacksCountTheTasksThatFellBack() {
         IvmRefreshSummary summary = new IvmRefreshSummary();
 
-        summary.update(succeeded(1000L, 2000L, IvmRefreshMethod.INCREMENTAL));
+        summary.update(succeeded(1000L, 2000L, IvmRefreshMethod.INCREMENTAL), false);
         Assertions.assertEquals(0L, summary.getFallbackCount());
 
         MTMVTask fellBack = succeeded(3000L, 4000L, IvmRefreshMethod.COMPLETE);
         fellBack(fellBack, IvmFailureReason.MIN_MAX_BOUNDARY_HIT.name());
-        summary.update(fellBack);
+        summary.update(fellBack, false);
         MTMVTask fellBackAndFailed = failed(5000L, 6000L, IvmRefreshFailureStage.EXECUTION_FAILED.name(), "failed");
         fellBack(fellBackAndFailed, IvmFailureReason.CHANGELOG_BROKEN.name());
-        summary.update(fellBackAndFailed);
+        summary.update(fellBackAndFailed, false);
         MTMVTask fellBackAndCanceled = canceled();
         fellBack(fellBackAndCanceled, IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name());
-        summary.update(fellBackAndCanceled);
+        summary.update(fellBackAndCanceled, false);
 
         Assertions.assertEquals(2L, summary.getFallbackCount());
         Assertions.assertEquals(IvmFailureReason.CHANGELOG_BROKEN.name(), summary.getLastFallbackReason());
@@ -107,12 +110,12 @@ public class IvmRefreshSummaryTest {
     public void testOnlyASuccessMarksTheMvRefreshed() {
         IvmRefreshSummary summary = new IvmRefreshSummary();
 
-        summary.update(failed(1000L, 2000L, IvmRefreshFailureStage.OTHER.name(), "failed"));
-        summary.update(canceled());
+        summary.update(failed(1000L, 2000L, IvmRefreshFailureStage.OTHER.name(), "failed"), false);
+        summary.update(canceled(), false);
         Assertions.assertFalse(summary.hasSucceeded());
 
-        summary.update(succeeded(3000L, 4000L, IvmRefreshMethod.COMPLETE));
-        summary.update(failed(5000L, 6000L, IvmRefreshFailureStage.OTHER.name(), "failed"));
+        summary.update(succeeded(3000L, 4000L, IvmRefreshMethod.COMPLETE), false);
+        summary.update(failed(5000L, 6000L, IvmRefreshFailureStage.OTHER.name(), "failed"), false);
         Assertions.assertTrue(summary.hasSucceeded());
     }
 
@@ -122,7 +125,16 @@ public class IvmRefreshSummaryTest {
         MTMVTask running = new MTMVTask();
         running.setStatus(TaskStatus.RUNNING);
 
-        Assertions.assertThrows(IllegalStateException.class, () -> new IvmRefreshSummary().update(running));
+        Assertions.assertThrows(IllegalStateException.class, () -> new IvmRefreshSummary().update(running, false));
+    }
+
+    @Test
+    public void testMissingSummarySequenceFailsReplay() {
+        IvmRefreshSummary summary = new IvmRefreshSummary();
+        MTMVTask failed = failed(1000, 2000, IvmRefreshFailureStage.OTHER.name(), "failed");
+        failed.setIvmSummarySeq(2L);
+        Assertions.assertThrows(IllegalStateException.class, () -> summary.update(failed, true));
+        Assertions.assertEquals(0L, summary.metricValues().failedTaskCount());
     }
 
     private static MTMVTask succeeded(long startTimeMs, long finishTimeMs, IvmRefreshMethod method) {

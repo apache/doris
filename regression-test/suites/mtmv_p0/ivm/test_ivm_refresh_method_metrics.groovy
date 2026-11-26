@@ -18,6 +18,8 @@
 import org.apache.doris.regression.util.Http
 import org.awaitility.Awaitility
 
+import java.util.concurrent.Callable
+
 import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
@@ -53,13 +55,24 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     String mvName = "ivm_refresh_method_metrics_mv"
     String masterMetricsUrl = "http://${getMasterIp()}:${getMasterPort()}/metrics"
 
-    // The value of every doris_fe_ivm_ series the Master exports, by the series.
-    def ivmSeries = {
+    def clusterMetrics = [
+        "doris_fe_ivm_refresh_tasks_total",
+        "doris_fe_ivm_refresh_duration_seconds_total",
+        "doris_fe_ivm_fallbacks_total",
+        "doris_fe_ivm_refresh_failures_total",
+        "doris_fe_ivm_schedule_rejected_total"
+    ] as Set
+    def ivmSeries = { Set names ->
         Map<String, Double> values = [:]
         for (String line : Http.GET(masterMetricsUrl, false, false).readLines()) {
             if (line.startsWith("doris_fe_ivm_")) {
                 int split = line.lastIndexOf(' ')
-                values.put(line.substring(0, split), Double.parseDouble(line.substring(split + 1)))
+                String series = line.substring(0, split)
+                int labelStart = series.indexOf('{')
+                String metric = labelStart < 0 ? series : series.substring(0, labelStart)
+                if (names.contains(metric)) {
+                    values.put(series, Double.parseDouble(line.substring(split + 1)))
+                }
             }
         }
         return values
@@ -94,10 +107,10 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     // and the run times added, which vary from run to run and are returned apart, by method.
     def refresh = { String statement ->
         String previousTaskId = latestTaskId()
-        Map<String, Double> before = ivmSeries()
+        Map<String, Double> before = ivmSeries(clusterMetrics)
         sql statement
         String taskId = waitForNewTask(previousTaskId)
-        Map<String, Double> after = ivmSeries()
+        Map<String, Double> after = ivmSeries(clusterMetrics)
         Map<String, Double> counted = [:]
         Map<String, Double> seconds = [:]
         String durationPrefix = 'doris_fe_ivm_refresh_duration_seconds_total{method="'
@@ -169,8 +182,50 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
         GROUP BY dt
     """
 
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_refresh_summary_idle_mv"
+    sql """
+        CREATE MATERIALIZED VIEW ivm_refresh_summary_idle_mv
+        BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
+        PARTITION BY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
+        AS SELECT dt, MIN(v) AS min_v, MAX(v) AS max_v, COUNT(*) AS cnt
+        FROM ivm_refresh_method_metrics_t
+        GROUP BY dt
+    """
+    def mvIds = sql_return_maparray("""
+        SELECT Id, Name FROM mv_infos('database'='${context.dbName}')
+        WHERE Name IN ('${mvName}', 'ivm_refresh_summary_idle_mv')
+    """).collectEntries { [(it.Name.toString()): it.Id.toString()] }
+    assertEquals(2, mvIds.size())
+
+    String consecutive = "doris_fe_ivm_consecutive_failures"
+    String failures = "doris_fe_ivm_refresh_failed_tasks_total"
+    String fallbacks = "doris_fe_ivm_refresh_fallbacks_total"
+    String duration = "doris_fe_ivm_refresh_duration_seconds"
+    def summaryMetrics = [consecutive, failures, fallbacks, duration] as Set
+    def summaryKey = { String metric, String name ->
+        "${metric}{db_name=\"${context.dbName}\", mv_name=\"${name}\", mv_id=\"${mvIds[name]}\"}".toString()
+    }
+    def matchesSummary = { Map<String, Double> samples, String name, int streak, int failed, int fallback,
+            boolean completed ->
+        Double elapsed = samples[summaryKey(duration, name)]
+        samples[summaryKey(consecutive, name)] == streak
+                && samples[summaryKey(failures, name)] == failed
+                && samples[summaryKey(fallbacks, name)] == fallback
+                && (completed ? elapsed != null && elapsed >= 0 : elapsed == null)
+    }
+    def waitForSummary = { int streak, int failed, int fallback, boolean completed ->
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            Map<String, Double> samples = ivmSeries(summaryMetrics)
+            matchesSummary(samples, mvName, streak, failed, fallback, completed) &&
+                    matchesSummary(samples, "ivm_refresh_summary_idle_mv", 0, 0, 0, false)
+        } as Callable<Boolean>)
+    }
+    waitForSummary(0, 0, 0, false)
+
     // Every series is there from 0, before a task has counted in it.
-    Map<String, Double> initial = ivmSeries()
+    Map<String, Double> initial = ivmSeries(clusterMetrics)
     assertTrue(initial.containsKey(tasks("canceled", "mixed")), initial.toString())
     assertTrue(initial.containsKey('doris_fe_ivm_fallbacks_total{reason="incomplete_refresh_snapshot"}'))
     assertTrue(initial.containsKey('doris_fe_ivm_refresh_failures_total{reason="partition_sync_failed"}'))
@@ -182,6 +237,7 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     qt_first_baseline_task taskQuery(baselineTask)
     assertEquals([(tasks("success", "complete")): 1.0d], baselineCounted)
     assertEquals(["complete"], baselineSeconds.keySet().toList())
+    waitForSummary(0, 0, 0, true)
 
     // 2. New rows are caught up incrementally, and a refresh with nothing new to catch up commits nothing.
     sql """INSERT INTO ivm_refresh_method_metrics_t VALUES ('2026-03-10', 5, 50)"""
@@ -201,6 +257,7 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     qt_strict_failure_task taskQuery(strictTask)
     assertEquals([(tasks("failed", "none")): 1.0d,
                   'doris_fe_ivm_refresh_failures_total{reason="min_max_boundary_hit"}': 1.0d], strictCounted)
+    waitForSummary(1, 1, 0, true)
 
     // 4. Allowed to fall back, the same refresh rebuilds the MV: a fallback, for the reason the delta gave up.
     def (fallbackTask, fallbackCounted, fallbackSeconds) =
@@ -208,6 +265,7 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     qt_fallback_task taskQuery(fallbackTask)
     assertEquals([(tasks("success", "complete")): 1.0d,
                   'doris_fe_ivm_fallbacks_total{reason="min_max_boundary_hit"}': 1.0d], fallbackCounted)
+    waitForSummary(0, 1, 1, true)
     order_qt_mv_after_fallback """SELECT dt, min_v, max_v, cnt FROM ${mvName}"""
     order_qt_base_after_fallback """
         SELECT dt, MIN(v), MAX(v), COUNT(*) FROM ivm_refresh_method_metrics_t GROUP BY dt
@@ -217,6 +275,7 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     def (completeTask, completeCounted, completeSeconds) = refresh("REFRESH MATERIALIZED VIEW ${mvName} COMPLETE")
     qt_complete_task taskQuery(completeTask)
     assertEquals([(tasks("success", "complete")): 1.0d], completeCounted)
+    waitForSummary(0, 1, 1, true)
 
     // 6. Truncating a base partition leaves its MV partition needing a rebuild, which no delta can make: an incremental
     //    refresh rebuilds it first and then catches up the other partitions, refreshing the MV in two ways at once.
