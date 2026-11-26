@@ -65,6 +65,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.ViewDefaultDatabase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.LeadingHint;
@@ -223,10 +224,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     cascadesContext.getRecursiveCteContext().get().getCteId(),
                     cascadesContext.getRecursiveCteOutputs(), unboundRelation.getNameParts());
         } else {
-            List<String> tableQualifier = RelationUtil.getQualifierName(
-                    cascadesContext.getConnectContext(), unboundRelation.getNameParts());
+            Optional<ViewDefaultDatabase> viewDatabase = cascadesContext.getViewDefaultDatabase();
+            List<String> tableQualifier = viewDatabase.map(database -> database.qualify(tableName))
+                    .orElseGet(() -> RelationUtil.getQualifierName(
+                            cascadesContext.getConnectContext(), unboundRelation.getNameParts()));
             TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
                     Optional.of(unboundRelation));
+            viewDatabase.ifPresent(database -> database.checkTable(table));
 
             plan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
             if (cascadesContext.isLeadingJoin()) {
@@ -909,16 +913,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         ConnectorViewDefinition definition = pluginViewTable.getViewDefinition();
                         String pluginCatalog = definition.getDefaultCatalog()
                                 .orElse(pluginViewTable.getCatalog().getName());
-                        String pluginDb = definition.getDefaultNamespace().map(levels -> {
-                            CatalogIf<?> target = cascadesContext.getConnectContext().getCatalog(pluginCatalog);
-                            // Leave no current database if these components cannot name one in the target catalog.
-                            // Only relations that actually use the default database will then fail to bind.
-                            return target == null ? "" : target.databaseNameForViewNamespace(levels).orElse("");
-                        }).orElseGet(() -> pluginViewTable.getDatabase().getFullName());
+                        CatalogIf<?> target = cascadesContext.getConnectContext().getCatalog(pluginCatalog);
+                        Optional<String> savedDb = target == null ? Optional.empty() : definition.getDefaultNamespace()
+                                .flatMap(target::databaseNameForViewNamespace).filter(db -> !db.isEmpty());
+                        String pluginDb = definition.getDefaultNamespace().isPresent()
+                                ? savedDb.orElse("") : pluginViewTable.getDatabase().getFullName();
+                        Optional<ViewDefaultDatabase> bindingDb = savedDb.map(
+                                db -> new ViewDefaultDatabase(target, db));
                         ExternalView externalView = new ExternalView(pluginViewTable, definition.getSql(),
                                 pluginViewTable.getViewSchema(definition));
                         Plan pluginViewPlan = parseAndAnalyzeExternalView(externalView,
-                                pluginCatalog, pluginDb, cascadesContext);
+                                pluginCatalog, pluginDb, bindingDb, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
@@ -1038,7 +1043,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeExternalView(
-            ExternalView view, String externalCatalog, String externalDb, CascadesContext cascadesContext) {
+            ExternalView view, String externalCatalog, String externalDb, Optional<ViewDefaultDatabase> bindingDb,
+            CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
         String convertedSql = SqlDialectHelper.convertSqlByDialect(view.getViewText(), ctx.getSessionVariable());
@@ -1046,7 +1052,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // so that we can parse and analyze the view sql in external context.
         try {
             ctx.setViewDefaultNamespace(externalCatalog, externalDb);
-            Plan body = parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext);
+            Plan body = parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext, bindingDb);
             LogicalView<Plan> logicalView = new LogicalView<>(view, body);
             List<Slot> declaredOutputs = logicalView.getOutput();
             List<Slot> bodyOutputs = body.getOutput();
@@ -1071,7 +1077,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
-            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
+            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext, Optional.empty());
             if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, viewInfo.second)) {
                 SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
                 analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
@@ -1080,7 +1086,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return analyzedPlan;
     }
 
-    private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {
+    private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext,
+            Optional<ViewDefaultDatabase> bindingDb) {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
         Optional<SqlCacheContext> sqlCacheContextOpt = parentContext.getStatementContext().getSqlCacheContext();
         if (sqlCacheContextOpt.isPresent()) {
@@ -1106,6 +1113,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
+        viewContext.setViewDefaultDatabase(bindingDb);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
             viewContext.newAnalyzer().analyze();
         });

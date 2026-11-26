@@ -21,6 +21,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.ViewDefaultDatabase;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -98,6 +99,7 @@ public class CascadesContext implements ScheduleContext {
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
     private final StatementContext statementContext;
+    private Optional<ViewDefaultDatabase> viewDefaultDatabase = Optional.empty();
 
     private CTEContext cteContext;
     private final RuleSet ruleSet;
@@ -237,6 +239,15 @@ public class CascadesContext implements ScheduleContext {
             root = root.getParent().get();
         }
         return root;
+    }
+
+    /** Subqueries and CTEs share their view's root. A nested view starts its own analysis root. */
+    public Optional<ViewDefaultDatabase> getViewDefaultDatabase() {
+        return getRoot().viewDefaultDatabase;
+    }
+
+    public void setViewDefaultDatabase(Optional<ViewDefaultDatabase> database) {
+        this.viewDefaultDatabase = database;
     }
 
     public Optional<CascadesContext> getParent() {

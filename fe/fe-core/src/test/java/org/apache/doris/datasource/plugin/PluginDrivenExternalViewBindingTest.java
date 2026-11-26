@@ -22,6 +22,7 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -31,6 +32,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.analyzer.ViewDefaultDatabase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -191,6 +193,36 @@ public class PluginDrivenExternalViewBindingTest extends TestWithFeService {
                 () -> f.query("SELECT x FROM " + VIEW_DB + ".v").analyze());
         Assertions.assertEquals("Current database is not set.", error.getMessage());
         assertCallerRestored();
+    }
+
+    @Test
+    public void inferredNamespaceChecksCachedTablesInsideSubqueriesAndCtes() {
+        TableIf wrongTable = Env.getCurrentInternalCatalog().getDbNullable(VIEW_DB).getTableNullable("t");
+        for (String body : Arrays.asList("SELECT x FROM (SELECT x FROM t) s",
+                "WITH c AS (SELECT x FROM t) SELECT x FROM c")) {
+            Fixture fixture = new Fixture(definition(body, SOURCE_DB, "x"));
+            PlanChecker query = fixture.query("SELECT x FROM " + VIEW_DB + ".v");
+            query.getCascadesContext().getStatementContext().getTables()
+                    .put(ImmutableList.of("internal", SOURCE_DB, "t"), wrongTable);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class, query::analyze);
+            Assertions.assertTrue(error.getMessage().contains("physical database '" + SOURCE_DB + "'"));
+            assertCallerRestored();
+        }
+    }
+
+    @Test
+    public void connectorDatabaseIdentityUsesItsRemoteNameAndCatalog() {
+        Fixture fixture = new Fixture(definition("SELECT 1 AS x", SOURCE_DB, "x"));
+        PluginDrivenExternalCatalog target = (PluginDrivenExternalCatalog) fixture.table.getCatalog();
+        PluginDrivenExternalDatabase mapped = new PluginDrivenExternalDatabase(target, 10004L, "local_db", "RemoteDb");
+        Mockito.doReturn(mapped).when(fixture.table).getDatabase();
+        Assertions.assertDoesNotThrow(() -> new ViewDefaultDatabase(target, "RemoteDb").checkTable(fixture.table));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new ViewDefaultDatabase(target, "remotedb").checkTable(fixture.table));
+        PluginDrivenExternalCatalog other = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(other.getName()).thenReturn(target.getName());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new ViewDefaultDatabase(other, "RemoteDb").checkTable(fixture.table));
     }
 
     @Test

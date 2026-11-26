@@ -137,6 +137,13 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     String dottedLevel = "${storeDb}.${storeDb}"
     createView("v_literal_dot", "SELECT x FROM rooted_base", ["x"], [:], catalog, dottedLevel)
     createView("v_literal_dot_qualified", "SELECT x FROM ${catalog}.${sourceDb}.t", ["x"], [:], catalog, dottedLevel)
+    // Spark namespaces can spell the built-in Doris databases. Only an explicit SQL qualifier can select them.
+    createView("v_saved_info_schema", "SELECT 1 AS x FROM tables", ["x"], [:], catalog, "information_schema")
+    createView("v_saved_mysql", "SELECT 1 AS x FROM `user`", ["x"], [:], "demo", "MySQL")
+    createView("v_explicit_info_schema", "SELECT 1 AS x FROM information_schema.tables", ["x"], [:],
+            catalog, "information_schema")
+    createView("v_unused_info_schema", "WITH tables AS (SELECT 1 AS x) SELECT x FROM tables", ["x"], [:],
+            catalog, "information_schema")
     List rootedNamespace = [storeDb, storeDb]
     createView("v_rooted", "SELECT x FROM rooted_base", ["x"], [:], null, rootedNamespace, [], [storeDb])
     createView("v_foreign_rooted", "SELECT x FROM rooted_base", ["x"], [:], rootedCatalog, rootedNamespace)
@@ -226,6 +233,14 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     }
     sql "SELECT x FROM v_literal_dot_qualified LIMIT 0"
     sql "SELECT x FROM v_foreign_rooted LIMIT 0"
+    for (String view : ["v_saved_info_schema", "v_saved_mysql"]) {
+        test {
+            sql "SELECT x FROM ${view}"
+            exception "does not resolve to its physical database"
+        }
+    }
+    sql "SELECT x FROM v_explicit_info_schema LIMIT 0"
+    sql "SELECT x FROM v_unused_info_schema LIMIT 0"
     order_qt_engine_doris "SELECT * FROM v_engine_doris"
     order_qt_engine_missing "SELECT * FROM v_engine_missing"
     order_qt_engine_empty "SELECT * FROM v_engine_empty"
