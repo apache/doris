@@ -197,14 +197,12 @@ public class OlapTableWrapperTest {
     }
 
     @Test
-    public void testCloudChangelogWrapperWithFixedVisibleVersionsUsesOriginTable() {
+    public void testCloudChangelogWrapperPrunesUsingFixedVisibleVersions() {
         long emptyPartitionId = 100L;
         long nonEmptyPartitionId = 101L;
         List<Long> partitionIds = ImmutableList.of(emptyPartitionId, nonEmptyPartitionId);
 
         OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true)));
-        Mockito.doReturn(ImmutableList.of(nonEmptyPartitionId)).when(table)
-                .selectNonEmptyPartitionIds(partitionIds, Optional.empty());
         OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table, Map.of(
                 emptyPartitionId, new PartitionScanState(null, Partition.PARTITION_INIT_VERSION, null),
                 nonEmptyPartitionId, new PartitionScanState(null, 2L, null)));
@@ -215,7 +213,7 @@ public class OlapTableWrapperTest {
 
             Assertions.assertEquals(ImmutableList.of(nonEmptyPartitionId),
                     wrapper.selectNonEmptyPartitionIds(partitionIds, Optional.empty()));
-            Mockito.verify(table).selectNonEmptyPartitionIds(partitionIds, Optional.empty());
+            Mockito.verify(table, Mockito.never()).selectNonEmptyPartitionIds(partitionIds, Optional.empty());
             mockedPartition.verifyNoInteractions();
         }
     }

@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -192,6 +193,16 @@ public class OlapTableWrapper extends OlapTable {
     @Override
     public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
             Optional<StreamReadMode> streamReadMode) {
+        if (hasFixedVisibleVersions()) {
+            // Use the same snapshot for pruning and scanning, even if the base table's version cache is stale.
+            List<Long> nonEmptyPartitionIds = new ArrayList<>(partitionIds.size());
+            for (Long partitionId : partitionIds) {
+                if (partitionScanStates.get(partitionId).visibleVersion > Partition.PARTITION_INIT_VERSION) {
+                    nonEmptyPartitionIds.add(partitionId);
+                }
+            }
+            return nonEmptyPartitionIds;
+        }
         return originTable.selectNonEmptyPartitionIds(partitionIds, streamReadMode);
     }
 
