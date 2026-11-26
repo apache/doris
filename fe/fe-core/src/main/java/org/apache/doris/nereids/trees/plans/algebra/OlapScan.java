@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 
 import java.util.List;
@@ -29,6 +30,8 @@ public interface OlapScan {
     OlapTable getTable();
 
     long getSelectedIndexId();
+
+    List<Slot> getOutput();
 
     List<Long> getSelectedPartitionIds();
 

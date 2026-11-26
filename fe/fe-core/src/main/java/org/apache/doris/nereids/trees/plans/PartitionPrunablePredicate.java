@@ -17,14 +17,23 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -45,9 +54,8 @@ import java.util.Set;
  * {@code PhysicalOlapScan}) so we no longer need to match it back to its scan
  * via a table identifier. Because rewrites between recording and removal may
  * rebuild the scan with fresh slot ids, {@link #snapshotPartitionSlots}
- * captures the slots that appear in the recorded conjuncts. The post-processor
- * maps them onto the actual scan's output slots by column name before
- * performing the conjunct removal.
+ * captures the slots that appear in the recorded conjuncts. Statistics estimation
+ * and physical post-processing map them onto the scan's current output slots.
  */
 public class PartitionPrunablePredicate {
     private final Set<Long> selectedPartitionIds;
@@ -81,15 +89,57 @@ public class PartitionPrunablePredicate {
         return Objects.hash(selectedPartitionIds, snapshotPartitionSlots, prunableConjuncts);
     }
 
-    public Set<Long> getSelectedPartitionIds() {
-        return selectedPartitionIds;
+    /** Whether the proof covers every partition in the supplied list. */
+    public boolean coversPartitions(List<Long> partitionIds) {
+        return selectedPartitionIds.containsAll(partitionIds);
     }
 
-    public List<Slot> getSnapshotPartitionSlots() {
-        return snapshotPartitionSlots;
+    /** Return the proven conjuncts on the scan's current slots when the proof applies to the scan. */
+    public Set<Expression> getPrunableConjunctsForScan(OlapScan scan) {
+        if (!coversPartitions(scan.getSelectedPartitionIds())) {
+            return ImmutableSet.of();
+        }
+
+        Map<String, Slot> nameToOutputSlot = buildNameToSlotMap(scan);
+        Map<Expression, Expression> replaceMap = new HashMap<>(snapshotPartitionSlots.size());
+        for (Slot snapshot : snapshotPartitionSlots) {
+            Slot current = nameToOutputSlot.get(snapshot.getName().toLowerCase());
+            if (current == null) {
+                return ImmutableSet.of();
+            }
+            if (!snapshot.equals(current)) {
+                replaceMap.put(snapshot, current);
+            }
+        }
+        if (replaceMap.isEmpty()) {
+            return prunableConjuncts;
+        }
+        return prunableConjuncts.stream().map(conjunct -> ExpressionUtils.replace(conjunct, replaceMap))
+                .collect(ImmutableSet.toImmutableSet());
     }
 
-    public Set<Expression> getPrunableConjuncts() {
-        return prunableConjuncts;
+    private static Map<String, Slot> buildNameToSlotMap(OlapScan scan) {
+        List<Slot> slots = scan.getOutput();
+        Map<String, Slot> map = new HashMap<>(slots.size());
+        if (scan.getSelectedIndexId() == scan.getTable().getBaseIndexId()) {
+            for (Slot slot : slots) {
+                map.put(slot.getName().toLowerCase(), slot);
+            }
+        } else {
+            for (Slot slot : slots) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                Optional<Column> column = ((SlotReference) slot).getOriginalColumn();
+                if (!column.isPresent()) {
+                    continue;
+                }
+                Expr expr = column.get().getDefineExpr();
+                if (expr instanceof SlotRef) {
+                    map.put(((SlotRef) expr).getColumnName().toLowerCase(), slot);
+                }
+            }
+        }
+        return map;
     }
 }

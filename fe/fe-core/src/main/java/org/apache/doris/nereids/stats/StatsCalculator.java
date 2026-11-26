@@ -664,8 +664,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setRowCount(selectedPartitionsRowCount);
             Statistics selectedStats = computeVirtualColumnStats(olapScan, builder.build());
             return olapScan.getPartitionPrunablePredicates()
-                    .filter(proof -> proof.getSelectedPartitionIds().containsAll(olapScan.getSelectedPartitionIds()))
-                    .map(proof -> withPartitionPredicateProof(selectedStats, proof.getPrunableConjuncts()))
+                    .map(proof -> proof.getPrunableConjunctsForScan(olapScan))
+                    .filter(conjuncts -> !conjuncts.isEmpty())
+                    .map(conjuncts -> withPartitionPredicateProof(selectedStats, conjuncts))
                     .orElse(selectedStats);
         } else {
             // get table level stats

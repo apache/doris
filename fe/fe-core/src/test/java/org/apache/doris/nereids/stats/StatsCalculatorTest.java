@@ -309,6 +309,24 @@ public class StatsCalculatorTest {
     }
 
     @Test
+    public void testProvenPartitionFilterUsesCopiedSlot() {
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, newTableStatistic(2), null)) {
+            SlotReference snapshot = fixture.slot.withExprId(new ExprId(2));
+            PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                    ImmutableSet.copyOf(fixture.scan.getSelectedPartitionIds()), ImmutableList.of(snapshot),
+                    ImmutableSet.of(new EqualTo(snapshot, new IntegerLiteral(2))));
+            Mockito.when(fixture.scan.getPartitionPrunablePredicates()).thenReturn(Optional.of(proof));
+
+            EqualTo predicate = new EqualTo(fixture.slot, new IntegerLiteral(2));
+            LogicalFilter<Plan> filter = new LogicalFilter<>(ImmutableSet.of(predicate), new DummyPlan());
+            Statistics selected = fixture.computeOlapScan();
+            Assertions.assertEquals(4, new StatsCalculator(null).computeFilter(filter, selected).getRowCount());
+            Assertions.assertEquals(1, selected.findColumnStatistics(fixture.slot).ndv);
+            Assertions.assertEquals(0, selected.findColumnStatistics(fixture.slot).numNulls);
+        }
+    }
+
+    @Test
     public void testExplicitScanRowsDoNotInvalidateWholeIndexNdv() {
         ColumnStatistic tableStatistic = new ColumnStatisticBuilder(100_000).setNdv(50_000).build();
         try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, tableStatistic, null, true, false)) {
