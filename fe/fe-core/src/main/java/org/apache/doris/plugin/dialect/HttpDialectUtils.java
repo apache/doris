@@ -30,6 +30,7 @@ import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import javax.annotation.Nullable;
 
 /**
  * This class is used to convert sql with different dialects using sql convertor service.
@@ -40,6 +41,12 @@ public class HttpDialectUtils {
 
     public static String convertSql(String targetURL, String originStmt, String dialect,
             String[] features, String config) {
+        return convertSql(targetURL, originStmt, dialect, features, config, originStmt);
+    }
+
+    @Nullable
+    static String convertSql(String targetURL, String originStmt, String dialect,
+            String[] features, String config, @Nullable String onFailure) {
         ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect, features, config);
 
         HttpURLConnection connection = null;
@@ -81,21 +88,21 @@ public class HttpDialectUtils {
                     if (result.code == 0) {
                         if (!"v1".equals(result.version)) {
                             LOG.warn("failed to convert sql, response version is not v1: {}", result.version);
-                            return originStmt;
+                            return onFailure;
                         }
                         return result.data;
                     } else {
                         LOG.warn("failed to convert sql, response: {}", result);
-                        return originStmt;
+                        return onFailure;
                     }
                 }
             } else {
                 LOG.warn("failed to convert sql, response code: {}", responseCode);
-                return originStmt;
+                return onFailure;
             }
         } catch (Exception e) {
             LOG.warn("failed to convert sql", e);
-            return originStmt;
+            return onFailure;
         } finally {
             if (connection != null) {
                 connection.disconnect();

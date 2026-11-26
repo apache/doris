@@ -99,6 +99,15 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
 
     @Override
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
+        return convertSql(originSql, sessionVariable, originSql);
+    }
+
+    @Override
+    public @Nullable String tryConvertSql(String originSql, SessionVariable sessionVariable) {
+        return convertSql(originSql, sessionVariable, null);
+    }
+
+    private String convertSql(String originSql, SessionVariable sessionVariable, @Nullable String onFailure) {
         String targetURL = GlobalVariable.sqlConverterServiceUrl;
         if (Strings.isNullOrEmpty(targetURL)) {
             return null;
@@ -113,7 +122,7 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
             }
         }
         return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect(),
-                sessionVariable.getSqlConvertorFeatures(), sessionVariable.getSqlConvertorConfig());
+                sessionVariable.getSqlConvertorFeatures(), sessionVariable.getSqlConvertorConfig(), onFailure);
     }
 
     // no need to override parseSqlWithDialect, just return null

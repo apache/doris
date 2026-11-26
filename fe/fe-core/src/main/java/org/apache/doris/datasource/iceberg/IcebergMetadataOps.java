@@ -43,6 +43,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -2219,6 +2220,21 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {
         Namespace ns = getNamespace(dbName);
         return TableIdentifier.of(ns, tblName);
+    }
+
+    /** Resolve the remote view namespace through the same database names Doris lists and loads. */
+    String getViewDatabase(Namespace namespace, String viewName) {
+        if (namespace.isEmpty()) {
+            return "";
+        }
+        String remoteName = nestedNamespaceEnabled ? namespace.toString() : namespace.level(namespace.length() - 1);
+        ExternalDatabase<?> database = dorisCatalog.getDbNullable(dorisCatalog.fromRemoteDatabaseName(remoteName));
+        if (database == null || !getNamespace(database.getRemoteName()).equals(namespace)) {
+            throw new AnalysisException("Cannot map default namespace '"
+                    + namespace + "' of Iceberg view '" + viewName + "' to a database in catalog '"
+                    + dorisCatalog.getName() + "'");
+        }
+        return database.getFullName();
     }
 
     private Namespace getNamespace(String dbName) {

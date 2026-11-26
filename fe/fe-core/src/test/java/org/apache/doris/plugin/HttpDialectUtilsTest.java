@@ -17,7 +17,10 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -69,6 +72,25 @@ public class HttpDialectUtilsTest {
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
         res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(originSql, res);
+    }
+
+    @Test
+    public void testStrictConversionDistinguishesIdentityFromFailure() {
+        String previousUrl = GlobalVariable.sqlConverterServiceUrl;
+        try {
+            GlobalVariable.sqlConverterServiceUrl = "http://127.0.0.1:" + port + "/api/v1/convert";
+            HttpDialectConverterPlugin plugin = new HttpDialectConverterPlugin();
+            SessionVariable session = new SessionVariable();
+            session.setSqlDialect("trino");
+            String sql = "SELECT 1";
+            server.setResponse("{\"version\":\"v1\",\"code\":400}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            Assert.assertEquals(sql, plugin.convertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 1\"}");
+            Assert.assertEquals(sql, plugin.tryConvertSql(sql, session));
+        } finally {
+            GlobalVariable.sqlConverterServiceUrl = previousUrl;
+        }
     }
 
     private static int findValidPort() {
