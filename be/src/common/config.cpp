@@ -2174,8 +2174,8 @@ DEFINE_Validator(ann_index_build_min_segment_rows,
 // vector and retain their physical rowids. Once such data is written, keep this enabled for
 // subsequent index writes, including compaction, index rebuilds and Group Commit WAL replay.
 // Downgrading to a version without sparse ANN label support is unsupported. Readers do not
-// check this flag. Approximate distances return NULL for empty arrays; sparse segments
-// use scalar TopN evaluation to preserve SQL NULL ordering and LIMIT.
+// check this flag. Scalar distance evaluation returns NULL for empty arrays. ANN TopN ranks
+// indexed vectors only and does not pad LIMIT with empty rows for NULLS FIRST/LAST.
 DEFINE_mBool(enable_ann_index_empty_array, "false");
 
 DEFINE_mBool(enable_wal_tde, "false");
