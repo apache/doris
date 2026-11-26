@@ -993,7 +993,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation
             return getTable().selectNonEmptyPartitionIds(selectedPartitionIds, getStreamReadMode());
         }
         return selectedPartitionIds.stream()
-                .filter(id -> fixedVersions.get(id) > Partition.PARTITION_INIT_VERSION)
+                .filter(id -> Partition.hasDataAtVersion(fixedVersions.get(id)))
                 .collect(Collectors.toCollection(ArrayList::new));
     }
 

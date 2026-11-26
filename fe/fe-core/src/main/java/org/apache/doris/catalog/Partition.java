@@ -409,6 +409,11 @@ public class Partition extends MetaObject {
         return replicaCount;
     }
 
+    /** Whether a captured visible version is past the partition's initial empty version. */
+    public static boolean hasDataAtVersion(long visibleVersion) {
+        return visibleVersion > PARTITION_INIT_VERSION;
+    }
+
     public boolean hasData() {
         // The fe unit test need to check the selected index id without any data.
         // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,

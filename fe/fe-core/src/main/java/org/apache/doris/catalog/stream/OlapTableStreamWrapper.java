@@ -135,7 +135,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         // The offset, counts and data generation come from one Meta Service read snapshot.
         ImmutableMap.Builder<Long, PartitionReadState> snapshots = ImmutableMap.builder();
         immutableReadStates.forEach((id, state) -> {
-            Pair<Long, Long> range = state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+            Pair<Long, Long> range = Partition.hasDataAtVersion(state.getVisibleVersion())
                     ? Pair.of(state.hasOffsetTso() ? state.getOffsetTso() : null, state.getEndTso()) : null;
             PartitionStreamState consumption = state.hasOffsetTso() ? PartitionStreamState.fromCloudReadState(state)
                     : null;
@@ -310,7 +310,7 @@ public class OlapTableStreamWrapper extends OlapTable {
             return partitionIds.stream()
                     .filter(id -> {
                         Cloud.TableStreamPartitionReadStatePB state = getCloudReadState(id);
-                        return state != null && state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
+                        return state != null && Partition.hasDataAtVersion(state.getVisibleVersion());
                     })
                     .collect(Collectors.toList());
         }
@@ -517,7 +517,7 @@ public class OlapTableStreamWrapper extends OlapTable {
                 // Not read at all: rows it holds are missing from the answer.
                 // A stale FE cache can still report this partition as empty after its first write.
                 boolean hasData = hasCloudReadStates()
-                        ? getCloudReadState(partitionId).getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+                        ? Partition.hasDataAtVersion(getCloudReadState(partitionId).getVisibleVersion())
                         : getBaseTable().getPartition(partitionId).hasData();
                 if (hasData) {
                     return false;

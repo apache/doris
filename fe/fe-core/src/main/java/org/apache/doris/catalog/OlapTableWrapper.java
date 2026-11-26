@@ -197,7 +197,7 @@ public class OlapTableWrapper extends OlapTable {
             // Use the same snapshot for pruning and scanning, even if the base table's version cache is stale.
             List<Long> nonEmptyPartitionIds = new ArrayList<>(partitionIds.size());
             for (Long partitionId : partitionIds) {
-                if (partitionScanStates.get(partitionId).visibleVersion > Partition.PARTITION_INIT_VERSION) {
+                if (Partition.hasDataAtVersion(partitionScanStates.get(partitionId).visibleVersion)) {
                     nonEmptyPartitionIds.add(partitionId);
                 }
             }
