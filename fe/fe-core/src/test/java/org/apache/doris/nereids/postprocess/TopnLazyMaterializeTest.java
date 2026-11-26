@@ -260,10 +260,8 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         boolean feDebug = connectContext.getSessionVariable().feDebug;
         connectContext.getSessionVariable().feDebug = false;
         try {
-            // The generate conjunct reads `x`, which is an alias of lazy_col. PhysicalGenerate exposes
-            // only its generators through getInputSlots(), so the conjunct inputs have to be resolved
-            // explicitly: otherwise lazy_col is pruned from the scan while `lazy_col AS x` below the
-            // generate still reads it. Only other_col (read by nothing below the TopN) stays lazy.
+            // The generate conjunct reads `x`, which is an alias of lazy_col. Only other_col stays lazy
+            // because nothing below the TopN reads it.
             PhysicalPlan plan = postProcess("select s.y, s.w from (select lazy_col as x, lazy_col as y, "
                     + "other_col as w, arr, sort_col from lazy_materialize_lateral_tbl) s "
                     + "left join lateral unnest(s.arr) tt(tag) on tt.tag = s.x "
@@ -274,9 +272,8 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
             Assertions.assertEquals(ImmutableList.of(ImmutableList.of(2)),
                     materializeNodes.get(0).getLazyBaseColumnIndices(), plan.treeString());
 
-            // The conjunct reads the bare lazy_col, which the same Project also aliases as `y`. Probing
-            // `y` resolves through that alias to lazy_col and no operator below the TopN stops the probe
-            // for the bare slot, so lazy_col has to stay materialized for the conjunct as well.
+            // The conjunct also keeps lazy_col materialized when it reads the bare slot and the
+            // Project returns that column under the alias `y`.
             plan = postProcess("select s.y, s.w from (select lazy_col as y, other_col as w, arr, sort_col, "
                     + "lazy_col from lazy_materialize_lateral_tbl) s "
                     + "left join lateral unnest(s.arr) tt(tag) on tt.tag = s.lazy_col "

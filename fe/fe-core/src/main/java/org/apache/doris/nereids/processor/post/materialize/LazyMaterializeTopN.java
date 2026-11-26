@@ -37,20 +37,17 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -366,15 +363,6 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         if (plan instanceof PhysicalFilter
                 && MaterializeProbeVisitor.isIndexLazyFilter((PhysicalFilter<?>) plan)) {
             indexLazySlots.addAll(plan.getInputSlots());
-        }
-        if (plan instanceof PhysicalGenerate) {
-            // PhysicalGenerate.getExpressions() exposes the generators only, while the lateral conjuncts
-            // are preserved by the implementation rule and executed by the generate itself. Generator
-            // outputs are produced by the generate, never by the child, exactly like LogicalGenerate.
-            PhysicalGenerate<?> generate = (PhysicalGenerate<?>) plan;
-            consumedSlots.addAll(Sets.difference(
-                    PlanUtils.fastGetInputSlots(generate.getConjuncts()),
-                    new HashSet<>(generate.getGeneratorOutput())));
         }
         for (Plan child : plan.children()) {
             collectConsumedSlots(child, consumedSlots, indexLazySlots);
