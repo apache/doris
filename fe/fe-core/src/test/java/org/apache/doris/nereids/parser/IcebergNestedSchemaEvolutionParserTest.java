@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ColumnPath;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -119,18 +120,24 @@ public class IcebergNestedSchemaEvolutionParserTest {
                     AddColumnOp add = assertSingleClausePath("ALTER TABLE t ADD COLUMN " + path
                             + " STRING NOT NULL DEFAULT 'owner''s \"field\" " + sqlPath + "'",
                             AddColumnOp.class, path);
-                    Assertions.assertEquals(expected, add.getColumnDef().getDefaultValueString());
+                    Assertions.assertEquals(expected, externalAddDefault(add));
                     AddColumnOp reparsed = assertSingleClausePath("ALTER TABLE t " + add.toSql(),
                             AddColumnOp.class, path);
-                    Assertions.assertEquals(expected, reparsed.getColumnDef().getDefaultValueString());
+                    Assertions.assertEquals(expected, externalAddDefault(reparsed));
                 }
                 AddColumnOp escaped = assertSingleClausePath(
                         "ALTER TABLE t ADD COLUMN s.text STRING DEFAULT 'line\\nnext'",
                         AddColumnOp.class, "s.text");
                 Assertions.assertEquals(noBackslashEscapes ? "line\\nnext" : "line\nnext",
-                        escaped.getColumnDef().getDefaultValueString());
+                        externalAddDefault(escaped));
             }
         }
+    }
+
+    private String externalAddDefault(AddColumnOp add) {
+        add.getColumnDef().validateForAddColumn(false, Collections.emptySet(), Collections.emptySet(),
+                false, KeysType.DUP_KEYS, add.getColumnPath().isNested());
+        return add.getColumnDef().getDefaultValueString();
     }
 
     @Test

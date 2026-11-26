@@ -134,7 +134,6 @@ public class Column implements GsonPostProcessable {
         afterValueColumn.setIsAllowNull(true);
         // clear default value
         afterValueColumn.defaultValue = null;
-        afterValueColumn.decodedDefaultBackslashes = null;
         afterValueColumn.defaultValueExprDef = null;
         afterValueColumn.realDefaultValue = null;
         return afterValueColumn;
@@ -149,7 +148,6 @@ public class Column implements GsonPostProcessable {
         beforeValueColumn.setIsAllowNull(true);
         // clear default value
         beforeValueColumn.defaultValue = null;
-        beforeValueColumn.decodedDefaultBackslashes = null;
         beforeValueColumn.defaultValueExprDef = null;
         beforeValueColumn.realDefaultValue = null;
         return beforeValueColumn;
@@ -185,10 +183,6 @@ public class Column implements GsonPostProcessable {
     private long autoIncInitValue;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
-    // Older images stored the SQL source between the delimiters. Only a decoded literal containing a
-    // backslash needs a different representation when it is turned back into SQL.
-    @SerializedName(value = "decodedDefaultBackslashes")
-    private Boolean decodedDefaultBackslashes;
     // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
     // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
     private transient String connectorDefaultValueSql;
@@ -362,9 +356,6 @@ public class Column implements GsonPostProcessable {
         this.isAutoInc = autoIncInitValue != -1;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
-        if (defaultValueExprDef == null && defaultValue != null && defaultValue.indexOf('\\') >= 0) {
-            this.decodedDefaultBackslashes = true;
-        }
         this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
         this.comment = StringUtils.isBlank(comment) ? null : comment;
@@ -428,7 +419,6 @@ public class Column implements GsonPostProcessable {
         this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
-        this.decodedDefaultBackslashes = column.decodedDefaultBackslashes;
         this.connectorDefaultValueSql = column.connectorDefaultValueSql;
         this.connectorStringWriteType = column.connectorStringWriteType;
         this.realDefaultValue = column.realDefaultValue;
@@ -693,10 +683,6 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDefaultValueSql() {
-        return getDefaultValueSql(false);
-    }
-
-    public String getDefaultValueSql(boolean noBackslashEscapes) {
         if (connectorDefaultValueSql != null) {
             return connectorDefaultValueSql;
         }
@@ -709,16 +695,8 @@ public class Column implements GsonPostProcessable {
         if (this.type.isNumericType()) {
             return defaultValue;
         } else {
-            return quoteDefaultValue(noBackslashEscapes);
-        }
-    }
-
-    private String quoteDefaultValue(boolean noBackslashEscapes) {
-        if (decodedDefaultBackslashes == null && defaultValue.indexOf('\\') >= 0) {
-            // Preserve the old INSERT parser's quoting and its interpretation in the active SQL mode.
             return "'" + defaultValue.replace("'", "''") + "'";
         }
-        return SqlUtils.quoteStringLiteral(defaultValue, noBackslashEscapes);
     }
 
     public Type getConnectorStringWriteType() {
@@ -940,11 +918,6 @@ public class Column implements GsonPostProcessable {
 
     /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
     public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
-        return toSql(isUniqueTable, isCompatible, useGeneratedColumnPlaceholder, false);
-    }
-
-    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder,
-            boolean noBackslashEscapes) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
@@ -975,7 +948,7 @@ public class Column implements GsonPostProcessable {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
-                sb.append(" DEFAULT ").append(quoteDefaultValue(noBackslashEscapes));
+                sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
         if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {
@@ -1001,7 +974,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, decodedDefaultBackslashes, clusterKeyId);
+                realDefaultValue, clusterKeyId);
     }
 
     @Override
@@ -1017,7 +990,6 @@ public class Column implements GsonPostProcessable {
 
         return name.equalsIgnoreCase(other.name)
                 && Objects.equals(getDefaultValue(), other.getDefaultValue())
-                && Objects.equals(decodedDefaultBackslashes, other.decodedDefaultBackslashes)
                 && Objects.equals(aggregationType, other.aggregationType)
                 && isAggregationTypeImplicit == other.isAggregationTypeImplicit
                 && isKey == other.isKey
@@ -1040,7 +1012,6 @@ public class Column implements GsonPostProcessable {
 
         boolean ok = name.equalsIgnoreCase(other.name)
                 && Objects.equals(getDefaultValue(), other.getDefaultValue())
-                && Objects.equals(decodedDefaultBackslashes, other.decodedDefaultBackslashes)
                 && Objects.equals(aggregationType, other.aggregationType)
                 && isAggregationTypeImplicit == other.isAggregationTypeImplicit
                 && isKey == other.isKey
@@ -1200,7 +1171,6 @@ public class Column implements GsonPostProcessable {
 
     public void setDefaultValueInfo(Column refColumn) {
         this.defaultValue = refColumn.defaultValue;
-        this.decodedDefaultBackslashes = refColumn.decodedDefaultBackslashes;
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }

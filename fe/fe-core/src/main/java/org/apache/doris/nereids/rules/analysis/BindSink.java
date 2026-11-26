@@ -105,7 +105,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -554,7 +553,7 @@ public class BindSink implements AnalysisRuleFactory {
                 } else {
                     try {
                         Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                column.getDefaultValueSql(SqlModeHelper.hasNoBackSlashEscapes()));
+                                column.getDefaultValueSql());
                         Expression defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundDefaultValue);
                         if (defaultValueExpression instanceof Alias) {

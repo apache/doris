@@ -91,19 +91,19 @@ public class CreateTableLikeTest extends TestWithFeService {
     }
 
     @Test
-    public void testLikePreservesStringDefaultAcrossSqlModes() throws Exception {
+    public void testLikePreservesStringDefaultSourceAcrossSqlModes() throws Exception {
         SessionVariable session = connectContext.getSessionVariable();
         long previousMode = session.getSqlMode();
         try {
             session.setSqlMode(0L);
-            createTable("create table test.string_default_src (k int, v string default 'a\\\\b\"\\\\') "
+            createTable("create table test.string_default_src (k int, v string default 'a\\\\b\\\\') "
                     + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
             for (long mode : new long[] {0L, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
                 session.setSqlMode(mode);
                 String target = "string_default_copy_" + mode;
                 createTableLike("create table test." + target + " like test.string_default_src");
-                Assertions.assertEquals("a\\b\"\\", db.getTableOrDdlException(target).getColumn("v").getDefaultValue());
+                Assertions.assertEquals("a\\\\b\\\\", db.getTableOrDdlException(target).getColumn("v").getDefaultValue());
             }
         } finally {
             session.setSqlMode(previousMode);

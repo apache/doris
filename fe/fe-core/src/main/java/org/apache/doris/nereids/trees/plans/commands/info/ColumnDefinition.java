@@ -313,7 +313,7 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append(SqlLiteralUtils.quoteStringLiteral(value))
+                        sb.append("DEFAULT ").append(defaultValue.get().getLiteralSql())
                                 .append(" ");
                     }
                 } else if (type.isBitmapType()) {
@@ -559,6 +559,9 @@ public class ColumnDefinition {
             }
         }
 
+        if (!isOlap) {
+            defaultValue = defaultValue.map(DefaultValue::forExternalColumn);
+        }
         // check default value
         if (type.isHllType()) {
             if (defaultValue.isPresent()) {
