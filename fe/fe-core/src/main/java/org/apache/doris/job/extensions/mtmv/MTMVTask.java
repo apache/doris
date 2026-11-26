@@ -2231,14 +2231,6 @@ public class MTMVTask extends AbstractTask {
         return ivmFailureReason;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
-    public long getMtmvId() {
-        return mtmvId;
-    }
-
     public long getIvmSummarySeq() {
         return ivmSummarySeq;
     }

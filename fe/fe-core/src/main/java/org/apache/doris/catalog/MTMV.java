@@ -410,11 +410,6 @@ public class MTMV extends OlapTable {
         EditLogItem editLogItem;
         writeMvLock();
         try {
-            // Drop takes this same lock before it journals the removal. If it already marked the MV
-            // dropped, a late result must not add a sequence that replay would have no target for.
-            if (!isReplay && isDropped) {
-                return false;
-            }
             // Read once, here: the task's worker thread may still be merging into this map, and the two
             // places that use it -- applying the epochs and journaling them -- have to describe the same
             // set of partitions. The getter hands out a detached copy for the same reason.

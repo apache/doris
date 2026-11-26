@@ -558,12 +558,14 @@ public class AlterMTMVTest extends TestWithFeService {
         AlterMTMV oldNameResult = failedIvmTaskResult(db.getId(), mv, 1);
         alterMv("ALTER MATERIALIZED VIEW ivm_old_name RENAME ivm_new_name");
 
-        // The rename was journaled before a task result that had already captured the old name.
+        // The old name no longer resolves. A later result must still advance the summary.
         replayFromJournal(oldNameResult);
+        Assertions.assertEquals(0L, mv.getIvmRefreshMetricValues().failedTaskCount());
+
         replayFromJournal(failedIvmTaskResult(db.getId(), mv, 2));
         Assertions.assertEquals("ivm_new_name", mv.getName());
-        Assertions.assertEquals(2L, mv.getIvmRefreshMetricValues().failedTaskCount());
-        Assertions.assertEquals(2, mv.getIvmRefreshMetricValues().consecutiveFailures());
+        Assertions.assertEquals(1L, mv.getIvmRefreshMetricValues().failedTaskCount());
+        Assertions.assertEquals(1, mv.getIvmRefreshMetricValues().consecutiveFailures());
     }
 
     private static AlterMTMV failedIvmTaskResult(long dbId, MTMV mv, long seq) {
