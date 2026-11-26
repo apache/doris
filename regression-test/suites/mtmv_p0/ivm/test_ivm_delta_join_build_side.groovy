@@ -123,7 +123,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         def plan = sql_return_maparray "EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
         def nodes = plan.findResults { row ->
             row["Explain String(Nereids Planner)"]
-                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|hashAgg\b|Used: leading\([^)]+\)/)
+                    .find(/hashJoin\[[A-Z_]+|NestedLoopJoin\[[A-Z_]+\]|PhysicalOlapScan\[[^\]]+\]|hashAgg\b|^(?:Un)?Used: leading\([^)]+\)/)
                     ?.replace("hashJoin[", "")
         }
         try (def stmt = prepareStatement("SELECT ?")) {
@@ -143,9 +143,8 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         checkJoinAndScanOrder("dup_inner", "ivm_build_dup")
         checkJoinAndScanOrder("mow_inner", "ivm_build_mow")
         for (def mv : orderedViews) {
-            if (!mv.endsWith("_leading")) {
-                checkJoinAndScanOrder(mv.substring("ivm_build_".length()), mv)
-            }
+            def tag = mv.substring("ivm_build_".length())
+            checkJoinAndScanOrder(mv.endsWith("_leading") ? tag + "_disabled" : tag, mv)
         }
         checkJoinAndScanOrder("mow_outer", "ivm_build_outer")
         // Folding IF removes the cross-input equality. Keep the parallel left nested-loop join.

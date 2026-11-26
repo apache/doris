@@ -119,8 +119,9 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
     private boolean shouldUseFallback(LogicalJoin<?, ?> join) {
         InputEstimate probe = estimate(join.left());
         InputEstimate build = estimate(join.right());
+        // The optimizer can still find a small build input when a derived cardinality is uncertain.
         if (probe == InputEstimate.UNSUPPORTED || build == InputEstimate.UNSUPPORTED
-                || (probe.reliable && build.reliable)) {
+                || build == InputEstimate.UNKNOWN_DERIVED || (probe.stats != null && build.stats != null)) {
             return false;
         }
         return build.stats == null || !JoinUtils.checkBroadcastJoinStats(sessionVariable, build.stats.getRowCount(),
@@ -150,7 +151,7 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
     private InputEstimate estimateInput(Plan plan) {
         if (plan instanceof LogicalOlapScan) {
             return statsCalculator.estimateIvmInputScan((LogicalOlapScan) plan)
-                    .map(InputEstimate::new).orElse(InputEstimate.UNKNOWN);
+                    .map(InputEstimate::new).orElse(InputEstimate.UNKNOWN_SCAN);
         }
         if (plan instanceof LogicalEmptyRelation) {
             return new InputEstimate(statsCalculator.computeEmptyRelation((LogicalEmptyRelation) plan));
@@ -165,46 +166,38 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
         if (children.contains(InputEstimate.UNSUPPORTED)) {
             return InputEstimate.UNSUPPORTED;
         }
-        if (plan instanceof LogicalProject || plan instanceof LogicalLimit || plan instanceof LogicalFilter) {
-            return estimateUnaryInput(plan, children.get(0));
+        if (plan instanceof LogicalProject) {
+            InputEstimate input = children.get(0);
+            return input.stats == null
+                    ? input : new InputEstimate(statsCalculator.computeProject((LogicalProject<?>) plan, input.stats));
         }
-        if (children.stream().anyMatch(child -> !child.reliable)) {
-            return InputEstimate.UNKNOWN;
+        if (children.stream().anyMatch(child -> child.stats == null)) {
+            return InputEstimate.UNKNOWN_DERIVED;
         }
         if (unionAll) {
             return new InputEstimate(statsCalculator.computeUnion((LogicalUnion) plan,
                     children.stream().map(child -> child.stats).collect(Collectors.toList())));
         }
         Statistics first = children.get(0).stats;
+        if (plan instanceof LogicalLimit) {
+            return new InputEstimate(statsCalculator.computeLimit((LogicalLimit<?>) plan, first));
+        }
+        if (plan instanceof LogicalFilter) {
+            return plan.getInputSlots().stream().allMatch(slot -> isKnown(slot, first))
+                    ? new InputEstimate(statsCalculator.computeFilter((LogicalFilter<?>) plan, first))
+                    : InputEstimate.UNKNOWN_DERIVED;
+        }
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> aggregate = (LogicalAggregate<?>) plan;
             return PlanUtils.fastGetInputSlots(aggregate.getGroupByExpressions()).stream()
                     .allMatch(slot -> isKnown(slot, first))
-                    ? new InputEstimate(statsCalculator.computeAggregate(aggregate, first)) : InputEstimate.UNKNOWN;
+                    ? new InputEstimate(statsCalculator.computeAggregate(aggregate, first))
+                    : InputEstimate.UNKNOWN_DERIVED;
         }
         Statistics second = children.get(1).stats;
         return plan.getInputSlots().stream().allMatch(slot -> isKnown(slot, first) || isKnown(slot, second))
                 ? new InputEstimate(statsCalculator.computeJoin((LogicalJoin<?, ?>) plan, first, second))
-                : InputEstimate.UNKNOWN;
-    }
-
-    private InputEstimate estimateUnaryInput(Plan plan, InputEstimate input) {
-        if (input.stats == null) {
-            return InputEstimate.UNKNOWN;
-        }
-        if (plan instanceof LogicalProject) {
-            return new InputEstimate(statsCalculator.computeProject((LogicalProject<?>) plan, input.stats),
-                    input.reliable);
-        }
-        if (plan instanceof LogicalLimit) {
-            return new InputEstimate(statsCalculator.computeLimit((LogicalLimit<?>) plan, input.stats),
-                    input.reliable);
-        }
-        if (input.reliable && plan.getInputSlots().stream().allMatch(slot -> isKnown(slot, input.stats))) {
-            return new InputEstimate(statsCalculator.computeFilter((LogicalFilter<?>) plan, input.stats));
-        }
-        // An unestimable filter can only shrink its input. Keep that bound for broadcast eligibility.
-        return new InputEstimate(input.stats, false);
+                : InputEstimate.UNKNOWN_DERIVED;
     }
 
     private static boolean isKnown(Slot slot, Statistics stats) {
@@ -213,19 +206,14 @@ public class PreferIvmDeltaBuildSide extends DefaultPlanRewriter<Void> {
     }
 
     private static class InputEstimate {
-        private static final InputEstimate UNKNOWN = new InputEstimate(null, false);
-        private static final InputEstimate UNSUPPORTED = new InputEstimate(null, false);
+        private static final InputEstimate UNKNOWN_SCAN = new InputEstimate(null);
+        private static final InputEstimate UNKNOWN_DERIVED = new InputEstimate(null);
+        private static final InputEstimate UNSUPPORTED = new InputEstimate(null);
 
         private final Statistics stats;
-        private final boolean reliable;
 
         private InputEstimate(Statistics stats) {
-            this(stats, true);
-        }
-
-        private InputEstimate(Statistics stats, boolean reliable) {
             this.stats = stats;
-            this.reliable = reliable;
         }
     }
 }

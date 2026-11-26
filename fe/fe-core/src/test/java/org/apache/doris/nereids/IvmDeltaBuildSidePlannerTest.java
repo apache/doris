@@ -108,6 +108,23 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
     }
 
     @Test
+    void testUnreliableSnapshotFilterKeepsSmallerBuildAboveBroadcastLimit() throws Exception {
+        String sql = "SELECT d.k, s.k FROM delta_input d"
+                + " LEFT JOIN (SELECT k FROM snapshot_input WHERE p = 1) s ON d.k = s.k";
+        checkFinalPlan(sql, "snapshot_input", "p", 500, false, JoinType.LEFT_OUTER_JOIN, "snapshot_input", false);
+    }
+
+    @Test
+    void testUnreliableUnionSnapshotKeepsAutomaticBroadcast() throws Exception {
+        String sql = "SELECT d.k, s.k FROM delta_input d LEFT JOIN"
+                + " (SELECT k FROM snapshot_input WHERE p = 1 UNION ALL SELECT k FROM snapshot_input) s ON d.k = s.k";
+        for (boolean disableFallback : ImmutableList.of(true, false)) {
+            Assertions.assertEquals(DistributionSpecReplicated.class, checkFinalPlan(sql, "snapshot_input", "p", 5,
+                    disableFallback, JoinType.LEFT_OUTER_JOIN, "snapshot_input", false));
+        }
+    }
+
+    @Test
     void testInputEstimateFailurePreservesNormalPlanning() throws Exception {
         String sql = "SELECT d.k, s.k FROM (SELECT k FROM delta_input WHERE p IN (1.0, CAST('Infinity' AS DOUBLE))) d"
                 + " LEFT JOIN snapshot_input s ON d.k = s.k UNION ALL SELECT k, k FROM unrelated_input";
@@ -233,8 +250,10 @@ class IvmDeltaBuildSidePlannerTest extends TestWithFeService {
                 Assertions.assertTrue(join.right().containsType(PhysicalCTEConsumer.class));
             } else {
                 List<PhysicalOlapScan> buildScans = join.right().collectToList(PhysicalOlapScan.class::isInstance);
-                Assertions.assertEquals(1, buildScans.size());
-                Assertions.assertEquals(expectedBuildTable, buildScans.get(0).getTable().getName());
+                Assertions.assertFalse(buildScans.isEmpty());
+                for (PhysicalOlapScan scan : buildScans) {
+                    Assertions.assertEquals(expectedBuildTable, scan.getTable().getName());
+                }
             }
             return ((PhysicalPlan) join.right()).getPhysicalProperties().getDistributionSpec().getClass();
         }
