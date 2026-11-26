@@ -59,16 +59,28 @@ public class ShortCircuitQueryContextTest {
     @Test
     public void testReusableRequiresSameFileCacheQueryLimitBytes() {
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(table("tbl", 10), "tbl", 10, -1);
+                new ShortCircuitQueryContext(table("tbl", 10), "tbl", 10, -1, "en_US");
 
         Assertions.assertTrue(context.isReusable(connectContext(-1)));
         Assertions.assertFalse(context.isReusable(connectContext(0)));
     }
 
     @Test
+    public void testReusableRequiresSameLcTimeNames() {
+        ConnectContext ctx = connectContext(-1);
+        ctx.getSessionVariable().setLcTimeNames("zh_CN");
+        ShortCircuitQueryContext context =
+                new ShortCircuitQueryContext(table("tbl", 10), "tbl", 10, -1, "zh_CN");
+
+        Assertions.assertTrue(context.isReusable(ctx));
+        ctx.getSessionVariable().setLcTimeNames("en_US");
+        Assertions.assertFalse(context.isReusable(ctx));
+    }
+
+    @Test
     public void testReusableStillChecksTableMetadata() {
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(table("tbl", 11), "tbl", 10, 0);
+                new ShortCircuitQueryContext(table("tbl", 11), "tbl", 10, 0, "en_US");
 
         Assertions.assertFalse(context.isReusable(connectContext(0)));
     }
@@ -84,7 +96,7 @@ public class ShortCircuitQueryContextTest {
         table.setIndexMeta(baseIndexId, "tbl", baseSchema, 10, 0, (short) 1,
                 TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setBaseIndexId(baseIndexId);
-        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, "tbl", 10, -1);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, "tbl", 10, -1, "en_US");
 
         Assertions.assertTrue(context.isReusable(connectContext(-1)));
         table.addPartition(new Partition(3L, "p1",
@@ -110,7 +122,7 @@ public class ShortCircuitQueryContextTest {
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
 
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class), "en_US");
         TQueryOptions serializedQueryOptions = new TQueryOptions();
         new TDeserializer().deserialize(serializedQueryOptions, context.serializedQueryOptions.toByteArray());
 

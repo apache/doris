@@ -61,6 +61,8 @@ public class ShortCircuitQueryContext {
     public final String tableName;
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
+    // The serialized output expressions may contain locale-dependent folded literals.
+    private final String lcTimeNames;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -86,8 +88,9 @@ public class ShortCircuitQueryContext {
         return returnTypes;
     }
 
-    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
+    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery, String lcTimeNames) throws TException {
         this.planner = planner;
+        this.lcTimeNames = lcTimeNames;
         this.serializedDescTable = ByteString.copyFrom(
                 new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
         TQueryOptions options = planner.getQueryOptions() != null ? planner.getQueryOptions() : new TQueryOptions();
@@ -122,7 +125,7 @@ public class ShortCircuitQueryContext {
 
     @VisibleForTesting
     ShortCircuitQueryContext(OlapTable tbl, String tableName, int schemaVersion,
-            long fileCacheQueryLimitBytes) {
+            long fileCacheQueryLimitBytes, String lcTimeNames) {
         this.planner = null;
         this.serializedDescTable = ByteString.EMPTY;
         this.serializedOutputExpr = ByteString.EMPTY;
@@ -133,6 +136,7 @@ public class ShortCircuitQueryContext {
         this.schemaVersion = schemaVersion;
         this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
+        this.lcTimeNames = lcTimeNames;
         this.scanNode = null;
         this.analzyedQuery = null;
     }
@@ -142,6 +146,7 @@ public class ShortCircuitQueryContext {
                 && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && Objects.equals(this.tableName, this.tbl.getName())
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
+                && Objects.equals(this.lcTimeNames, ctx.getSessionVariable().getLcTimeNames())
                 && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
     }
 

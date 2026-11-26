@@ -39,6 +39,10 @@ suite("test_point_query_lc_time_names", "p0,nonConcurrent") {
         }
     }
 
+    // crc32 prevents FE-only folding before MONTHNAME is evaluated by BE constant folding.
+    def preparedProjection = """SELECT id, monthname(d), dayname(d),
+        monthname(str_to_date(concat('2026-11-', CAST(10 + crc32('a') % 10 AS STRING)), '%Y-%m-%d')) AS folded_month
+        FROM test_point_query_lc_time_names_tbl"""
     def oldLightweight = sql("ADMIN SHOW FRONTEND CONFIG LIKE 'enable_lightweight_lookup_request'")[0][1]
     def database = sql("SELECT DATABASE()")[0][0]
     def prepareUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, database, false)
@@ -48,11 +52,18 @@ suite("test_point_query_lc_time_names", "p0,nonConcurrent") {
             connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, prepareUrl) {
                 sql "SET enable_sql_cache = false"
                 sql "SET enable_short_circuit_query = true"
-                try (def statement = prepareStatement("""SELECT id, monthname(d), dayname(d)
-                        FROM test_point_query_lc_time_names_tbl WHERE id = ?""")) {
+                sql "SET enable_fold_constant_by_be = true"
+                sql "SET lc_time_names = 'zh_CN'"
+                explain {
+                    sql "${preparedProjection} WHERE id = 1"
+                    contains "SHORT-CIRCUIT"
+                    contains "十一月"
+                    notContains "crc32"
+                }
+                try (def statement = prepareStatement("${preparedProjection} WHERE id = ?")) {
                     assertEquals(statement.class, com.mysql.cj.jdbc.ServerPreparedStatement)
                     statement.setInt(1, 1)
-                    // Keep the same prepared UUID across cold, warm and changed-locale requests.
+                    // Reuse the JDBC statement across both cache hits and locale changes.
                     ["zh_CN", "zh_CN", "en_US", "en_US", "zh_CN", "zh_CN"].eachWithIndex { locale, index ->
                         sql "SET lc_time_names = '${locale}'"
                         quickRunTest("prepared_${lightweight}_${index}", statement, true)

@@ -97,7 +97,8 @@ class SessionContextRequestTest {
         Mockito.when(planner.getDescTable()).thenReturn(descriptorTable);
         Mockito.when(planner.getScanNodes()).thenReturn(List.of(scanNode));
         Mockito.when(planner.getQueryOptions()).thenReturn(context.getSessionVariable().toThrift());
-        ShortCircuitQueryContext shortCircuit = new ShortCircuitQueryContext(planner, null);
+        ShortCircuitQueryContext shortCircuit =
+                new ShortCircuitQueryContext(planner, null, context.getSessionVariable().getLcTimeNames());
         PointQueryExecutor executor = new PointQueryExecutor(shortCircuit, 1024);
         for (MysqlCommand command : new MysqlCommand[] {MysqlCommand.COM_QUERY, MysqlCommand.COM_STMT_EXECUTE}) {
             context.command = command;
