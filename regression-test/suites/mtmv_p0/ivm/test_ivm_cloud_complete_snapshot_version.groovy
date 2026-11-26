@@ -21,9 +21,11 @@ suite("test_ivm_cloud_complete_snapshot_version", "nonConcurrent") {
         return
     }
 
+    sql "SET enable_materialized_view_rewrite = false"
+    sql "SET enable_dml_materialized_view_rewrite = false"
+
     // Disable syncing before creating the source table so a pending sync cannot update its cache.
     setFeConfigTemporary([cloud_enable_version_syncer: false]) {
-        sql "SET enable_materialized_view_rewrite = false"
         sql "SET enable_sql_cache = false"
 
         sql "DROP MATERIALIZED VIEW IF EXISTS ivm_cloud_complete_snapshot_mv"
