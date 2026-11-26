@@ -31,7 +31,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -82,6 +84,29 @@ public class ConnectContextTest {
 
     @Before
     public void setUp() throws Exception {
+    }
+
+    @Test
+    public void testInternalQueryInheritsDelegatedSession() {
+        ConnectContext parent = new ConnectContext();
+        parent.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        SessionContext session = SessionContext.of("test-session",
+                new DelegatedCredential(DelegatedCredential.Type.ID_TOKEN, "test-token"));
+        parent.setSessionContext(session);
+        parent.changeDefaultCatalog("external_catalog");
+        parent.currentDb = "test_db";
+        parent.currentDbId = 42L;
+
+        ConnectContext child = parent.createInternalQueryContext();
+        Assert.assertSame(session, child.getSessionContext());
+        Assert.assertEquals("test-token",
+                child.getSessionContext().getDelegatedCredential().get().getToken());
+        Assert.assertNotSame(parent.getSessionVariable(), child.getSessionVariable());
+        Assert.assertEquals(parent.getSessionVariable().getCharsetServer(),
+                child.getSessionVariable().getCharsetServer());
+        Assert.assertEquals("external_catalog", child.getDefaultCatalog());
+        Assert.assertEquals("test_db", child.getDatabase());
+        Assert.assertEquals(42L, child.getCurrentDbId());
     }
 
     @Test

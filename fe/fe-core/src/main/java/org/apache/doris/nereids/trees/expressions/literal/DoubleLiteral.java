@@ -88,8 +88,10 @@ public class DoubleLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isFloatType()) {
-            return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral(
-                    Float.parseFloat(String.valueOf(value)));
+            // narrow with a single rounding and keep the sign of a NaN, like static_cast<float> on BE
+            return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral(Double.isNaN(value)
+                    ? Math.copySign(Float.NaN, Double.doubleToRawLongBits(value) < 0 ? -1.0f : 1.0f)
+                    : (float) value);
         } else if (targetType.isStringType()) {
             return new StringLiteral(castToString());
         } else if (targetType.isCharType()) {

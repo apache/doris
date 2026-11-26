@@ -43,6 +43,37 @@
 
 namespace doris::variant_util {
 
+TEST(VariantUtilTest, EscapedStorageChecksExecutionTypeBeforeSchemaPromotion) {
+    for (bool nullable : {false, true}) {
+        for (bool doc_mode : {false, true}) {
+            for (int cap : {0, 1, 10}) {
+                DataTypePtr v1 = std::make_shared<DataTypeVariant>(cap, doc_mode);
+                DataTypePtr v2 = std::make_shared<DataTypeVariantV2>(cap, doc_mode);
+                if (nullable) {
+                    v1 = make_nullable(v1);
+                    v2 = make_nullable(v2);
+                }
+                EXPECT_TRUE(check_variant_execution(false, v1).ok());
+                EXPECT_TRUE(check_variant_execution(false, v2).ok());
+                EXPECT_TRUE(check_variant_execution(true, v2).ok());
+                auto rejected = check_variant_execution(true, v1);
+                EXPECT_TRUE(rejected.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+                EXPECT_NE(rejected.to_string().find("requires V2 execution"), std::string::npos);
+
+                TabletSchemaPB pb;
+                pb.set_variant_escape_dots_in_keys(true);
+                TabletSchema promoted;
+                promoted.init_from_pb(pb);
+                promoted.append_column(get_column_by_type(v1, "v", {}));
+                EXPECT_TRUE(promoted.column(0).variant_is_v2());
+                EXPECT_FALSE(
+                        check_variant_execution(promoted.variant_escape_dots_in_keys(), v1).ok());
+            }
+        }
+    }
+    EXPECT_TRUE(check_variant_execution(true, std::make_shared<DataTypeString>()).ok());
+}
+
 static ColumnString::MutablePtr _make_json_column(const std::vector<std::string_view>& rows) {
     auto col = ColumnString::create();
     for (const auto& s : rows) {

@@ -127,6 +127,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -747,7 +748,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
                             context.getScanContext());
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+                    hiveScanNode.setSelectedPartitions(
+                            materializeDeferredHivePartitions((HMSExternalTable) table, fileScan, context));
                     if (fileScan.getTableSample().isPresent()) {
                         hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
                                 fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
@@ -794,6 +796,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
+    }
+
+    private LogicalFileScan.SelectedPartitions materializeDeferredHivePartitions(
+            HMSExternalTable table, PhysicalFileScan fileScan, PlanTranslatorContext context) {
+        LogicalFileScan.SelectedPartitions selectedPartitions = fileScan.getSelectedPartitions();
+        if (!selectedPartitions.isDeferredPartitionPruning()) {
+            return selectedPartitions;
+        }
+        return context.getStatementContext().getExternalPartitionView(table, fileScan.getRelationSnapshot())
+                .orElseGet(() -> context.getStatementContext().preloadExternalPartitionView(
+                        table, fileScan.getRelationSnapshot()));
     }
 
     @Override

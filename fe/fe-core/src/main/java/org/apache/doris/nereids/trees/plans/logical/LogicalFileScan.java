@@ -33,6 +33,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,6 +50,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
@@ -58,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical file scan for external catalog.
@@ -176,6 +179,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             // A relation-scoped historical snapshot cannot reuse partitions cached for the
             // statement-level latest snapshot; Paimon will prune its selected snapshot instead.
             return SelectedPartitions.NOT_PRUNED;
+        }
+        Optional<SelectedPartitions> preloaded = Optional.ofNullable(ConnectContext.get())
+                .map(ConnectContext::getStatementContext)
+                .flatMap(statement -> statement.getExternalPartitionView(table, relationSnapshot));
+        if (preloaded.isPresent()) {
+            return preloaded.get();
+        }
+        if (table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType() == HMSExternalTable.DLAType.HIVE
+                && Optional.ofNullable(ConnectContext.get()).map(ConnectContext::getStatementContext)
+                    .map(statement -> statement.isInsert()).orElse(false)) {
+            return ConnectContext.get().getStatementContext().preloadExternalPartitionView(table, relationSnapshot);
         }
         return table.initSelectedPartitions(relationSnapshot);
     }
@@ -426,10 +441,26 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        public static final long UNKNOWN_TOTAL_PARTITION_NUM = -1L;
+
+        /** Materialization state for a partition selection. */
+        public enum State {
+            NOT_PRUNED,
+            DEFERRED,
+            MATERIALIZED
+        }
+
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
+        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
+                State.NOT_PRUNED);
+
+        // DEFERRED means a Hive table with a selective predicate can ask HMS for only the matching
+        // partitions after Nereids supplies that predicate.
+        public static SelectedPartitions DEFERRED_PARTITION_PRUNING = new SelectedPartitions(0, ImmutableMap.of(),
+                false, false, State.DEFERRED);
+
         /**
          * total partition number
          */
@@ -449,6 +480,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public final boolean hasPartitionPredicate;
 
+        public final State state;
+
+        private final Supplier<Optional<SortedPartitionRanges<String>>> sortedPartitionRanges;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -462,11 +497,51 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED,
+                    Optional.empty());
+        }
+
+        /**
+         * Constructor for a complete view whose sorted index was published with the same partition map.
+         */
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> publishedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED,
+                    publishedPartitionRanges);
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate, State state) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, state, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate, State state,
+                Optional<SortedPartitionRanges<String>> publishedPartitionRanges) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
+            this.state = state;
+            this.sortedPartitionRanges = publishedPartitionRanges.isPresent()
+                    ? Suppliers.memoize(() -> publishedPartitionRanges)
+                    : Suppliers.memoize(
+                            () -> Optional.ofNullable(SortedPartitionRanges.build(this.selectedPartitions)));
+        }
+
+        /** Lazily index this immutable view; relations sharing the view reuse the same index. */
+        public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
+            return sortedPartitionRanges.get();
+        }
+
+        public boolean isNotPruned() {
+            return state == State.NOT_PRUNED;
+        }
+
+        public boolean isDeferredPartitionPruning() {
+            return state == State.DEFERRED;
         }
 
         /**
@@ -491,13 +566,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             SelectedPartitions that = (SelectedPartitions) o;
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
+                    && state == that.state
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, state);
         }
     }
 

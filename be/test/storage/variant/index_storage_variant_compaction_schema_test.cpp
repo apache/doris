@@ -94,6 +94,28 @@ TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutP
     EXPECT_TRUE(path_set_info->sparse_path_set.empty());
 }
 
+TEST(IndexStorageVariantCompactionUtilTest, ValuesIndexPlanningSkipsEmptyColumnIds) {
+    IndexTabletOptions options;
+    options.index_storage_format = InvertedIndexStorageFormatPB::SNII;
+    options.variant_columns = {VariantColumnSpec {}};
+    options.inverted_indexes = {IndexSpec::column_index(
+            72, "values", 2, {{"variant_index_scope", "values"}, {"parser", "english"}})};
+    auto schema = build_tablet_schema(options);
+    TabletSchemaPB schema_pb;
+    schema->to_schema_pb(&schema_pb);
+    ASSERT_EQ(schema_pb.index_size(), 1);
+    // Reproduce replay of an index whose column IDs were not persisted.
+    schema_pb.mutable_index(0)->clear_col_unique_id();
+    schema->init_from_pb(schema_pb);
+
+    EXPECT_FALSE(variant_util::VariantCompactionUtil::has_writable_values_index(*schema));
+    auto status =
+            variant_util::VariantCompactionUtil::plan_values_index_compaction({}, true, {}, schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_NE(schema->try_path_set_info(2), nullptr);
+    EXPECT_TRUE(schema->has_column_unique_id(2));
+}
+
 TEST_F(IndexStorageVariantCompactionSchemaTest,
        VariantMaxSubcolumnsCountZeroMaterializesAllObservedPaths) {
     VariantColumnSpec variant;

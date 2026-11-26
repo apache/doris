@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_types", "var_view,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
     def table_name = "test_variant_types"
@@ -34,10 +34,10 @@ suite("regression_test_variant_types", "var_view,nonConcurrent") {
             from ${table_name} where id = 2"""
     }
 
-    sql " set default_variant_enable_doc_mode = false "
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_max_sparse_column_statistics_size = 10 """
-    sql """ set default_variant_sparse_hash_shard_count = 10 """
+    sql " set debug_variant_enable_doc_mode = false "
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_max_sparse_column_statistics_size = 10 """
+    sql """ set debug_variant_sparse_hash_shard_count = 10 """
     sql "drop table if exists ${table_name}"
 
     sql """

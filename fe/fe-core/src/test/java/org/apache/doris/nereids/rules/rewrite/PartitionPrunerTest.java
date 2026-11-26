@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluato
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -46,6 +47,9 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -72,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PartitionPrunerTest extends TestWithFeService {
     private Method canBePrunedOutMethod;
@@ -607,6 +612,73 @@ public class PartitionPrunerTest extends TestWithFeService {
 
         Assertions.assertEquals(1, result.partitions.size());
         Assertions.assertTrue(result.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testLazySortedRangesSkipConstantAndDataPredicates() throws AnalysisException {
+        Map<String, PartitionItem> partitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"), "p2", createListPartitionItem("2"));
+        AtomicInteger indexBuilds = new AtomicInteger();
+        List<Expression> predicates = ImmutableList.of(
+                BooleanLiteral.TRUE, BooleanLiteral.FALSE, NullLiteral.INSTANCE,
+                new EqualTo(slotA, NullLiteral.INSTANCE),
+                new GreaterThan(slotB, Literal.of(0)));
+        for (Expression predicate : predicates) {
+            PartitionPruneResult<String> expected = PartitionPruner.pruneWithResult(
+                    ImmutableList.of(slotA), predicate, partitions, cascadesContext,
+                    PartitionTableType.EXTERNAL, Optional.empty());
+            PartitionPruneResult<String> actual = PartitionPruner.pruneWithResult(
+                    ImmutableList.of(slotA), predicate, partitions, cascadesContext,
+                    PartitionTableType.EXTERNAL, true, () -> {
+                        indexBuilds.incrementAndGet();
+                        return Optional.ofNullable(SortedPartitionRanges.build(partitions));
+                    });
+
+            Assertions.assertEquals(expected.partitions, actual.partitions);
+            Assertions.assertEquals(expected.prunedPartitionPredicate, actual.prunedPartitionPredicate);
+            Assertions.assertEquals(expected.hasPartitionPredicate, actual.hasPartitionPredicate);
+        }
+        Assertions.assertEquals(0, indexBuilds.get());
+    }
+
+    @Test
+    public void testLazySortedRangesSkipUnsupportedRangePredicate() throws AnalysisException {
+        Map<String, PartitionItem> partitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"), "p2", createListPartitionItem("2"));
+        Expression predicate = new EqualTo(new Abs(slotA), new BigIntLiteral(1));
+        AtomicInteger indexBuilds = new AtomicInteger();
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), predicate, partitions, cascadesContext,
+                PartitionTableType.EXTERNAL, true, () -> {
+                    indexBuilds.incrementAndGet();
+                    return Optional.ofNullable(SortedPartitionRanges.build(partitions));
+                });
+
+        Assertions.assertEquals(ImmutableList.of("p1"), result.partitions);
+        Assertions.assertEquals(Optional.of(predicate), result.prunedPartitionPredicate);
+        Assertions.assertTrue(result.hasPartitionPredicate);
+        Assertions.assertEquals(0, indexBuilds.get());
+    }
+
+    @Test
+    public void testLazySortedRangesPreserveEmptyIndexFallback() throws AnalysisException {
+        Map<String, PartitionItem> partitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"), "p2", createListPartitionItem("2"));
+        Expression predicate = new EqualTo(slotA, Literal.of(1));
+        AtomicInteger indexRequests = new AtomicInteger();
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), predicate, partitions, cascadesContext,
+                PartitionTableType.EXTERNAL, true, () -> {
+                    indexRequests.incrementAndGet();
+                    return Optional.empty();
+                });
+
+        Assertions.assertEquals(ImmutableList.of("p1"), result.partitions);
+        Assertions.assertEquals(Optional.of(predicate), result.prunedPartitionPredicate);
+        Assertions.assertTrue(result.hasPartitionPredicate);
+        Assertions.assertEquals(1, indexRequests.get());
     }
 
     /**

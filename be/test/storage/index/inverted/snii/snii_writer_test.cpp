@@ -65,6 +65,9 @@ uint32_t snii_effective_stop_gram_df_threshold(const snii::writer::SniiIndexInpu
 } // namespace doris::segment_v2
 
 namespace {
+
+using doris::Status;
+
 // The write path holds a segment's first rows back to solve its density from them (see
 // gram_density.h). These tests inspect the term buffer directly, without a flush, so they pin
 // the density instead: what they are about is how a row is cut at a given rate.
@@ -466,6 +469,57 @@ TEST(SniiWriterNullDocids, AddNullsGrowsGeometricallyNotQuadratically) {
     EXPECT_EQ(nulls.front(), 0U);
     EXPECT_EQ(nulls.back(), kRuns - 1);
     EXPECT_TRUE(std::ranges::is_sorted(nulls));
+}
+
+TEST(SniiWriterTextDocument, KeepsDocIdsAcrossSpill) {
+    doris::TabletIndexPB pb;
+    pb.set_index_type(doris::IndexType::INVERTED);
+    doris::TabletIndex meta;
+    meta.init_from_pb(pb);
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    auto* buffer = writer.term_buffer_for_test();
+    buffer->set_forced_spill_min_arena_bytes(0);
+
+    ASSERT_OK(writer.add_text_document([](const auto&) { return Status::OK(); }));
+    ASSERT_OK(writer.add_nulls(1));
+    ASSERT_OK(writer.add_text_document([&](const auto& consume) {
+        RETURN_IF_ERROR(consume("shared"));
+        buffer->request_global_spill_for_test();
+        RETURN_IF_ERROR(consume("after"));
+        return consume("shared");
+    }));
+    EXPECT_GT(buffer->run_count_for_test(), 0U);
+    ASSERT_OK(writer.add_text_document([](const auto& consume) { return consume("shared"); }));
+
+    EXPECT_EQ(writer.null_docids_for_test(), (std::vector<uint32_t> {1}));
+    const auto terms = buffer->finalize_sorted();
+    ASSERT_OK(buffer->status());
+    ASSERT_EQ(terms.size(), 2U);
+    EXPECT_EQ(terms[0].term, "after");
+    EXPECT_EQ(terms[0].docids, (std::vector<uint32_t> {2}));
+    EXPECT_EQ(terms[1].term, "shared");
+    EXPECT_EQ(terms[1].docids, (std::vector<uint32_t> {2, 3}));
+}
+
+TEST(SniiWriterTextDocument, FailedTraversalDiscardsPartialDocument) {
+    doris::TabletIndexPB pb;
+    pb.set_index_type(doris::IndexType::INVERTED);
+    doris::TabletIndex meta;
+    meta.init_from_pb(pb);
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    const auto status = writer.add_text_document([](const auto& consume) {
+        RETURN_IF_ERROR(consume("partial"));
+        return Status::InvalidArgument("invalid leaf");
+    });
+    ASSERT_EQ(status.code(), doris::ErrorCode::INVALID_ARGUMENT);
+    EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
+    EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
+    EXPECT_EQ(writer.add_nulls(1).code(), status.code());
+    EXPECT_EQ(writer.finish().code(), status.code());
 }
 
 TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {

@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -93,6 +95,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -109,6 +112,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -193,6 +197,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
+    private final boolean showQuery;
 
     // generate for next id for prepared statement's placeholders, which is
     // connection level
@@ -297,6 +302,8 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private final Map<ExternalTable, Map<Optional<MvccSnapshot>, Pair<List<Column>, SelectedPartitions>>>
+            externalPartitionViews = new IdentityHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
@@ -369,9 +376,9 @@ public class StatementContext implements Closeable {
         this(ConnectContext.get(), null, 0);
     }
 
-    // For StatementScopeIdGenerator
+    // For StatementScopeIdGenerator; its fallback only allocates IDs and must not retain a connection.
     public StatementContext(int initialId) {
-        this(ConnectContext.get(), null, initialId);
+        this(null, null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
@@ -382,15 +389,21 @@ public class StatementContext implements Closeable {
      * StatementContext
      */
     private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+        this(connectContext, originStatement, initialId, false);
+    }
+
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId,
+            boolean showQuery) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.showQuery = showQuery;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null) {
+        if (!showQuery && connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
-                this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                this.sqlCacheContext = new SqlCacheContext(connectContext.getCurrentUserIdentity(),
+                        Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
@@ -427,25 +440,36 @@ public class StatementContext implements Closeable {
      * scope, ...) starts empty/fresh on the new context.
      */
     public StatementContext createNextExecuteContext() {
-        // Continue the id generators from the previous context. The cached analyzed plan from
-        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
-        // generator starting at 0 would collide with those ids during this execution's planning.
-        StatementContext next = new StatementContext(connectContext, originStatement,
-                exprIdGenerator.getCurrentId());
+        StatementContext next = copyExpressionState(connectContext, showQuery);
+        // Carry over the short-circuit state used to execute the cached prepared plan.
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
+    }
+
+    /**
+     * Create a context for a query that filters SHOW output using the already parsed predicate.
+     */
+    public StatementContext createShowQueryContext(ConnectContext internalContext) {
+        return copyExpressionState(internalContext, true);
+    }
+
+    public boolean isShowQuery() {
+        return showQuery;
+    }
+
+    private StatementContext copyExpressionState(ConnectContext context, boolean showQuery) {
+        // Already parsed or analyzed expressions may hold ids allocated by this context.
+        StatementContext next = new StatementContext(context, originStatement,
+                exprIdGenerator.getCurrentId(), showQuery);
         next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
         next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
         next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
         next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
         next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
-        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
-        // conjuncts on the cached short-circuit plan without re-planning.
         next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
-        next.idToComparisonSlot.putAll(idToComparisonSlot);
         next.placeholders = new ArrayList<>(placeholders);
-        // Short-circuit gating flags are computed by the previous execution's planning and gate
-        // the fast path of this execution before any re-planning happens.
-        next.isShortCircuitQuery = isShortCircuitQuery;
-        next.hasNondeterministic = hasNondeterministic;
         return next;
     }
 
@@ -605,6 +629,43 @@ public class StatementContext implements Closeable {
         } else {
             preloadInfo.markLatestRelation();
         }
+    }
+
+    /**
+     * Capture partition column types before materializing a complete view and validate them afterwards.
+     * A metastore schema change during loading must not relabel old partition keys with the new types.
+     */
+    public SelectedPartitions preloadExternalPartitionView(ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        List<Column> partitionColumns = ImmutableList.copyOf(table.getPartitionColumns(snapshot).stream()
+                .map(Column::new).collect(Collectors.toList()));
+        SelectedPartitions partitions = table.preloadPartitionView(snapshot);
+        com.google.common.base.Preconditions.checkState(
+                partitionColumns.equals(table.getPartitionColumns(snapshot)),
+                "External partition schema changed while preloading: %s", table.getName());
+        externalPartitionViews.computeIfAbsent(table, ignored -> Maps.newHashMap())
+                .put(partitionViewSnapshot(snapshot), Pair.of(partitionColumns, Objects.requireNonNull(partitions)));
+        return partitions;
+    }
+
+    /**
+     * Reuse a complete partition view captured before locking or during MV dependency collection.
+     * Historical aliases must match their snapshot; an EmptyMvccSnapshot carries no version selector.
+     * Reject a changed partition schema rather than pruning old partition keys with new column types.
+     */
+    public Optional<SelectedPartitions> getExternalPartitionView(
+            ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        return Optional.ofNullable(externalPartitionViews.get(table))
+                .map(views -> views.get(partitionViewSnapshot(snapshot)))
+                .map(view -> {
+                    com.google.common.base.Preconditions.checkState(
+                            view.first.equals(table.getPartitionColumns(snapshot)),
+                            "External partition schema changed after preloading: %s", table.getName());
+                    return view.second;
+                });
+    }
+
+    private Optional<MvccSnapshot> partitionViewSnapshot(Optional<MvccSnapshot> snapshot) {
+        return snapshot.filter(value -> !(value instanceof EmptyMvccSnapshot));
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -1110,6 +1171,7 @@ public class StatementContext implements Closeable {
             releaseStatementResources();
         } finally {
             releasePlannerResources();
+            externalPartitionViews.clear();
         }
     }
 
@@ -1208,6 +1270,7 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        externalPartitionViews.clear();
         injectedSnapshots.clear();
         snapshots.clear();
         latestSnapshots.clear();

@@ -315,6 +315,11 @@ public class CloudInternalCatalogTest {
 
     private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet, TCompressionType compressionType)
             throws Exception {
+        return createTabletMeta(tablet, compressionType, false);
+    }
+
+    private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet, TCompressionType compressionType,
+            boolean escaped) throws Exception {
         return new CloudInternalCatalog().createTabletMetaBuilder(
                 1L, 2L, 3L, tablet, TTabletType.TABLET_TYPE_DISK, 23, KeysType.DUP_KEYS, (short) 1,
                 Collections.emptySet(), 0.05, Collections.emptyList(), Collections.emptyList(),
@@ -322,8 +327,27 @@ public class CloudInternalCatalogTest {
                 "", false, false,
                 "table", 0L, false, false, 17, "size_based",
                 0L, 0L, 0L, 0L, 0L, false, Collections.emptyList(),
-                TInvertedIndexFileStorageFormat.SNII, 0L, false, Collections.emptyList(), 0L,
+                TInvertedIndexFileStorageFormat.SNII, 0L, false, escaped, Collections.emptyList(), 0L,
                 OlapFile.EncryptionAlgorithmPB.PLAINTEXT, 0L, true, 0).build();
     }
 
+    @Test
+    public void escapedCloudReplicaPreservesPolicyWithV1Queries() throws Exception {
+        boolean previous = Config.enable_variant_v2;
+        CloudTablet tablet = new CloudTablet(12345L);
+        tablet.addReplica(new CloudReplica(12346L, -1L, Replica.ReplicaState.NORMAL, 1L, 0,
+                DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, 0L), true);
+        try {
+            Config.enable_variant_v2 = true;
+            Assertions.assertTrue(createTabletMeta(tablet, TCompressionType.LZ4F, true)
+                    .getSchema().getVariantEscapeDotsInKeys());
+            Config.enable_variant_v2 = false;
+            Assertions.assertTrue(createTabletMeta(tablet, TCompressionType.LZ4F, true)
+                    .getSchema().getVariantEscapeDotsInKeys());
+            Assertions.assertFalse(createTabletMeta(tablet, TCompressionType.LZ4F, false)
+                    .getSchema().getVariantEscapeDotsInKeys());
+        } finally {
+            Config.enable_variant_v2 = previous;
+        }
+    }
 }

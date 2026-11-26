@@ -169,21 +169,16 @@ struct RegexpExtractEngine {
                 pos += offset + matches[0].size();
             }
         } else if (is_boost()) {
-            const char* search_start = data;
-            const char* search_end = data + size;
-            boost::match_results<const char*> matches;
-
-            while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
+            // Iterate over the whole input instead of re-running regex_search on a
+            // shrinking range: the iterator keeps the preceding text visible to
+            // lookbehind/`^`/`\b` and steps past zero-width matches (e.g. lookahead)
+            // without matching the same position twice.
+            boost::cregex_iterator it(data, data + size, *boost_regex);
+            boost::cregex_iterator end;
+            for (; it != end; ++it) {
+                const auto& matches = *it;
                 if (matches.size() > 1 && matches[1].matched) {
                     results.emplace_back(matches[1].str());
-                }
-                if (matches[0].length() == 0) {
-                    if (search_start == search_end) {
-                        break;
-                    }
-                    search_start += 1;
-                } else {
-                    search_start = matches[0].second;
                 }
             }
         }
@@ -265,7 +260,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();
@@ -344,7 +339,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 StringRef options_value;
                 if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
                     DCHECK_EQ(context->get_num_args(), 4);
@@ -353,7 +348,7 @@ public:
                     if (!context->is_col_constant(3)) {
                         return Status::OK();
                     }
-                    const auto options_col = context->get_constant_col(3)->column_ptr;
+                    const auto options_col = context->get_constant_col(3)->column_ptr();
                     // A NULL options argument makes the result NULL before regexp compilation.
                     if (options_col->is_null_at(0)) {
                         return Status::OK();
@@ -785,7 +780,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto pattern_col = context->get_constant_col(1)->column_ptr();
                 const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();

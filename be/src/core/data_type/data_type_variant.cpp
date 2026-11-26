@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_variant.h"
@@ -49,8 +50,11 @@ namespace doris {
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
         : DataTypeVariant(max_subcolumns_count, false) {}
 
-DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
-        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                                 bool serialized_with_doc_value)
+        : _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode),
+          _serialized_with_doc_value(serialized_with_doc_value) {
     name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
                        max_subcolumns_count, enable_doc_mode);
 }
@@ -179,6 +183,13 @@ Field DataTypeVariant::get_field(const TExprNode& node) const {
 
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
+    // Legacy Variant V1 blocks omit both the doc-mode marker and the trailing doc-value map.
+    // Current V1 writers set the marker even when doc mode is disabled.
+    if (!_serialized_with_doc_value) {
+        throw Exception(Status::NotSupported(
+                "Unsupported VARIANT block format: legacy Variant V1 block lacks doc-value data; "
+                "use compatible backend versions for Variant block transfer"));
+    }
     auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns

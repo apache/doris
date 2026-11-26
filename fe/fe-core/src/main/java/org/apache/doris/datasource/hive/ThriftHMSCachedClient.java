@@ -333,6 +333,60 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter) {
+        int threshold = filteredPartitionThreshold(partitionBatchSize);
+        FilteredPartitionPage page;
+        try (ThriftHMSClient client = getClient()) {
+            if (!(client.client instanceof HmsRawPartitionFilterPageSource)) {
+                throw new HMSClientException(
+                        "HMS client cannot verify raw partition filter completeness for table '%s.%s'.",
+                        dbName, tblName);
+            }
+            try {
+                page = ugiDoAs(() -> fetchFilteredPartitionPage(
+                        client.client, dbName, tblName, filter, threshold));
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to filter partitions in table '%s.%s'.", e, dbName, tblName);
+        }
+        if (isFilteredPartitionResponseSaturated(page.rawCount, threshold)) {
+            throw new HMSClientException(
+                    "HMS partition filter matched more than %d partitions in table '%s.%s'.",
+                    threshold, dbName, tblName);
+        }
+        return page.partitions;
+    }
+
+    private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+            String tableName, String filter, int threshold) throws Exception {
+        int pageLimit = threshold + 1;
+        HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+        return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
+    }
+
+    static int filteredPartitionThreshold(int configured) {
+        return Math.max(1, Math.min(configured, Short.MAX_VALUE - 1));
+    }
+
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount, int threshold) {
+        return partitionCount > threshold;
+    }
+
+    private static final class FilteredPartitionPage {
+        private final List<Partition> partitions;
+        private final int rawCount;
+
+        private FilteredPartitionPage(List<Partition> partitions, int rawCount) {
+            this.partitions = partitions;
+            this.rawCount = rawCount;
+        }
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         // list all parts when the limit is greater than the short maximum
         short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;

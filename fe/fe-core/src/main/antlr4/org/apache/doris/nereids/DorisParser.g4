@@ -409,7 +409,7 @@ supportedShowStatement
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
     | SHOW LAST INSERT                                                              #showLastInsert
-    | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
+    | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN

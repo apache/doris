@@ -84,7 +84,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
      * Mutual exclusivity between parameters should be validated at the framework level
      * to prevent messy, repetitive checks in application code.
      */
-    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token"}, required = false,
+    @ConnectorProperty(sensitive = true, names = {"oss.hdfs.security_token", "oss.security_token"}, required = false,
             description = "The security token of OSS.")
     protected String securityToken = "";
 

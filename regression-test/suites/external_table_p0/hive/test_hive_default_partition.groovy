@@ -202,11 +202,11 @@ suite("test_hive_default_partition", "p0,external,hive,external_docker,external_
         }
         explain {
             sql("${two_partition17}")
-            contains "partition=1/4"
+            contains "partition=1/?"
         }
         explain {
             sql("${two_partition18}")
-            contains "partition=1/4"
+            contains "partition=1/?"
         }
 
         explain {
@@ -231,11 +231,11 @@ suite("test_hive_default_partition", "p0,external,hive,external_docker,external_
         }
         explain {
             sql("${string_part_prune6}")
-            contains "partition=2/4"
+            contains "partition=2/?"
         }
         explain {
             sql("${string_part_prune7}")
-            contains "partition=1/4"
+            contains "partition=1/?"
         }
         explain {
             sql("${string_part_prune8}")

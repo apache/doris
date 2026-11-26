@@ -138,6 +138,37 @@ bool IcebergTableReader::_scan_has_any_authoritative_name_mapping() const {
     return false;
 }
 
+Status IcebergTableReader::annotate_file_schema(
+        std::vector<format::ColumnDefinition>* file_schema) {
+    DORIS_CHECK(file_schema != nullptr);
+    if (file_schema->empty() || _format != FileFormat::PARQUET) {
+        return Status::OK();
+    }
+    // Iceberg's hasIds is existential: even a single nested ID prevents positional fallback.
+    if (schema_has_any_field_id(*file_schema)) {
+        return Status::OK();
+    }
+    // An explicit name mapping remains authoritative even when it does not cover this file.
+    // Legacy FE plans keep their historical name fallback during rolling upgrades.
+    if (!supports_iceberg_scan_semantics_v2(_scan_params) ||
+        _scan_has_any_authoritative_name_mapping()) {
+        return Status::OK();
+    }
+    // ParquetSchemaUtil.addFallbackIds numbers physical top-level fields only. Reader-generated
+    // row-position/global-row-ID columns do not consume ordinals, and nested IDs are not invented.
+    int32_t ordinal = 0;
+    for (auto& field : *file_schema) {
+        if (field.column_type != format::ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        // ID-less Parquet fields have STRING identifiers containing their physical names.
+        // Replace those identifiers so the shared BY_FIELD_ID projection and predicates agree.
+        field.identifier = Field::create_field<TYPE_INT>(++ordinal);
+    }
+    _positional_id_fallback = true;
+    return Status::OK();
+}
+
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
     std::ostringstream out;
@@ -999,6 +1030,7 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         _row_lineage_columns = {};
         _iceberg_params.reset();
         _delete_predicates_initialized = false;
+        _positional_id_fallback = false;
         _position_delete_rows_storage.clear();
         _equality_delete_filters.clear();
         _split_cache = options.cache;
@@ -1091,6 +1123,7 @@ std::string IcebergTableReader::debug_string() const {
         << ", deletion_vector_file_count=" << deletion_vector_file_count
         << ", position_delete_rows_storage_count=" << _position_delete_rows_storage.size()
         << ", equality_delete_filter_count=" << _equality_delete_filters.size()
+        << ", positional_id_fallback=" << _positional_id_fallback
         << ", equality_delete_filters=" << equality_filters.str() << "}";
     return out.str();
 }

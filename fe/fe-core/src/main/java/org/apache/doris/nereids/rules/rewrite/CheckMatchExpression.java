@@ -55,7 +55,7 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
                 throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
                         + " right operand is Literal. But meet expression %s", matchExpression));
             }
-            if (slotReference.getDataType().isVariantType() && !slotReference.hasSubColPath()) {
+            if (Match.isVariantRootSlot(slotReference) && !Match.hasVariantValuesIndex(matchExpression.left())) {
                 throw new AnalysisException(String.format("VARIANT root column does not support MATCH predicates. "
                                 + "Please query a subcolumn instead, for example %s['field'] MATCH 'xxx'",
                         slotReference.getName()));

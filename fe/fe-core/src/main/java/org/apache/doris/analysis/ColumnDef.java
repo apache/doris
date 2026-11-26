@@ -40,6 +40,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
@@ -689,6 +690,11 @@ public class ColumnDef {
                 break;
             case CHAR:
             case VARCHAR:
+                // CHAR/VARCHAR length is in bytes, the same as the load path checks.
+                if (defaultValue.getBytes(StandardCharsets.UTF_8).length > scalarType.getLength()) {
+                    throw new AnalysisException("Default value is too long: " + defaultValue);
+                }
+                break;
             case HLL:
             case STRING:
             case JSONB:

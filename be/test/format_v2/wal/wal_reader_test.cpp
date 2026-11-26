@@ -34,6 +34,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format_v2/column_mapper.h"
+#include "format_v2/table_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_writer.h"
@@ -188,12 +190,76 @@ TEST(WalReaderV2Test, ParseColumnIdsPreservesHeaderOrder) {
     EXPECT_EQ(column_ids, (std::vector<int32_t> {17, 4, 99}));
 }
 
-TEST(WalReaderV2Test, ParseColumnIdsRejectsMalformedOrAmbiguousHeaders) {
+TEST(WalReaderV2Test, ParseColumnIdsRejectsMalformedHeaders) {
     std::vector<int32_t> column_ids;
     EXPECT_FALSE(parse_wal_column_ids("", &column_ids).ok());
     EXPECT_FALSE(parse_wal_column_ids("17,,99", &column_ids).ok());
     EXPECT_FALSE(parse_wal_column_ids("17,nope,99", &column_ids).ok());
-    EXPECT_FALSE(parse_wal_column_ids("17,4,17", &column_ids).ok());
+}
+
+TEST(WalReaderV2Test, SchemaChangeDuplicateIdsKeepBaseColumnAndPhysicalPositions) {
+    const auto wal_path = temporary_wal_path();
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto bigint_type = make_nullable(std::make_shared<DataTypeInt64>());
+    Block source;
+    auto base = int_type->create_column();
+    base->insert(Field::create_field<TYPE_INT>(20));
+    source.insert({std::move(base), int_type, "v"});
+    auto shadow = bigint_type->create_column();
+    shadow->insert(Field::create_field<TYPE_BIGINT>(200));
+    source.insert({std::move(shadow), bigint_type, "__doris_shadow_v"});
+    auto trailing = int_type->create_column();
+    trailing->insert(Field::create_field<TYPE_INT>(30));
+    source.insert({std::move(trailing), int_type, "other"});
+    auto pblock = serialize_block(source);
+
+    WalWriter writer(wal_path);
+    ASSERT_TRUE(writer.init(io::global_local_filesystem()).ok());
+    ASSERT_TRUE(writer.append_header("15,15,17").ok());
+    ASSERT_TRUE(writer.append_blocks({&pblock}).ok());
+    ASSERT_TRUE(writer.finalize().ok());
+
+    std::shared_ptr<io::FileSystemProperties> properties;
+    std::unique_ptr<io::FileDescription> description;
+    WalReader reader(properties, description, nullptr, nullptr, {});
+    reader._wal_reader = std::make_shared<WalFileReader>(wal_path);
+    ASSERT_TRUE(reader._wal_reader->init().ok());
+    std::string encoded_ids;
+    ASSERT_TRUE(reader._wal_reader->read_header(reader._version, encoded_ids).ok());
+    ASSERT_TRUE(parse_wal_column_ids(encoded_ids, &reader._column_ids).ok());
+    EXPECT_EQ(reader._column_ids, (std::vector<int32_t> {15, 15, 17}));
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+    // The ALTER has finished: the table expects BIGINT, but replay must read the base INT.
+    auto changed = schema[0];
+    changed.type = bigint_type;
+    const std::vector<ColumnDefinition> projected {schema[2], changed};
+    auto mapper = reader.create_column_mapper({});
+    ASSERT_TRUE(mapper->create_mapping(projected, {}, schema).ok());
+    ASSERT_EQ(mapper->mappings().size(), 2);
+    EXPECT_EQ(mapper->mappings()[0].file_local_id, 2);
+    EXPECT_EQ(mapper->mappings()[1].file_local_id, 0);
+    EXPECT_TRUE(mapper->mappings()[1].file_type->equals(*int_type));
+    EXPECT_TRUE(mapper->mappings()[1].table_type->equals(*bigint_type));
+
+    auto request = std::make_shared<FileScanRequest>();
+    ASSERT_TRUE(mapper->create_scan_request({}, projected, request.get()).ok());
+    const auto other_position = request->local_positions.at(LocalColumnId(2));
+    const auto base_position = request->local_positions.at(LocalColumnId(0));
+    ASSERT_TRUE(reader.open(std::move(request)).ok());
+    Block output({{int_type->create_column(), int_type, "first"},
+                  {int_type->create_column(), int_type, "second"}});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader.get_block(&output, &rows, &eof).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ((*output.get_by_position(other_position.value()).column)[0].get<TYPE_INT>(), 30);
+    EXPECT_EQ((*output.get_by_position(base_position.value()).column)[0].get<TYPE_INT>(), 20);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(
+            std::filesystem::path(wal_path).parent_path().parent_path().parent_path());
 }
 
 TEST(WalReaderV2Test, WriterBackedReaderPreservesNestedSchemaAndMovesFirstPayload) {

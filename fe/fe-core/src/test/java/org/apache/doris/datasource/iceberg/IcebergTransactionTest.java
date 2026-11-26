@@ -46,15 +46,20 @@ import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
+import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.transforms.Transforms;
@@ -63,6 +68,7 @@ import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -576,7 +582,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, table);
-            txn.beginInsert(dorisTable, Optional.of(insertContext));
+            txn.beginInsert(dorisTable, table, Optional.of(insertContext), "dynamic");
             if (hasOutputFile) {
                 txn.finishInsert(NameMapping.createForTest(dbName, tableName));
             }
@@ -855,6 +861,124 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testPartitionOverwriteModes() throws Exception {
+        for (String mode : new String[] {null, "static", "dynamic"}) {
+            verifyPartitionOverwriteMode(mode, false, false, false);
+            verifyPartitionOverwriteMode(mode, true, false, false);
+        }
+    }
+
+    @Test
+    public void testWholeTableOverwriteClearsOlderPartitionSpecs() throws Exception {
+        verifyPartitionOverwriteMode("static", false, true, false);
+        verifyPartitionOverwriteMode("static", true, true, false);
+    }
+
+    @Test
+    public void testWholeTableOverwriteTargetsOnlyBranch() throws Exception {
+        verifyPartitionOverwriteMode("static", false, false, true);
+        verifyPartitionOverwriteMode("static", true, false, true);
+    }
+
+    private void verifyPartitionOverwriteMode(String mode, boolean emptySource,
+            boolean evolveSpec, boolean targetBranch) throws Exception {
+        String tableName = "overwrite_" + UUID.randomUUID().toString().replace("-", "");
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.StringType.get()));
+        PartitionSpec spec = evolveSpec ? PartitionSpec.unpartitioned()
+                : PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = ops.getCatalog().createTable(TableIdentifier.of(dbName, tableName), schema, spec);
+        DataFile seed = DataFiles.builder(spec).withPath(table.location() + "/seed.parquet")
+                .withPartitionPath(evolveSpec ? "" : "p=us").withFileSizeInBytes(1).withRecordCount(1).build();
+        table.newAppend().appendFile(seed).commit();
+        if (evolveSpec) {
+            table.updateSpec().addField("p").commit();
+        }
+        IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+        context.setOverwrite(true);
+        if (targetBranch) {
+            table.manageSnapshots().createBranch("audit").commit();
+            context.setBranchName(Optional.of("audit"));
+            // Main advances independently, so the conflict base must be the audit branch's head.
+            table.newAppend().appendFile(DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/main.parquet").withPartitionPath("p=ap")
+                    .withFileSizeInBytes(1).withRecordCount(1).build()).commit();
+        }
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        try (MockedStatic<IcebergUtils> mockedUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            if (mode == null) {
+                txn.beginInsert(dorisTable, table, Optional.of(context));
+            } else {
+                txn.beginInsert(dorisTable, table, Optional.of(context), mode);
+            }
+            if (!emptySource) {
+                TIcebergCommitData data = new TIcebergCommitData();
+                data.setFilePath(table.location() + "/output.parquet");
+                data.setPartitionValues(Collections.singletonList("eu"));
+                data.setPartitionSpecId(table.spec().specId());
+                data.setFileContent(TFileContent.DATA);
+                data.setRowCount(1);
+                data.setFileSize(1);
+                txn.updateIcebergCommitData(Collections.singletonList(data));
+            }
+            txn.finishInsert(NameMapping.createForTest(dbName, tableName));
+            txn.commit();
+        }
+        table.refresh();
+        TableScan scan = targetBranch ? table.newScan().useRef("audit") : table.newScan();
+        List<String> files = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            tasks.forEach(task -> files.add(task.file().path().toString()));
+        }
+        Assert.assertEquals(("dynamic".equals(mode) ? 1 : 0) + (emptySource ? 0 : 1), files.size());
+        Assert.assertEquals("dynamic".equals(mode), files.contains(seed.path().toString()));
+        if (!emptySource) {
+            Assert.assertTrue(files.contains(table.location() + "/output.parquet"));
+        }
+        if (targetBranch) {
+            checkPushDownByPartition(table, Expressions.alwaysTrue(), 2);
+        }
+    }
+
+    @Test
+    public void testWholeTableOverwriteRejectsConcurrentDataAndDeletes() throws Exception {
+        for (boolean concurrentDelete : new boolean[] {false, true}) {
+            String tableName = "overwrite_conflict_" + concurrentDelete;
+            Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+            Table table = ops.getCatalog().createTable(TableIdentifier.of(dbName, tableName), schema,
+                    PartitionSpec.unpartitioned(), ImmutableMap.of("format-version", "2"));
+            table.newAppend().appendFile(DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/seed.parquet").withFileSizeInBytes(1)
+                    .withRecordCount(1).build()).commit();
+            IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getName()).thenReturn(tableName);
+            IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+            context.setOverwrite(true);
+            try (MockedStatic<IcebergUtils> mockedUtils =
+                    Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+                mockWritableTable(mockedUtils, table);
+                IcebergTransaction txn = getTxn();
+                txn.beginInsert(dorisTable, table, Optional.of(context));
+                txn.finishInsert(NameMapping.createForTest(dbName, tableName));
+                if (concurrentDelete) {
+                    table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                            .ofEqualityDeletes(1).withPath(table.location() + "/delete.parquet")
+                            .withFileSizeInBytes(1).withRecordCount(1).build()).commit();
+                } else {
+                    table.newAppend().appendFile(DataFiles.builder(table.spec())
+                            .withPath(table.location() + "/concurrent.parquet").withFileSizeInBytes(1)
+                            .withRecordCount(1).build()).commit();
+                }
+                Assert.assertThrows(org.apache.iceberg.exceptions.ValidationException.class, txn::commit);
+            }
+        }
+    }
+
+    @Test
     public void testUnPartitionedTableOverwriteWithData() throws UserException {
 
         testUnPartitionedTable();
@@ -904,7 +1028,15 @@ public class IcebergTransactionTest {
 
     @Test
     public void testUnpartitionedTableOverwriteWithoutData() throws UserException {
+        verifyUnpartitionedEmptyOverwrite("static");
+    }
 
+    @Test
+    public void testUnpartitionedDynamicOverwriteWithoutData() throws UserException {
+        verifyUnpartitionedEmptyOverwrite("dynamic");
+    }
+
+    private void verifyUnpartitionedEmptyOverwrite(String mode) throws UserException {
         testUnPartitionedTableOverwriteWithData();
 
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
@@ -917,7 +1049,7 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx), mode);
             ctx.setOverwrite(true);
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
@@ -1166,6 +1298,7 @@ public class IcebergTransactionTest {
         org.apache.iceberg.Transaction retainedTransaction =
                 Mockito.mock(org.apache.iceberg.Transaction.class);
         Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
+        Mockito.when(retainedTransaction.table()).thenReturn(retainedTable);
 
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
             mockWritableTable(mockedUtils, retainedTable);
@@ -1197,6 +1330,195 @@ public class IcebergTransactionTest {
             Assert.assertFalse("begin must retain the catalog generation", released.get());
             txn.rollback();
             Assert.assertTrue("rollback must release the catalog generation", released.get());
+        }
+    }
+
+    @Test
+    public void testRollbackDeletesReportedFilesAndClearsCommitData() throws Exception {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        String path = table.location() + "/data/uncommitted.parquet";
+        try (PositionOutputStream stream = table.io().newOutputFile(path).create()) {
+            stream.write(1);
+        }
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(dorisTable, table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath(path);
+            txn.updateIcebergCommitData(Arrays.asList(data, data));
+
+            txn.rollback();
+
+            Assert.assertFalse(table.io().newInputFile(path).exists());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+            Assert.assertNull("rollback must not publish a snapshot", table.currentSnapshot());
+            txn.rollback();
+        }
+    }
+
+    @Test
+    public void testRollbackContinuesCleanupAfterDeleteFailureBeforeReleasingLease() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(Mockito.mock(org.apache.iceberg.Transaction.class));
+        Mockito.doThrow(new RuntimeException("injected delete failure")).when(fileIO).deleteFile("failed.parquet");
+        AtomicBoolean released = new AtomicBoolean();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(
+                    ArgumentMatchers.any(ExternalTable.class), ArgumentMatchers.eq(ops)))
+                    .thenReturn(new IcebergExternalMetaCache.WritableTableLease(
+                            table, ops, testRuntimeContext(), false, false, () -> {
+                                Mockito.verify(fileIO).deleteFile("failed.parquet");
+                                Mockito.verify(fileIO).deleteFile("other.orc");
+                                released.set(true);
+                            }));
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData failed = new TIcebergCommitData();
+            failed.setFilePath("failed.parquet");
+            TIcebergCommitData other = new TIcebergCommitData();
+            other.setFilePath("other.orc");
+            txn.updateIcebergCommitData(Arrays.asList(failed, failed, other));
+
+            txn.rollback();
+
+            Assert.assertTrue(released.get());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+        }
+    }
+
+    @Test
+    public void testFailedCommitCleansReportedFilesBeforeReleasingLease() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(icebergTxn);
+        Mockito.doThrow(new CommitFailedException("injected commit failure")).when(icebergTxn).commitTransaction();
+        AtomicBoolean released = new AtomicBoolean();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(
+                    ArgumentMatchers.any(ExternalTable.class), ArgumentMatchers.eq(ops)))
+                    .thenReturn(new IcebergExternalMetaCache.WritableTableLease(
+                            table, ops, testRuntimeContext(), false, false, () -> {
+                                Mockito.verify(fileIO).deleteFile("uncommitted.parquet");
+                                released.set(true);
+                            }));
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("uncommitted.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertThrows(CommitFailedException.class, txn::commit);
+
+            Assert.assertTrue(released.get());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+            txn.rollback();
+            Mockito.verify(fileIO).deleteFile("uncommitted.parquet");
+        }
+    }
+
+    @Test
+    public void testUnknownCommitStatePreservesPotentiallyCommittedFiles() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(icebergTxn);
+        Mockito.doThrow(new CommitStateUnknownException(new IOException("injected unknown commit state")))
+                .when(icebergTxn).commitTransaction();
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("possibly-committed.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertThrows(CommitStateUnknownException.class, txn::commit);
+            txn.rollback();
+
+            Mockito.verify(fileIO, Mockito.never()).deleteFile(ArgumentMatchers.anyString());
+        }
+    }
+
+    @Test
+    public void testRestResponseLossPreservesPublishedFileThroughRollback() throws Exception {
+        assertPublishedFileSurvivesCommitFailure(new RESTException(
+                new IOException("truncated commit response"), "Failed to parse REST commit response"));
+    }
+
+    @Test
+    public void testOtherIndeterminateFailurePreservesPublishedFileThroughRollback() throws Exception {
+        assertPublishedFileSurvivesCommitFailure(new IllegalStateException("response lost after publication"));
+    }
+
+    private void assertPublishedFileSurvivesCommitFailure(RuntimeException failure) throws Exception {
+        Table actualTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        String path = actualTable.location() + "/data/published.parquet";
+        try (PositionOutputStream stream = actualTable.io().newOutputFile(path).create()) {
+            stream.write(1);
+        }
+        org.apache.iceberg.Transaction actualTransaction = actualTable.newTransaction();
+        actualTransaction.newAppend().appendFile(DataFiles.builder(actualTable.spec())
+                .withPath(path).withFormat(FileFormat.PARQUET)
+                .withRecordCount(1).withFileSizeInBytes(1).build()).commit();
+        org.apache.iceberg.Transaction sdkTransaction = Mockito.mock(org.apache.iceberg.Transaction.class,
+                AdditionalAnswers.delegatesTo(actualTransaction));
+        Mockito.doAnswer(invocation -> {
+            actualTransaction.commitTransaction();
+            throw failure;
+        }).when(sdkTransaction).commitTransaction();
+        Table table = Mockito.mock(Table.class, AdditionalAnswers.delegatesTo(actualTable));
+        Mockito.when(table.newTransaction()).thenReturn(sdkTransaction);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath(path);
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            Assert.assertSame(failure, Assert.assertThrows(failure.getClass(), txn::commit));
+            actualTable.refresh();
+            Assert.assertNotNull("the server-side metadata commit succeeded", actualTable.currentSnapshot());
+            Assert.assertTrue(actualTable.io().newInputFile(path).exists());
+
+            // Retain another fragment report to verify rollback consults the publication state,
+            // rather than relying only on commit() clearing its first pending-file inventory.
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+            txn.rollback();
+
+            Assert.assertTrue("rollback must preserve files referenced by the published snapshot",
+                    actualTable.io().newInputFile(path).exists());
+            Assert.assertTrue(txn.getCommitDataList().isEmpty());
+        }
+    }
+
+    @Test
+    public void testRollbackAfterSuccessfulCommitPreservesReportedFiles() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(table.newTransaction()).thenReturn(Mockito.mock(org.apache.iceberg.Transaction.class));
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mockWritableTable(mockedUtils, table);
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(Mockito.mock(IcebergExternalTable.class), table, Optional.empty());
+            TIcebergCommitData data = new TIcebergCommitData();
+            data.setFilePath("committed.parquet");
+            txn.updateIcebergCommitData(Collections.singletonList(data));
+
+            txn.commit();
+            txn.rollback();
+
+            Mockito.verify(fileIO, Mockito.never()).deleteFile(ArgumentMatchers.anyString());
         }
     }
 

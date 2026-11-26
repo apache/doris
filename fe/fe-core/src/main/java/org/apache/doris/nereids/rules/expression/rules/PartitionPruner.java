@@ -58,6 +58,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * PartitionPruner
@@ -169,11 +170,20 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+        return pruneWithResult(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
+                partitionTableType, sortedPartitionRanges.isPresent(), () -> sortedPartitionRanges);
+    }
+
+    /** Resolve sorted ranges only when the rewritten predicate supports binary search. */
+    public static <K extends Comparable<K>> PartitionPruneResult<K> pruneWithResult(List<Slot> partitionSlots,
+            Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType, boolean enableBinarySearch,
+            Supplier<Optional<SortedPartitionRanges<K>>> sortedPartitionRangesSupplier) {
         long startAt = System.currentTimeMillis();
         try {
             return pruneInternal(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
-                    partitionTableType,
-                    sortedPartitionRanges);
+                    partitionTableType, enableBinarySearch, sortedPartitionRangesSupplier);
         } finally {
             SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
             if (profile != null) {
@@ -186,7 +196,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
-            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+            PartitionTableType partitionTableType, boolean enableBinarySearch,
+            Supplier<Optional<SortedPartitionRanges<K>>> sortedPartitionRangesSupplier) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         Expression originalPartitionPredicate = partitionPredicate;
@@ -209,20 +220,23 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
         }
 
-        if (sortedPartitionRanges.isPresent()) {
+        if (enableBinarySearch) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
             if (predicateRanges != null) {
-                Pair<List<K>, Boolean> res = binarySearchFiltering(
-                        sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
-                        expandThreshold, predicateRanges
-                );
-                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
-                if (res.second) {
-                    return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
-                            hasPartitionPredicate);
-                } else {
-                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
+                Optional<SortedPartitionRanges<K>> sortedPartitionRanges = sortedPartitionRangesSupplier.get();
+                if (sortedPartitionRanges.isPresent()) {
+                    Pair<List<K>, Boolean> res = binarySearchFiltering(
+                            sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
+                            expandThreshold, predicateRanges
+                    );
+                    boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
+                    if (res.second) {
+                        return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                                hasPartitionPredicate);
+                    } else {
+                        return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
+                    }
                 }
             }
         }

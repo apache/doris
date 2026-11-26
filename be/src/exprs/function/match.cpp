@@ -26,7 +26,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/field.h"
+#include "core/value/variant/variant_leaf_visitor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
@@ -51,6 +54,131 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
+}
+
+class MatchAnyTerms {
+public:
+    explicit MatchAnyTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _terms.emplace(token.get_single_term());
+        }
+    }
+
+    void start_row(size_t /*row*/) {}
+    bool feed(std::string_view term) const { return _terms.contains(term); }
+
+private:
+    std::unordered_set<std::string_view> _terms;
+};
+
+class MatchAllTerms {
+public:
+    explicit MatchAllTerms(const std::vector<segment_v2::TermInfo>& query_tokens) {
+        for (const auto& token : query_tokens) {
+            _term_ids.emplace(token.get_single_term(), _term_ids.size());
+        }
+        _last_seen_row.resize(_term_ids.size());
+    }
+
+    void start_row(size_t row) {
+        _row_marker = row + 1;
+        _remaining = _term_ids.size();
+    }
+
+    bool feed(std::string_view term) {
+        auto it = _term_ids.find(term);
+        if (it == _term_ids.end() || _last_seen_row[it->second] == _row_marker) {
+            return false;
+        }
+        _last_seen_row[it->second] = _row_marker;
+        return --_remaining == 0;
+    }
+
+private:
+    std::unordered_map<std::string_view, size_t> _term_ids;
+    std::vector<size_t> _last_seen_row;
+    size_t _row_marker = 0;
+    size_t _remaining = 0;
+};
+
+template <typename Matcher>
+Status match_variant_leaf(std::string_view text, const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                          Matcher& matcher, bool& matched) {
+    std::vector<segment_v2::TermInfo> tokens;
+    RETURN_IF_ERROR(segment_v2::inverted_index::InvertedIndexAnalyzer::analyze(text, analyzer_ctx,
+                                                                               {}, &tokens));
+    for (const auto& token : tokens) {
+        matched = matched || matcher.feed(token.get_single_term());
+    }
+    return Status::OK();
+}
+
+template <typename Matcher>
+Status match_variant_rows(const ColumnVariantV2& variant, size_t input_rows_count,
+                          const InvertedIndexAnalyzerCtx* analyzer_ctx, Matcher matcher,
+                          ColumnUInt8::Container& result) {
+    Status evaluation_status = Status::OK();
+    try {
+        visit_variant_v2_values(
+                variant, 0, input_rows_count, {}, [](size_t) {},
+                [&](size_t row, const VariantRef& value) {
+                    if (!evaluation_status.ok()) {
+                        return;
+                    }
+                    matcher.start_row(row);
+                    bool matched = false;
+                    evaluation_status =
+                            for_each_variant_leaf_text(value, [&](std::string_view text) {
+                                return match_variant_leaf(text, analyzer_ctx, matcher, matched);
+                            });
+                    result[row] = matched;
+                });
+    } catch (const Exception& exception) {
+        return exception.to_status();
+    }
+    return evaluation_status;
+}
+
+Status execute_variant_values_match(const FunctionMatchBase& function, FunctionContext* context,
+                                    const ColumnVariantV2& variant,
+                                    const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                    const std::string& match_query_str, Block& block,
+                                    uint32_t result, size_t input_rows_count) {
+    const InvertedIndexQueryType query_type = function.get_query_type_from_fn_name();
+    if (query_type != InvertedIndexQueryType::MATCH_ANY_QUERY &&
+        query_type != InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT root supports only MATCH, MATCH_ANY, and MATCH_ALL");
+    }
+    RETURN_IF_ERROR(function.check(context, function.get_name()));
+
+    // Only root VARIANT inputs reach this branch; FE casts every other VARIANT input to STRING.
+    if (analyzer_ctx == nullptr ||
+        (analyzer_ctx->requires_analysis() && analyzer_ctx->get_analyzer() == nullptr)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "VARIANT MATCH requires a bound analyzer");
+    }
+
+    auto result_values = ColumnUInt8::create();
+    ColumnUInt8::Container& result_data = result_values->get_data();
+    result_data.resize_fill(input_rows_count);
+    std::vector<segment_v2::TermInfo> query_tokens;
+    RETURN_IF_ERROR(segment_v2::inverted_index::InvertedIndexAnalyzer::analyze(
+            match_query_str, analyzer_ctx, {}, &query_tokens));
+    if (query_tokens.empty()) {
+        block.replace_by_position(result, std::move(result_values));
+        return Status::OK();
+    }
+
+    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer_ctx,
+                                           MatchAnyTerms(query_tokens), result_data));
+    } else {
+        RETURN_IF_ERROR(match_variant_rows(variant, input_rows_count, analyzer_ctx,
+                                           MatchAllTerms(query_tokens), result_data));
+    }
+    block.replace_by_position(result, std::move(result_values));
+    return Status::OK();
 }
 
 } // namespace
@@ -147,6 +275,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    // Default NULL handling already unwrapped the input column.
+    if (const auto* variant = check_and_get_column<ColumnVariantV2>(source_col.get())) {
+        return execute_variant_values_match(*this, context, *variant, analyzer_ctx, match_query_str,
+                                            block, result, input_rows_count);
+    }
+
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
     if (is_column<ColumnArray>(source_col.get())) {

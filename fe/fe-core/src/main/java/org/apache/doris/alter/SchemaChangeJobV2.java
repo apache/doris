@@ -52,6 +52,7 @@ import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -324,7 +325,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested(),
+                                    tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                     tbl.storageDictPageSize(),
                                     tbl.getVerticalCompactionNumColumnsPerGroup());
@@ -544,6 +545,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                 if (!(srcType.isDecimalV2Type() && destType.isDecimalV2Type()
                                         || srcType.isStringLikeType() && destType.isStringLikeType())) {
                                     defineExpr = new CastExpr(newColumn.getType(), defineExpr, null);
+                                    defineExpr.setNullableFromNereids(
+                                            Cast.castNullable(slot.isNullable(), srcType, destType));
                                 }
                                 defineExprs.put(column.getName(), defineExpr);
                             }
@@ -839,6 +842,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);
         }
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /*

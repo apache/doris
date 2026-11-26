@@ -2571,6 +2571,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
 void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
                                               const TAgentTaskRequest& req) {
+    Defer remove_task = [&] { remove_task_info(req.task_type, req.signature); };
     if (!config::enable_cloud_make_rs_visible_on_be) {
         return;
     }

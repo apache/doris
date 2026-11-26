@@ -21,10 +21,12 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -90,6 +92,12 @@ struct StorageMapRowCursor {
         DORIS_CHECK(values != nullptr);
         DORIS_CHECK_EQ(paths->size(), values->size());
         DCHECK(rows == 0 || storage_map->offset_at(static_cast<ssize_t>(rows)) == paths->size());
+        // Readers binary-search sparse keys by raw path bytes. The writer (#70001) and vertical
+        // compaction canonicalize every row, so a non-conforming row reaching this cursor is a
+        // producer bug; keep the check debug-only so release scans pay nothing.
+        for (size_t row = 0; row < rows; ++row) {
+            DCHECK(is_variant_sparse_row_sorted(*paths, begin(row), row_end(row)));
+        }
     }
 
     size_t begin(size_t row) const noexcept { return source->offset_at(static_cast<ssize_t>(row)); }
@@ -175,6 +183,7 @@ struct ObjectEmitter {
     StringRef previous_path;
     std::vector<ObjectScope> scopes;
 
+    bool decode_keys = false;
     ObjectEmitter() { scopes.reserve(8); }
 
     static size_t component_end(StringRef path, size_t offset) {
@@ -226,7 +235,14 @@ struct ObjectEmitter {
         for (size_t part = 0; part < depth; ++part) {
             const size_t end = component_end(path, offset);
             if (part >= common_depth) {
-                scopes.back().add_key({path_data + offset, end - offset});
+                const std::string_view key(path_data + offset, end - offset);
+                if (decode_keys && key.find('%') != std::string_view::npos) {
+                    std::string decoded;
+                    THROW_IF_ERROR(decode_variant_path_component(key, &decoded));
+                    scopes.back().add_key({decoded.data(), decoded.size()});
+                } else {
+                    scopes.back().add_key({key.data(), key.size()});
+                }
                 if (part + 1 < depth) {
                     scopes.push_back(row->start_object());
                 }
@@ -604,7 +620,7 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     return Status::OK();
 }
 
-Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
+Status assemble_hierarchical(uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
                              const PathInData& requested,
                              std::span<const MaterializedSlot> materialized_slots,
                              const VariantAssemblerBatchView& batch,
@@ -618,6 +634,7 @@ Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
     outer->reserve(batch.num_rows);
     DorisVector<MergeValue> pending;
     ObjectEmitter emitter;
+    emitter.decode_keys = path_encoding == 1;
     for (size_t row_index = 0; row_index < batch.num_rows; ++row_index) {
         auto row = builder.begin_row();
         if (prepared.root_nulls != nullptr && prepared.root_nulls[row_index] != 0) {
@@ -695,19 +712,60 @@ DorisVector<MaterializedSlot> build_materialized_slots(const VariantAssemblerOpt
 
 } // namespace
 
+void append_variant_binary_bucket_range(std::span<const ColumnMap* const> buckets, size_t begin,
+                                        size_t num_rows, ColumnMap& destination) {
+    if (buckets.size() == 1) {
+        destination.insert_range_from(*buckets.front(), begin, num_rows);
+        return;
+    }
+
+    auto& dst_paths = assert_cast<ColumnString&>(destination.get_keys());
+    auto& dst_values = assert_cast<ColumnString&>(destination.get_values());
+    auto& dst_offsets = destination.get_offsets();
+    std::vector<const ColumnString*> src_paths(buckets.size());
+    std::vector<const ColumnString*> src_values(buckets.size());
+    for (size_t i = 0; i < buckets.size(); ++i) {
+        src_paths[i] = assert_cast<const ColumnString*>(&buckets[i]->get_keys());
+        src_values[i] = assert_cast<const ColumnString*>(&buckets[i]->get_values());
+    }
+
+    std::vector<std::tuple<std::string_view, size_t, size_t>> paths;
+    for (size_t row = begin; row < begin + num_rows; ++row) {
+        // Keep the source bucket and entry so values follow their paths after sorting.
+        paths.clear();
+        for (size_t bucket = 0; bucket < buckets.size(); ++bucket) {
+            const size_t offset_begin = buckets[bucket]->offset_at(row);
+            const size_t offset_end = buckets[bucket]->offset_at(row + 1);
+            for (size_t offset = offset_begin; offset < offset_end; ++offset) {
+                auto path = src_paths[bucket]->get_data_at(offset).to_string_view();
+                paths.emplace_back(path, bucket, offset);
+            }
+        }
+
+        std::ranges::sort(paths);
+        for (const auto& [path, bucket, offset] : paths) {
+            dst_paths.insert_data(path.data(), path.size());
+            dst_values.insert_from(*src_values[bucket], offset);
+        }
+        dst_offsets.push_back(dst_paths.size());
+    }
+}
+
 Result<std::unique_ptr<VariantAssembler>> VariantAssembler::create(
         VariantAssemblerOptions options) {
     RETURN_IF_ERROR_RESULT(check_options(options));
     DorisVector<MaterializedSlot> materialized = build_materialized_slots(options);
     return std::unique_ptr<VariantAssembler>(
-            new VariantAssembler(options.storage_map_kind, options.has_root, options.requested_path,
-                                 std::move(materialized)));
+            new VariantAssembler(options.path_encoding, options.storage_map_kind, options.has_root,
+                                 options.requested_path, std::move(materialized)));
 }
 
 VariantAssembler::VariantAssembler(
-        StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
+        uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
+        const PathInData& requested,
         DorisVector<variant_assembler_detail::MaterializedSlot> materialized)
-        : _storage_map_kind(storage_map_kind),
+        : _path_encoding(path_encoding),
+          _storage_map_kind(storage_map_kind),
           _has_root(has_root),
           _requested(requested),
           _materialized(std::move(materialized)) {}
@@ -717,8 +775,8 @@ Status VariantAssembler::assemble(const VariantAssemblerBatchView& batch,
     DORIS_CHECK(output != nullptr);
     try {
         ColumnNullable::MutablePtr result;
-        const Status status = assemble_hierarchical(_storage_map_kind, _has_root, _requested,
-                                                    _materialized, batch, &result);
+        const Status status = assemble_hierarchical(_path_encoding, _storage_map_kind, _has_root,
+                                                    _requested, _materialized, batch, &result);
         if (!status.ok()) {
             return status;
         }

@@ -194,6 +194,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_vertical_compaction_num_columns_per_group(
             vertical_compaction_num_columns_per_group);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
+    schema->set_variant_escape_dots_in_keys(tablet_schema.variant_escape_dots_in_keys);
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     schema->set_sequence_col_idx(tablet_schema.sequence_col_idx);

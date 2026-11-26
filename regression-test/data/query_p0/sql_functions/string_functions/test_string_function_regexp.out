@@ -247,6 +247,24 @@ aXb
 -- !sql_regexp_extract_all_5 --
 ['Case1','Case2','Case3']
 
+-- !sql_regexp_extract_all_zero_width_1 --
+['a']
+
+-- !sql_regexp_extract_all_zero_width_2 --
+['a','a']
+
+-- !sql_regexp_extract_all_zero_width_3 --
+['a','a','a']
+
+-- !sql_regexp_extract_all_zero_width_4 --
+['a','a']
+
+-- !sql_regexp_extract_all_zero_width_5 --
+['','a']
+
+-- !sql_regexp_extract_all_zero_width_6 --
+
+
 -- !sql_regexp_extract_all_6 --
 ['foo\nbar']
 

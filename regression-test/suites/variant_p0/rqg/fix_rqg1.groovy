@@ -17,7 +17,7 @@
 
 
 suite("variant_rqg_fix1", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
     sql """ drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by5 """

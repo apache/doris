@@ -36,7 +36,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -247,12 +246,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
-        } else if (childDataType instanceof VariantType
-                && ((VariantType) childDataType).isExecutionV2() && !targetType.isVariantType()) {
-            // Variant V2 values can have a shape that is incompatible with the target type.
-            return true;
-        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
-            // Legacy Variant to Json is always nullable.
+        } else if (childDataType.isVariantType() && !targetType.isVariantType()) {
+            // A Variant value can have a shape that is incompatible with the target type, and the
+            // legacy kernel may emit NULL for a non-NULL Variant input (it serializes through the
+            // nullable root/WRAP path), so the result is nullable for both execution
+            // representations. Keep this in sync with the BE columns the cast kernels produce.
             return true;
         }
         return false;

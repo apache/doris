@@ -185,6 +185,8 @@ using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
+    uint32_t path_encoding() const { return _path_encoding; }
+
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -219,7 +221,8 @@ public:
     // Return shared_ptr to ensure the lifetime of TabletIndex objects
     TabletIndexes find_subcolumn_tablet_indexes(const TabletColumn& target_column,
                                                 const DataTypePtr& data_type,
-                                                OlapReaderStatistics* stats = nullptr);
+                                                OlapReaderStatistics* stats = nullptr,
+                                                const TabletSchema* read_schema = nullptr);
 
     bool exist_in_sparse_column(const PathInData& path) const;
 
@@ -312,6 +315,7 @@ private:
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
         ROOT_FLAT,          // root variant using `VariantRootColumnIterator`
+        LEGACY_V2_PATH,     // project an escaped path from a reconstructed legacy root
         HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
         HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
         LEAF,               // direct leaf reader
@@ -365,7 +369,8 @@ private:
                             const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
                             PathToBinaryColumnCache* binary_column_cache_ptr);
 
-    static bool _need_read_flat_leaves(const StorageReadOptions* opts);
+    static bool _need_read_flat_leaves(const StorageReadOptions* opts,
+                                       const TabletColumn& target_col);
     bool _can_use_nested_group_read_path() const;
     // Only root-path reads need the extra merge; child-path reads are already served by the
     // specific iterator selected in the plan.
@@ -421,11 +426,13 @@ private:
             PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
             std::shared_ptr<ColumnReader> binary_column_reader);
 
-    // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
+    // Protect the external meta load guard, subcolumn metadata and statistics.
     mutable std::shared_mutex _subcolumns_meta_mutex;
+    std::optional<DorisCallOnce<Status>> _external_meta_load_once {std::in_place};
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
+    uint32_t _path_encoding = 0;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -440,8 +447,6 @@ private:
     uint64_t _num_rows {0};
     uint32_t _root_unique_id {0};
 
-    // call-once guard moved into VariantExternalMetaReader
-
     // NestedGroup readers for array<object> paths
     NestedGroupReaders _nested_group_readers;
     std::unique_ptr<NestedGroupReadProvider> _nested_group_read_provider;
@@ -451,8 +456,8 @@ class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;
 
-    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter)
-            : _inner_iter(std::move(iter)) {}
+    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter, DataTypePtr v2_type = nullptr)
+            : _inner_iter(std::move(iter)), _v2_type(std::move(v2_type)) {}
 
     ~VariantRootColumnIterator() override = default;
 
@@ -483,6 +488,7 @@ private:
     Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
                                 const DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
+    DataTypePtr _v2_type;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {

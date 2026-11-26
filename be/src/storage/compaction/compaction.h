@@ -111,6 +111,10 @@ protected:
 
     Status merge_input_rowsets();
 
+    // Select storage once, before any source segment registers its rows.
+    void prepare_rowid_conversion(const RowsetWriterContext& ctx);
+    bool should_compress_rowid_conversion(const RowsetWriterContext& ctx) const;
+
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
     }
@@ -140,6 +144,12 @@ protected:
                                     const std::function<void(int64_t, int64_t)>& error_handler);
 
     void construct_index_compaction_columns(RowsetWriterContext& ctx);
+    bool _should_compact_indexes() const {
+        return _enable_inverted_index_compaction &&
+               ((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                 _tablet->enable_unique_key_merge_on_write()) ||
+                _tablet->keys_type() == KeysType::DUP_KEYS);
+    }
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 

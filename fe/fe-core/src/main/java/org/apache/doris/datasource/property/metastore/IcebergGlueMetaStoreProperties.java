@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsProperties;
@@ -69,7 +70,9 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         // can not set
         catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_GLUE);
-        return buildIcebergCatalog(catalogName, catalogProps, null);
+        // Resolver selection and its FileIO must use the same Hadoop identity, including XML resources.
+        Configuration conf = createHadoopConfiguration(storagePropertiesList);
+        return buildIcebergCatalog(catalogName, catalogProps, conf);
     }
 
     private void appendS3Props(Map<String, String> props) {

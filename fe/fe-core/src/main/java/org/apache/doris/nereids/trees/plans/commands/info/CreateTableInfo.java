@@ -349,6 +349,10 @@ public class CreateTableInfo {
         return engineName;
     }
 
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
@@ -416,6 +420,13 @@ public class CreateTableInfo {
             }
         }
         paddingEngineName(ctlName, ctx);
+        if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+            try {
+                PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(properties);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
         checkEngineName();
 
         // not allow auto bucket with auto list partition
@@ -1455,6 +1466,10 @@ public class CreateTableInfo {
 
                 // check inverted index
                 if (column.getType().isVariantType()) {
+                    if (indexDefs.stream().filter(IndexDefinition::isVariantValuesIndex).count() > 1) {
+                        throw new AnalysisException("VARIANT column supports only one values index");
+                    }
+
                     Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
                     Map<String, DataType> fieldPatternToDataType = new HashMap<>();
                     for (IndexDefinition indexDef : indexDefs) {

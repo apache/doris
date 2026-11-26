@@ -19,6 +19,8 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.ObjectStorageGlob;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.GlobListResult;
@@ -46,6 +48,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     private volatile S3Offset noMoreFilesAfterOffset;
     volatile S3Offset currentOffset;
     volatile String maxEndFile;
+    private volatile Comparator<String> fileKeyOrder = ObjectStorageGlob::compareUtf8Binary;
 
     public S3SourceOffsetProvider() {
         this.oneTimeMode = false;
@@ -80,6 +84,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         String filePath = null;
         StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
+        fileKeyOrder = storageProperties instanceof AzureProperties ? Comparator.naturalOrder()
+                : ObjectStorageGlob::compareUtf8Binary;
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
             String uri = storageProperties.validateAndGetUri(copiedProps);
             filePath = storageProperties.validateAndNormalizeUri(uri);
@@ -144,8 +150,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     // Render the same literal batch in task properties and audit SQL; execution uses file statuses.
     public static String buildFileListUri(List<TBrokerFileStatus> files) {
-        Preconditions.checkArgument(!files.isEmpty(), "S3 task batch must contain files");
-        String[] paths = files.stream().map(TBrokerFileStatus::getPath).toArray(String[]::new);
+        return buildFileListUri(files.stream().map(TBrokerFileStatus::getPath).toArray(String[]::new));
+    }
+
+    // Audit rendering reuses the same literal escaping after sanitizing paths, without mutating file statuses.
+    public static String buildFileListUri(String[] paths) {
+        Preconditions.checkArgument(paths.length > 0, "S3 task batch must contain files");
         String commonPrefix = StringUtils.getCommonPrefix(paths);
         String baseUri = commonPrefix.substring(0, commonPrefix.lastIndexOf('/') + 1);
         String joined = Arrays.stream(paths).map(path -> escapeGlob(path.substring(baseUri.length())))
@@ -194,6 +204,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
         StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
+        fileKeyOrder = storageProperties instanceof AzureProperties ? Comparator.naturalOrder()
+                : ObjectStorageGlob::compareUtf8Binary;
         S3Offset offsetAtScan = currentOffset;
         String startFile = offsetAtScan == null ? null : offsetAtScan.endFile;
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
@@ -229,7 +241,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
-        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
+        if (maxEndFile != null && fileKeyOrder.compare(currentOffset.endFile, maxEndFile) < 0) {
             return true;
         }
         return false;

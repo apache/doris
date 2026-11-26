@@ -23,11 +23,15 @@ import org.apache.doris.analysis.invertedindex.InvertedIndexSqlGenerator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -98,6 +102,10 @@ public class InvertedIndexUtil {
 
     // Default analyzer key constant - matches BE's INVERTED_INDEX_DEFAULT_ANALYZER_KEY
     public static final String INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
+
+    public static final String VARIANT_INDEX_SCOPE_KEY = InvertedIndexProperties.VARIANT_INDEX_SCOPE_KEY;
+    public static final String VARIANT_VALUES_INDEX_REQUIRES_V2 =
+            "VARIANT values index requires enable_variant_v2=true";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
         if (properties == null) {
@@ -262,7 +270,8 @@ public class InvertedIndexUtil {
                                 || parser.equals(INVERTED_INDEX_PARSER_CHINESE)
                                     || parser.equals(INVERTED_INDEX_PARSER_ICU)
                                         || parser.equals(INVERTED_INDEX_PARSER_BASIC)
-                                            || parser.equals(INVERTED_INDEX_PARSER_IK))) {
+                                            || parser.equals(INVERTED_INDEX_PARSER_IK)
+                                                || parser.equals(INVERTED_INDEX_PARSER_KUROMOJI))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }
@@ -298,7 +307,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_DICT_COMPRESSION_KEY,
                 INVERTED_INDEX_ANALYZER_NAME_KEY,
                 INVERTED_INDEX_NORMALIZER_NAME_KEY,
-                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
+                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY,
+                VARIANT_INDEX_SCOPE_KEY
         ));
 
         for (String key : properties.keySet()) {
@@ -347,9 +357,10 @@ public class InvertedIndexUtil {
         applyGramFamilyIndexDefaults(analyzerName, properties);
         checkNormalizerName(normalizerName, colType);
 
-        if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
+        if (parser != null
+                && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik|kuromoji")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
-                    + ", parser must be none, english, unicode, chinese, icu, basic or ik");
+                    + ", parser must be none, english, unicode, chinese, icu, basic, ik or kuromoji");
         }
 
         if (parserMode != null) {
@@ -363,8 +374,13 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
                         + ", parser_mode must be ik_max_word or ik_smart for ik parser");
                 }
-            } else if (parserMode != null) {
-                throw new AnalysisException("parser_mode is only available for chinese and ik parser");
+            } else if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+                if (!parserMode.matches("search|normal|extended")) {
+                    throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
+                        + ", parser_mode must be search, normal or extended for kuromoji parser");
+                }
+            } else {
+                throw new AnalysisException("parser_mode is only available for chinese, ik and kuromoji parser");
             }
         }
 
@@ -572,6 +588,69 @@ public class InvertedIndexUtil {
         }
     }
 
+    public static void validateVariantValuesIndex(DataType columnType, Map<String, String> properties,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        String scope = properties == null ? null : properties.get(VARIANT_INDEX_SCOPE_KEY);
+        if (scope == null) {
+            return;
+        }
+        if (!InvertedIndexProperties.isVariantValuesIndex(properties)) {
+            throw new AnalysisException("variant_index_scope must be values, found: " + scope);
+        }
+        if (!columnType.isVariantType()) {
+            throw new AnalysisException(
+                    "variant_index_scope=values can only be used on VARIANT columns");
+        }
+        // Declared Decimal256 can be stored, but full-root assembly cannot decode it.
+        // Reject this combination before accepting a table whose legal inserts would fail.
+        VariantType variantType = (VariantType) columnType;
+        if (variantType.getEnableNestedGroup()) {
+            throw new AnalysisException("VARIANT values index does not support NestedGroup");
+        }
+        if (variantType.getPredefinedFields().stream()
+                .anyMatch(field -> containsDecimal256(field.getDataType()))) {
+            throw new AnalysisException("VARIANT values index does not support declared Decimal256 paths");
+        }
+        if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.SNII) {
+            throw new AnalysisException(
+                    "VARIANT values index requires inverted_index_storage_format=SNII");
+        }
+        if ("true".equals(properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY))) {
+            throw new AnalysisException("VARIANT values index does not support support_phrase=true");
+        }
+        if ("true".equals(properties.get(INVERTED_INDEX_NORMS_KEY))) {
+            throw new AnalysisException("VARIANT values index does not support norms=true");
+        }
+        String analyzer = properties.getOrDefault(INVERTED_INDEX_ANALYZER_NAME_KEY, "").trim();
+        if (InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
+                InvertedIndexProperties.getInvertedIndexParser(properties))
+                && (analyzer.isEmpty()
+                    || InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(analyzer))) {
+            throw new AnalysisException("VARIANT values index requires a parser or analyzer with tokenization");
+        }
+        if (!analyzer.isEmpty()
+                && !IndexPolicy.BUILTIN_ANALYZERS.contains(resolveAnalyzerName(analyzer))) {
+            throw new AnalysisException("VARIANT values index supports only built-in parsers and analyzers");
+        }
+        if (properties.containsKey(INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY)) {
+            throw new AnalysisException("VARIANT values index does not support field_pattern");
+        }
+        if (!Config.enable_variant_v2) {
+            throw new AnalysisException(VARIANT_VALUES_INDEX_REQUIRES_V2);
+        }
+        properties.putIfAbsent(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
+    }
+
+    private static boolean containsDecimal256(DataType type) {
+        if (type instanceof DecimalV3Type) {
+            return ((DecimalV3Type) type).getPrecision() > 38;
+        }
+        if (type instanceof ArrayType) {
+            return containsDecimal256(((ArrayType) type).getItemType());
+        }
+        return false;
+    }
+
     public static boolean canHaveMultipleInvertedIndexes(DataType colType, List<IndexDefinition> indexDefs) {
         if (indexDefs.size() <= 1) {
             return true;
@@ -583,6 +662,10 @@ public class InvertedIndexUtil {
         Set<String> analyzerKeys = new HashSet<>();
         Set<String> analyzerSelectors = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
+            // Values and path indexes bind disjoint predicates. CREATE TABLE checks values index uniqueness.
+            if (indexDef.isVariantValuesIndex()) {
+                continue;
+            }
             Map<String, String> properties = indexDef.getProperties();
             String key = buildAnalyzerIdentity(properties);
             // HashSet.add() returns false if element already exists

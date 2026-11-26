@@ -207,6 +207,28 @@ ColumnMap::MutablePtr map_column(const MapEntries& entries) {
     return map_column_rows({entries});
 }
 
+TEST(VariantAssemblerLegacyTest, AppendBinaryBucketRangeKeepsKeysAndValuesAligned) {
+    auto first = map_column_rows({{{"ignored", "0"}}, {{"b", "B"}, {"a", "A"}}, {}});
+    auto second = map_column_rows({{}, {{"a%2Eb", "dot"}}, {{"tail", "T"}}});
+    auto result = map_column({{"seed", "S"}});
+    const std::array<const ColumnMap*, 1> single_bucket {first.get()};
+    append_variant_binary_bucket_range(single_bucket, 1, 1, *result);
+    const std::array<const ColumnMap*, 2> multiple_buckets {first.get(), second.get()};
+    append_variant_binary_bucket_range(multiple_buckets, 1, 2, *result);
+
+    ASSERT_EQ(result->size(), 4);
+    EXPECT_EQ(result->size_at(1), 2);
+    EXPECT_EQ(result->size_at(2), 3);
+    EXPECT_EQ(result->size_at(3), 1);
+    const MapEntries expected {{"seed", "S"},    {"b", "B"}, {"a", "A"},   {"a", "A"},
+                               {"a%2Eb", "dot"}, {"b", "B"}, {"tail", "T"}};
+    ASSERT_EQ(result->get_keys().size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(result->get_keys().get_data_at(i).to_string_view(), expected[i].first);
+        EXPECT_EQ(result->get_values().get_data_at(i).to_string_view(), expected[i].second);
+    }
+}
+
 struct LegacyCells {
     DataTypePtr date_type = std::make_shared<DataTypeDate>();
     DataTypePtr datetime_type = std::make_shared<DataTypeDateTime>();
@@ -1797,4 +1819,28 @@ TEST(VariantAssemblerLegacyTest, NestedArrayPathReturnsNotSupported) {
 }
 
 } // namespace
+
+TEST(VariantAssemblerLegacyTest, EscapedSparseAndDocKeysDecodeOnce) {
+    const auto cell = fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, 1);
+    for (auto kind : {StorageMapKind::SPARSE, StorageMapKind::DOC}) {
+        VariantAssemblerOptions options;
+        options.path_encoding = 1;
+        options.storage_map_kind = kind;
+        auto assembler = create_assembler(std::move(options));
+        ASSERT_NE(assembler, nullptr);
+        auto storage = map_column({{"a%252Eb", cell}, {"a%2Eb", cell}, {"a.b", cell}});
+        VariantAssemblerBatchView batch;
+        batch.num_rows = 1;
+        batch.storage_map = storage.get();
+        ColumnNullable::MutablePtr output;
+        ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+        EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":{"b":1},"a%2Eb":1,"a.b":1})");
+        for (const auto& invalid : {"a%", "a%2e", "a%20"}) {
+            storage = map_column({{invalid, cell}});
+            batch.storage_map = storage.get();
+            EXPECT_TRUE(assembler->assemble(batch, &output).is<ErrorCode::CORRUPTION>());
+        }
+    }
+}
+
 } // namespace doris::segment_v2::variant_v2

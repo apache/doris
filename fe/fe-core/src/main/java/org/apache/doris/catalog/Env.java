@@ -171,9 +171,11 @@ import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.lineage.LineageEventProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
@@ -278,6 +280,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -346,7 +349,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-
 
 /**
  * A singleton class can also be seen as an entry point of Doris.
@@ -1422,8 +1424,7 @@ public class Env {
                 getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
-                    String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                    String url = HttpURLUtil.buildInternalFeUrl(rightHelperNode.getHost(), "/check", null);
                     HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -1521,9 +1522,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                        + "/role?host=" + selfNode.getHost()
-                        + "&port=" + selfNode.getPort();
+                String queryParams = "host=" + selfNode.getHost() + "&port=" + selfNode.getPort();
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/role", queryParams);
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
@@ -1557,7 +1557,8 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
+                    helperNode.getHost(), helperNode.getPort(),
+                    HttpURLUtil.getHttpPort());
             rightHelperNode = helperNode;
             break;
         }
@@ -1786,7 +1787,7 @@ public class Env {
 
             toMasterProgress = "log master info";
             this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port,
+                    HttpURLUtil.getHttpPort(),
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
@@ -2227,8 +2228,7 @@ public class Env {
 
     protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                    + "/version";
+            String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/version", null);
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getFile(Storage.VERSION_FILE, dir));
@@ -2247,8 +2247,7 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
-            String infoUrl = "http://" + hostPort + "/info";
+            String infoUrl = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/info", null);
             ResponseBody<StorageInfo> responseBody = MetaHelper
                     .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
             if (responseBody.getCode() != RestApiStatusCode.OK.code) {
@@ -2258,7 +2257,7 @@ public class Env {
             StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + hostPort + "/image?version=" + version;
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/image", "version=" + version);
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,
@@ -3436,8 +3435,8 @@ public class Env {
         if (Config.isCloudMode()) {
             // the cloud mode will not update table version when use recover partition,
             // so we should invalidate all cache to avoid bugs
-            getSqlCacheManager().invalidateAll();
-            getSortedPartitionsCacheManager().invalidateAll();
+            invalidateCache("SQL", () -> getSqlCacheManager().invalidateAll());
+            invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateAll());
             return true;
         }
         return false;
@@ -3728,7 +3727,7 @@ public class Env {
             sb.append("\n").append(distributionInfo.toSql());
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+            addOlapTablePropertyInfo(mtmv, sb, false, false, false, null);
             addMTMVPropertyInfo(mtmv, sb);
             sb.append("\n)");
             sb.append("\nAS ");
@@ -3796,7 +3795,7 @@ public class Env {
     }
 
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
-            boolean getDdlForSync, List<Long> partitionId) {
+            boolean getDdlForSync, boolean includeLegacyEncoding, List<Long> partitionId) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
         if (Config.isCloudMode()) {
@@ -4045,6 +4044,8 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
+        addVariantEscapeDotsInKeysProperty(olapTable, sb, includeLegacyEncoding);
+
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
@@ -4088,6 +4089,23 @@ public class Env {
 
         if (olapTable.isInAtomicRestore()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+        }
+    }
+
+    /**
+     * @param includeLegacyEncoding Emit an explicit false as well. The DDL of an existing table is
+     * replayed by LIKE/COPY TABLET/binlog sync, so it must pin the source encoding; SHOW CREATE
+     * keeps the historical false omission.
+     */
+    private static void addVariantEscapeDotsInKeysProperty(OlapTable olapTable, StringBuilder sb,
+            boolean includeLegacyEncoding) {
+        if (olapTable.getVariantEscapeDotsInKeys()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"true\"");
+        } else if (includeLegacyEncoding && olapTable.getBaseSchema().stream()
+                .anyMatch(column -> column.getType().isVariantType())) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"false\"");
         }
     }
 
@@ -4138,7 +4156,6 @@ public class Env {
         } else {
             sb.append("`").append(table.getName()).append("`");
         }
-
 
         sb.append(" (\n");
         int idx = 0;
@@ -4200,7 +4217,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                     .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }
@@ -4298,7 +4317,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4562,7 +4582,6 @@ public class Env {
             sb.append("`").append(table.getName()).append("`");
         }
 
-
         sb.append(" (\n");
         int idx = 0;
         List<Column> columns = table instanceof IcebergExternalTable
@@ -4626,7 +4645,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                         .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }
@@ -4727,7 +4748,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4908,8 +4930,8 @@ public class Env {
                 Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
                 while (iterator.hasNext()) {
                     Entry<String, String> property = iterator.next();
-                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
-                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    String value = hidePassword ? PrintableMap.redactProperty(property.getKey(), property.getValue())
+                            : String.valueOf(property.getValue());
                     sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
                             .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
                     if (iterator.hasNext()) {
@@ -5735,6 +5757,7 @@ public class Env {
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
+                onTableChanged(table, tableName);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -6336,6 +6359,7 @@ public class Env {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
 
         table.setBinlogConfig(newBinlogConfig);
+        onTableChanged(table);
 
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
@@ -6390,6 +6414,7 @@ public class Env {
                 default:
                     break;
             }
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -6740,6 +6765,7 @@ public class Env {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
                 ctl.replayTruncateTable(info);
+                onTableChanged(info.getCtl(), info.getDb(), info.getTable());
             }
         }
     }
@@ -7113,7 +7139,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7221,7 +7247,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
-                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+                onTableChanged(table);
             } finally {
                 table.writeUnlock();
             }
@@ -7233,6 +7259,7 @@ public class Env {
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove database transaction manager
         Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        AgentTaskQueue.removePublishVersionTasks(dbId);
 
         if (needEditLog) {
             Env.getCurrentEnv().getEditLog().logEraseDb(dbId);
@@ -7302,7 +7329,7 @@ public class Env {
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
 
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7607,6 +7634,86 @@ public class Env {
 
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
         return sortedPartitionsCacheManager;
+    }
+
+    /** Invalidate derived query caches after applying an existing table metadata journal. */
+    public void onTableChanged(TableIf table) {
+        onTableChanged(table, table.getName());
+    }
+
+    /** Notify after mutation while retaining the original name of a renamed or replaced table. */
+    public void onTableChanged(TableIf table, String originalName) {
+        DatabaseIf<?> db = table.getDatabase();
+        FullTableName name = db == null || db.getCatalog() == null ? null
+                : new FullTableName(db.getCatalog().getName(), db.getFullName(), originalName);
+        onTableChanged(table.getId(), name, table instanceof OlapTable);
+    }
+
+    /** The table may have been removed by the operation whose journal is being replayed. */
+    public void onTableChanged(long dbId, long tableId) {
+        Database db = getInternalCatalog().getDbNullable(dbId);
+        Table table = db == null ? null : db.getTableNullable(tableId);
+        if (table != null) {
+            onTableChanged(table);
+        } else {
+            onTableChanged(tableId, null, true);
+        }
+    }
+
+    private void onTableChanged(long tableId, FullTableName name, boolean olapTable) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutTable(tableId, name));
+        invalidateCache("sorted partitions", () -> {
+            getSortedPartitionsCacheManager().invalidateTable(tableId);
+            if (name != null) {
+                getSortedPartitionsCacheManager().invalidateTable(name.catalog, name.db, name.table);
+            }
+        });
+        if (name != null) {
+            invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                    .invalidateRewriteCaches(name.catalog, name.db, name.table));
+        }
+        if (olapTable) {
+            invalidateCache("simple aggregates", () -> SimpleAggCacheMgr.internalInstance().invalidateTable(tableId));
+        }
+    }
+
+    /** Name-based external refresh logs can arrive before a local table object has been loaded. */
+    public void onTableChanged(String catalog, String db, String table) {
+        if (Strings.isNullOrEmpty(catalog) || InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            Database database = getInternalCatalog().getDbNullable(db);
+            Table current = database == null ? null : database.getTableNullable(table);
+            if (current != null) {
+                onTableChanged(current);
+                return;
+            }
+            catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+        onTableChanged(-1L, new FullTableName(catalog, db, table), false);
+    }
+
+    public void onDatabaseChanged(String catalog, String db) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutDatabase(catalog, db));
+        invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateDatabase(catalog, db));
+        invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                .invalidateRewriteCaches(catalog, db, null));
+    }
+
+    public void onCatalogChanged(String catalog) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutCatalog(catalog));
+        invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateCatalog(catalog));
+        invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                .invalidateRewriteCaches(catalog, null, null));
+    }
+
+    private void invalidateCache(String cache, Runnable invalidation) {
+        if (isCheckpointThread()) {
+            return;
+        }
+        try {
+            invalidation.run();
+        } catch (Throwable t) {
+            LOG.warn("Failed to invalidate {} cache after applying a metadata change", cache, t);
+        }
     }
 
     public SplitSourceManager getSplitSourceManager() {
