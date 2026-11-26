@@ -26,6 +26,7 @@
 #include "core/column/column.h"
 #include "storage/changelog.h"
 #include "storage/changelog_types.h"
+#include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterator/changelog_iterator_utils.h"
 #include "storage/schema.h"
@@ -37,7 +38,7 @@ class RuntimeProfile;
 // DELETE -> DELETE (with before image), UPDATE -> UPDATE_BEFORE + UPDATE_AFTER.
 class ChangelogDetailBlockIterator final : public BlockIterator {
 public:
-    ChangelogDetailBlockIterator(std::unique_ptr<BlockIterator> input, size_t block_row_max,
+    ChangelogDetailBlockIterator(std::unique_ptr<BlockIterator> input, BlockBatchLimit batch_limit,
                                  ReadSchemaSPtr read_schema);
 
     Status next_block(Block* block, bool* eof) override;
@@ -45,12 +46,13 @@ public:
     void update_profile(RuntimeProfile* profile) override { _cursor.update_profile(profile); }
 
 private:
-    Status _emit_change(ChangelogOp op, MutableColumns& target_columns, size_t* output_rows);
+    Status _emit_change(ChangelogOp op, MutableColumns& target_columns, size_t row_limit,
+                        size_t* output_rows);
     Status _append_change_row(MutableColumns& target_columns, changelog::StreamChangeOp output_op,
                               bool use_before) const;
 
     ChangelogInputCursor _cursor;
-    const size_t _block_row_max;
+    const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const int32_t _op_col_idx;
     ChangelogPendingRow _pending_row;

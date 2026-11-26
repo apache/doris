@@ -17,13 +17,12 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "storage/iterator/agg_key_block_aggregator.h"
+#include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
@@ -41,13 +40,11 @@ class RuntimeProfile;
 class AggKeyBlockIterator final : public BlockIterator {
 public:
     // `input` hands out the rows of the read in key order, the rows of a key newest first, as a
-    // VHeapMergeIterator does; the key columns lead `read_schema`. The row limit is
-    // `block_row_max`, or, with a byte budget (`preferred_block_size_bytes`, 0 for none), the budget
-    // divided by the average row size of the latest merged Block. `merged_rows` counts the rows
-    // folded into an earlier row of their key.
-    AggKeyBlockIterator(RowwiseIteratorUPtr input, size_t block_row_max,
-                        size_t preferred_block_size_bytes, ReadSchemaSPtr read_schema,
-                        int be_exec_version, uint64_t* merged_rows);
+    // VHeapMergeIterator does; the key columns lead `read_schema`. `batch_limit` bounds the output
+    // Block by row count and optional byte budget. `merged_rows` counts the rows folded into an
+    // earlier row of their key.
+    AggKeyBlockIterator(RowwiseIteratorUPtr input, BlockBatchLimit batch_limit,
+                        ReadSchemaSPtr read_schema, int be_exec_version, uint64_t* merged_rows);
 
     // Set up the aggregation; nothing is read yet.
     Status init();
@@ -59,12 +56,8 @@ public:
     void update_profile(RuntimeProfile* profile) override { _input->update_profile(profile); }
 
 private:
-    // The row limit for the merged Block in `_input_block`, see the constructor.
-    size_t _compute_batch_row_limit() const;
-
     const RowwiseIteratorUPtr _input;
-    const size_t _block_row_max;
-    const size_t _preferred_block_size_bytes;
+    const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const int _be_exec_version;
     AggKeyBlockAggregator _aggregator;

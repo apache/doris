@@ -26,13 +26,12 @@
 namespace doris {
 
 ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(std::unique_ptr<BlockIterator> input,
-                                                           size_t block_row_max,
+                                                           BlockBatchLimit batch_limit,
                                                            ReadSchemaSPtr read_schema)
         : _cursor(std::move(input), read_schema),
-          _block_row_max(block_row_max),
+          _batch_limit(batch_limit),
           _read_schema(std::move(read_schema)),
           _op_col_idx(_read_schema->op_ordinal()) {
-    DORIS_CHECK_GT(_block_row_max, 0);
     DORIS_CHECK_GE(_op_col_idx, 0);
 }
 
@@ -55,12 +54,12 @@ Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns& target_c
 }
 
 Status ChangelogDetailBlockIterator::_emit_change(ChangelogOp op, MutableColumns& target_columns,
-                                                  size_t* output_rows) {
+                                                  size_t row_limit, size_t* output_rows) {
     if (op == ChangelogOp::UPDATE) {
         RETURN_IF_ERROR(
                 _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_BEFORE, true));
         ++(*output_rows);
-        if (*output_rows >= _block_row_max) {
+        if (*output_rows >= row_limit) {
             return _append_change_row(_pending_row.park(target_columns),
                                       changelog::StreamChangeOp::UPDATE_AFTER, false);
         }
@@ -91,18 +90,23 @@ Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
     auto& target_columns = target_columns_guard.mutable_columns();
     size_t output_rows = 0;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION([&]() -> Status {
-        while (output_rows < _block_row_max) {
+        size_t row_limit = _batch_limit.max_rows();
+        while (output_rows < row_limit) {
             if (_pending_row.emit(target_columns)) {
                 ++output_rows;
+                if (!_cursor.eof()) {
+                    row_limit = _batch_limit.row_limit(_cursor.block());
+                }
                 continue;
             }
             if (_cursor.eof()) {
                 break;
             }
+            row_limit = _batch_limit.row_limit(_cursor.block());
             const ChangelogOp op = read_changelog_op(
                     *_cursor.block().get_by_position(static_cast<size_t>(_op_col_idx)).column,
                     _cursor.row_pos());
-            RETURN_IF_ERROR(_emit_change(op, target_columns, &output_rows));
+            RETURN_IF_ERROR(_emit_change(op, target_columns, row_limit, &output_rows));
             RETURN_IF_ERROR(_cursor.advance());
         }
         return Status::OK();

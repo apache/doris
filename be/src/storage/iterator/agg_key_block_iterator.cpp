@@ -17,7 +17,6 @@
 
 #include "storage/iterator/agg_key_block_iterator.h"
 
-#include <algorithm>
 #include <utility>
 
 #include "common/exception.h"
@@ -25,13 +24,11 @@
 
 namespace doris {
 
-AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, size_t block_row_max,
-                                         size_t preferred_block_size_bytes,
+AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, BlockBatchLimit batch_limit,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
         : _input(std::move(input)),
-          _block_row_max(block_row_max),
-          _preferred_block_size_bytes(preferred_block_size_bytes),
+          _batch_limit(batch_limit),
           _read_schema(read_schema),
           _be_exec_version(be_exec_version),
           _aggregator(std::move(read_schema), merged_rows) {}
@@ -39,14 +36,6 @@ AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, size_t block
 Status AggKeyBlockIterator::init() {
     _input_block = _read_schema->create_read_block();
     return _aggregator.init(_be_exec_version);
-}
-
-size_t AggKeyBlockIterator::_compute_batch_row_limit() const {
-    if (_preferred_block_size_bytes == 0) {
-        return _block_row_max;
-    }
-    const size_t row_bytes = std::max<size_t>(1, _input_block.bytes() / _input_block.rows());
-    return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
 }
 
 Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
@@ -60,7 +49,7 @@ Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
         RETURN_IF_ERROR(st);
         RETURN_IF_CATCH_EXCEPTION(_aggregator.aggregate(_input_block));
         // The last key may go on in the next merged Block, so it stays for the next batch.
-        if (_aggregator.batch_rows() > _compute_batch_row_limit()) {
+        if (_aggregator.batch_rows() > _batch_limit.row_limit(_input_block)) {
             RETURN_IF_CATCH_EXCEPTION(_aggregator.output_finished_keys(block));
             return Status::OK();
         }

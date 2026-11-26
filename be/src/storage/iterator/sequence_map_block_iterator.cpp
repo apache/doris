@@ -19,7 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <ranges>
 #include <utility>
 
@@ -28,28 +27,18 @@
 
 namespace doris {
 
-SequenceMapBlockIterator::SequenceMapBlockIterator(RowwiseIteratorUPtr input, size_t block_row_max,
-                                                   size_t preferred_block_size_bytes,
+SequenceMapBlockIterator::SequenceMapBlockIterator(RowwiseIteratorUPtr input,
+                                                   BlockBatchLimit batch_limit,
                                                    ReadSchemaSPtr read_schema,
                                                    uint64_t* merged_rows)
         : _input(std::move(input)),
-          _block_row_max(block_row_max),
-          _preferred_block_size_bytes(preferred_block_size_bytes),
+          _batch_limit(batch_limit),
           _read_schema(std::move(read_schema)),
           _num_key_columns(_read_schema->num_key_columns()),
           _merged_rows(merged_rows),
           _input_block(_read_schema->create_read_block()),
           _batch_columns(_read_schema->create_read_block().mutate_columns()) {
     DORIS_CHECK_GT(_num_key_columns, 0);
-    DORIS_CHECK_GT(_block_row_max, 0);
-}
-
-size_t SequenceMapBlockIterator::_compute_batch_row_limit() const {
-    if (_preferred_block_size_bytes == 0) {
-        return _block_row_max;
-    }
-    const size_t row_bytes = std::max<size_t>(1, _input_block.bytes() / _input_block.rows());
-    return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
 }
 
 void SequenceMapBlockIterator::_mark_same_keys(const Block& source) {
@@ -154,7 +143,7 @@ Status SequenceMapBlockIterator::next_block(Block* block, bool* eof) {
         }
         RETURN_IF_ERROR(st);
         RETURN_IF_CATCH_EXCEPTION(_fold_block(_input_block));
-        if (_batch_rows > _compute_batch_row_limit()) {
+        if (_batch_rows > _batch_limit.row_limit(_input_block)) {
             RETURN_IF_CATCH_EXCEPTION(_output_finished_keys(block));
             return Status::OK();
         }

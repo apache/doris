@@ -208,7 +208,7 @@ std::vector<std::vector<Row>> fold(std::vector<std::vector<Row>> blocks, size_t 
                                    size_t preferred_block_size_bytes, uint64_t* merged_rows) {
     auto schema = make_agg_schema();
     AggKeyBlockIterator iter(std::make_unique<InputBlocksUtIterator>(schema, std::move(blocks)),
-                             block_row_max, preferred_block_size_bytes, schema,
+                             BlockBatchLimit(block_row_max, preferred_block_size_bytes), schema,
                              BeExecVersionManager::get_newest_version(), merged_rows);
     Status st = iter.init();
     EXPECT_TRUE(st.ok()) << st;
@@ -516,7 +516,7 @@ TEST(AggKeyBlockIteratorTest, PassesOnTheErrorOfItsInput) {
     AggKeyBlockIterator iter(std::make_unique<InputBlocksUtIterator>(
                                      schema, std::vector<std::vector<Row>> {{{1, 10, 1}}},
                                      Status::Cancelled("cancelled")),
-                             /*block_row_max=*/100, /*preferred_block_size_bytes=*/0, schema,
+                             BlockBatchLimit(100), schema,
                              BeExecVersionManager::get_newest_version(), &merged_rows);
     ASSERT_TRUE(iter.init().ok());
     Block block = schema->create_read_block();

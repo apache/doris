@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterator/changelog_iterator_utils.h"
 #include "storage/schema.h"
@@ -37,8 +38,8 @@ class RuntimeProfile;
 // skipped via block-level `update_equal_flags`.
 class ChangelogMinDeltaBlockIterator final : public BlockIterator {
 public:
-    ChangelogMinDeltaBlockIterator(std::unique_ptr<BlockIterator> input, size_t block_row_max,
-                                   ReadSchemaSPtr read_schema);
+    ChangelogMinDeltaBlockIterator(std::unique_ptr<BlockIterator> input,
+                                   BlockBatchLimit batch_limit, ReadSchemaSPtr read_schema);
 
     Status next_block(Block* block, bool* eof) override;
 
@@ -51,8 +52,8 @@ private:
     void _set_group_row(size_t row_pos, bool replace_last);
     bool _first_row_matches_group() const;
     bool _group_values_unchanged();
-    Status _emit_group(MutableColumns& target_columns, size_t* output_rows);
-    Status _emit_update_pair(MutableColumns& target_columns, size_t* output_rows);
+    Status _emit_group(MutableColumns& target_columns, size_t row_limit, size_t* output_rows);
+    Status _emit_update_pair(MutableColumns& target_columns, size_t row_limit, size_t* output_rows);
     Status _append_insert_row(MutableColumns& columns) const;
     Status _append_delete_row(MutableColumns& columns) const;
     Status _append_update_before_row(MutableColumns& columns) const;
@@ -60,7 +61,7 @@ private:
     size_t _last_group_row() const { return _group_columns[0]->size() - 1; }
 
     ChangelogInputCursor _cursor;
-    const size_t _block_row_max;
+    const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const size_t _num_key_columns;
     const int32_t _op_col_idx;

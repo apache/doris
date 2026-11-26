@@ -32,16 +32,15 @@
 namespace doris {
 
 ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(std::unique_ptr<BlockIterator> input,
-                                                               size_t block_row_max,
+                                                               BlockBatchLimit batch_limit,
                                                                ReadSchemaSPtr read_schema)
         : _cursor(std::move(input), read_schema),
-          _block_row_max(block_row_max),
+          _batch_limit(batch_limit),
           _read_schema(std::move(read_schema)),
           _num_key_columns(_read_schema->num_key_columns()),
           _op_col_idx(_read_schema->op_ordinal()),
           _tso_col_idx(_read_schema->tso_ordinal()),
           _lsn_col_idx(_read_schema->lsn_ordinal()) {
-    DORIS_CHECK_GT(_block_row_max, 0);
     DORIS_CHECK_GE(_op_col_idx, 0);
 }
 
@@ -200,10 +199,10 @@ Status ChangelogMinDeltaBlockIterator::_append_update_after_row(MutableColumns& 
 }
 
 Status ChangelogMinDeltaBlockIterator::_emit_update_pair(MutableColumns& target_columns,
-                                                         size_t* output_rows) {
+                                                         size_t row_limit, size_t* output_rows) {
     RETURN_IF_ERROR(_append_update_before_row(target_columns));
     ++(*output_rows);
-    if (*output_rows >= _block_row_max) {
+    if (*output_rows >= row_limit) {
         return _append_update_after_row(_pending_row.park(target_columns));
     }
     RETURN_IF_ERROR(_append_update_after_row(target_columns));
@@ -211,7 +210,7 @@ Status ChangelogMinDeltaBlockIterator::_emit_update_pair(MutableColumns& target_
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns& target_columns,
+Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns& target_columns, size_t row_limit,
                                                    size_t* output_rows) {
     const auto& op_column = *_group_columns[static_cast<size_t>(_op_col_idx)];
     const ChangelogOp first_op = read_changelog_op(op_column, 0);
@@ -233,7 +232,7 @@ Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns& target_column
             changelog::is_valid_changelog_op(last_op) && _group_values_unchanged()) {
             return Status::OK();
         }
-        return _emit_update_pair(target_columns, output_rows);
+        return _emit_update_pair(target_columns, row_limit, output_rows);
     }
     return Status::OK();
 }
@@ -259,16 +258,21 @@ Status ChangelogMinDeltaBlockIterator::next_block(Block* block, bool* eof) {
 
 Status ChangelogMinDeltaBlockIterator::_fill_block(MutableColumns& target_columns,
                                                    size_t* output_rows) {
-    while (*output_rows < _block_row_max) {
+    size_t row_limit = _batch_limit.max_rows();
+    while (*output_rows < row_limit) {
         if (_pending_row.emit(target_columns)) {
             ++(*output_rows);
+            if (!_cursor.eof()) {
+                row_limit = _batch_limit.row_limit(_cursor.block());
+            }
             continue;
         }
         if (_cursor.eof()) {
             break;
         }
+        row_limit = _batch_limit.row_limit(_cursor.block());
         RETURN_IF_ERROR(_collect_group());
-        RETURN_IF_ERROR(_emit_group(target_columns, output_rows));
+        RETURN_IF_ERROR(_emit_group(target_columns, row_limit, output_rows));
         for (auto& column : _group_columns) {
             column->clear();
         }

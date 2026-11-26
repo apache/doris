@@ -206,8 +206,7 @@ TEST(SequenceMapBlockIteratorUnitTest, FoldsSequenceGroupsAcrossChainedBlockBoun
                                  {{3, 399, 33, 8, 34, 3}},
                          });
     uint64_t merged_rows = 0;
-    SequenceMapBlockIterator iter(std::move(fake), /*block_row_max=*/1,
-                                  /*preferred_block_size_bytes=*/0, read_schema, &merged_rows);
+    SequenceMapBlockIterator iter(std::move(fake), BlockBatchLimit(1), read_schema, &merged_rows);
 
     std::vector<Row> all_rows;
     bool eof = false;

@@ -39,7 +39,6 @@
 
 namespace doris {
 class BlockIterator;
-class HeapMergeOrder;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
@@ -68,18 +67,6 @@ private:
     Status _direct_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
-    enum class BlockIterMode {
-        NONE,
-        TOPN,
-        CHANGELOG_MIN_DELTA,
-        CHANGELOG_DETAIL,
-        DIRECT,
-        KEY_ORDERED,
-        UNIQUE_NEWEST,
-        SEQUENCE_MAP,
-        AGG_FOLD,
-    };
-
     // For reads served by `_block_iter` when enable_new_block_iterator is enabled.
     Status _block_iter_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
@@ -110,31 +97,8 @@ private:
     Status _init_agg_state(const ReaderParams& read_params);
 
     Status _init_legacy_next_block(const ReaderParams& read_params, bool merge_by_sequence_mapping);
-
-    BlockIterMode _block_iter_mode(const ReaderParams& read_params,
-                                   bool merge_by_sequence_mapping) const;
-    Status _init_block_iter(const ReaderParams& read_params, BlockIterMode mode);
-    Status _validate_merge_schema(const HeapMergeOrder& order) const;
-    Status _build_heap_merge_iter(const ReaderParams& read_params, HeapMergeOrder order,
-                                  RowwiseIteratorUPtr* merge_iter);
-    Status _init_ordered_block_iter(const ReaderParams& read_params, HeapMergeOrder order,
-                                    std::unique_ptr<BlockIterator>* out_iter);
-    Status _init_changelog_input_iter(const ReaderParams& read_params,
-                                      std::unique_ptr<BlockIterator>* out_iter);
-    Status _init_direct_iter(const ReaderParams& read_params,
-                             std::unique_ptr<BlockIterator>* out_iter);
-    Status _init_key_ordered_iter(const ReaderParams& read_params);
-    Status _init_unique_key_iter(const ReaderParams& read_params);
-    Status _init_sequence_map_iter(const ReaderParams& read_params);
-    // Set up `_block_iter` for AGG_FOLD reads.
-    Status _init_agg_key_iter(const ReaderParams& read_params);
-
-    // Set up `_block_iter` for TOPN reads.
-    Status _init_topn_iter(const ReaderParams& read_params);
-    // Set `*streams` to the rows of the rowset of `rs_split`, as streams that each come sorted by
-    // the ORDER BY columns: one per segment when its segments overlap on keys, else one.
-    Status _open_topn_rowset(const RowSetSplits& rs_split,
-                             std::vector<RowwiseIteratorUPtr>* streams);
+    Status _try_init_block_iter(const ReaderParams& read_params, bool merge_by_sequence_mapping,
+                                bool* handled);
 
     Status _insert_data_normal(MutableColumns& columns);
 

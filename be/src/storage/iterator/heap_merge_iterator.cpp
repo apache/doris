@@ -62,11 +62,30 @@ HeapMergeOrder HeapMergeOrder::by_sort_cols(std::vector<uint32_t> sort_col_idxs,
     return order;
 }
 
+std::vector<HeapSortCol> HeapMergeOrder::resolve_sort_cols(size_t num_key_columns) const {
+    std::vector<HeapSortCol> cols;
+    if (!_sort_col_idxs.empty()) {
+        cols.reserve(_sort_col_idxs.size());
+        for (uint32_t col_idx : _sort_col_idxs) {
+            cols.push_back({col_idx, _key_sort_order});
+        }
+        return cols;
+    }
+    cols.reserve(num_key_columns + (_same_key_sort_col_idx >= 0 ? 1 : 0));
+    for (size_t col_idx = 0; col_idx < num_key_columns; ++col_idx) {
+        cols.push_back({cast_set<uint32_t>(col_idx), HeapSortOrder::ASC});
+    }
+    if (_same_key_sort_col_idx >= 0) {
+        cols.push_back({static_cast<uint32_t>(_same_key_sort_col_idx), _same_key_sort_order});
+    }
+    return cols;
+}
+
 VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children,
                                        ReadSchemaSPtr read_schema, HeapMergeOrder order)
         : _read_schema(std::move(read_schema)),
-          _num_key_columns(_read_schema->num_key_columns()),
-          _order(std::move(order)) {
+          _sort_cols(order.resolve_sort_cols(_read_schema->num_key_columns())),
+          _child_iterator_order(order.child_iterator_order()) {
     _children.reserve(children.size());
     for (auto& child : children) {
         _children.emplace_back();
@@ -75,9 +94,7 @@ VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children
 }
 
 Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
-    DORIS_CHECK_GT(opts.block_row_max, 0);
-    _block_row_max = opts.block_row_max;
-    _preferred_block_size_bytes = opts.preferred_block_size_bytes;
+    _batch_limit = BlockBatchLimit(opts.block_row_max, opts.preferred_block_size_bytes);
     _runtime_state = opts.runtime_state;
     _stats = opts.stats;
 
@@ -131,34 +148,15 @@ Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
 bool VHeapMergeIterator::_less_than_current_row(uint32_t child, size_t row, uint32_t other) const {
     const Block& block = _children[child].block;
     const Child& other_child = _children[other];
-    const bool key_desc = _order.key_sort_order() == HeapSortOrder::DESC;
-    if (!_order.sort_col_idxs().empty()) {
-        for (uint32_t col_idx : _order.sort_col_idxs()) {
-            const int r = block.get_by_position(col_idx).column->compare_at(
-                    row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
-            if (r != 0) {
-                return key_desc ? r > 0 : r < 0;
-            }
-        }
-    } else {
-        for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
-            // NULLs are smallest (-1).
-            const int r = block.get_by_position(col_idx).column->compare_at(
-                    row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
-            if (r != 0) {
-                return key_desc ? r > 0 : r < 0;
-            }
-        }
-    }
-    if (_order.same_key_sort_col_idx() >= 0) {
-        const auto col_idx = static_cast<size_t>(_order.same_key_sort_col_idx());
+    for (const auto& [col_idx, order] : _sort_cols) {
+        // NULLs are smallest (-1).
         const int r = block.get_by_position(col_idx).column->compare_at(
                 row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
         if (r != 0) {
-            return _order.same_key_sort_order() == HeapSortOrder::ASC ? r < 0 : r > 0;
+            return order == HeapSortOrder::ASC ? r < 0 : r > 0;
         }
     }
-    return _order.child_iterator_order() == HeapSortOrder::ASC ? child < other : child > other;
+    return _child_iterator_order == HeapSortOrder::ASC ? child < other : child > other;
 }
 
 size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit) const {
@@ -175,8 +173,8 @@ size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit)
 }
 
 size_t VHeapMergeIterator::_output_row_limit() const {
-    if (_preferred_block_size_bytes == 0) {
-        return _block_row_max;
+    if (_batch_limit.preferred_bytes() == 0) {
+        return _batch_limit.max_rows();
     }
     // A child that is done holds an empty Block.
     size_t bytes = 0;
@@ -185,8 +183,7 @@ size_t VHeapMergeIterator::_output_row_limit() const {
         bytes += child.block.bytes();
         rows += child.block.rows();
     }
-    const size_t row_bytes = std::max<size_t>(1, bytes / rows);
-    return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
+    return _batch_limit.row_limit(bytes, rows);
 }
 
 void VHeapMergeIterator::_copy_rows(MutableColumns& columns, const Child& child, size_t rows) {

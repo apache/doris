@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "storage/iterator/block_batch_limit.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 
@@ -37,9 +38,14 @@ enum class HeapSortOrder : uint8_t {
     DESC, // large to small (N -> 0)
 };
 
+struct HeapSortCol {
+    uint32_t col_idx;
+    HeapSortOrder order;
+};
+
 // Sort order of VHeapMergeIterator. Full-key merges (with an optional secondary column when keys
 // are equal) and explicit sort-column merges are mutually exclusive, enforced by the factory
-// methods below.
+// methods below and compiled into a flat `HeapSortCol` list once `num_key_columns` is known.
 class HeapMergeOrder {
 public:
     // Default: compare all leading key columns ascending, newer child (larger index) first.
@@ -55,11 +61,9 @@ public:
                                        HeapSortOrder sort_order,
                                        HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
 
-    int32_t same_key_sort_col_idx() const { return _same_key_sort_col_idx; }
-    HeapSortOrder same_key_sort_order() const { return _same_key_sort_order; }
+    bool uses_all_keys() const { return _sort_col_idxs.empty(); }
     HeapSortOrder child_iterator_order() const { return _child_iterator_order; }
-    const std::vector<uint32_t>& sort_col_idxs() const { return _sort_col_idxs; }
-    HeapSortOrder key_sort_order() const { return _key_sort_order; }
+    std::vector<HeapSortCol> resolve_sort_cols(size_t num_key_columns) const;
 
 private:
     int32_t _same_key_sort_col_idx = -1;
@@ -133,13 +137,11 @@ private:
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;
-    // The key columns lead the read schema.
-    const size_t _num_key_columns;
-    const HeapMergeOrder _order;
+    const std::vector<HeapSortCol> _sort_cols;
+    const HeapSortOrder _child_iterator_order;
 
     // From init():
-    size_t _block_row_max = 0;
-    size_t _preferred_block_size_bytes = 0;
+    BlockBatchLimit _batch_limit;
     RuntimeState* _runtime_state = nullptr;
     // Where the time of reading the children's Blocks goes (block_fetch_ns).
     OlapReaderStatistics* _stats = nullptr;

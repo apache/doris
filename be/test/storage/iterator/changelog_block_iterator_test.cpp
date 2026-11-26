@@ -197,7 +197,7 @@ TEST(ChangelogBlockIteratorUnitTest, MinDeltaFoldsGroupsAndParksUpdateAfterAtRow
                                   {5, 90, 80, 8, 8, U},
                                   {5, kNull, 90, 9, 9, D}},
                          });
-    ChangelogMinDeltaBlockIterator iter(std::move(input), /*block_row_max=*/1, read_schema);
+    ChangelogMinDeltaBlockIterator iter(std::move(input), BlockBatchLimit(1), read_schema);
 
     std::vector<Row> out;
     bool eof = false;
@@ -234,7 +234,7 @@ TEST(ChangelogBlockIteratorUnitTest, MinDeltaAllSkippedReturnsEmptyEof) {
     auto input = std::make_unique<FakeBlockInput>(
             read_schema,
             std::vector<std::vector<Row>> {{{1, 10, kNull, 1, 1, A}, {1, kNull, 10, 2, 2, D}}});
-    ChangelogMinDeltaBlockIterator iter(std::move(input), /*block_row_max=*/16, read_schema);
+    ChangelogMinDeltaBlockIterator iter(std::move(input), BlockBatchLimit(16), read_schema);
 
     Block block = read_schema->create_read_block();
     bool eof = false;
@@ -440,7 +440,7 @@ TEST(ChangelogBlockIteratorUnitTest, MinDeltaSkipsIntermediateUpdatesWithinAndAc
                                  {{1, 50, 40, 4, 4, U}},
                                  {{1, 60, 50, 5, 5, U}, {2, 200, 100, 6, 6, U}},
                          });
-    ChangelogMinDeltaBlockIterator iter(std::move(input), /*block_row_max=*/16, read_schema);
+    ChangelogMinDeltaBlockIterator iter(std::move(input), BlockBatchLimit(16), read_schema);
 
     Block block = read_schema->create_read_block();
     bool eof = false;
@@ -489,7 +489,7 @@ TEST(ChangelogBlockIteratorUnitTest, DetailExpandsChangesAndParksUpdateAfterAtRo
             read_schema,
             std::vector<std::vector<Row>> {
                     {{1, 10, kNull, 1, 1, A}, {1, 20, 10, 2, 2, U}, {1, kNull, 20, 3, 3, D}}});
-    ChangelogDetailBlockIterator iter(std::move(input), /*block_row_max=*/1, read_schema);
+    ChangelogDetailBlockIterator iter(std::move(input), BlockBatchLimit(1), read_schema);
 
     const auto INS = static_cast<int64_t>(changelog::StreamChangeOp::INSERT);
     const auto UB = static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE);
@@ -502,6 +502,50 @@ TEST(ChangelogBlockIteratorUnitTest, DetailExpandsChangesAndParksUpdateAfterAtRo
                                                                     {1, 20, 2, UA},
                                                                     {1, 20, 3, DEL},
                                                             }));
+}
+
+namespace {
+
+std::vector<size_t> collect_batch_sizes(BlockIterator& iter, const ReadSchema& read_schema) {
+    std::vector<size_t> sizes;
+    bool eof = false;
+    while (!eof) {
+        Block block = read_schema.create_read_block();
+        DORIS_CHECK(iter.next_block(&block, &eof).ok());
+        if (!eof) {
+            sizes.push_back(block.rows());
+        }
+    }
+    return sizes;
+}
+
+} // namespace
+
+TEST(ChangelogBlockIteratorUnitTest, RespectsPreferredByteBudgetAndParksUpdateAfter) {
+    auto tablet_schema = make_changelog_schema();
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
+    ASSERT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema, /*merge_by_seq_map=*/false,
+                                                  /*map_changelog_cols=*/true)
+                        .ok());
+
+    const auto A = static_cast<int64_t>(ChangelogOp::APPEND);
+    const auto U = static_cast<int64_t>(ChangelogOp::UPDATE);
+    const std::vector<std::vector<Row>> rows = {
+            {{1, 20, 10, 1, 1, U}, {2, 30, kNull, 2, 2, A}},
+    };
+
+    // Tiny preferred_bytes clamps row_limit to 1 even with max_rows=100, splitting UPDATE_BEFORE
+    // and UPDATE_AFTER across separate 1-row output Blocks.
+    ChangelogMinDeltaBlockIterator min_delta_iter(
+            std::make_unique<FakeBlockInput>(read_schema, rows),
+            BlockBatchLimit(/*max_rows=*/100, /*preferred_bytes=*/1), read_schema);
+    EXPECT_EQ(collect_batch_sizes(min_delta_iter, *read_schema), (std::vector<size_t> {1, 1, 1}));
+
+    ChangelogDetailBlockIterator detail_iter(
+            std::make_unique<FakeBlockInput>(read_schema, rows),
+            BlockBatchLimit(/*max_rows=*/100, /*preferred_bytes=*/1), read_schema);
+    EXPECT_EQ(collect_batch_sizes(detail_iter, *read_schema), (std::vector<size_t> {1, 1, 1}));
 }
 
 } // namespace doris

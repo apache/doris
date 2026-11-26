@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
@@ -37,16 +38,14 @@ class RuntimeProfile;
 // `_batch_columns` stays open across input Blocks until a new key or EOF arrives.
 class SequenceMapBlockIterator final : public BlockIterator {
 public:
-    SequenceMapBlockIterator(RowwiseIteratorUPtr input, size_t block_row_max,
-                             size_t preferred_block_size_bytes, ReadSchemaSPtr read_schema,
-                             uint64_t* merged_rows);
+    SequenceMapBlockIterator(RowwiseIteratorUPtr input, BlockBatchLimit batch_limit,
+                             ReadSchemaSPtr read_schema, uint64_t* merged_rows);
 
     Status next_block(Block* block, bool* eof) override;
 
     void update_profile(RuntimeProfile* profile) override { _input->update_profile(profile); }
 
 private:
-    size_t _compute_batch_row_limit() const;
     void _mark_same_keys(const Block& source);
     void _fold_block(const Block& source);
     void _replace_by_sequence(const Block& source, size_t src_pos);
@@ -54,8 +53,7 @@ private:
     void _output_all_keys(Block* block);
 
     const RowwiseIteratorUPtr _input;
-    const size_t _block_row_max;
-    const size_t _preferred_block_size_bytes;
+    const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const size_t _num_key_columns;
     uint64_t* const _merged_rows;
