@@ -2666,7 +2666,7 @@ public class DatabaseTransactionMgr {
                 long versionTime = partitionCommitInfo.getVersionTime();
                 long tso = partitionCommitInfo.getTso();
                 if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
-                        && version > Partition.PARTITION_INIT_VERSION) {
+                        && Partition.hasDataAtVersion(version)) {
                     newPartitionLoadedTableIds.add(tableId);
                 }
                 partitionMap.compute(partitionId, (k, v) -> {

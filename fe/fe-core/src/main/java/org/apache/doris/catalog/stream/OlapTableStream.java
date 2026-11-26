@@ -304,7 +304,7 @@ public class OlapTableStream extends BaseTableStream {
         } else {
             baseTable.getPartitions()
                     .stream()
-                    .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                    .filter(p -> Partition.hasDataAtVersion(p.getVisibleVersion()))
                     .forEach(p -> initial.put(p.getId(),
                             PartitionStreamState.initial().atHistoricalTso(p.getTso())));
         }

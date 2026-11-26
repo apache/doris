@@ -616,7 +616,7 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                         == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN) {
                     row.addToColumnValue(new TCell().setStringVal("N/A"));
                     row.addToColumnValue(new TCell().setStringVal(
-                            state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+                            Partition.hasDataAtVersion(state.getVisibleVersion())
                                     ? "N/A" : "0"));
                     row.addToColumnValue(new TCell().setLongVal(-1));
                 } else {

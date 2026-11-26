@@ -275,7 +275,7 @@ public class CloudPartition extends Partition {
 
             int size = versions.size();
             for (int i = 0; i < size; i++) {
-                if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
+                if (Partition.hasDataAtVersion(versions.get(i))) {
                     nonEmptyPartitionIds.add(unknowns.get(i).getId());
                 }
             }
@@ -333,7 +333,7 @@ public class CloudPartition extends Partition {
         try {
             for (int i = 0; i < size; ++i) {
                 Long version = versions.get(i);
-                if (version > Partition.PARTITION_INIT_VERSION) {
+                if (Partition.hasDataAtVersion(version)) {
                     // For compatibility, the existing partitions may not have mtime
                     long mTime = versions.size() == versionUpdateTimesMs.size() ? versionUpdateTimesMs.get(i) : 0;
                     long tso = hasCommitTsos ? commitTsos.get(i) : -1;
@@ -548,9 +548,7 @@ public class CloudPartition extends Partition {
             return true;
         }
 
-        // Every partition starts from version 1, version 1 has no data.
-        // So as long as version is greater than 1, it can be determined that there is data here.
-        return super.getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
+        return Partition.hasDataAtVersion(super.getVisibleVersion());
     }
 
     /**
@@ -568,7 +566,7 @@ public class CloudPartition extends Partition {
             profile.incGetPartitionVersionByHasDataCount();
         }
 
-        return getVisibleVersion() > Partition.PARTITION_INIT_VERSION;
+        return Partition.hasDataAtVersion(getVisibleVersion());
     }
 
     private static boolean isEmptyPartitionPruneDisabled() {

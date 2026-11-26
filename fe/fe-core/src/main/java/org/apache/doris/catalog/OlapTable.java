@@ -3619,7 +3619,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // Filter partition with empty data
         Collection<Partition> partitions = getPartitions()
                 .stream()
-                .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                .filter(partition -> Partition.hasDataAtVersion(partition.getVisibleVersion()))
                 .collect(Collectors.toList());
         if (partitions.isEmpty()) {
             return sampleTablets;
