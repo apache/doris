@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -130,7 +132,6 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
@@ -362,7 +363,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -379,6 +379,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
@@ -502,6 +503,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
+        return getDbNames(params, true);
+    }
+
+    /** Lists authorized databases with either MySQL display names or raw schema names. */
+    public TGetDbsResult getDbNames(TGetDbsParams params, boolean useMysqlSchemaName) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get db request: {}", params);
         }
@@ -512,7 +518,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> dbIds = Lists.newArrayList();
         List<Long> catalogIds = Lists.newArrayList();
 
-        PatternMatcher matcher = null;
+        PatternMatcher matcher;
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
@@ -520,6 +526,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
+        } else {
+            matcher = null;
         }
 
         Env env = Env.getCurrentEnv();
@@ -533,55 +541,78 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             catalog -> new TException("Unknown catalog " + catalog)));
         }
 
+        boolean includeDbIds = params.isIncludeDbIds();
         for (CatalogIf catalog : catalogIfs) {
-            Collection<DatabaseIf> dbs = new HashSet<DatabaseIf>();
+            Collection<DatabaseIf> dbs = Collections.emptyList();
+            List<String> names = Collections.emptyList();
             try {
-                dbs = catalog.getAllDbs();
+                if (includeDbIds) {
+                    dbs = catalog.getAllDbs();
+                } else {
+                    // SCHEMATA only needs names; loading every database churns the object cache on large catalogs.
+                    names = catalog.getDbNames();
+                }
             } catch (Exception e) {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
             }
+            int dbCount = includeDbIds ? dbs.size() : names.size();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+                LOG.debug("get db size: {}, in catalog: {}", dbCount, catalog.getName());
             }
-            if (dbs.isEmpty() && params.isSetGetNullCatalog() && params.get_null_catalog) {
+            if (dbCount == 0 && params.isSetGetNullCatalog() && params.get_null_catalog) {
                 catalogNames.add(catalog.getName());
                 dbNames.add("NULL");
                 catalogIds.add(catalog.getId());
-                dbIds.add(-1L);
+                if (includeDbIds) {
+                    dbIds.add(-1L);
+                }
                 continue;
             }
-            if (dbs.isEmpty()) {
+            if (dbCount == 0) {
                 continue;
             }
-            UserIdentity currentUser = null;
+            UserIdentity currentUser;
             if (params.isSetCurrentUserIdent()) {
                 currentUser = UserIdentity.fromThrift(params.current_user_ident);
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
-            for (DatabaseIf db : dbs) {
-                String dbName = db.getFullName();
+            ObjLongConsumer<String> addDatabase = (dbName, dbId) -> {
                 if (!env.getAccessManager()
                         .checkDbPriv(currentUser, catalog.getName(), dbName, PrivPredicate.SHOW)) {
-                    continue;
+                    return;
                 }
 
-                if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
-                    continue;
+                String schemaName = useMysqlSchemaName ? getMysqlTableSchema(catalog.getName(), dbName) : dbName;
+                if (matcher != null && !matcher.match(schemaName)) {
+                    return;
                 }
 
                 catalogNames.add(catalog.getName());
-                dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
+                dbNames.add(schemaName);
                 catalogIds.add(catalog.getId());
-                dbIds.add(db.getId());
+                if (includeDbIds) {
+                    dbIds.add(dbId);
+                }
+            };
+            if (includeDbIds) {
+                for (DatabaseIf db : dbs) {
+                    addDatabase.accept(db.getFullName(), db.getId());
+                }
+            } else {
+                for (String dbName : names) {
+                    addDatabase.accept(dbName, -1L);
+                }
             }
         }
 
         result.setDbs(dbNames);
         result.setCatalogs(catalogNames);
         result.setCatalogIds(catalogIds);
-        result.setDbIds(dbIds);
+        if (includeDbIds) {
+            result.setDbIds(dbIds);
+        }
         return result;
     }
 
@@ -657,6 +688,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListTableStatusResult listTableStatus(TGetTablesParams params) throws TException {
+        return listTableStatus(params, true);
+    }
+
+    /** Reads table metadata with either MySQL display names or raw schema names. */
+    public TListTableStatusResult listTableStatus(TGetTablesParams params, boolean useMysqlSchemaName)
+            throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get list table request: {}", params);
         }
@@ -694,7 +731,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
-        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+        String dbName = useMysqlSchemaName
+                ? getDbNameFromMysqlTableSchema(catalogName, params.db) : params.db;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(dbName);
@@ -732,8 +770,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // the version needs to be updated.
                         // Otherwise, the version will always be the old value
                         // unless there is a query for the table in the follower node.
+                        // UPDATE_TIME is the only status column that reads the partition versions
+                        // (OlapTable.getUpdateTime() takes the partitions' visible version time), so a
+                        // request that does not need it, such as Flight SQL GetTables asking for names
+                        // and types, does not wait on the meta service.
                         if (!Env.getCurrentEnv().isMaster() && Config.isCloudMode()
-                                && table instanceof OlapTable) {
+                                && table instanceof OlapTable
+                                && needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
                             OlapTable olapTable = (OlapTable) table;
                             List<CloudPartition> partitions = olapTable.getAllPartitions().stream()
                                     .filter(p -> p instanceof CloudPartition)
@@ -956,6 +999,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
+        return describeTables(params, true);
+    }
+
+    /** Reads table metadata with either MySQL display names or raw schema names. */
+    public TDescribeTablesResult describeTables(TDescribeTablesParams params, boolean useMysqlSchemaName)
+            throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
         }
@@ -973,7 +1022,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
+        String dbName = useMysqlSchemaName
+                ? getDbNameFromMysqlTableSchema(params.catalog, params.db) : params.db;
         for (String tableName : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(currentUser, params.catalog, dbName, tableName, PrivPredicate.SHOW)) {
@@ -1099,6 +1149,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
+    }
+
+    @Override
     public TFetchSplitBatchResult fetchSplitBatch(TFetchSplitBatchRequest request) throws TException {
         TFetchSplitBatchResult result = new TFetchSplitBatchResult();
         SplitSource splitSource =
@@ -1118,6 +1173,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
             result.setSplits(locations);
             result.status = new TStatus(TStatusCode.OK);
+            return result;
+        } catch (SplitSource.SplitPendingException e) {
+            // The backend will retry; an empty OK batch would incorrectly mean EOF.
+            result.status = new TStatus(TStatusCode.INCOMPLETE);
             return result;
         } catch (Exception e) {
             LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
@@ -1476,9 +1535,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
@@ -1747,9 +1804,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token");
             }
@@ -1937,9 +1992,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // return true if commit success and publish success, return false if publish
     // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -2076,9 +2129,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
@@ -2162,9 +2213,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void loadTxnRollbackImpl(TLoadTxnRollbackRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             // multi table load
@@ -2281,9 +2330,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
@@ -2992,9 +3039,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return;
         }
 
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
@@ -3076,7 +3121,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result);
 
         try {
             checkGroupCommitStreamLoadAuth(request);
@@ -3148,8 +3193,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List planFragmentParamsList = new ArrayList<>();
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                                                                    getClientAddrAsString());
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null);
         try {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
@@ -3197,7 +3241,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Coordinator coord = new Coordinator(ctx, executor.planner());
+            Coordinator coord = EnvFactory.getInstance().createCoordinator(ctx, executor.planner(), null);
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
@@ -3239,12 +3283,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         ConnectContext ctx = ConnectContext.get();
 
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+        } else {
+            checkTokenOrThrow(request.getToken());
         }
         if (request.isSetMemtableOnSinkNode()) {
             ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();
@@ -4745,19 +4789,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
@@ -4784,6 +4819,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
+        }
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
@@ -5071,24 +5109,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                     txnId = coordinator.getTxnId();
                 }
             }
+        }
+
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
@@ -5445,7 +5478,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean enableAdaptiveRandomBucket, String resultName) throws UserException {
         long partitionId = partition.getId();
         PartitionItem partitionItem = partitionInfo.getItem(partitionId);
-        if (partitionItem == null) {
+        // Unpartitioned temporary partitions have no partition item or boundary keys.
+        if (partitionItem == null && partitionInfo.getType() != PartitionType.UNPARTITIONED) {
             throw new UserException(String.format(
                     "partition item of %s was dropped concurrently while building %s result, please retry",
                     partitionLabel, resultName));
@@ -6197,19 +6231,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (coordinator == null) {
             return disabledAdaptiveBucketSinkContext();
         }
-        if (!(coordinator instanceof NereidsCoordinator)) {
-            Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
-                    coordinator.getAdaptiveRandomBucketSinkContext(tableId);
-            if (context.isPresent()) {
-                return new AdaptiveBucketSinkContext(
-                        true, context.get().getSinkBackendIds(), context.get().getSinkInstanceNum());
-            }
-            return disabledAdaptiveBucketSinkContext();
-        }
         Set<Long> sinkBackendIds = new TreeSet<>();
         int sinkInstanceNum = 0;
         for (PipelineDistributedPlan distributedPlan :
-                ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
+                coordinator.getCoordinatorContext().distributedPlans) {
             if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
                 continue;
             }

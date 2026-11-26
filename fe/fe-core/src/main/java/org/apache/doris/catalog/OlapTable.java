@@ -1270,6 +1270,39 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
+    public boolean hasRowTtl() {
+        return getTtlColumn() != null;
+    }
+
+    public Column getTtlColumn() {
+        return getColumn(Column.TTL_COL);
+    }
+
+    public String getRowTtlCol() {
+        return tableProperty == null ? null : tableProperty.getRowTtlCol();
+    }
+
+    public long getRowTtlDurationMicros() {
+        return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
+    }
+
+    public RowTtlConfig getRowTtlConfig() {
+        if (tableProperty == null) {
+            return new RowTtlConfig(-1, 0);
+        }
+        Map<String, String> properties = tableProperty.getProperties();
+        return new RowTtlConfig(getRowTtlDurationMicros(),
+                Long.parseLong(properties.getOrDefault(RowTtlConfig.VERSION_PROPERTY, "0")));
+    }
+
+    public int getRowTtlTimeZoneOffsetSeconds() {
+        return tableProperty == null ? 0 : tableProperty.getRowTtlTimeZoneOffsetSeconds();
+    }
+
+    public boolean isDirectRowTtl() {
+        return hasRowTtl() && getRowTtlCol() == null;
+    }
+
     // schemaHash
     public Map<Long, Integer> getIndexIdToSchemaHash() {
         Map<Long, Integer> result = Maps.newHashMap();
@@ -2039,6 +2072,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             sb.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
             sb.append(indexMeta.getShortKeyColumnCount());
             sb.append(indexMeta.getStorageType());
+        }
+
+        if (getVariantEscapeDotsInKeys()) {
+            sb.append("variant_escape_dots_in_keys=true");
         }
 
         // bloom filter
@@ -2898,6 +2935,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildVariantEnableFlattenNested();
     }
 
+    public boolean getVariantEscapeDotsInKeys() {
+        return tableProperty != null && tableProperty.getVariantEscapeDotsInKeys();
+    }
+
+    public void setVariantEscapeDotsInKeys(boolean value) {
+        if (value) {
+            TableProperty property = getOrCreatTableProperty();
+            property.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+            property.buildVariantEscapeDotsInKeys();
+        }
+    }
+
     @Deprecated
     public Boolean variantEnableFlattenNested() {
         if (tableProperty != null) {
@@ -3328,14 +3377,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Validate that the table supports flexible partial update.
      * Checks the following constraints:
      * 1. Must be MoW unique key table
-     * 2. Must have skip_bitmap column
-     * 3. Must have light_schema_change enabled
-     * 4. Cannot have variant columns
+     * 2. Every materialized index must have a skip_bitmap column
+     * 3. Must have skip_bitmap column
+     * 4. Must have light_schema_change enabled
+     * 5. Cannot have variant columns
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
         if (!getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        boolean hasIndexWithoutSkipBitmap = getIndexIdListExceptBaseIndex().stream()
+                .map(indexId -> getSchemaByIndexId(indexId, true))
+                .anyMatch(schema -> schema.stream().noneMatch(Column::isSkipBitmapColumn));
+        if (hasIndexWithoutSkipBitmap) {
+            throw new UserException("Flexible partial update requires every materialized index"
+                    + " to contain the skip bitmap hidden column.");
         }
         if (!hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
@@ -4128,29 +4185,57 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getInvertedIndex(column, subPath, null);
     }
 
-    public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+    public boolean hasVariantValuesIndex(Column column) {
+        return indexes != null && getInvertedIndexes(column).stream().anyMatch(Index::isVariantValuesIndex);
+    }
+
+    /**
+     * The VARIANT values index that serves whole-document MATCH for the given analyzer.
+     */
+    public Index getVariantValuesIndex(Column column, String analyzer) {
         if (indexes == null) {
             return null;
         }
-        List<Index> invertedIndexes = new ArrayList<>();
-        for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
-                    invertedIndexes.add(index);
-                }
-            }
+        List<Index> candidates = filterIndexesByAnalyzer(getInvertedIndexes(column).stream()
+                .filter(Index::isVariantValuesIndex).collect(Collectors.toList()), analyzer);
+        return candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
+    /** Look up an index using logical key components, encoding only at the storage metadata boundary. */
+    public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+        return getInvertedIndexByStoragePath(column, toVariantStoragePath(subPath), analyzer);
+    }
+
+    /** Variant sub path components in storage spelling: each key is escaped when the table escapes dots. */
+    public List<String> toVariantStoragePath(List<String> subPath) {
+        if (subPath == null || !getVariantEscapeDotsInKeys()) {
+            return subPath;
         }
+        return subPath.stream().map(PropertyAnalyzer::encodeVariantPathComponent).collect(Collectors.toList());
+    }
+
+    /** Look up an index using a sub path already in storage spelling, such as a translated slot's. */
+    public Index getInvertedIndexByStoragePath(Column column, List<String> storagePath, String analyzer) {
+        if (indexes == null) {
+            return null;
+        }
+        // Generic index lookup serves paths and SEARCH. Only root MATCH uses the explicit
+        // getVariantValuesIndex entry point.
+        List<Index> invertedIndexes = getInvertedIndexes(column).stream()
+                .filter(index -> !index.isVariantValuesIndex()).collect(Collectors.toList());
 
         List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
 
-        if (subPath == null || subPath.isEmpty()) {
+        if (storagePath == null || storagePath.isEmpty()) {
             return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
-        // subPath is not empty, means it is a variant column, find the field pattern from children
-        String subPathString = String.join(".", subPath);
+        // subPath is not empty, means it is a variant column, find the field pattern from children.
+        // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
+        // (variant_util.cpp), so a write and a query on one path land on the same index even when
+        // the predefined patterns overlap.
+        String subPathString = String.join(".", storagePath);
         String fieldPattern = "";
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {
@@ -4161,6 +4246,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                 .getPathMatcher("glob:" + childName);
                         if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
                             fieldPattern = childName;
+                            break;
                         }
                     } catch (Exception e) {
                         continue;
@@ -4168,19 +4254,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
                     if (childName.equals(subPathString)) {
                         fieldPattern = childName;
+                        break;
                     }
                 }
             }
         }
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
-        for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
-                                        && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
-                    invertedIndexesWithFieldPattern.add(index);
-                }
+        // Reuse the same root-excluded candidates for the field-pattern path.
+        for (Index index : invertedIndexes) {
+            if (fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
+                invertedIndexesWithFieldPattern.add(index);
             }
         }
         List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
@@ -4192,6 +4276,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         : filteredFieldPatternIndexes.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
+    }
+
+    private List<Index> getInvertedIndexes(Column column) {
+        List<Index> invertedIndexes = new ArrayList<>();
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && column.getName().equalsIgnoreCase(columns.get(0))) {
+                    invertedIndexes.add(index);
+                }
+            }
+        }
+        return invertedIndexes;
     }
 
     /**
@@ -4303,6 +4400,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        if (hasRowTtl()) {
+            throw new DdlException("CREATE STREAM is not supported on tables with row TTL. Table "
+                    + getQualifiedName() + ".");
+        }
         if (isLegacyChangelog()) {
             throw new DdlException(getLegacyChangelogMessage());
         }

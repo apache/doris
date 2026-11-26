@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -43,6 +44,24 @@ public class NereidsPlannerTest {
 
         Assertions.assertEquals(13, firstAttempt.getBeExecVersion());
         Assertions.assertEquals(13, retryAttempt.getBeExecVersion());
+    }
+
+    @Test
+    public void testTopLevelPlanningFinalizesOnlyPlansThatReachDistribution() {
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.NONE));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.NORMAL));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.VERBOSE));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.TREE));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.GRAPH));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.ALL_PLAN));
+        Assertions.assertTrue(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.DISTRIBUTED_PLAN));
+
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.PARSED_PLAN));
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.ANALYZED_PLAN));
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.REWRITTEN_PLAN));
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.OPTIMIZED_PLAN));
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.SHAPE_PLAN));
+        Assertions.assertFalse(NereidsPlanner.shouldFinalizePhysicalPlan(ExplainLevel.MEMO_PLAN));
     }
 
     @Test

@@ -261,6 +261,7 @@ public:
     Decoder* get_page_decoder() { return _page_decoder; }
 
     void release_decoder_scratch(size_t max_retained_bytes) {
+        _page_reader->release_scratch(max_retained_bytes);
         for (auto& [encoding, decoder] : _decoders) {
             decoder->release_scratch(max_retained_bytes);
         }
@@ -294,7 +295,8 @@ public:
 
     size_t retained_decoder_scratch_bytes() const {
         size_t bytes = _decompress_buf_size + _rep_level_decoder.retained_scratch_bytes() +
-                       _def_level_decoder.retained_scratch_bytes();
+                       _def_level_decoder.retained_scratch_bytes() +
+                       _page_reader->retained_scratch_bytes();
         for (const auto& [encoding, decoder] : _decoders) {
             bytes += decoder->retained_scratch_bytes();
         }
@@ -306,7 +308,7 @@ public:
     size_t active_decoder_scratch_bytes() const {
         // Only the current encoding is active. Old decoder instances retain reusable capacity but
         // must not make the high-water policy treat their last batch as current working memory.
-        return _active_decompress_bytes +
+        return _active_decompress_bytes + _page_reader->active_scratch_bytes() +
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
                _def_level_decoder.active_scratch_bytes() +

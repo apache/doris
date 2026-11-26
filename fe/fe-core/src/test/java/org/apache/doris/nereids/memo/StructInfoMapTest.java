@@ -34,6 +34,58 @@ import java.util.stream.Collectors;
 
 class StructInfoMapTest extends SqlTestBase {
     @Test
+    void testTablelessJoinChild() {
+        for (String query : new String[] {
+                "select T1.id from (select 1 as k) c join T1 on c.k = T1.id",
+                "select T1.id from T1 join (select 1 as k) c on T1.id = c.k"}) {
+            CascadesContext context = createCascadesContext(query, connectContext);
+            PlanChecker.from(context).analyze();
+            Group root = context.getMemo().getRoot();
+            BitSet target = new BitSet();
+            context.getRewritePlan().<CatalogRelation>collect(CatalogRelation.class::isInstance)
+                    .forEach(relation -> target.set(context.getStatementContext()
+                            .getTableId(relation.getTable()).asInt()));
+            // A tableless child cannot supply a table-ID candidate. It must not be omitted from
+            // the child list, otherwise the other child's bitmap is applied to the wrong group.
+            Assertions.assertNull(root.getStructInfoMap().getStructInfo(
+                    context, target, root, null, true, true));
+            Assertions.assertTrue(root.getStructInfoMap().getTableMaps(true).isEmpty());
+        }
+    }
+
+    @Test
+    void testExcludedJoinChild() {
+        for (boolean tableIdMode : new boolean[] {true, false}) {
+            for (String excludedTable : new String[] {"T1", "T2"}) {
+                CascadesContext context = createCascadesContext(
+                        "select T1.id from T1 join T2 on T1.id = T2.id", connectContext);
+                PlanChecker.from(context).analyze();
+                Set<CatalogRelation> relations = context.getRewritePlan()
+                        .collect(CatalogRelation.class::isInstance);
+                BitSet target = new BitSet();
+                for (CatalogRelation relation : relations) {
+                    target.set(tableIdMode ? context.getStatementContext().getTableId(relation.getTable()).asInt()
+                            : relation.getRelationId().asInt());
+                    if (relation.getTable().getName().equalsIgnoreCase(excludedTable)) {
+                        context.getStatementContext().addMaterializationRewrittenSuccess(
+                                relation.getTable().getFullQualifiers());
+                    }
+                }
+                Group root = context.getMemo().getRoot();
+                StructInfoMap map = root.getStructInfoMap();
+                Assertions.assertNull(map.getStructInfo(context, target, root, null, false, tableIdMode));
+                Assertions.assertTrue(map.getTableMaps(tableIdMode).isEmpty());
+
+                // Nested rewrite includes already rewritten materializations again. A refresh must
+                // still be able to construct a complete plan after the earlier candidate was rejected.
+                StructInfo structInfo = map.getStructInfo(context, target, root, null, true, tableIdMode);
+                Assertions.assertNotNull(structInfo);
+                Assertions.assertEquals(relations, new HashSet<>(structInfo.getRelations()));
+            }
+        }
+    }
+
+    @Test
     void testTableMap() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(

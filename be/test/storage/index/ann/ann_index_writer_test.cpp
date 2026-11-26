@@ -17,6 +17,7 @@
 
 #include "storage/index/ann/ann_index_writer.h"
 
+#include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/store/RAMDirectory.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gmock/gmock.h>
@@ -59,8 +60,9 @@ public:
                  const segment_v2::IndexSearchParameters& params,
                  segment_v2::IndexSearchResult& result),
                 (override));
-    MOCK_METHOD(doris::Status, save, (lucene::store::Directory * dir), (override));
-    MOCK_METHOD(doris::Status, load, (lucene::store::Directory * dir), (override));
+    MOCK_METHOD(doris::Status, save, (AnnIndexSink * sink), (override));
+    MOCK_METHOD(doris::Status, load, (AnnIndexSource * source, const io::IOContext* io_ctx),
+                (override));
     MOCK_METHOD(Int64, get_min_train_rows, (), (const, override));
 };
 

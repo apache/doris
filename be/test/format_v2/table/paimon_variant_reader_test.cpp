@@ -40,6 +40,7 @@
 #include "format_v2/table/paimon_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format {
 namespace {
@@ -292,8 +293,8 @@ TEST(PaimonVariantReaderTest, MergesSiblingNestedVariantOverrides) {
 }
 
 TEST(PaimonVariantReaderTest, ReadsUnannotatedPaimonVariantWithNativeParquetReader) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_native_unannotated_variant_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_variant_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_native_unannotated_variant_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "data.parquet").string();
@@ -353,8 +354,8 @@ TEST(PaimonVariantReaderTest, ReadsUnannotatedPaimonVariantWithNativeParquetRead
 }
 
 TEST(PaimonVariantReaderTest, ParquetReaderAppliesExplicitVariantSchemaOverride) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_paimon_parquet_variant_override_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_variant_reader_test");
+    const auto test_dir = scoped_test_dir.path() / "doris_paimon_parquet_variant_override_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "data.parquet").string();
@@ -406,8 +407,9 @@ TEST(PaimonVariantReaderTest, ParquetReaderAppliesExplicitVariantSchemaOverride)
 }
 
 TEST(PaimonVariantReaderTest, ReadsProjectedLeafFromUnannotatedShreddedVariant) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_paimon_parquet_shredded_variant_override_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_variant_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_paimon_parquet_shredded_variant_override_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto file_path = (test_dir / "data.parquet").string();
@@ -482,8 +484,9 @@ TEST(PaimonVariantReaderTest, ReadsProjectedLeafFromUnannotatedShreddedVariant) 
 }
 
 TEST(PaimonVariantReaderTest, AppendsUnshreddedAndShreddedPaimonFilesInEitherOrder) {
-    const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_paimon_parquet_mixed_variant_override_test";
+    const doris::test::ScopedTempDirectory scoped_test_dir("paimon_variant_reader_test");
+    const auto test_dir =
+            scoped_test_dir.path() / "doris_paimon_parquet_mixed_variant_override_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto unshredded_path = (test_dir / "unshredded.parquet").string();

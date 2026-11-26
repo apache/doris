@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -406,12 +407,7 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDateLiteralTimeStampTzHistoricalOffsetStreamLoad() throws Exception {
-        // BE's TimestampTzValue::to_string() truncates offset seconds
-        // (e.g. +08:05:43 → +08:05), denoting a different instant if
-        // reparsed.  Both stream-load and query paths must therefore
-        // serialise historical second-resolution offsets in UTC format
-        // so that FE constant evaluation and BE row serialisation
-        // produce the same string for the same stored instant.
+        // Query output preserves historical offsets; storage input remains canonical UTC.
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
@@ -422,14 +418,81 @@ public class ExprToStringValueVisitorTest {
             // Stream-load path must emit UTC format.
             Assertions.assertEquals("1900-01-01 00:00:00+00:00",
                     V.visitDateLiteral(d, StringValueContext.forStreamLoad(FormatOptions.getDefault())));
-            // Query path also falls back to UTC when the session timezone's
-            // offset at the target instant contains seconds (e.g. +08:05:43),
-            // because BE's TimestampTzValue::to_string() truncates offset
-            // seconds to +08:05, producing text that denotes a different
-            // instant.  Falling back to UTC ensures FE constant evaluation
-            // and BE row serialisation produce the same string.
-            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+            Assertions.assertEquals("1900-01-01 08:05:43+08:05:43",
                     V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testTimeStampTzQueryRejectsLocalYearOverflow() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (int scale : new int[] {0, 3, 6}) {
+                String fraction = scale == 0 ? "" : "." + "9".repeat(scale);
+                for (boolean upper : new boolean[] {false, true}) {
+                    String zone = upper ? "+08:00" : "-08:00";
+                    context.getSessionVariable().setTimeZone(zone);
+                    DateLiteral literal = DateLiteralUtils.createDateLiteral(upper
+                                    ? "9999-12-31 23:59:59" + fraction + "+00:00"
+                                    : "0000-01-01 00:00:00+00:00",
+                            ScalarType.createTimeStampTzType(scale));
+                    for (boolean nested : new boolean[] {false, true}) {
+                        StringValueContext queryContext = StringValueContext.forQuery(FormatOptions.getDefault());
+                        if (nested) {
+                            queryContext = queryContext.asComplexType();
+                        }
+                        StringValueContext finalContext = queryContext;
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                () -> V.visitDateLiteral(literal, finalContext));
+                        Assertions.assertTrue(error.getMessage().contains(
+                                "TIMESTAMPTZ local year is outside [0, 9999]: year=" + (upper ? 10000 : -1)));
+                    }
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testTimeStampTzStreamLoadKeepsUtcBounds() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : new String[] {"+08:00", "-08:00"}) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String text : new String[] {"0000-01-01 00:00:00.000000+00:00",
+                        "9999-12-31 23:59:59.999999+00:00"}) {
+                    DateLiteral literal = DateLiteralUtils.createDateLiteral(text, ScalarType.createTimeStampTzType(6));
+                    Assertions.assertEquals(text, V.visitDateLiteral(literal,
+                            StringValueContext.forStreamLoad(FormatOptions.getDefault())));
+                    Assertions.assertEquals("\"" + text + "\"", V.visitDateLiteral(literal,
+                            StringValueContext.forStreamLoad(FormatOptions.getDefault()).asComplexType()));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testTimeStampTzQueryLocalBounds() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+08:00");
+            DateLiteral maximum = DateLiteralUtils.createDateLiteral("9999-12-31 15:59:59.999999+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            Assertions.assertEquals("9999-12-31 23:59:59.999999+08:00", V.visitDateLiteral(maximum,
+                    StringValueContext.forQuery(FormatOptions.getDefault())));
+            context.getSessionVariable().setTimeZone("-08:00");
+            DateLiteral minimum = DateLiteralUtils.createDateLiteral("0000-01-01 08:00:00+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            Assertions.assertEquals("0000-01-01 00:00:00.000000-08:00", V.visitDateLiteral(minimum,
+                    StringValueContext.forQuery(FormatOptions.getDefault())));
         } finally {
             ConnectContext.remove();
         }

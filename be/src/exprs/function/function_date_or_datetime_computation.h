@@ -76,11 +76,17 @@ namespace doris {
 
 template <TimeUnit unit, PrimitiveType ArgType, typename IntervalType>
 auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t,
-                   IntervalType delta) {
+                   IntervalType delta, const cctz::time_zone& time_zone) {
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = t;
-    if constexpr ((unit == TimeUnit::DAY || unit == TimeUnit::WEEK) &&
-                  is_date_v2_or_datetime_v2(ArgType)) {
+    if constexpr (ArgType == TYPE_TIMESTAMPTZ && unit == TimeUnit::DAY) {
+        // In New York, 2024-03-09 12:00 + 1 calendar day is only 23 elapsed hours.
+        if (!ts_value.date_add_days(delta, time_zone)) [[unlikely]] {
+            throw_out_of_bound_date_int(get_time_unit_name(unit), t, delta);
+        }
+        return ts_value;
+    } else if constexpr ((unit == TimeUnit::DAY || unit == TimeUnit::WEEK) &&
+                         is_date_v2_or_datetime_v2(ArgType)) {
         // DAY / WEEK only move the date part. `date_add_days` is inline, so the whole per-row
         // computation folds into the caller's loop: no TimeInterval, no second-level arithmetic,
         // just two L1-resident dictionary lookups. The input comes from a column and is already
@@ -102,34 +108,36 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
     }
 }
 
-#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                 \
-    template <PrimitiveType PType>                                                                \
-    struct CLASS {                                                                                \
-        /* return type must be same with arg type. cast have already be planned in FE */          \
-        static constexpr PrimitiveType ArgPType = PType;                                          \
-        static constexpr PrimitiveType ReturnType = PType;                                        \
-        /* for interval <= minute, use bigint. otherwise int. */                                  \
-        static constexpr PrimitiveType IntervalPType =                                            \
-                (TimeUnit::UNIT == TimeUnit::YEAR || TimeUnit::UNIT == TimeUnit::QUARTER ||       \
-                 TimeUnit::UNIT == TimeUnit::MONTH || TimeUnit::UNIT == TimeUnit::WEEK ||         \
-                 TimeUnit::UNIT == TimeUnit::DAY || TimeUnit::UNIT == TimeUnit::HOUR)             \
-                        ? PrimitiveType::TYPE_INT                                                 \
-                        : PrimitiveType::TYPE_BIGINT;                                             \
-        using InputValueType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;          \
-        using ReturnValueType = InputValueType;                                                   \
-        using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;           \
-        using IntervalValueType = IntervalDataType::FieldType;                                    \
-                                                                                                  \
-        static constexpr auto name = #NAME;                                                       \
-        static constexpr auto is_nullable = false;                                                \
-        static inline ReturnValueType execute(const InputValueType& t, IntervalValueType delta) { \
-            return date_time_add<TimeUnit::UNIT, PType, IntervalValueType>(t, delta);             \
-        }                                                                                         \
-                                                                                                  \
-        static DataTypes get_variadic_argument_types() {                                          \
-            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),            \
-                    std::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};   \
-        }                                                                                         \
+#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                \
+    template <PrimitiveType PType>                                                               \
+    struct CLASS {                                                                               \
+        /* return type must be same with arg type. cast have already be planned in FE */         \
+        static constexpr PrimitiveType ArgPType = PType;                                         \
+        static constexpr PrimitiveType ReturnType = PType;                                       \
+        /* for interval <= minute, use bigint. otherwise int. */                                 \
+        static constexpr PrimitiveType IntervalPType =                                           \
+                (TimeUnit::UNIT == TimeUnit::YEAR || TimeUnit::UNIT == TimeUnit::QUARTER ||      \
+                 TimeUnit::UNIT == TimeUnit::MONTH || TimeUnit::UNIT == TimeUnit::WEEK ||        \
+                 TimeUnit::UNIT == TimeUnit::DAY || TimeUnit::UNIT == TimeUnit::HOUR)            \
+                        ? PrimitiveType::TYPE_INT                                                \
+                        : PrimitiveType::TYPE_BIGINT;                                            \
+        using InputValueType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;         \
+        using ReturnValueType = InputValueType;                                                  \
+        using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;          \
+        using IntervalValueType = IntervalDataType::FieldType;                                   \
+                                                                                                 \
+        static constexpr auto name = #NAME;                                                      \
+        static constexpr auto is_nullable = false;                                               \
+        static inline ReturnValueType execute(                                                   \
+                const InputValueType& t, IntervalValueType delta,                                \
+                const cctz::time_zone& time_zone = cctz::utc_time_zone()) {                      \
+            return date_time_add<TimeUnit::UNIT, PType, IntervalValueType>(t, delta, time_zone); \
+        }                                                                                        \
+                                                                                                 \
+        static DataTypes get_variadic_argument_types() {                                         \
+            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),           \
+                    std::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};  \
+        }                                                                                        \
     }
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
 ADD_TIME_FUNCTION_IMPL(AddMillisecondsImpl, milliseconds_add, MILLISECOND);
@@ -422,9 +430,11 @@ struct AddQuartersImpl {
 
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = false;
-    static inline ReturnValueType execute(const InputValueType& t, Int64 delta) {
+    static inline ReturnValueType execute(
+            const InputValueType& t, Int64 delta,
+            const cctz::time_zone& time_zone = cctz::utc_time_zone()) {
         // Preserve both the month offset and the negation of INT_MIN in quarters_sub.
-        return date_time_add<TimeUnit::MONTH, PType, Int64>(t, 3 * delta);
+        return date_time_add<TimeUnit::MONTH, PType, Int64>(t, 3 * delta, time_zone);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -440,8 +450,10 @@ struct SubtractIntervalImpl {
     using InputValueType = typename Transform::InputValueType;
     using ReturnValueType = typename Transform::ReturnValueType;
     static constexpr auto is_nullable = false;
-    static inline ReturnValueType execute(const InputValueType& t, Int64 delta) {
-        return Transform::execute(t, -delta);
+    static inline ReturnValueType execute(
+            const InputValueType& t, Int64 delta,
+            const cctz::time_zone& time_zone = cctz::utc_time_zone()) {
+        return Transform::execute(t, -delta, time_zone);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -760,6 +772,45 @@ struct DateTimeOp {
     // arg1 maybe just delta value(e.g. DataTypeInt32, not datelike type)
     constexpr static bool CastType1 = is_date_type(DataType1);
 
+    static ToType execute(const ValueType0& from, const ValueType1& delta,
+                          FunctionContext* context) {
+        // Date add/sub needs the session zone; diff and extract transforms take two arguments.
+        if constexpr (std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>> ||
+                      std::is_same_v<Transform, SubtractYearsImpl<TYPE_TIMESTAMPTZ>>) {
+            // Parsed UTC 0000-02-29 can become valid local February 28 in -08:00.
+            // Reject it before changing years can hide the invalid UTC source.
+            if (!from.is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_date_int(Transform::name, from, delta);
+            }
+            // Use the local date for calendar years. In +08:00, 2024-02-29 00:00
+            // is 2024-02-28 16:00 UTC. A year added in UTC gives March 1 locally.
+            // The DATETIME transform changes February 29 to February 28 when needed.
+            const auto& timezone = context->state()->timezone_obj();
+            DateV2Value<DateTimeV2ValueType> local;
+            const int preferred_offset = from.convert_utc_to_local(timezone, local);
+            using LocalTransform =
+                    std::conditional_t<std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>>,
+                                       AddYearsImpl<TYPE_DATETIMEV2>,
+                                       SubtractYearsImpl<TYPE_DATETIMEV2>>;
+            const auto local_result = LocalTransform::execute(local, delta);
+            TimestampTzValue result;
+            // Keep the input offset when the target time occurs twice during a DST change.
+            // This also keeps years_add(ts, 0) equal to ts in the repeated hour.
+            result.convert_local_to_utc(timezone, local_result, preferred_offset);
+            // A valid local date can exceed the UTC range, for example year 0 in +08:00.
+            if (!result.is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_date_int(Transform::name, from, delta);
+            }
+            return result;
+        } else if constexpr (requires {
+                                 Transform::execute(from, delta, context->state()->timezone_obj());
+                             }) {
+            return Transform::execute(from, delta, context->state()->timezone_obj());
+        } else {
+            return Transform::execute(from, delta);
+        }
+    }
+
     // Use for compatibility with TimeUnionType interval(string type)
     static inline ValueType1 get_element(const IntervalColumnType& data, size_t i) {
         if constexpr (DataType1 == TYPE_STRING) {
@@ -772,18 +823,20 @@ struct DateTimeOp {
     // execute on the null value's nested value may cause false positive exception, so use nullmaps to skip them.
     static void vector_vector(const PaddedPODArray<ValueType0>& vec_from0,
                               const IntervalColumnType& vec_from1, PaddedPODArray<ToType>& vec_to,
-                              const NullMap* nullmap0, const NullMap* nullmap1) {
+                              const NullMap* nullmap0, const NullMap* nullmap1,
+                              FunctionContext* context) {
         for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from0[i], get_element(vec_from1, i));
+            vec_to[i] = execute(vec_from0[i], get_element(vec_from1, i), context);
         }
     }
 
     static void vector_constant(const PaddedPODArray<ValueType0>& vec_from,
                                 PaddedPODArray<ToType>& vec_to, const ValueType1& delta,
-                                const NullMap* nullmap0, const NullMap* nullmap1) {
+                                const NullMap* nullmap0, const NullMap* nullmap1,
+                                FunctionContext* context) {
         if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
             return;
         }
@@ -792,13 +845,13 @@ struct DateTimeOp {
             if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from[i], delta);
+            vec_to[i] = execute(vec_from[i], delta, context);
         }
     }
 
     static void constant_vector(const ValueType0& from, PaddedPODArray<ToType>& vec_to,
                                 const IntervalColumnType& delta, const NullMap* nullmap0,
-                                const NullMap* nullmap1) {
+                                const NullMap* nullmap1, FunctionContext* context) {
         if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
             return;
         }
@@ -807,7 +860,7 @@ struct DateTimeOp {
             if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(from, get_element(delta, i));
+            vec_to[i] = execute(from, get_element(delta, i), context);
         }
     }
 };
@@ -877,11 +930,12 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const RightColumnType&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1,
+                                    context);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const RightColumnType&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                                  nullmap1, context);
             }
 
             // update result nullmap with inputs
@@ -908,7 +962,7 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const RightColumnType&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0, nullmap1, context);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -1002,11 +1056,12 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1,
+                                    context);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                                  nullmap1, context);
             }
 
             // update result nullmap with inputs
@@ -1033,7 +1088,7 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0, nullmap1, context);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -1649,112 +1704,6 @@ private:
         return round(months_between * 100000000) / 100000000;
     }
 };
-
-template <bool IsPrevious>
-class FunctionRelativeDay : public IFunction {
-public:
-    static constexpr auto name = IsPrevious ? "previous_day" : "next_day";
-    static FunctionPtr create() { return std::make_shared<FunctionRelativeDay<IsPrevious>>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        auto result = std::make_shared<DataTypeDateV2>();
-        if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
-            return make_nullable(std::move(result));
-        }
-        return result;
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        CHECK_EQ(arguments.size(), 2);
-        auto res = ColumnDateV2::create();
-        res->reserve(input_rows_count);
-        const auto& date_column = block.get_by_position(arguments[0]).column;
-        const auto& week_column = block.get_by_position(arguments[1]).column;
-        const auto result_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnUInt8::MutablePtr null_map;
-        if (result_nullable) {
-            null_map = ColumnUInt8::create(input_rows_count, 0);
-        }
-        Status status;
-        auto* null_map_data = null_map ? &null_map->get_data() : nullptr;
-        auto date_type = block.get_by_position(arguments[0]).type->get_primitive_type();
-        if (date_type == TYPE_TIMESTAMP_NS) {
-            status = execute_vector<TYPE_TIMESTAMP_NS>(input_rows_count, date_column, week_column,
-                                                       *res, null_map_data);
-        } else {
-            DORIS_CHECK_EQ(date_type, TYPE_DATEV2);
-            status = execute_vector<TYPE_DATEV2>(input_rows_count, date_column, week_column, *res,
-                                                 null_map_data);
-        }
-        if (!status.ok()) {
-            return status;
-        }
-        if (result_nullable) {
-            block.replace_by_position(result,
-                                      ColumnNullable::create(std::move(res), std::move(null_map)));
-        } else {
-            block.replace_by_position(result, std::move(res));
-        }
-        return Status::OK();
-    }
-
-private:
-    static int day_of_week(const StringRef& weekday) {
-        static const std::unordered_map<std::string, int> weekday_map = {
-                {"MO", 1}, {"MON", 1}, {"MONDAY", 1},    {"TU", 2}, {"TUE", 2}, {"TUESDAY", 2},
-                {"WE", 3}, {"WED", 3}, {"WEDNESDAY", 3}, {"TH", 4}, {"THU", 4}, {"THURSDAY", 4},
-                {"FR", 5}, {"FRI", 5}, {"FRIDAY", 5},    {"SA", 6}, {"SAT", 6}, {"SATURDAY", 6},
-                {"SU", 7}, {"SUN", 7}, {"SUNDAY", 7}};
-        auto weekday_upper = weekday.to_string();
-        std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
-                       ::toupper);
-        auto it = weekday_map.find(weekday_upper);
-        if (it == weekday_map.end()) {
-            return 0;
-        }
-        return it->second;
-    }
-    static Status compute_relative_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
-        auto delta_days = IsPrevious ? ((dtv.weekday() + 1) - week_day + 7) % 7
-                                     : (week_day - (dtv.weekday() + 1) + 7) % 7;
-        delta_days = delta_days == 0 ? 7 : delta_days;
-        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, delta_days, IsPrevious));
-        return Status::OK();
-    }
-
-    template <PrimitiveType DateType>
-    static Status execute_vector(size_t input_rows_count, const ColumnPtr& date_column,
-                                 const ColumnPtr& week_column, ColumnDateV2& res_col,
-                                 NullMap* null_map) {
-        const auto date_view = ColumnView<DateType>::create(date_column);
-        const auto week_view = ColumnView<TYPE_STRING>::create(week_column);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (date_view.is_null_at(i) || week_view.is_null_at(i)) {
-                DORIS_CHECK(null_map != nullptr);
-                (*null_map)[i] = 1;
-                res_col.insert_default();
-                continue;
-            }
-            auto dtv = date_v2_from_date_like(date_view.value_at(i));
-            auto week = week_view.value_at(i);
-            auto week_day = day_of_week(week);
-            if (week_day == 0) {
-                return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
-                                               week);
-            }
-            RETURN_IF_ERROR(compute_relative_day(dtv, week_day));
-            res_col.insert_value(dtv);
-        }
-        return Status::OK();
-    }
-};
-
-using FunctionNextDay = FunctionRelativeDay<false>;
-using FunctionPreviousDay = FunctionRelativeDay<true>;
 
 class FunctionTime : public IFunction {
 public:

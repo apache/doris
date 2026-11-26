@@ -27,7 +27,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -46,7 +46,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
 
         int max_sparse_column_statistics_size = 2
         test {
-            sql """ set default_variant_max_sparse_column_statistics_size = 0 """
+            sql """ set debug_variant_max_sparse_column_statistics_size = 0 """
             exception "variant max sparse column statistics size"
         }
         sql "DROP TABLE IF EXISTS variant_sparse_stats_zero"
@@ -87,7 +87,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
         // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
             def max_subcolumns_count = key_types[i] == "AGGREGATE" ? 2048 : 1
-            sql """ set default_variant_max_subcolumns_count = ${max_subcolumns_count} """
+            sql """ set debug_variant_max_subcolumns_count = ${max_subcolumns_count} """
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
             create_table.call(tableName, "1", key_types[i], max_subcolumns_count)

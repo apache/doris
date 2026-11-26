@@ -201,8 +201,7 @@ public class JoinUtils {
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         if (isStorageBucketed(join.right().getPhysicalProperties())) {
             return true;
-        } else if (SessionVariable.canUseNereidsDistributePlanner()
-                && isStorageBucketed(join.left().getPhysicalProperties())) {
+        } else if (isStorageBucketed(join.left().getPhysicalProperties())) {
             return true;
         }
         return false;

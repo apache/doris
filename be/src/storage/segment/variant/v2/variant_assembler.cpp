@@ -19,10 +19,14 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
+#include <numeric>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -34,6 +38,7 @@
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "storage/segment/variant/v2/variant_assembler_internal.h"
 #include "storage/segment/variant/v2/variant_storage_cell.h"
+#include "util/simd/bits.h"
 
 namespace doris::segment_v2::variant_v2 {
 namespace {
@@ -87,6 +92,12 @@ struct StorageMapRowCursor {
         DORIS_CHECK(values != nullptr);
         DORIS_CHECK_EQ(paths->size(), values->size());
         DCHECK(rows == 0 || storage_map->offset_at(static_cast<ssize_t>(rows)) == paths->size());
+        // Readers binary-search sparse keys by raw path bytes. The writer (#70001) and vertical
+        // compaction canonicalize every row, so a non-conforming row reaching this cursor is a
+        // producer bug; keep the check debug-only so release scans pay nothing.
+        for (size_t row = 0; row < rows; ++row) {
+            DCHECK(is_variant_sparse_row_sorted(*paths, begin(row), row_end(row)));
+        }
     }
 
     size_t begin(size_t row) const noexcept { return source->offset_at(static_cast<ssize_t>(row)); }
@@ -172,6 +183,7 @@ struct ObjectEmitter {
     StringRef previous_path;
     std::vector<ObjectScope> scopes;
 
+    bool decode_keys = false;
     ObjectEmitter() { scopes.reserve(8); }
 
     static size_t component_end(StringRef path, size_t offset) {
@@ -223,7 +235,14 @@ struct ObjectEmitter {
         for (size_t part = 0; part < depth; ++part) {
             const size_t end = component_end(path, offset);
             if (part >= common_depth) {
-                scopes.back().add_key({path_data + offset, end - offset});
+                const std::string_view key(path_data + offset, end - offset);
+                if (decode_keys && key.find('%') != std::string_view::npos) {
+                    std::string decoded;
+                    THROW_IF_ERROR(decode_variant_path_component(key, &decoded));
+                    scopes.back().add_key({decoded.data(), decoded.size()});
+                } else {
+                    scopes.back().add_key({key.data(), key.size()});
+                }
                 if (part + 1 < depth) {
                     scopes.push_back(row->start_object());
                 }
@@ -296,22 +315,17 @@ struct PreparedHierarchicalBatch {
     const ColumnString* root_values = nullptr;
     const uint8_t* root_nulls = nullptr;
     DorisVector<variant_assembler_detail::PreparedMaterializedColumn> materialized;
-};
+    DorisVector<size_t> candidate_offsets;
+    DorisVector<uint32_t> candidate_slots;
 
-bool has_materialized_value(
-        std::span<const variant_assembler_detail::PreparedMaterializedColumn> materialized,
-        std::span<const MaterializedSlot> materialized_slots, size_t row,
-        bool reads_whole_variant) {
-    DORIS_CHECK_EQ(materialized.size(), materialized_slots.size());
-    for (size_t index = 0; index < materialized.size(); ++index) {
-        if (variant_assembler_detail::is_materialized_value_visible(
-                    materialized[index], row,
-                    reads_whole_variant && materialized_slots[index].relative_path.empty())) {
-            return true;
-        }
+    std::span<const uint32_t> candidate_materialized_slots(size_t row) const {
+        const std::span<const uint32_t> slots(candidate_slots);
+        return candidate_offsets.empty()
+                       ? slots
+                       : slots.subspan(candidate_offsets[row],
+                                       candidate_offsets[row + 1] - candidate_offsets[row]);
     }
-    return false;
-}
+};
 
 PreparedHierarchicalBatch prepare_hierarchical_batch(
         StorageMapKind storage_map_kind, bool has_root,
@@ -336,9 +350,49 @@ PreparedHierarchicalBatch prepare_hierarchical_batch(
     }
 
     output.materialized.reserve(materialized_slots.size());
+    size_t candidate_count = 0;
     for (const MaterializedSlot& slot : materialized_slots) {
-        output.materialized.push_back(variant_assembler_detail::prepare_materialized_column(
-                slot.type, batch.materialized_columns[slot.batch_index], batch.num_rows));
+        auto column = variant_assembler_detail::prepare_materialized_column(
+                slot.type, batch.materialized_columns[slot.batch_index], batch.num_rows);
+        candidate_count +=
+                column.nulls == nullptr
+                        ? batch.num_rows
+                        : simd::count_zero_num(reinterpret_cast<const int8_t*>(column.nulls),
+                                               batch.num_rows);
+        output.materialized.push_back(std::move(column));
+    }
+    DORIS_CHECK_LE(materialized_slots.size(), std::numeric_limits<uint32_t>::max());
+    // At 37.5% candidates, CSR was about 5% faster than identity in the 4096-row benchmark.
+    if (candidate_count >= batch.num_rows * materialized_slots.size() / 2) {
+        output.candidate_slots.resize(materialized_slots.size());
+        std::iota(output.candidate_slots.begin(), output.candidate_slots.end(), uint32_t {0});
+    } else {
+        auto for_each_candidate = [&](auto&& visit) {
+            for (size_t index = 0; index < output.materialized.size(); ++index) {
+                const auto* nulls = output.materialized[index].nulls;
+                for (size_t row = 0; row < batch.num_rows; ++row) {
+                    if (nulls != nullptr) {
+                        row = simd::find_byte<uint8_t>(nulls, row, batch.num_rows, 0);
+                        if (row == batch.num_rows) {
+                            break;
+                        }
+                    }
+                    visit(row, static_cast<uint32_t>(index));
+                }
+            }
+        };
+        output.candidate_offsets.resize(batch.num_rows + 1, 0);
+        for_each_candidate([&](size_t row, uint32_t) { ++output.candidate_offsets[row + 1]; });
+        for (size_t row = 0; row < batch.num_rows; ++row) {
+            output.candidate_offsets[row + 1] += output.candidate_offsets[row];
+        }
+        output.candidate_slots.resize(candidate_count);
+        DorisVector<size_t> write_positions(output.candidate_offsets.begin(),
+                                            output.candidate_offsets.end() - 1);
+        // Filling in sorted slot order keeps each row ordered, e.g. [a, a-, a.b].
+        for_each_candidate([&](size_t row, uint32_t index) {
+            output.candidate_slots[write_positions[row]++] = index;
+        });
     }
     if (storage_map_kind != StorageMapKind::NONE) {
         map_cursor->bind(batch.storage_map, batch.num_rows);
@@ -446,25 +500,30 @@ Status emit_doc_row(size_t row, StringRef requested_raw, bool reads_whole_varian
 
 Status emit_merged_row(
         std::span<const variant_assembler_detail::PreparedMaterializedColumn> materialized,
-        bool has_sparse, std::span<const MaterializedSlot> materialized_slots, size_t row,
-        StringRef requested_raw, bool reads_whole_variant, StorageMapRowCursor* sparse_cursor,
+        bool has_sparse, std::span<const MaterializedSlot> materialized_slots,
+        std::span<const uint32_t> candidate_slots, size_t row, StringRef requested_raw,
+        bool reads_whole_variant, StorageMapRowCursor* sparse_cursor,
         DorisVector<MergeValue>* pending, ObjectEmitter* emitter) {
     if (has_sparse) {
         RETURN_IF_ERROR(sparse_cursor->start_row(row, requested_raw, reads_whole_variant));
     }
     pending->clear();
+    size_t candidate_index = 0;
     size_t materialized_index = 0;
-    while (true) {
-        while (materialized_index < materialized.size()) {
+    auto advance_materialized = [&] {
+        while (candidate_index < candidate_slots.size()) {
+            materialized_index = candidate_slots[candidate_index++];
             if (variant_assembler_detail::is_materialized_value_visible(
                         materialized[materialized_index], row,
                         reads_whole_variant &&
                                 materialized_slots[materialized_index].relative_path.empty())) {
-                break;
+                return true;
             }
-            ++materialized_index;
         }
-        const bool materialized_available = materialized_index < materialized_slots.size();
+        return false;
+    };
+    bool materialized_available = advance_materialized();
+    while (true) {
         StringRef materialized_raw_path;
         if (materialized_available) {
             const std::string& path =
@@ -490,7 +549,7 @@ Status emit_merged_row(
         if (!use_sparse) {
             current.set_materialized(materialized_slots[materialized_index].relative_path,
                                      materialized_raw_path, &materialized[materialized_index]);
-            ++materialized_index;
+            materialized_available = advance_materialized();
         } else {
             current.set_cell(sparse_cursor->sort_key, sparse_cursor->cell,
                              sparse_cursor->is_direct_subtree_value, sparse_cursor->depth);
@@ -513,6 +572,7 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
             batch.root_values->get_data_at(row_index).size != 0;
     const bool has_doc_row = has_doc && !map_cursor->row_empty(row_index);
     const bool reads_whole_variant = requested.empty();
+    const auto candidate_slots = batch.candidate_materialized_slots(row_index);
 
     // Physical row precedence:
     // 1. A non-empty doc row exclusively defines the row.
@@ -521,10 +581,13 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     // 4. An empty whole-Variant row is {}; an absent subtree is SQL NULL.
     if (has_root_sidecar_value && !has_doc_row &&
         (!has_sparse || map_cursor->row_empty(row_index))) {
-        // Only the root fast-path candidate needs this O(materialized-paths) scan. Ordinary object
-        // and doc rows are scanned once later by emit_merged_row()/emit_doc_row().
-        if (!has_materialized_value(batch.materialized, materialized_slots, row_index,
-                                    reads_whole_variant)) {
+        const bool has_materialized_value =
+                std::ranges::any_of(candidate_slots, [&](uint32_t index) {
+                    return variant_assembler_detail::is_materialized_value_visible(
+                            batch.materialized[index], row_index,
+                            reads_whole_variant && materialized_slots[index].relative_path.empty());
+                });
+        if (!has_materialized_value) {
             jsonb_to_variant(batch.root_values->get_data_at(row_index), *row, 0, nullptr);
             return Status::OK();
         }
@@ -538,8 +601,8 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
                                      pending, emitter));
     } else {
         RETURN_IF_ERROR(emit_merged_row(batch.materialized, has_sparse, materialized_slots,
-                                        row_index, requested_raw, reads_whole_variant, map_cursor,
-                                        pending, emitter));
+                                        candidate_slots, row_index, requested_raw,
+                                        reads_whole_variant, map_cursor, pending, emitter));
     }
     if (!emitter->emitted) {
         if (reads_whole_variant && has_root && storage_map_kind == StorageMapKind::NONE &&
@@ -564,7 +627,7 @@ Status assemble_hierarchical_row(StorageMapKind storage_map_kind, bool has_root,
     return Status::OK();
 }
 
-Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
+Status assemble_hierarchical(uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
                              const PathInData& requested,
                              std::span<const MaterializedSlot> materialized_slots,
                              const VariantAssemblerBatchView& batch,
@@ -578,6 +641,7 @@ Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
     outer->reserve(batch.num_rows);
     DorisVector<MergeValue> pending;
     ObjectEmitter emitter;
+    emitter.decode_keys = path_encoding == 1;
     for (size_t row_index = 0; row_index < batch.num_rows; ++row_index) {
         auto row = builder.begin_row();
         if (prepared.root_nulls != nullptr && prepared.root_nulls[row_index] != 0) {
@@ -655,19 +719,60 @@ DorisVector<MaterializedSlot> build_materialized_slots(const VariantAssemblerOpt
 
 } // namespace
 
+void append_variant_binary_bucket_range(std::span<const ColumnMap* const> buckets, size_t begin,
+                                        size_t num_rows, ColumnMap& destination) {
+    if (buckets.size() == 1) {
+        destination.insert_range_from(*buckets.front(), begin, num_rows);
+        return;
+    }
+
+    auto& dst_paths = assert_cast<ColumnString&>(destination.get_keys());
+    auto& dst_values = assert_cast<ColumnString&>(destination.get_values());
+    auto& dst_offsets = destination.get_offsets();
+    std::vector<const ColumnString*> src_paths(buckets.size());
+    std::vector<const ColumnString*> src_values(buckets.size());
+    for (size_t i = 0; i < buckets.size(); ++i) {
+        src_paths[i] = assert_cast<const ColumnString*>(&buckets[i]->get_keys());
+        src_values[i] = assert_cast<const ColumnString*>(&buckets[i]->get_values());
+    }
+
+    std::vector<std::tuple<std::string_view, size_t, size_t>> paths;
+    for (size_t row = begin; row < begin + num_rows; ++row) {
+        // Keep the source bucket and entry so values follow their paths after sorting.
+        paths.clear();
+        for (size_t bucket = 0; bucket < buckets.size(); ++bucket) {
+            const size_t offset_begin = buckets[bucket]->offset_at(row);
+            const size_t offset_end = buckets[bucket]->offset_at(row + 1);
+            for (size_t offset = offset_begin; offset < offset_end; ++offset) {
+                auto path = src_paths[bucket]->get_data_at(offset).to_string_view();
+                paths.emplace_back(path, bucket, offset);
+            }
+        }
+
+        std::ranges::sort(paths);
+        for (const auto& [path, bucket, offset] : paths) {
+            dst_paths.insert_data(path.data(), path.size());
+            dst_values.insert_from(*src_values[bucket], offset);
+        }
+        dst_offsets.push_back(dst_paths.size());
+    }
+}
+
 Result<std::unique_ptr<VariantAssembler>> VariantAssembler::create(
         VariantAssemblerOptions options) {
     RETURN_IF_ERROR_RESULT(check_options(options));
     DorisVector<MaterializedSlot> materialized = build_materialized_slots(options);
     return std::unique_ptr<VariantAssembler>(
-            new VariantAssembler(options.storage_map_kind, options.has_root, options.requested_path,
-                                 std::move(materialized)));
+            new VariantAssembler(options.path_encoding, options.storage_map_kind, options.has_root,
+                                 options.requested_path, std::move(materialized)));
 }
 
 VariantAssembler::VariantAssembler(
-        StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
+        uint32_t path_encoding, StorageMapKind storage_map_kind, bool has_root,
+        const PathInData& requested,
         DorisVector<variant_assembler_detail::MaterializedSlot> materialized)
-        : _storage_map_kind(storage_map_kind),
+        : _path_encoding(path_encoding),
+          _storage_map_kind(storage_map_kind),
           _has_root(has_root),
           _requested(requested),
           _materialized(std::move(materialized)) {}
@@ -677,8 +782,8 @@ Status VariantAssembler::assemble(const VariantAssemblerBatchView& batch,
     DORIS_CHECK(output != nullptr);
     try {
         ColumnNullable::MutablePtr result;
-        const Status status = assemble_hierarchical(_storage_map_kind, _has_root, _requested,
-                                                    _materialized, batch, &result);
+        const Status status = assemble_hierarchical(_path_encoding, _storage_map_kind, _has_root,
+                                                    _requested, _materialized, batch, &result);
         if (!status.ok()) {
             return status;
         }

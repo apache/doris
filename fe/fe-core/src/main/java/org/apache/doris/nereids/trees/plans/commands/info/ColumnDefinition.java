@@ -358,7 +358,8 @@ public class ColumnDefinition {
                 && !type.isJsonType()
                 && !type.isVariantType()
                 && !type.isMapType()
-                && !type.isStructType();
+                && !type.isStructType()
+                && !type.isFileType();
     }
 
     private void checkKeyColumnType(boolean isOlap) {
@@ -433,6 +434,10 @@ public class ColumnDefinition {
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
         type.validateDataType();
+        if (type.typeContainsFile()) {
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql() + " for column '" + name
+                    + "': FILE and types containing FILE cannot be used as table columns");
+        }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {
@@ -774,6 +779,15 @@ public class ColumnDefinition {
                 "doris commit tso hidden column", false);
         columnDefinition.setEnableAddHiddenColumn(true);
 
+        return columnDefinition;
+    }
+
+    /** Add the nullable row TTL hidden column. */
+    public static ColumnDefinition newTtlColumnDefinition(DataType dataType, AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.TTL_COL, dataType, false,
+                aggregateType, true, Optional.of(DefaultValue.NULL_DEFAULT_VALUE),
+                "row ttl hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
         return columnDefinition;
     }
 

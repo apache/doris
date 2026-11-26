@@ -130,6 +130,18 @@ public class PaimonScanPlanProviderTest {
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
     @Test
+    public void coarseSizeIsLimitedToNativeColumnarFiles() {
+        Assertions.assertEquals(512 * MB,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.parquet", "orc", 512 * MB));
+        Assertions.assertEquals(512 * MB,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.orc", "parquet", 512 * MB));
+        Assertions.assertEquals(-1,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.avro", "avro", 512 * MB));
+        Assertions.assertEquals(-1,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.parquet", "parquet", 0));
+    }
+
+    @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new PaimonConnectorProvider().getType() + ".";
         Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
@@ -4026,7 +4038,8 @@ public class PaimonScanPlanProviderTest {
             // WHY: this is the whole fix — one scanner per large file becomes N parallel sub-ranges.
             // MUTATION: neuter computeFileSplitOffsets to a single whole-file range -> nativeRanges==1 -> red.
             ConnectorSession splitting = sessionWithProps(
-                    Collections.singletonMap("file_split_size", String.valueOf(splitSize)));
+                    Map.of("file_split_size", String.valueOf(splitSize), "enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
             List<ConnectorScanRange> ranges = provider.planScan(splitting,
                     ConnectorScanRequest.builder(handle, noColumns)
                     .countPushdown(false).build());
@@ -4051,6 +4064,19 @@ public class PaimonScanPlanProviderTest {
             }
             Assertions.assertEquals(fileLength, expectedStart,
                     "native sub-ranges must cover exactly [0, fileLength)");
+
+            List<ConnectorScanRange> coarse = provider.planScan(splitting,
+                    ConnectorScanRequest.builder(handle, noColumns).coarseSplitSize(fileLength * 2).build());
+            Assertions.assertEquals(1, coarse.size());
+            Assertions.assertEquals(fileLength * 2, coarse.get(0).getTargetSplitSize());
+            Assertions.assertTrue(coarse.get(0).supportsBeSplitRefinement());
+
+            ConnectorSession cappedSession = sessionWithProps(Map.of("max_file_split_num", "1"));
+            List<ConnectorScanRange> capped = provider.planScan(cappedSession,
+                    ConnectorScanRequest.builder(handle, noColumns).coarseSplitSize(splitSize).build());
+            Assertions.assertEquals(1, capped.size(), "the count bound must survive coarse target selection");
+            Assertions.assertEquals(0, capped.get(0).getStart());
+            Assertions.assertEquals(fileLength, capped.get(0).getLength());
 
             // Contrast: with the default (large) split size the small file stays a SINGLE native range.
             List<ConnectorScanRange> whole = provider.planScan(sessionWithProps(Collections.emptyMap()),
@@ -4216,17 +4242,6 @@ public class PaimonScanPlanProviderTest {
                 sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
         Assertions.assertFalse(PaimonScanPlanProvider.isForceJniScannerEnabled(null),
                 "a null session must default to false");
-    }
-
-    @Test
-    public void fileMetadataColumnsRequireFileScannerV2() {
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "true"))));
-        Assertions.assertFalse(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "false"))));
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.emptyMap())));
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
     }
 
     @Test

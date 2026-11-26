@@ -20,11 +20,17 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.thrift.TPlanNode;
@@ -70,6 +76,40 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
                 + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')");
+        for (String table : new String[] {"score_usage_ttl_dup", "score_usage_ttl_mow"}) {
+            String keyType = table.endsWith("mow") ? "UNIQUE" : "DUPLICATE";
+            createTable("CREATE TABLE " + table + " (id INT, c1 TEXT, "
+                    + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
+                    + keyType + " KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num' = '1', 'function_column.enable_row_ttl' = 'true')");
+        }
+    }
+
+    @Test
+    void testValuesMatchRejectsScore() throws Exception {
+        createTable("CREATE TABLE values_match (id INT, v VARIANT, "
+                + "INDEX values_idx(v) USING INVERTED PROPERTIES "
+                + "('variant_index_scope'='values','parser'='unicode'), "
+                + "INDEX path_idx(v) USING INVERTED PROPERTIES ('parser'='english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='SNII')");
+        assertScoreUsageError("SELECT id, score() FROM values_match WHERE v MATCH 'hello' "
+                + "ORDER BY score() DESC LIMIT 2", "score() is not supported");
+        assertFullScoring("SELECT id, score() FROM values_match WHERE v['obj'] MATCH 'hello'", 2);
+        // A pruned object path can reach this rule as a VARIANT slot instead of a STRING cast.
+        LogicalOlapScan scan = (LogicalOlapScan) PlanChecker.from(connectContext)
+                .analyze("SELECT v FROM values_match").getCascadesContext().getRewritePlan()
+                .collectFirst(plan -> plan instanceof LogicalOlapScan).get();
+        SlotReference path = ((SlotReference) scan.getOutput().stream()
+                .filter(slot -> slot.getName().equals("v")).findFirst().get()).withSubPath(List.of("obj"));
+        Assertions.assertTrue(path.getDataType().isVariantType());
+        Plan plan = new LogicalProject<>(List.of(new Alias(new Score(), "s")),
+                new LogicalFilter<>(Set.of(new MatchAny(path, new StringLiteral("hello"))),
+                        scan.withCachedOutput(List.of(path))));
+        Plan scored = new BindScoreToOlapScan().rewriteRoot(plan, null);
+        LogicalOlapScan scoredScan = (LogicalOlapScan) scored
+                .collectFirst(node -> node instanceof LogicalOlapScan).get();
+        Assertions.assertTrue(BindScoreToOlapScan.findScoreSlot(scoredScan).isPresent());
     }
 
     static Stream<Arguments> scoringPredicates() {
@@ -118,6 +158,37 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                         + " WHERE " + predicate + range + " ORDER BY score() DESC LIMIT 10");
                 Assertions.assertEquals(10L, scan.getScoreLimit().get().longValue());
                 Assertions.assertEquals(!range.isEmpty(), scan.getScoreRangeInfo().isPresent());
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"score_usage_ttl_dup", "score_usage_ttl_mow"})
+    void testRowTtlKeepsAllScoreCandidates(String table) {
+        for (String predicate : new String[] {"c1 MATCH 'apple'", "search('c1:apple')"}) {
+            assertMinimumScore("SELECT id FROM " + table + " WHERE " + predicate + " AND score() > 0.00001", 1);
+            for (String projection : new String[] {"id", "id, score() AS s"}) {
+                for (String range : new String[] {"", " AND score() > 0.00001"}) {
+                    String sql = "SELECT " + projection + " FROM " + table + " WHERE " + predicate + range
+                            + " ORDER BY score() DESC LIMIT 10 OFFSET 2";
+                    Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite()
+                            .getCascadesContext().getRewritePlan();
+                    LogicalOlapScan scan = (LogicalOlapScan) plan.collectFirst(
+                            node -> node instanceof LogicalOlapScan).get();
+                    Assertions.assertEquals(0L, scan.getScoreLimit().get().longValue(), plan.treeString());
+                    Assertions.assertFalse(scan.getScoreRangeInfo().isPresent(), plan.treeString());
+                    Assertions.assertTrue(plan.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                            .anyMatch(expression -> expression.containsType(RowTtlIsVisible.class))), plan.treeString());
+                    PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                        TPlanNode thrift = thriftScan(planner);
+                        Assertions.assertNotNull(thrift.olap_scan_node.score_sort_info);
+                        Assertions.assertEquals(0, thrift.olap_scan_node.score_sort_limit, sql);
+                        Assertions.assertFalse(thrift.olap_scan_node.isSetScoreRangeInfo(), sql);
+                        if (!range.isEmpty()) {
+                            assertFiltersScore(thrift);
+                        }
+                    });
+                }
             }
         }
     }

@@ -176,10 +176,6 @@ public:
     *         for this column type
     * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
     */
-    virtual void erase(size_t start, size_t length) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method erase is not supported for " + get_name());
-    }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
     virtual Ptr shrink(size_t length) const final {
@@ -635,7 +631,7 @@ public:
     // true if column has null element [begin, end)
     virtual bool has_null(size_t begin, size_t end) const { return false; }
 
-    virtual bool is_exclusive() const { return use_count() == 1; }
+    virtual bool is_exclusive() const { return is_exclusive_self(); }
 
     /// Clear data of column, just like vector clear
     virtual void clear() = 0;
@@ -893,11 +889,18 @@ bool is_column_const(const IColumn& column);
 bool is_column_nullable(const IColumn& column);
 } // namespace doris
 
-// Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
+// Hold a constant expression's single-row result column. For example, both a one-row Int64
+// column and ColumnConst(Int64, N) store the same Int64 row here; broadcast wraps it again.
+// This class also allows forward declarations where the ColumnPtr alias cannot be used.
 namespace doris {
-struct ColumnPtrWrapper {
-    ColumnPtr column_ptr;
+class ConstantExprResult {
+public:
+    explicit ConstantExprResult(ColumnPtr column);
 
-    ColumnPtrWrapper(ColumnPtr col) : column_ptr(std::move(col)) {}
+    const IColumn& column() const { return *_column_ptr; }
+    const ColumnPtr& column_ptr() const { return _column_ptr; }
+
+private:
+    ColumnPtr _column_ptr;
 };
 } // namespace doris

@@ -22,11 +22,14 @@ import org.apache.doris.qe.ConnectScheduler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.util.Iterator;
 import java.util.ServiceLoader;
 
 public final class FeServerStarterFactory {
     private static final Logger LOG = LogManager.getLogger(FeServerStarterFactory.class);
+    private static volatile ServerStarter thriftStarter;
 
     private FeServerStarterFactory() {
     }
@@ -36,7 +39,20 @@ public final class FeServerStarterFactory {
     }
 
     public static ServerStarter createThriftServerStarter(int port) {
-        return provider().createThriftServerStarter(port);
+        ServerStarter selected = provider().createThriftServerStarter(port);
+        thriftStarter = selected;
+        return selected;
+    }
+
+    public static ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
+        ServerStarter selected = provider().createThriftServerStarter(listener);
+        thriftStarter = selected;
+        return selected;
+    }
+
+    public static boolean supportsPrivateFileKeys() {
+        ServerStarter selected = thriftStarter;
+        return selected != null && selected.supportsPrivateFileKeys();
     }
 
     public static ServerStarter createFlightServerStarter(int port) {

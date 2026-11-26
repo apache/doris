@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -72,6 +73,62 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+    }
+
+    @Test
+    void testDecimalSumDisablesBilateralPushDown() throws Exception {
+        createTable("CREATE TABLE decimal_sum_l (k VARCHAR(20), v DECIMAL(38,18))"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        createTable("CREATE TABLE decimal_sum_r (k VARCHAR(20), w BIGINT)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES ('replication_num'='1')");
+        int oldMode = connectContext.getSessionVariable().getEagerAggregationMode();
+        boolean oldReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        boolean oldDecimal256 = connectContext.getSessionVariable().enableDecimal256;
+        try {
+            connectContext.getSessionVariable().setEagerAggregationMode(1);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+            for (boolean decimal256 : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableDecimal256 = decimal256;
+                DecimalV3Type expected = DecimalV3Type.createDecimalV3Type(decimal256 ? 76 : 38, 18);
+                for (String join : new String[] {"JOIN decimal_sum_r r ON l.k=r.k",
+                        "CROSS JOIN decimal_sum_r r"}) {
+                    for (String sums : new String[] {"SUM(l.v) AS sv, SUM(r.w) AS sw",
+                            "SUM(r.w) AS sw, SUM(l.v) AS sv"}) {
+                        Plan plan = PlanChecker.from(connectContext)
+                                .analyze("SELECT l.k AS g, " + sums + " FROM decimal_sum_l l "
+                                        + join + " GROUP BY l.k")
+                                .rewrite().getPlan();
+                        int decimalOutputIndex = sums.startsWith("SUM(l.v)") ? 1 : 2;
+                        Assertions.assertEquals(expected, plan.getOutput().get(decimalOutputIndex).getDataType());
+                        LogicalJoin<?, ?> logicalJoin = findFirstPlan(plan, LogicalJoin.class);
+                        Assertions.assertNotNull(logicalJoin, plan.treeString());
+                        Assertions.assertFalse(containsPlan(logicalJoin, LogicalAggregate.class), plan.treeString());
+                    }
+                }
+                assertNoAggregateUnderJoin("SELECT SUBSTRING(l.k, 1, 6), SUM(l.v), SUM(r.w)"
+                        + " FROM decimal_sum_l l JOIN decimal_sum_r r ON l.k=r.k"
+                        + " GROUP BY SUBSTRING(l.k, 1, 6)");
+                assertNoAggregateUnderJoin("SELECT r.k, SUM(l.v), COUNT(r.w)"
+                        + " FROM decimal_sum_r r JOIN decimal_sum_l l ON l.k=r.k GROUP BY r.k");
+                // A decimal SUM on just one side still supports eager aggregation.
+                for (String from : new String[] {"decimal_sum_l l JOIN decimal_sum_r r ON l.k=r.k",
+                        "decimal_sum_r r JOIN decimal_sum_l l ON l.k=r.k"}) {
+                    Plan plan = PlanChecker.from(connectContext)
+                            .analyze("SELECT l.k, SUM(l.v) FROM " + from + " GROUP BY l.k")
+                            .rewrite().getPlan();
+                    Assertions.assertEquals(expected, plan.getOutput().get(1).getDataType());
+                    LogicalJoin<?, ?> logicalJoin = findFirstPlan(plan, LogicalJoin.class);
+                    Assertions.assertNotNull(logicalJoin, plan.treeString());
+                    Assertions.assertTrue(containsPlan(logicalJoin, LogicalAggregate.class), plan.treeString());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(oldMode);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldReorder);
+            connectContext.getSessionVariable().enableDecimal256 = oldDecimal256;
+        }
     }
 
     @Test

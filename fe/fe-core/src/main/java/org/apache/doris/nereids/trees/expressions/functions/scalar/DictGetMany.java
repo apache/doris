@@ -134,9 +134,11 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
 
             if (dictionary.getLayout() == LayoutType.HASH_MAP) {
                 Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, targetType);
-                if (castType.isPresent() && !castType.get().equals(queryType)) {
-                    queryType = castType.get();
+                if (!castType.isPresent()) {
+                    throw new AnalysisException("dict_get_many() cannot implicitly cast key at position " + (i + 1)
+                            + " from " + queryType + " to " + targetType);
                 }
+                queryType = castType.get();
             } else { // IP_TRIE
                 if (!queryType.isIPType()) {
                     // we CAN'T CAST it because we dont know which one of ipv4 or ipv6 is the target.

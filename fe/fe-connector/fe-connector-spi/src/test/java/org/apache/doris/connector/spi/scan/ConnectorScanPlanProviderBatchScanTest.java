@@ -63,19 +63,28 @@ public class ConnectorScanPlanProviderBatchScanTest {
     };
 
     @Test
+    public void refinementHintsDefaultToExistingPolicy() {
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList()).build();
+        Assertions.assertEquals(-1L, request.getCoarseSplitSize());
+        ConnectorScanRange range = Collections::emptyMap;
+        Assertions.assertFalse(range.supportsBeSplitRefinement());
+    }
+
+    @Test
     public void partitionBatchSourceDefersScopedPlanningAndReleasesItsRanges() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         ConnectorScanRange range = () -> Collections.emptyMap();
         ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
                 .requiredPartitions(Arrays.asList("pt=1", "pt=2"))
                 .backendCapabilities(Collections.singleton("capability"))
-                .aggregatePushdown(true).build();
+                .aggregatePushdown(true).coarseSplitSize(512L << 20).build();
         ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
             @Override
             public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scoped) {
                 calls.incrementAndGet();
                 Assertions.assertEquals(Collections.singletonList("pt=2"), scoped.getRequiredPartitions());
                 Assertions.assertTrue(scoped.isAggregatePushdown());
+                Assertions.assertEquals(512L << 20, scoped.getCoarseSplitSize());
                 Assertions.assertEquals(request.getBackendCapabilities(), scoped.getBackendCapabilities());
                 return Collections.singletonList(range);
             }
@@ -112,6 +121,12 @@ public class ConnectorScanPlanProviderBatchScanTest {
     }
 
     @Test
+    public void testPartitionBatchSizeDefaultsToLegacyReadSessionSize() {
+        ConnectorScanPlanProvider provider = new RecordingProvider();
+        Assertions.assertEquals(1024, provider.partitionBatchSize(null, 1000, 64));
+    }
+
+    @Test
     public void testStreamingSplitEstimateDefaultsNegative() {
         // FIX-M3: default MUST be < 0 so no connector silently enters file-count streaming without opting in
         // (the engine treats < 0 as "stay on the synchronous planScan path").
@@ -144,6 +159,7 @@ public class ConnectorScanPlanProviderBatchScanTest {
         ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, columns)
                 .filter(Optional.of(filter))
                 .limit(7L)
+                .coarseSplitSize(1234L)
                 .partitionsPrunedToEmpty(true)
                 .countPushdown(true)
                 .aggregatePushdown(true)

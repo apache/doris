@@ -23,9 +23,12 @@
 #include <memory>
 
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "util/jsonb_utils.h"
 
 namespace doris {
 namespace {
@@ -83,6 +86,59 @@ TEST(JniDataBridgeTest, FillNullableVariantV2FromEncodedPaimonLayout) {
     EXPECT_TRUE(variant_column.get_value_ref(0).get_bool());
     EXPECT_TRUE(variant_column.get_value_ref(1).is_null());
     EXPECT_FALSE(variant_column.get_value_ref(2).get_bool());
+}
+
+TEST(JniDataBridgeTest, FillJsonPreservesSqlNullAndJsonNullAcrossBatches) {
+    std::array<bool, 5> null_map {false, true, false, false, false};
+    std::array<int, 5> offsets {7, 7, 11, 13, 19};
+    std::string text = R"({"a":1}null[]"text")";
+    std::array<long, 3> meta {address_of(null_map.data()), address_of(offsets.data()),
+                              address_of(text.data())};
+    DataTypePtr type = make_nullable(std::make_shared<DataTypeJsonb>());
+    ColumnPtr column = type->create_column();
+    for (int batch = 0; batch < 2; ++batch) {
+        JniDataBridge::TableMetaAddress address(address_of(meta.data()));
+        const auto status = JniDataBridge::fill_column(address, column, type, null_map.size());
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+    EXPECT_EQ(nullable.get_null_map_data(), NullMap({0, 1, 0, 0, 0, 0, 1, 0, 0, 0}));
+    const auto& values = assert_cast<const ColumnString&>(nullable.get_nested_column());
+    const std::array<std::string, 5> expected {R"({"a":1})", "", "null", "[]", R"("text")"};
+    for (size_t i = 0; i < values.size(); ++i) {
+        auto value = values.get_data_at(i);
+        if (i % 5 == 1) {
+            EXPECT_EQ(value.size, 0);
+        } else {
+            EXPECT_EQ(JsonbToJson::jsonb_to_json_string(value.data, value.size), expected[i % 5]);
+        }
+    }
+}
+
+TEST(JniDataBridgeTest, FillJsonRejectsMalformedText) {
+    std::array<bool, 1> null_map {false};
+    std::array<int, 1> offsets {1};
+    std::string text = "{";
+    std::array<long, 3> meta {address_of(null_map.data()), address_of(offsets.data()),
+                              address_of(text.data())};
+    JniDataBridge::TableMetaAddress address(address_of(meta.data()));
+    DataTypePtr type = std::make_shared<DataTypeJsonb>();
+    ColumnPtr column = type->create_column();
+    const auto status = JniDataBridge::fill_column(address, column, type, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("parse"), std::string::npos) << status;
+}
+
+TEST(JniDataBridgeTest, FillEmptyJsonBatchConsumesItsMetadata) {
+    bool null_map = false;
+    std::array<long, 4> meta {address_of(&null_map), 0, 0, 42};
+    JniDataBridge::TableMetaAddress address(address_of(meta.data()));
+    DataTypePtr type = std::make_shared<DataTypeJsonb>();
+    ColumnPtr column = type->create_column();
+    const auto status = JniDataBridge::fill_column(address, column, type, 0);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(column->size(), 0);
+    EXPECT_EQ(address.next_meta_as_long(), 42);
 }
 
 } // namespace

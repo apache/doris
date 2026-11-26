@@ -38,6 +38,146 @@ TEST(TimeStampTzValueTest, make_time) {
     EXPECT_EQ(tz.to_date_int_val(), MIN_DATETIME_V2);
 }
 
+TEST(TimeStampTzValueTest, AddLocalCalendarDays) {
+    TimezoneUtils::load_offsets_to_cache();
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    struct TestCase {
+        const char* input;
+        const char* expected;
+        int days;
+        int elapsed_seconds;
+    };
+    const TestCase cases[] = {
+            {.input = "2024-03-09 12:00:00.123456-05:00",
+             .expected = "2024-03-10 12:00:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 82800},
+            {.input = "2024-11-02 12:00:00.123456-04:00",
+             .expected = "2024-11-03 12:00:00.123456-05:00",
+             .days = 1,
+             .elapsed_seconds = 90000},
+            {.input = "2024-03-10 12:00:00.123456-04:00",
+             .expected = "2024-03-09 12:00:00.123456-05:00",
+             .days = -1,
+             .elapsed_seconds = -82800},
+            {.input = "2024-11-03 12:00:00.123456-05:00",
+             .expected = "2024-11-02 12:00:00.123456-04:00",
+             .days = -1,
+             .elapsed_seconds = -90000},
+            {.input = "2024-02-01 12:00:00.123456-05:00",
+             .expected = "2024-02-02 12:00:00.123456-05:00",
+             .days = 1,
+             .elapsed_seconds = 86400},
+            {.input = "2024-11-03 01:30:00.123456-05:00",
+             .expected = "2024-11-03 01:30:00.123456-05:00",
+             .days = 0,
+             .elapsed_seconds = 0},
+            {.input = "2024-11-02 01:30:00.123456-04:00",
+             .expected = "2024-11-03 01:30:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 86400},
+            {.input = "2024-11-04 01:30:00.123456-05:00",
+             .expected = "2024-11-03 01:30:00.123456-05:00",
+             .days = -1,
+             .elapsed_seconds = -86400},
+            // Shift by the gap length and preserve the fractional second in both directions.
+            {.input = "2024-03-09 02:30:00.123456-05:00",
+             .expected = "2024-03-10 03:30:00.123456-04:00",
+             .days = 1,
+             .elapsed_seconds = 86400},
+            {.input = "2024-03-11 02:30:00.123456-04:00",
+             .expected = "2024-03-10 03:30:00.123456-04:00",
+             .days = -1,
+             .elapsed_seconds = -82800},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.input);
+        CastParameters params;
+        TimestampTzValue input;
+        ASSERT_TRUE(input.from_string(StringRef(test.input), &new_york, params, 6));
+        auto result = input;
+        ASSERT_TRUE(result.date_add_days(test.days, new_york));
+        EXPECT_EQ(result.to_string(new_york, 6), test.expected);
+        EXPECT_EQ(result.datetime_diff_in_seconds(input), test.elapsed_seconds);
+    }
+
+    auto utc = make_timestamptz(2024, 3, 9, 12, 0, 0, 123456);
+    ASSERT_TRUE(utc.date_add_days(1, cctz::utc_time_zone()));
+    EXPECT_EQ(utc, make_timestamptz(2024, 3, 10, 12, 0, 0, 123456));
+    auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 0);
+    EXPECT_FALSE(minimum.date_add_days(-1, cctz::utc_time_zone()));
+    auto maximum = make_timestamptz(9999, 12, 31, 12, 0, 0, 0);
+    EXPECT_FALSE(maximum.date_add_days(1, cctz::utc_time_zone()));
+    // The local result is valid but its UTC representation would overflow year 9999.
+    maximum = make_timestamptz(9999, 12, 31, 1, 0, 0, 0);
+    EXPECT_FALSE(maximum.date_add_days(1, cctz::fixed_time_zone(std::chrono::hours(-8))));
+}
+
+TEST(TimeStampTzValueTest, AddLocalCalendarDaysAtUtcBoundaries) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto east = cctz::fixed_time_zone(std::chrono::hours(8));
+    const auto west = cctz::fixed_time_zone(std::chrono::hours(-8));
+    const auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 123456);
+    const auto maximum = make_timestamptz(9999, 12, 31, 23, 0, 0, 123456);
+    auto result = minimum;
+    ASSERT_TRUE(result.date_add_days(0, new_york));
+    EXPECT_EQ(result, minimum);
+    result = maximum;
+    ASSERT_TRUE(result.date_add_days(0, east));
+    EXPECT_EQ(result, maximum);
+
+    // Both conversions pass through local February 29, year 0, and finish in valid UTC.
+    result = make_timestamptz(0, 2, 28, 20, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(-1, east));
+    EXPECT_EQ(result, make_timestamptz(0, 2, 27, 20, 0, 0, 123456));
+    result = make_timestamptz(0, 3, 1, 1, 0, 0, 123456);
+    ASSERT_TRUE(result.date_add_days(1, west));
+    EXPECT_EQ(result, make_timestamptz(0, 3, 2, 1, 0, 0, 123456));
+}
+
+TEST(TimeStampTzValueTest, ConvertUtcToLocalReturnsOffset) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const struct {
+        cctz::time_zone zone;
+        DateV2Value<DateTimeV2ValueType> local;
+        int utc_hour;
+        int offset;
+    } cases[] = {
+            {.zone = cctz::utc_time_zone(),
+             .local = make_datetime(2024, 11, 3, 5, 30, 0, 123456),
+             .utc_hour = 5,
+             .offset = 0},
+            {.zone = cctz::fixed_time_zone(std::chrono::seconds(8 * 3600 + 5 * 60 + 43)),
+             .local = make_datetime(2024, 11, 3, 13, 35, 43, 123456),
+             .utc_hour = 5,
+             .offset = 8 * 3600 + 5 * 60 + 43},
+            // Both instants are local 01:30, but have different offsets during the repeated hour.
+            {.zone = new_york,
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .utc_hour = 5,
+             .offset = -4 * 3600},
+            {.zone = new_york,
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .utc_hour = 6,
+             .offset = -5 * 3600},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(testing::Message() << test.zone.name() << ", utc_hour=" << test.utc_hour);
+        const auto input = make_timestamptz(2024, 11, 3, test.utc_hour, 30, 0, 123456);
+        DateV2Value<DateTimeV2ValueType> local;
+        const int offset = input.convert_utc_to_local(test.zone, local);
+        EXPECT_EQ(offset, test.offset);
+        EXPECT_EQ(local, test.local);
+
+        TimestampTzValue round_trip;
+        round_trip.convert_local_to_utc(test.zone, local, offset);
+        EXPECT_EQ(round_trip, input);
+    }
+}
+
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();
@@ -266,6 +406,74 @@ TEST(TimeStampTzValueTest, from_datetime) {
         DateV2Value<DateTimeV2ValueType> dtv = make_datetime(2038, 1, 19, 3, 14, 7, 0);
         EXPECT_TRUE(tz.from_datetime(dtv, time_zone, 6, 6));
         EXPECT_EQ(tz, make_timestamptz(2038, 1, 18, 19, 14, 7, 0)) << tz._utc_dt.to_string();
+    }
+}
+
+static void check_timestamptz_parsers(const std::string& input, const cctz::time_zone& zone,
+                                      const TimestampTzValue& expected) {
+    TimestampTzValue parsed;
+    CastParameters params;
+    params.is_strict = true;
+    ASSERT_TRUE(CastToTimestampTz::from_string_strict_mode<DatelikeParseMode::STRICT>(
+            StringRef(input), parsed, params, &zone, 6))
+            << params.status.to_string();
+    EXPECT_EQ(parsed, expected);
+    // Call the fallback directly so the strict parser cannot hide a fallback error.
+    params.is_strict = false;
+    ASSERT_TRUE(CastToTimestampTz::from_string_non_strict_mode_impl(StringRef(input), parsed,
+                                                                    params, &zone, 6))
+            << params.status.to_string();
+    EXPECT_EQ(parsed, expected);
+}
+
+TEST(TimeStampTzValueTest, DstGapPreservesPosition) {
+    // Load named zones as BE startup does.
+    TimezoneUtils::load_timezones_to_cache();
+    struct TestCase {
+        const char* zone;
+        DateV2Value<DateTimeV2ValueType> local;
+        TimestampTzValue expected;
+    };
+    const TestCase cases[] = {
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 1, 59, 59, 999999),
+             .expected = make_timestamptz(2024, 3, 10, 6, 59, 59, 999999)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 0, 0, 0),
+             .expected = make_timestamptz(2024, 3, 10, 7, 0, 0, 0)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 30, 0, 123456),
+             .expected = make_timestamptz(2024, 3, 10, 7, 30, 0, 123456)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 59, 59, 999999),
+             .expected = make_timestamptz(2024, 3, 10, 7, 59, 59, 999999)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 3, 0, 0, 0),
+             .expected = make_timestamptz(2024, 3, 10, 7, 0, 0, 0)},
+            // Lord Howe has a 30-minute gap: 02:15 becomes 02:45.
+            {.zone = "Australia/Lord_Howe",
+             .local = make_datetime(2024, 10, 6, 2, 15, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .expected = make_timestamptz(2024, 11, 3, 5, 30, 0, 123456)},
+    };
+    const auto utc = cctz::utc_time_zone();
+    for (const auto& test_case : cases) {
+        cctz::time_zone zone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(test_case.zone, zone));
+        const auto input = test_case.local.to_string(6);
+        SCOPED_TRACE(testing::Message() << input << " " << test_case.zone);
+        TimestampTzValue converted;
+        ASSERT_TRUE(converted.from_datetime(test_case.local, zone, 6, 6));
+        EXPECT_EQ(converted, test_case.expected);
+        converted.convert_local_to_utc(zone, test_case.local);
+        EXPECT_EQ(converted, test_case.expected);
+        // The preferred offset selects an overlap occurrence. It must not clamp a gap.
+        converted.convert_local_to_utc(zone, test_case.local, test_case.expected.utc_offset(zone));
+        EXPECT_EQ(converted, test_case.expected);
+        check_timestamptz_parsers(input, zone, test_case.expected);
+        check_timestamptz_parsers(input + " " + test_case.zone, utc, test_case.expected);
     }
 }
 

@@ -54,7 +54,14 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         String uri = storageAdapter.validateAndGetUri(props);
         filePath = storageAdapter.validateAndNormalizeUri(uri);
         this.backendConnectProperties.put(URI_KEY, filePath);
-        if (!FeConstants.runningUnitTest) {
+        if (isPluginFormat()) {
+            // The data set at the uri is read as a whole; a streaming job's list of files has no meaning for it.
+            if (files != null) {
+                throw new AnalysisException("Format " + fileFormatProperties.getFormatName()
+                        + " reads the data set at the uri as a whole, not a list of files");
+            }
+            readPluginFormat();
+        } else if (!FeConstants.runningUnitTest) {
             parseFile(files);
         } else if (files != null) {
             this.fileStatuses.addAll(files);

@@ -115,6 +115,12 @@ public:
         return directory_.entries();
     }
 
+    // The directory entry of (index_id, suffix), owned by this reader; nullptr when it has none.
+    const format::LogicalIndexMetadataRef* find_logical_index(uint64_t index_id,
+                                                              std::string_view suffix) const {
+        return directory_.find(index_id, suffix);
+    }
+
     Status index_exists(uint64_t index_id, std::string_view suffix, bool* const exists) const;
 
     // Loads the adjacent Core/STI/DBD group for (index_id, suffix) and builds a
@@ -152,9 +158,9 @@ public:
     io::FileReader* reader() const { return reader_; }
 
     // Exclusive upper bound of the container's data area: physical sections,
-    // metadata groups and blob files all live strictly before it. Pass this to
-    // SniiBlobDirectory::open so the shim bounds blob files against the same
-    // limit open() validated them with, not against the whole file size.
+    // metadata groups and blob files all live strictly before it. open() bounds
+    // every blob file by it, so a reader of blob files bounds them against this
+    // same limit, not against the whole file size.
     uint64_t directory_offset() const { return directory_offset_; }
 
 private:

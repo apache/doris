@@ -27,8 +27,11 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.split.SplitWeight;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -177,6 +180,31 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
+        ComputeGroup computeGroup = queryComputeGroup();
+        init(computeGroup, preLocations.isEmpty() ? getQueryAvailableBackends(computeGroup)
+                : queryBackendPolicy(preLocations).getCandidateBackends(computeGroup.getBackendList()));
+    }
+
+    public static List<Backend> getQueryAvailableBackends() throws UserException {
+        return getQueryAvailableBackends(queryComputeGroup());
+    }
+
+    private static List<Backend> getQueryAvailableBackends(ComputeGroup computeGroup) {
+        ConnectContext context = ConnectContext.get();
+        StatementContext statement = context == null ? null : context.getStatementContext();
+        ConnectorStatementScope scope = statement == null ? ConnectorStatementScope.NONE
+                : statement.getOrCreateConnectorStatementScope();
+        // The untagged root/admin group has no addressable ID, but is one stable selection domain.
+        String groupId = computeGroup instanceof AllBackendComputeGroup
+                ? AllBackendComputeGroup.class.getSimpleName() : computeGroup.getId();
+        String key = "engine:external-scan-backends:" + computeGroup.getClass().getName() + ":" + groupId;
+        // Selection can randomly fill a compute-node deficit with mixed nodes. Admission and every default
+        // scan must reuse that result within the statement, while capability checks continue to read live state.
+        return scope.computeIfAbsentForPlanning(key, () -> List.copyOf(queryBackendPolicy(Collections.emptyList())
+                .getCandidateBackends(computeGroup.getBackendList())));
+    }
+
+    private static BeSelectionPolicy queryBackendPolicy(List<String> preLocations) {
         // scan node is used for query
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder();
         builder.needQueryAvailable()
@@ -184,25 +212,16 @@ public class FederationBackendPolicy {
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations);
-        init(builder.build());
+        return builder.build();
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            if (Config.isCloudMode()) {
-                throw new AnalysisException("ConnectContext is null");
-            } else {
-                ctx = new ConnectContext();
-            }
+        ComputeGroup computeGroup = queryComputeGroup();
+        init(computeGroup, policy.getCandidateBackends(computeGroup.getBackendList()));
+    }
 
-        }
-        ComputeGroup computeGroup = ctx.getComputeGroup();
-        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
-            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-        }
-
-        backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
+    private void init(ComputeGroup computeGroup, List<Backend> candidates) throws UserException {
+        backends.addAll(candidates);
         if (backends.isEmpty()) {
             if (Config.isCloudMode()) {
                 throw new UserException("No available backends, "
@@ -224,6 +243,24 @@ public class FederationBackendPolicy {
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
+    }
+
+    private static ComputeGroup queryComputeGroup() throws UserException {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("ConnectContext is null");
+            } else {
+                ctx = new ConnectContext();
+            }
+
+        }
+        ComputeGroup computeGroup = ctx.getComputeGroup();
+        if (Config.isNotCloudMode() && computeGroup.equals(ComputeGroup.INVALID_COMPUTE_GROUP)) {
+            throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
+        }
+
+        return computeGroup;
     }
 
     public Backend getNextBe() {
@@ -267,6 +304,25 @@ public class FederationBackendPolicy {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
         Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
+        if (backends.size() == 1 && splits.stream().allMatch(Split::isRemotelyAccessible)) {
+            // Every remotely readable split has the same owner. Avoid per-split hashing,
+            // candidate allocation and weight-map updates under the batch assignment lock.
+            // Local-only splits still need the locality checks in the general path below.
+            Backend backend = backends.get(0);
+            boolean alternativesUsed = !isSpreadEnabled();
+            long weight = 0;
+            for (Split split : splits) {
+                weight = Math.addExact(weight, split.getSplitWeight().getRawValue());
+                if (alternativesUsed) {
+                    split.setAlternativeHosts(Collections.emptyList());
+                }
+            }
+            assignment.putAll(backend, splits);
+            if (!splits.isEmpty()) {
+                addAssignedWeight(backend, weight);
+            }
+            return assignment;
+        }
         List<Split> remainingSplits;
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 

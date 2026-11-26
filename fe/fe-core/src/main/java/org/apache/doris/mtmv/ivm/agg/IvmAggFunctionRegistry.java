@@ -77,9 +77,10 @@ public class IvmAggFunctionRegistry {
      * Builds target metadata for one original aggregate function and its optional hidden state columns.
      */
     public IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
-            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
-        return findProcessor(function).buildTargetSpec(
-                ordinal, function, visibleAlias, aggColumnPool, hiddenAggOutputs);
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs,
+            List<NamedExpression> internalAggOutputs, long minMaxTopK) {
+        return findProcessor(function).buildTargetSpec(ordinal, function, visibleAlias, aggColumnPool,
+                hiddenAggOutputs, internalAggOutputs, minMaxTopK);
     }
 
     /**

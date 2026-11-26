@@ -26,12 +26,12 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_buffer.hpp"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/csv/csv_reader.h"
 #include "io/fs/file_writer.h"
 #include "util/faststring.h"
 
@@ -83,6 +83,12 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VCSVTransformer::open() {
+    for (const auto& context : _output_vexpr_ctxs) {
+        if (contains_file_type(context->root()->data_type())) {
+            return Status::NotSupported("CSV output does not support FILE");
+        }
+    }
+
     RETURN_IF_ERROR(get_block_compression_codec(_compress_type, &_compress_codec));
     if (_with_bom) {
         Slice bom_slice(reinterpret_cast<const char*>(bom), sizeof(bom));

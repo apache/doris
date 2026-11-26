@@ -367,9 +367,12 @@ public:
 
     const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 
-    void set_escaped_escaped_index_suffix_path(const std::string& name);
+    void set_escaped_escaped_index_suffix_path(const std::string& name,
+                                               bool escape_percent = false);
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
+
+    bool is_variant_values_index() const;
 
     bool is_ann_index() const { return _index_type == IndexType::ANN; }
 
@@ -434,6 +437,8 @@ public:
     }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
+
+    bool variant_escape_dots_in_keys() const { return _variant_escape_dots_in_keys; }
     void append_index(TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
@@ -528,6 +533,10 @@ public:
     }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
+    bool has_ttl_col() const { return _ttl_col_idx != -1; }
+    int32_t ttl_col_idx() const { return _ttl_col_idx; }
+    int64_t row_ttl_duration_us() const { return _row_ttl_duration_us; }
+    int32_t row_ttl_time_zone_offset_seconds() const { return _row_ttl_time_zone_offset_seconds; }
     int32_t changelog_tso_col_idx() const { return _changelog_tso_col_idx; }
     int32_t changelog_lsn_col_idx() const { return _changelog_lsn_col_idx; }
     int32_t changelog_op_col_idx() const { return _changelog_op_col_idx; }
@@ -803,6 +812,9 @@ private:
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
     int32_t _row_lsn_col_idx = -1;
+    int32_t _ttl_col_idx = -1;
+    int64_t _row_ttl_duration_us = -1;
+    int32_t _row_ttl_time_zone_offset_seconds {0};
     int32_t _changelog_tso_col_idx = -1;
     int32_t _changelog_lsn_col_idx = -1;
     int32_t _changelog_op_col_idx = -1;
@@ -817,6 +829,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_escape_dots_in_keys = false;
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;

@@ -145,6 +145,13 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataColumn>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_FILE:
+        if constexpr (Data<SingleValueDataColumn>::IS_ANY) {
+            return creator_without_type::create_unary_arguments<
+                    AggregateFunctionsSingleValue<Data<SingleValueDataColumn>>>(
+                    argument_types, result_is_nullable, attr);
+        }
+        return nullptr;
     case PrimitiveType::TYPE_VARBINARY:
         // Owning binary values for IO must not implicitly enable single-value aggregates.
         throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY aggregate {} is not supported",

@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -52,7 +54,16 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -90,6 +101,285 @@ public class HiveScanBatchModeTest {
     private static final String LZO_TEXT_INPUT_FORMAT = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
     private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+
+    @Test
+    public void statementReuseSeparatesScanLocalCoarseSizes() {
+        HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/large.parquet", 35, 1)));
+        ConnectorSession session = new ScopeSession(7L, "coarse-size", new TestStatementScope(),
+                Map.of("enable_external_scan_task_reuse", "true", "file_split_size", "8"));
+        HiveTableHandle handle = parquetHandle(Collections.emptyList());
+        ConnectorScanRequest smaller = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .coarseSplitSize(16).build();
+        List<ConnectorScanRange> first = provider.planScan(session, smaller);
+        List<ConnectorScanRange> second = provider.planScan(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).coarseSplitSize(32).build());
+        Assertions.assertEquals(3, first.size());
+        Assertions.assertEquals(2, second.size());
+        Assertions.assertSame(first, provider.planScan(session, smaller));
+    }
+
+    @Test
+    public void coarseSizesReachSynchronousBatchAndStreamingPlans() throws Exception {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/large.parquet", 35, 1)));
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "8"));
+        String partition = "year=2024/month=01";
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                .prunedPartitions(Collections.singletonList(part(partition))).build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .requiredPartitions(Collections.singletonList(partition)).coarseSplitSize(16).build();
+        List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+        List<ConnectorScanRange> batch = provider.planScanForPartitionBatch(session, request,
+                Collections.singletonList(partition));
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        List<ConnectorScanRange> cooperative = new ArrayList<>();
+        for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+            try (ConnectorSplitSource current = source) {
+                while (current.hasNext()) {
+                    cooperative.add(current.next());
+                }
+            }
+        }
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, batch, streaming, cooperative)) {
+            Assertions.assertEquals(3, ranges.size());
+            Assertions.assertEquals(16, ranges.get(0).getLength());
+            Assertions.assertEquals(16, ranges.get(1).getStart());
+            Assertions.assertEquals(3, ranges.get(2).getLength());
+            Assertions.assertTrue(ranges.get(0).supportsBeSplitRefinement());
+        }
+        Assertions.assertEquals(8, HiveScanPlanProvider.selectFeSplitSize(8, HiveFileFormat.TEXT, 16));
+        Assertions.assertEquals(16, HiveScanPlanProvider.selectFeSplitSize(8, HiveFileFormat.ORC, 16));
+    }
+
+    @Test
+    public void completedMetadataDependencyMustNotLookLikeEndOfInput() throws Exception {
+        Queue<Runnable> metadata = new ArrayDeque<>();
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable onSpace) {
+                metadata.add(task);
+                return true;
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable callback) {
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                metadata.add(task);
+            }
+        };
+        FakeHmsClient hms = new FakeHmsClient();
+        CountingLister lister = new CountingLister();
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < 17; i++) {
+            names.add("year=2024/month=" + i);
+        }
+        ConnectorSplitSource source = provider(hms, lister).streamPartitionSources(
+                new FakeSession(Collections.emptyMap(), scheduler),
+                ConnectorScanRequest.builder(parquetHandle(PART_KEYS), Collections.emptyList())
+                        .requiredPartitions(names).build(), 16, 1).orElseThrow().get(0);
+        try {
+            Assertions.assertFalse(source.isBlocked().isDone());
+            metadata.remove().run();
+            Set<String> paths = new HashSet<>();
+            for (int i = 0; i < 16; i++) {
+                Assertions.assertTrue(source.hasNext());
+                Assertions.assertTrue(paths.add(source.next().getPath().orElseThrow()));
+            }
+            // Only a read observes directory EOF; readiness must not advance a lazy file cursor.
+            Assertions.assertFalse(source.hasNext());
+            CompletableFuture<Void> pending = source.isBlocked();
+            Assertions.assertNotNull(pending);
+            Assertions.assertFalse(pending.isDone());
+
+            // Complete after the empty read, before the caller checks whether it means EOF.
+            metadata.remove().run();
+            Assertions.assertTrue(pending.isDone());
+            Assertions.assertSame(pending, source.isBlocked(), "retain readiness until the next read attempt");
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertTrue(paths.add(source.next().getPath().orElseThrow()));
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertNull(source.isBlocked());
+            Assertions.assertEquals(17, paths.size());
+            Assertions.assertEquals(17, lister.totalCalls);
+        } finally {
+            source.close();
+        }
+    }
+
+    @Test
+    public void parallelSourcesKeepCapturedPartitionViewAfterSharedCacheChanges() throws Exception {
+        FakeHmsClient hms = new FakeHmsClient() {
+            @Override
+            public Optional<HmsPartitionBatchResult> getCachedPartitionsWithStats(
+                    String db, String table, List<String> names) {
+                throw new AssertionError("captured partition view must take precedence over newer cache data");
+            }
+        };
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        List<HmsPartitionInfo> captured = Arrays.asList(
+                new HmsPartitionInfo(Arrays.asList("2024", "01"), names.get(0),
+                        null, null, null, Collections.emptyMap()),
+                new HmsPartitionInfo(Arrays.asList("2024", "02"), names.get(1),
+                        null, null, null, Collections.emptyMap()));
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(captured)
+                .prunedPartitionsByName(Map.of(names.get(0), captured.get(0), names.get(1), captured.get(1))).build();
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(hms, lister);
+        List<ConnectorSplitSource> sources = provider.streamPartitionSources(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).requiredPartitions(names).build(),
+                1, 2).get();
+        int count = 0;
+        for (ConnectorSplitSource source : sources) {
+            try {
+                while (source.hasNext()) {
+                    source.next();
+                    count++;
+                }
+            } finally {
+                source.close();
+            }
+        }
+        Assertions.assertEquals(2, count);
+        Assertions.assertEquals(new HashSet<>(names), lister.callsPerLocation.keySet());
+        Assertions.assertTrue(hms.requestedPartitionNames.isEmpty());
+    }
+
+    @Test
+    public void metadataProducerContinuesWhileThreeDirectoryReadersRun() throws Exception {
+        ExecutorService metadata = Executors.newSingleThreadExecutor();
+        ExecutorService directories = Executors.newFixedThreadPool(3);
+        CountDownLatch secondBatch = new CountDownLatch(1);
+        AtomicInteger rpc = new AtomicInteger();
+        FakeHmsClient hms = new FakeHmsClient() {
+            @Override
+            public List<HmsPartitionInfo> getPartitions(String db, String table, List<String> names) {
+                if (rpc.incrementAndGet() == 2) {
+                    secondBatch.countDown();
+                }
+                return super.getPartitions(db, table, names);
+            }
+        };
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable onSpace) {
+                metadata.execute(task);
+                return true;
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable callback) {
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                metadata.execute(task);
+            }
+        };
+        Set<String> paths = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        HiveScanPlanProvider provider = provider(hms, (location, fs) -> {
+            try {
+                Assertions.assertTrue(secondBatch.await(5, TimeUnit.SECONDS),
+                        "parent must fetch the next batch while the first child is listing");
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            return Collections.singletonList(new HiveFileStatus(location + "/data", 10, 1));
+        });
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            names.add("year=2024/month=" + i);
+        }
+        List<ConnectorSplitSource> sources = provider.streamPartitionSources(
+                new FakeSession(Collections.emptyMap(), scheduler),
+                ConnectorScanRequest.builder(parquetHandle(PART_KEYS), Collections.emptyList())
+                        .requiredPartitions(names).build(), 16, 3).get();
+        try {
+            List<Future<?>> readers = new ArrayList<>();
+            for (ConnectorSplitSource source : sources) {
+                readers.add(directories.submit(() -> {
+                    try {
+                        while (true) {
+                            java.util.concurrent.CompletableFuture<Void> blocked = source.isBlocked();
+                            if (blocked != null) {
+                                blocked.get(5, TimeUnit.SECONDS);
+                            }
+                            if (!source.hasNext()) {
+                                if (source.isBlocked() != null) {
+                                    continue;
+                                }
+                                break;
+                            }
+                            Assertions.assertTrue(paths.add(source.next().getPath().get()));
+                        }
+                        source.close();
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                }));
+            }
+            for (Future<?> reader : readers) {
+                reader.get(10, TimeUnit.SECONDS);
+            }
+            Assertions.assertEquals(1000, paths.size());
+            Assertions.assertEquals(2, rpc.get());
+        } finally {
+            for (ConnectorSplitSource source : sources) {
+                source.close();
+            }
+            directories.shutdownNow();
+            metadata.shutdownNow();
+        }
+    }
+
+    @Test
+    public void parallelDirectorySourcesShareLargeHmsBatchesAndPreserveAllSplits() throws Exception {
+        FakeHmsClient hms = new FakeHmsClient();
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(hms, lister);
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            names.add("year=2024/month=" + i);
+        }
+        List<ConnectorSplitSource> sources = provider.streamPartitionSources(new FakeSession(),
+                ConnectorScanRequest.builder(parquetHandle(PART_KEYS), Collections.emptyList())
+                        .requiredPartitions(names).build(), 16, 3).get();
+        Assertions.assertTrue(hms.requestedPartitionNames.isEmpty(), "planning must not perform HMS I/O");
+        Set<String> paths = new HashSet<>();
+        try {
+            boolean more;
+            do {
+                more = false;
+                for (ConnectorSplitSource source : sources) {
+                    java.util.concurrent.CompletableFuture<Void> blocked = source.isBlocked();
+                    if (blocked != null) {
+                        blocked.get(5, TimeUnit.SECONDS);
+                    }
+                    if (source.hasNext()) {
+                        more = true;
+                        Assertions.assertTrue(paths.add(source.next().getPath().get()));
+                    }
+                }
+            } while (more);
+        } finally {
+            for (ConnectorSplitSource source : sources) {
+                source.close();
+            }
+        }
+        Assertions.assertEquals(1000, paths.size());
+        Assertions.assertEquals(1000, lister.totalCalls);
+        Assertions.assertEquals(2, hms.requestedPartitionNames.size());
+        Assertions.assertEquals(16, hms.requestedPartitionNames.get(0).size());
+        Assertions.assertEquals(984, hms.requestedPartitionNames.get(1).size());
+    }
 
     @Test
     public void millionFilesOnlyCreateTheConsumedSplitPrefix() throws Exception {
@@ -216,7 +506,7 @@ public class HiveScanBatchModeTest {
         });
         HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder().prunedPartitions(Arrays.asList(
                 part("year=2024/month=01"), part("year=2024/month=02"))).build();
-        FakeSession session = new FakeSession(Collections.singletonMap("num_partitions_in_batch_mode", "1"),
+        FakeSession session = new FakeSession(Collections.singletonMap("split_partition_batch_size", "1"),
                 scheduler);
         try (ConnectorSplitSource source = provider.streamSplits(session,
                 ConnectorScanRequest.builder(handle, Collections.emptyList()).build())) {
@@ -260,6 +550,223 @@ public class HiveScanBatchModeTest {
         }
         Assertions.assertEquals(1, lister.totalCalls);
         Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void streamingRequiredSubsetReusesCapturedPartitionMetadata() throws Exception {
+        CountingLister lister = new CountingLister();
+        // No HMS client: a request covered by the captured map must not perform a second RPC.
+        HiveScanPlanProvider provider = provider(null, lister);
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                .prunedPartitions(Arrays.asList(part("year=2024/month=01"), part("year=2024/month=02")))
+                .prunedPartitionsByName(Map.of(
+                        "year=2024/month=01", part("year=2024/month=01"),
+                        "year=2024/month=02", part("year=2024/month=02")))
+                .build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .requiredPartitions(Collections.singletonList("year=2024/month=02")).build();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), request)) {
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertEquals("year=2024/month=02/000000_0", source.next().getPath().get());
+            Assertions.assertFalse(source.hasNext());
+        }
+        Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void streamingCachedPartitionsDoNotSubmitMetadataTasks() throws Exception {
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable onSpace) {
+                Assertions.fail("A fully cached batch must not enter the metadata executor");
+                return false;
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                Assertions.fail("A fully cached batch must not enter the metadata executor");
+            }
+        };
+        FakeHmsClient hms = new FakeHmsClient() {
+            @Override
+            public Optional<HmsPartitionBatchResult> getCachedPartitionsWithStats(
+                    String dbName, String tableName, List<String> names) {
+                return Optional.of(new HmsPartitionBatchResult(Collections.singletonList(part("cached")),
+                        HmsPartitionBatchStats.builder().requestedItems(1).build()));
+            }
+
+            @Override
+            public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> names) {
+                Assertions.fail("A fully cached batch must not fetch partition objects");
+                return Collections.emptyList();
+            }
+        };
+        HiveScanPlanProvider provider = provider(hms, new CountingLister());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(parquetHandle(PART_KEYS),
+                Collections.emptyList()).requiredPartitions(Collections.singletonList("year=2024/month=01")).build();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(Collections.emptyMap(), scheduler),
+                request)) {
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertEquals("cached/000000_0", source.next().getPath().get());
+            Assertions.assertFalse(source.hasNext());
+        }
+    }
+
+    @Test
+    public void streamingReloadsWholeBatchWhenCapturedMapIsIncomplete() throws Exception {
+        List<List<String>> requested = new ArrayList<>();
+        FakeHmsClient hmsClient = new FakeHmsClient() {
+            @Override
+            public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> names) {
+                requested.add(new ArrayList<>(names));
+                return super.getPartitions(dbName, tableName, names);
+            }
+        };
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(hmsClient, lister);
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .prunedPartitionsByName(Collections.singletonMap(
+                        "year=2024/month=01", part("year=2024/month=01")))
+                .build();
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .requiredPartitions(names).build();
+        int count = 0;
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), request)) {
+            while (source.hasNext()) {
+                source.next();
+                count++;
+            }
+        }
+        Assertions.assertEquals(2, count);
+        Assertions.assertEquals(Collections.singletonList(names), requested,
+                "reload the complete batch rather than mix captured and newly loaded generations");
+        Assertions.assertEquals(2, lister.totalCalls);
+    }
+
+    @Test
+    public void emptyPartitionBatchDoesNotBecomeAnUnfilteredStreamingRequest() {
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(null, lister);
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01"))).build();
+        Assertions.assertTrue(provider.planScanForPartitionBatch(new FakeSession(), scanOf(handle),
+                Collections.emptyList()).isEmpty());
+    }
+
+    @Test
+    public void unprunedStreamingPassesCancellationToPartitionNameListing() throws Exception {
+        ConnectorScanContext context = new ConnectorScanContext();
+        HmsClient client = new FakeHmsClient() {
+            @Override
+            public List<String> listPartitionNames(String db, String table, int maxParts) {
+                throw new AssertionError("Whole-scan streaming must carry its scan context");
+            }
+
+            @Override
+            public List<String> listPartitionNames(String db, String table, int maxParts,
+                    ConnectorScanContext actual) {
+                Assertions.assertSame(context, actual);
+                actual.cancel();
+                actual.checkCancelled();
+                throw new AssertionError("The names lookup was cancelled");
+            }
+        };
+        CountingLister lister = new CountingLister();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(parquetHandle(PART_KEYS),
+                Collections.emptyList()).scanContext(context).build();
+        try (ConnectorSplitSource source = provider(client, lister).streamSplits(new FakeSession(), request)) {
+            Assertions.assertThrows(CancellationException.class, source::hasNext);
+        }
+        Assertions.assertEquals(0, lister.totalCalls);
+    }
+
+    @Test
+    public void streamingPassesCancellationToPartitionMetadataLookup() throws Exception {
+        ConnectorScanContext context = new ConnectorScanContext();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        HmsClient client = new FakeHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(String db, String table,
+                    List<String> names) {
+                throw new AssertionError("Streaming metadata must carry its scan context");
+            }
+
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(String db, String table,
+                    List<String> names, ConnectorScanContext actual) {
+                Assertions.assertSame(context, actual);
+                entered.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                actual.checkCancelled();
+                throw new AssertionError("The metadata lookup was cancelled");
+            }
+        };
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(client, lister);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(parquetHandle(PART_KEYS),
+                Collections.emptyList()).requiredPartitions(Collections.singletonList("year=2024/month=02"))
+                .scanContext(context).build();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(), request)) {
+            Future<Boolean> pending = worker.submit(source::hasNext);
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            context.cancel();
+            release.countDown();
+            ExecutionException error = Assertions.assertThrows(ExecutionException.class,
+                    () -> pending.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, error.getCause());
+            Assertions.assertEquals(0, lister.totalCalls);
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void partitionMetadataBatchSizeDoesNotFollowBatchModeThreshold() throws Exception {
+        List<Integer> requestedBatchSizes = new ArrayList<>();
+        FakeHmsClient hms = new FakeHmsClient() {
+            @Override
+            public HmsPartitionBatchResult getExistingPartitionsWithStats(
+                    String dbName, String tableName, List<String> partitionNames) {
+                requestedBatchSizes.add(partitionNames.size());
+                return super.getExistingPartitionsWithStats(dbName, tableName, partitionNames);
+            }
+        };
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(hms, lister);
+        List<String> names = Arrays.asList("year=2024/month=01", "year=2024/month=02",
+                "year=2024/month=03", "year=2024/month=04", "year=2024/month=05");
+        Map<String, String> settings = new HashMap<>();
+        settings.put("num_partitions_in_batch_mode", "1");
+        settings.put("split_partition_batch_size", "2");
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                parquetHandle(PART_KEYS), Collections.emptyList()).requiredPartitions(names).build();
+
+        int ranges = 0;
+        try (ConnectorSplitSource source = provider.streamSplits(new FakeSession(settings), request)) {
+            while (source.hasNext()) {
+                source.next();
+                ranges++;
+            }
+        }
+
+        Assertions.assertEquals(5, ranges);
+        Assertions.assertEquals(Arrays.asList(2, 2, 1), requestedBatchSizes);
+        Assertions.assertEquals(5, lister.totalCalls);
     }
 
     @Test
@@ -360,7 +867,7 @@ public class HiveScanBatchModeTest {
                     .prunedPartitions(Collections.singletonList(part("year=2023/month=12"))).build();
             Map<String, String> settings = new HashMap<>();
             settings.put("file_split_size", "8");
-            settings.put("num_partitions_in_batch_mode", "1");
+            settings.put("split_partition_batch_size", "1");
             FakeSession session = new FakeSession(settings);
             ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
                     .requiredPartitions(Collections.singletonList("year=2023/month=12")).build();
@@ -438,6 +945,15 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void partitionBatchSizePreservesParallelListingAndBoundsHmsRequests() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        Assertions.assertEquals(16, provider.partitionBatchSize(new FakeSession(), 1000, 64));
+        Assertions.assertEquals(5, provider.partitionBatchSize(new FakeSession(), 9, 2));
+        Assertions.assertEquals(2, provider.partitionBatchSize(
+                new FakeSession(Collections.singletonMap("split_partition_batch_size", "2")), 1000, 64));
+    }
+
+    @Test
     public void supportsBatchScanIsFalseForUnpartitionedTable() {
         HiveScanPlanProvider provider = provider(null, new CountingLister());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
@@ -461,14 +977,51 @@ public class HiveScanBatchModeTest {
                 () -> provider.supportsBatchScan(new FakeSession(), handle));
     }
 
+    @Test
+    public void supportsBatchScanIsTrueForConnectorFilteredTable() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+
+        Assertions.assertTrue(provider.supportsBatchScan(new FakeSession(), handle));
+    }
+
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
+
+    @Test
+    public void planScanForPartitionBatchFallsBackWhenTheRetainedMapCoversFewerNames() {
+        // The retained native map holds what THIS scan's physical predicate admitted, which can be narrower than
+        // the logical selection a batch carries: the connector converter declines CAST(p AS INT) = 1 while the
+        // physical converter strips it to p = '1', so the typed logical prune may select p=1 AND p=01. The batch
+        // must fall back to resolving its names (one consistent generation) instead of rejecting p=01.
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .prunedPartitionsByName(Collections.singletonMap(
+                        "year=2024/month=01", part("year=2024/month=01")))
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList()).build(),
+                Arrays.asList("year=2024/month=01", "year=2024/month=02"));
+
+        Assertions.assertEquals(2, ranges.size(), "both logically selected partitions must be read");
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=01"));
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=02"));
+    }
 
     @Test
     public void planScanForPartitionBatchResolvesOnlyTheBatch() {
         CountingLister lister = new CountingLister();
         // getPartitions echoes each requested name back as a partition whose location IS the name, so the counting
         // lister's keys are the partition names actually resolved for this batch.
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveScanPlanProvider provider = provider(null, lister);
 
         // The handle carries the FULL pruned set (all three partitions). If the batch hook were NOT scoped to the
         // batch (SPI default -> whole-pruned-set planScan), all three would be listed -> 3 ranges.
@@ -480,6 +1033,10 @@ public class HiveScanBatchModeTest {
                         part("year=2023/month=12"),
                         part("year=2024/month=01"),
                         part("year=2024/month=02")))
+                .prunedPartitionsByName(Map.of(
+                        "year=2023/month=12", part("year=2023/month=12"),
+                        "year=2024/month=01", part("year=2024/month=01"),
+                        "year=2024/month=02", part("year=2024/month=02")))
                 .build();
 
         List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
@@ -494,6 +1051,168 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=01"));
         Assertions.assertNull(lister.callsPerLocation.get("year=2023/month=12"));
         Assertions.assertNull(lister.callsPerLocation.get("year=2024/month=02"));
+    }
+
+    @Test
+    public void synchronousScanHonorsRequiredSubsetOnUnfilteredHandle() {
+        String selected = "year=2024/month=01";
+        String excluded = "year=2024/month=02";
+        CountingLister lister = new CountingLister();
+        FakeHmsClient hms = new FakeHmsClient(Arrays.asList(selected, excluded), null);
+        HiveScanPlanProvider provider = provider(hms, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.singletonList(selected)).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(selected + "/000000_0", ((HiveScanRange) ranges.get(0)).getPath().orElse(null));
+        Assertions.assertEquals(0, hms.listPartitionNamesCalls, "typed selection must not enumerate all names");
+        Assertions.assertEquals(Collections.singletonList(Collections.singletonList(selected)),
+                hms.requestedPartitionNames, "fetch metadata only for the required names");
+        Assertions.assertEquals(Collections.singletonMap(selected, 1), lister.callsPerLocation);
+        Assertions.assertEquals(1, lister.totalCalls);
+    }
+
+    @Test
+    public void synchronousScanPrunedToEmptyDoesNotEnumerateOrListFiles() {
+        CountingLister lister = new CountingLister();
+        FakeHmsClient hms = new FakeHmsClient(Collections.singletonList("year=2024/month=01"), null);
+        HiveScanPlanProvider provider = provider(hms, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.emptyList()).partitionsPrunedToEmpty(true).build());
+
+        Assertions.assertTrue(ranges.isEmpty());
+        Assertions.assertEquals(0, hms.listPartitionNamesCalls);
+        Assertions.assertTrue(hms.requestedPartitionNames.isEmpty());
+        Assertions.assertEquals(0, lister.totalCalls);
+    }
+
+    @Test
+    public void synchronousRequiredScanOmitsDroppedPartitionWithoutFullEnumeration() {
+        String selected = "year=2024/month=01";
+        CountingLister lister = new CountingLister();
+        FakeHmsClient hms = new FakeHmsClient(Collections.singletonList(selected), selected);
+        HiveScanPlanProvider provider = provider(hms, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.singletonList(selected)).build());
+
+        Assertions.assertTrue(ranges.isEmpty(), "no returned partition names must produce no file ranges");
+        Assertions.assertEquals(0, hms.listPartitionNamesCalls);
+        // getExistingPartitionsWithStats filters the dropped name before delegating to the fake's getPartitions.
+        Assertions.assertEquals(Collections.singletonList(Collections.emptyList()), hms.requestedPartitionNames);
+        Assertions.assertEquals(0, lister.totalCalls);
+    }
+
+    @Test
+    public void synchronousRequiredSubsetReusesRetainedPartitionMetadata() {
+        String selected = "year=2024/month=01";
+        String excluded = "year=2024/month=02";
+        HmsPartitionInfo retained = part("retained-selected-location");
+        HmsPartitionInfo other = part("retained-excluded-location");
+        CountingLister lister = new CountingLister();
+        // A null HMS client fails immediately if resolution does not reuse the fully covered retained map.
+        HiveScanPlanProvider provider = provider(null, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Arrays.asList(retained, other))
+                .prunedPartitionsByName(Map.of(selected, retained, excluded, other))
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(Collections.singletonList(selected)).build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals("retained-selected-location/000000_0",
+                ((HiveScanRange) ranges.get(0)).getPath().orElse(null));
+        Assertions.assertEquals(Collections.singletonMap("retained-selected-location", 1), lister.callsPerLocation);
+        Assertions.assertEquals(1, lister.totalCalls);
+    }
+
+    @Test
+    public void synchronousRequiredScanReloadsWholeSubsetWhenRetainedMapIsIncomplete() {
+        String firstName = "year=2024/month=01";
+        String secondName = "year=2024/month=02";
+        List<String> required = Arrays.asList(firstName, secondName);
+        HmsPartitionInfo stale = part("stale-retained-location");
+        CountingLister lister = new CountingLister();
+        FakeHmsClient hms = new FakeHmsClient(required, null);
+        HiveScanPlanProvider provider = provider(hms, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(stale))
+                .prunedPartitionsByName(Collections.singletonMap(firstName, stale))
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                        .requiredPartitions(required).build());
+
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertEquals(0, hms.listPartitionNamesCalls);
+        Assertions.assertEquals(Collections.singletonList(required), hms.requestedPartitionNames,
+                "an incomplete retained map must reload all required names, not mix old and fetched metadata");
+        Assertions.assertEquals(Map.of(firstName, 1, secondName, 1), lister.callsPerLocation);
+        Assertions.assertEquals(2, lister.totalCalls);
+    }
+
+    @Test
+    public void synchronousScanReuseDistinguishesRequiredSubsetsOnSameHandle() {
+        String firstName = "year=2024/month=01";
+        String secondName = "year=2024/month=02";
+        CountingLister lister = new CountingLister();
+        FakeHmsClient hms = new FakeHmsClient(Arrays.asList(firstName, secondName), null);
+        HiveScanPlanProvider provider = provider(hms, lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "required-subsets", new TestStatementScope());
+        ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList())
+                .requiredPartitions(Collections.singletonList(firstName)).build();
+        ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList())
+                .requiredPartitions(Collections.singletonList(secondName)).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, firstRequest);
+        List<ConnectorScanRange> second = provider.planScan(session, secondRequest);
+
+        Assertions.assertEquals(1, first.size());
+        Assertions.assertEquals(1, second.size());
+        Assertions.assertEquals(firstName + "/000000_0", ((HiveScanRange) first.get(0)).getPath().orElse(null));
+        Assertions.assertEquals(secondName + "/000000_0", ((HiveScanRange) second.get(0)).getPath().orElse(null));
+        Assertions.assertNotSame(first, second, "same handle with different required names is not the same scan");
+        Assertions.assertSame(first, provider.planScan(session, firstRequest));
+        Assertions.assertEquals(0, hms.listPartitionNamesCalls);
+        Assertions.assertEquals(Arrays.asList(Collections.singletonList(firstName),
+                Collections.singletonList(secondName)), hms.requestedPartitionNames);
+        Assertions.assertEquals(2, lister.totalCalls);
     }
 
     @Test
@@ -534,7 +1253,7 @@ public class HiveScanBatchModeTest {
                 Collections.singletonList("year=2024/month=03"));
 
         List<ConnectorScanProfile> profiles = provider.collectScanProfiles(session);
-        Assertions.assertEquals(1, profiles.size());
+        Assertions.assertEquals(2, profiles.size());
         ConnectorScanProfile profile = profiles.get(0);
         Assertions.assertEquals("Connector Metadata Access", profile.getGroupName());
         Assertions.assertTrue(profile.getScanLabel().contains("db.t"));
@@ -545,6 +1264,11 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("3", profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+        ConnectorScanProfile listing = profiles.get(1);
+        Assertions.assertEquals("Hive File Listing", listing.getGroupName());
+        Assertions.assertEquals("3", listing.getMetrics().get("FilesListed"));
+        Assertions.assertEquals("3", listing.getMetrics().get("ListingsPublished"));
+        Assertions.assertEquals("3", listing.getMetrics().get("SizeSummariesPublished"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 
@@ -1082,6 +1806,8 @@ public class HiveScanBatchModeTest {
         private final List<String> listedPartitionNames;
         private final String absentPartitionName;
         private final HmsClientException partitionFailure;
+        private final List<List<String>> requestedPartitionNames = new ArrayList<>();
+        private int listPartitionNamesCalls;
 
         FakeHmsClient() {
             this(null, null, null);
@@ -1100,6 +1826,7 @@ public class HiveScanBatchModeTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+            requestedPartitionNames.add(new ArrayList<>(partNames));
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
                 result.add(new HmsPartitionInfo(Collections.emptyList(), name,
@@ -1149,6 +1876,7 @@ public class HiveScanBatchModeTest {
 
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            listPartitionNamesCalls++;
             if (listedPartitionNames == null) {
                 throw new UnsupportedOperationException();
             }

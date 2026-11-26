@@ -88,20 +88,21 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 20 adds deleteUsingMetadata to the connector write surface; major 21 adds
-        // typed filesystem credential descriptions and statement-scoped metadata.
-        // Major 22 adds the metadata-only DDL handle path; major 23 adds the provider's
-        // ConnectorSecuritySurface declaration; major 24 adds the scan task scheduler.
-        Assertions.assertEquals("24.0", version.getProperty("api.version"));
+        // Native encryption requires a new major after API 36 added connector file formats.
+        Assertions.assertEquals("37.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorTaskScheduler.class,
             DiagnosticException.class,
+            ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
+            ConnectorFileSource.class,
+            ConnectorFileSourceOps.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
             ConnectorSession.class,
             ConnectorStatementScope.class,
             ConnectorStatementScopes.class,
@@ -115,6 +116,8 @@ public class ConnectorPluginSurfaceTest {
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
             ConnectorScanRequest.class,
+            ConnectorScanRequest.Builder.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions.functions.ai;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -49,6 +51,11 @@ public abstract class AIFunction extends ScalarFunction
     public abstract int getMaxArgsNum();
 
     @Override
+    public boolean isDeterministic() {
+        return false;
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         // The rewrite has folded a constant resource name, unless constant folding is skipped
         // (debug_skip_fold_constant). The name FE can evaluate is resolved like the literal, and BE reads the name
@@ -66,6 +73,7 @@ public abstract class AIFunction extends ScalarFunction
 
         //Check if the resource is valid
         String resourceName = resourceNameArgument.toString().replaceAll("^['\"]|['\"]$", "");
+        checkResourceUsagePrivilege(resourceName);
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
@@ -75,6 +83,14 @@ public abstract class AIFunction extends ScalarFunction
                     + "' does not contain complete general AI properties");
         }
         Resource.registerUsedAIResourceName(resourceName);
+    }
+
+    public static void checkResourceUsagePrivilege(String resourceName) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkResourcePriv(ConnectContext.get(), resourceName, PrivPredicate.USAGE)) {
+            throw new AnalysisException(ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.USAGE.getPrivs().toString(), resourceName));
+        }
     }
 
     /**

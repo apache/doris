@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -40,10 +41,14 @@ import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
@@ -51,12 +56,20 @@ import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TIcebergWriteType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TSlotRef;
 import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.HasTableOperations;
@@ -73,6 +86,8 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -83,6 +98,9 @@ import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +140,55 @@ public class IcebergWritePlanProviderTest {
 
     private static final Map<String, String> NON_REST_PROPS =
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
+
+    @Test
+    public void writeTableAbsencePreservesIdentityAndCause() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (boolean wrapped : new boolean[] {false, true}) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                NoSuchTableException nativeFailure = new NoSuchTableException("missing db1.t1");
+                RuntimeException failure = wrapped ? new RuntimeException("catalog wrapper", nativeFailure)
+                        : nativeFailure;
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertEquals("db1", missing.getDatabaseName());
+                Assertions.assertEquals("t1", missing.getTableName());
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(nativeFailure));
+                Assertions.assertTrue(ExceptionUtils.getThrowableList(missing).contains(failure));
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
+
+    @Test
+    public void ordinaryWriteReadFailuresKeepTheirContract() {
+        for (boolean authenticated : new boolean[] {false, true}) {
+            for (RuntimeException failure : Arrays.asList(new SecurityException("permission denied"),
+                    new IllegalStateException("transport failed"), new NotFoundException("missing metadata file"))) {
+                RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+                ops.loadTableFailure = failure;
+                IcebergWritePlanProvider provider = new IcebergWritePlanProvider(
+                        IcebergCatalogProperties.of(NON_REST_PROPS), ops,
+                        authenticated ? new RecordingConnectorContext() : null);
+                RuntimeException actual = Assertions.assertThrows(RuntimeException.class,
+                        () -> provider.getWriteColumns(new WriteSession(null).noScope(),
+                                new IcebergTableHandle("db1", "t1"), Optional.empty()));
+                Assertions.assertFalse(actual instanceof ConnectorTableNotFoundException);
+                if (authenticated) {
+                    Assertions.assertInstanceOf(DorisConnectorException.class, actual);
+                    Assertions.assertSame(failure, actual.getCause());
+                } else {
+                    Assertions.assertSame(failure, actual);
+                }
+                Assertions.assertEquals(Collections.singletonList("loadTable:db1.t1"), ops.log);
+            }
+        }
+    }
 
     @Test
     public void variantDataWritesNeedUnshreddedFormatThreeParquetTables() {
@@ -238,6 +305,17 @@ public class IcebergWritePlanProviderTest {
                 PartitionSpec.unpartitioned(), tableProps);
     }
 
+    private static Table nestedSortedTable(InMemoryCatalog catalog) {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "s", Types.StructType.of(
+                        Types.NestedField.optional(3, "k", Types.IntegerType.get()))));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t2"), schema,
+                PartitionSpec.unpartitioned(), ImmutableMap.of("write.format.default", "parquet",
+                        "write.data.path", "oss://bucket/wh/db1/t2/data"));
+        table.replaceSortOrder().asc("s.k", NullOrder.NULLS_FIRST).commit();
+        return catalog.loadTable(TableIdentifier.of("db1", "t2"));
+    }
+
     /** A format-version 3 table (exercises the merge sink's row-lineage schema append + v3 delete path). */
     private static Table formatVersionThreeTable(InMemoryCatalog catalog) {
         Map<String, String> tableProps = new HashMap<>();
@@ -343,6 +421,38 @@ public class IcebergWritePlanProviderTest {
                 .planWrite(sessionFor(table, ctx), handle);
         Assertions.assertEquals(TDataSinkType.ICEBERG_TABLE_SINK, plan.getDataSink().getType());
         return plan.getDataSink().getIcebergTableSink();
+    }
+
+    @Test
+    public void invalidSelectedIsolationRejectsPlanBeforeReturningBackendSink() {
+        Map<WriteOperation, String> isolationKeys = new LinkedHashMap<>();
+        isolationKeys.put(WriteOperation.DELETE, TableProperties.DELETE_ISOLATION_LEVEL);
+        isolationKeys.put(WriteOperation.UPDATE, TableProperties.UPDATE_ISOLATION_LEVEL);
+        isolationKeys.put(WriteOperation.MERGE, TableProperties.MERGE_ISOLATION_LEVEL);
+        for (Map.Entry<WriteOperation, String> entry : isolationKeys.entrySet()) {
+            Table table = unpartitionedUnsortedTable(freshCatalog());
+            table.updateProperties().set("delete_isolation_level", "snapshot")
+                    .set(entry.getValue(), "invalid").commit();
+            RecordingConnectorContext context = contextWithStorage();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, context);
+            WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                    .writeOperation(entry.getKey());
+
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> providerFor(table, context).planWrite(new WriteSession(txn), handle));
+
+            Assertions.assertTrue(ex.getMessage().contains("Invalid isolation level: invalid"),
+                    "an invalid selected standard key must not fall back to the valid legacy value");
+            Assertions.assertNull(txn.getTransaction(), "a failed preparation cannot return an executable BE sink");
+            Assertions.assertNull(txn.getTable());
+            Assertions.assertTrue(txn.getCommitDataList().isEmpty());
+            Assertions.assertEquals(0, context.normalizeCount,
+                    "invalid isolation must fail before output paths are bound into a backend sink");
+            Assertions.assertNull(table.currentSnapshot(), "preparation must not create write snapshots");
+            txn.close();
+        }
     }
 
     @Test
@@ -1387,6 +1497,23 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteStaticPartitionUsesCastTimestamp() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "event_time", Types.TimestampType.withZone()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), schema,
+                PartitionSpec.builderFor(schema).identity("event_time", "event_partition").build());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1")).overwrite(true)
+                .writeContext(Collections.singletonMap("event_time", "2021-03-14 02:59:59.9999996"));
+        // The engine rounds the local time to scale 6 before it applies the New York time zone rule.
+        String castValue = "2021-03-14 03:00:00.000000-04:00";
+        handle.castWriteContext = Collections.singletonMap("event_time", castValue);
+
+        TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
+
+        Assertions.assertEquals(Collections.singletonMap("event_partition", castValue), sink.getStaticPartitionValues());
+        Assertions.assertEquals(Collections.singletonMap("event_time", castValue), handle.castWriteContext);
+    }
+
+    @Test
     public void planWriteStaticPartitionKeysTheRenamedPartitionField() {
         // ADD PARTITION KEY id AS id_identity: the engine keys the spec by the SOURCE column (the identifier Spark
         // resolves for a static PARTITION clause, and the one an identity value can be materialized through), while
@@ -1476,17 +1603,117 @@ public class IcebergWritePlanProviderTest {
     // ───────────────────────────── sort info (engine-built, stamped) ─────────────────────────────
 
     @Test
+    public void plannedIdentitySortOrderReachesCommittedManifest() throws TException {
+        for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.OVERWRITE,
+                WriteOperation.REWRITE, WriteOperation.UPDATE, WriteOperation.MERGE)) {
+            Table table = unpartitionedUnsortedTable(freshCatalog());
+            table.replaceSortOrder().asc("id", NullOrder.NULLS_FIRST).commit();
+            int expectedOrderId = operation == WriteOperation.UPDATE || operation == WriteOperation.MERGE
+                    ? 0 : table.sortOrder().orderId();
+            assertPlannedFileSortOrder(table, operation, identitySortInfo(true, true), expectedOrderId);
+        }
+    }
+
+    @Test
+    public void plannedUnsupportedSortOrdersReachManifestAsUnsorted() throws TException {
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.REWRITE)) {
+            Table bucket = unpartitionedUnsortedTable(freshCatalog());
+            bucket.replaceSortOrder().asc(Expressions.bucket("id", 4)).commit();
+            Table truncate = unpartitionedUnsortedTable(freshCatalog());
+            truncate.replaceSortOrder().asc(Expressions.truncate("id", 10)).commit();
+            for (Table table : Arrays.asList(bucket, truncate, nestedSortedTable(freshCatalog()))) {
+                assertPlannedFileSortOrder(table, operation, identitySortInfo(true, true), 0);
+            }
+        }
+    }
+
+    private static void assertPlannedFileSortOrder(Table table, WriteOperation operation,
+            TSortInfo sortInfo, int expectedOrderId) throws TException {
+        String location = table.properties().get("write.data.path");
+        DataFile original = DataFiles.builder(table.spec()).withPath(location + "/original.parquet")
+                .withFormat(FileFormat.PARQUET).withRecordCount(1L).withFileSizeInBytes(128L).build();
+        table.newAppend().appendFile(original).commit();
+        int tableOrderId = table.sortOrder().orderId();
+        RecordingConnectorContext context = contextWithStorage();
+        WriteSession session = sessionFor(table, context);
+        IcebergConnectorTransaction transaction = (IcebergConnectorTransaction)
+                session.getCurrentTransaction().orElseThrow(AssertionError::new);
+        providerFor(table, context).planWrite(session,
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).writeOperation(operation)
+                        .overwrite(operation == WriteOperation.OVERWRITE).sortInfo(sortInfo));
+        if (operation == WriteOperation.REWRITE) {
+            transaction.updateRewriteFiles(Collections.singletonList(original));
+        }
+        TIcebergCommitData fragment = new TIcebergCommitData();
+        fragment.setFilePath(location + "/planned.parquet");
+        fragment.setFileSize(128L);
+        fragment.setRowCount(1L);
+        fragment.setFileContent(TFileContent.DATA);
+        transaction.addCommitData(new TSerializer(new TBinaryProtocol.Factory()).serialize(fragment));
+        transaction.commit();
+
+        table.refresh();
+        List<DataFile> added = new ArrayList<>();
+        table.currentSnapshot().addedDataFiles(table.io()).forEach(added::add);
+        Assertions.assertEquals(1, added.size(), operation + " must commit one planned data file");
+        Assertions.assertEquals(Integer.valueOf(expectedOrderId), added.get(0).sortOrderId(),
+                operation + " must commit the order bound by its actual sink plan");
+        Assertions.assertEquals(tableOrderId, table.sortOrder().orderId(),
+                "the effective file order must not change the table's default sort order");
+    }
+
+    @Test
     public void planWriteStampsHandleSortInfoOntoSink() {
         Table table = partitionedSortedTable(freshCatalog());
-        TSortInfo engineBuilt = new TSortInfo();
-        engineBuilt.setIsAscOrder(Collections.singletonList(true));
-        engineBuilt.setNullsFirst(Collections.singletonList(true));
+        TSortInfo engineBuilt = identitySortInfo(true, true);
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
                 new WriteHandle(new IcebergTableHandle("db1", "t1")).sortInfo(engineBuilt));
 
         Assertions.assertEquals(engineBuilt, sink.getSortInfo(),
                 "the engine-built TSortInfo (from the connector's declared write-sort columns) must be "
                         + "stamped onto the sink verbatim");
+    }
+
+    private static TSortInfo identitySortInfo(boolean ascending, boolean nullsFirst) {
+        TTypeNode typeNode = new TTypeNode();
+        typeNode.setType(TTypeNodeType.SCALAR);
+        typeNode.setScalarType(new TScalarType(TPrimitiveType.INT));
+        TTypeDesc type = new TTypeDesc();
+        type.setTypes(Collections.singletonList(typeNode));
+        TExprNode slot = new TExprNode();
+        slot.setNodeType(TExprNodeType.SLOT_REF);
+        slot.setType(type);
+        slot.setNumChildren(0);
+        slot.setOutputScale(0);
+        slot.setSlotRef(new TSlotRef(0, 0));
+        TExpr expression = new TExpr();
+        expression.setNodes(Collections.singletonList(slot));
+        TSortInfo sortInfo = new TSortInfo();
+        sortInfo.setOrderingExprs(Collections.singletonList(expression));
+        sortInfo.setIsAscOrder(Collections.singletonList(ascending));
+        sortInfo.setNullsFirst(Collections.singletonList(nullsFirst));
+        return sortInfo;
+    }
+
+    @Test
+    public void planWriteEmptyOrPartialSortInfoLeavesSinkUnsorted() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.replaceSortOrder().asc("id", NullOrder.NULLS_FIRST).desc("name", NullOrder.NULLS_LAST).commit();
+        for (TSortInfo sortInfo : Arrays.asList(new TSortInfo(), identitySortInfo(true, true))) {
+            TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                    new WriteHandle(new IcebergTableHandle("db1", "t2")).sortInfo(sortInfo));
+            Assertions.assertFalse(sink.isSetSortInfo(), "an incomplete key list must not enable the sort writer");
+        }
+    }
+
+    @Test
+    public void planWriteUnsupportedSortOrderOmitsHandleSortInfo() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.replaceSortOrder().asc(Expressions.truncate("id", 10)).commit();
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).sortInfo(identitySortInfo(true, true)));
+        Assertions.assertFalse(sink.isSetSortInfo(), "sorting the source column is not the declared transform sort");
     }
 
     @Test
@@ -1544,25 +1771,68 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void getWriteSortColumnsNonNullEmptyForSortOrderWithoutIdentityColumns() {
-        // A table sorted ONLY by a non-identity transform (e.g. bucket) still HAS a write sort order, so
-        // legacy unconditionally sets an (empty) sort_info inside the isSorted() branch -> BE uses the
-        // sort writer. The connector must signal this as a non-null EMPTY list (not null), so the engine
-        // emits an empty TSortInfo. MUTATION: returning null here -> BE uses the plain writer -> red.
-        InMemoryCatalog catalog = freshCatalog();
-        Map<String, String> tableProps = new HashMap<>();
-        tableProps.put("write.format.default", "parquet");
-        tableProps.put("write.data.path", "oss://bucket/wh/db1/t3/data");
-        Table table = catalog.createTable(TableIdentifier.of("db1", "t3"), SCHEMA,
-                PartitionSpec.unpartitioned(), tableProps);
+    public void getWriteSortColumnsNullForBucketSortOrder() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
         table.replaceSortOrder().asc(Expressions.bucket("id", 4)).commit();
-        Table reloaded = catalog.loadTable(TableIdentifier.of("db1", "t3"));
+        Assertions.assertNull(providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2")),
+                "an unsupported sort order must not produce an empty-key sort writer");
+    }
 
-        List<ConnectorWriteSortColumn> cols = providerFor(reloaded, contextWithStorage())
-                .getWriteSortColumns(sessionFor(reloaded, contextWithStorage()),
-                        new IcebergTableHandle("db1", "t3"));
-        Assertions.assertNotNull(cols, "a sorted table (even by a non-identity transform) has a write sort order");
-        Assertions.assertTrue(cols.isEmpty(), "no identity column resolves -> empty list -> empty TSortInfo");
+    @Test
+    public void getWriteSortColumnsNullForTruncateSortOrder() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.replaceSortOrder().asc(Expressions.truncate("id", 10)).commit();
+        Assertions.assertNull(providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2")));
+    }
+
+    @Test
+    public void getWriteSortColumnsNullForMixedSortOrder() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.replaceSortOrder().asc(Expressions.truncate("id", 10)).desc("name", NullOrder.NULLS_LAST).commit();
+        Assertions.assertNull(providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2")),
+                "the identity suffix cannot stand in for the full lexicographic order");
+    }
+
+    @Test
+    public void getWriteSortColumnsNullForNestedSortOrder() {
+        Table table = nestedSortedTable(freshCatalog());
+        Assertions.assertNull(providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2")));
+    }
+
+    @Test
+    public void getWriteSortColumnsKeepsIdentityFieldOrderDirectionAndNullOrder() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.replaceSortOrder().desc("name", NullOrder.NULLS_LAST).asc("id", NullOrder.NULLS_FIRST).commit();
+        List<ConnectorWriteSortColumn> columns = providerFor(table, contextWithStorage())
+                .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2"));
+        Assertions.assertEquals(2, columns.size());
+        Assertions.assertEquals(1, columns.get(0).getColumnIndex());
+        Assertions.assertFalse(columns.get(0).isAsc());
+        Assertions.assertFalse(columns.get(0).isNullsFirst());
+        Assertions.assertEquals(0, columns.get(1).getColumnIndex());
+        Assertions.assertTrue(columns.get(1).isAsc());
+        Assertions.assertTrue(columns.get(1).isNullsFirst());
+    }
+
+    @Test
+    public void getWriteSortColumnsRejectsMissingBoundIdentityField() {
+        Table table = partitionedSortedTable(freshCatalog());
+        List<ConnectorColumn> boundColumns = Collections.singletonList(
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
+                        .withUniqueId(table.schema().findField("name").fieldId()));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage())
+                        .getWriteSortColumns(sessionFor(table, contextWithStorage()),
+                                new IcebergTableHandle("db1", "t1"), boundColumns));
     }
 
     @Test
@@ -2491,6 +2761,68 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(update.isWritesDataFiles());
     }
 
+    // BE writes position-delete and deletion-vector files under output_path and commits them under
+    // table_location (VIcebergDeleteSink::_commit_path_of), so both must name the same directory, the
+    // data location, differing only in its normalized vs raw form. If table_location became the table
+    // root, BE would record delete files without the data directory, i.e. files that do not exist,
+    // and nothing would fail. See TIcebergDeleteSink.table_location in DataSinks.thrift.
+    @Test
+    public void planWriteDeleteAndMergeSinksKeepTableLocationInTheOutputDirectory() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergDeleteSink deleteSink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.DELETE));
+        TIcebergMergeSink mergeSink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertEquals(pathAfterScheme(deleteSink.getOutputPath()),
+                pathAfterScheme(deleteSink.getTableLocation()),
+                "delete table_location must be the raw form of output_path's directory");
+        Assertions.assertEquals(pathAfterScheme(mergeSink.getOutputPath()),
+                pathAfterScheme(mergeSink.getTableLocation()),
+                "merge table_location must be the raw form of output_path's directory");
+    }
+
+    // "s3://bucket/wh/db1/t1/data" and "oss://bucket/wh/db1/t1/data" -> "bucket/wh/db1/t1/data".
+    private static String pathAfterScheme(String location) {
+        return location.substring(location.indexOf("://") + 3);
+    }
+
+    // planWrite registers the raw location each sink dialect carries with the transaction, so a file BE
+    // reports under the normalized address it wrote (the s3:// form of this oss:// table, as delete files once
+    // were) fails the statement instead of being recorded where other engines cannot resolve it.
+    @Test
+    public void planWriteRegistersTheCommitLocationOfEverySinkDialect() {
+        for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.REWRITE,
+                WriteOperation.DELETE, WriteOperation.UPDATE)) {
+            Table table = partitionedSortedTable(freshCatalog());
+            RecordingConnectorContext ctx = contextWithStorage();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+            providerFor(table, ctx).planWrite(new WriteSession(txn),
+                    new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(operation));
+
+            txn.addCommitData(commitFragment("oss://bucket/wh/db1/t1/data/id=1/f.parquet"));
+            DorisConnectorException rejected = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.addCommitData(commitFragment("s3://bucket/wh/db1/t1/data/id=1/f.parquet")),
+                    operation + " must reject a file reported under the normalized location");
+            Assertions.assertTrue(rejected.getMessage().contains("s3://bucket/wh/db1/t1/data/id=1/f.parquet"),
+                    rejected.getMessage());
+            Assertions.assertEquals(1, txn.getCommitDataList().size(), operation.toString());
+        }
+    }
+
+    private static byte[] commitFragment(String filePath) {
+        TIcebergCommitData data = new TIcebergCommitData();
+        data.setFilePath(filePath);
+        data.setFileContent(TFileContent.DATA);
+        try {
+            return new TSerializer(new TBinaryProtocol.Factory()).serialize(data);
+        } catch (TException e) {
+            throw new AssertionError(e);
+        }
+    }
+
     @Test
     public void planWriteBuildsMergeSinkWithTableDerivedFields() {
         Table table = partitionedSortedTable(freshCatalog());
@@ -2605,6 +2937,31 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteMergeSinkUnsupportedSortOrderOmitsSortFields() {
+        Table transformed = unpartitionedUnsortedTable(freshCatalog());
+        transformed.replaceSortOrder().asc(Expressions.truncate("id", 10)).asc("name").commit();
+        for (Table table : Arrays.asList(transformed, nestedSortedTable(freshCatalog()))) {
+            TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                    new WriteHandle(new IcebergTableHandle("db1", "t2")).writeOperation(WriteOperation.UPDATE));
+            Assertions.assertFalse(sink.isSetSortFields(),
+                    "unsupported sort fields must not be reduced to an identity subset");
+        }
+    }
+
+    @Test
+    public void unsupportedDataSortOrderDoesNotPreventDeleteOnlyWrites() {
+        Table table = nestedSortedTable(freshCatalog());
+        TIcebergDeleteSink deleteSink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                        .writeOperation(WriteOperation.DELETE).writesDataFiles(false));
+        Assertions.assertNotNull(deleteSink);
+        TIcebergMergeSink mergeSink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2"))
+                        .writeOperation(WriteOperation.MERGE).writesDataFiles(false));
+        Assertions.assertFalse(mergeSink.isWritesDataFiles());
+    }
+
+    @Test
     public void planWriteMergeSinkUnsortedOmitsSortFields() {
         InMemoryCatalog catalog = freshCatalog();
         partitionedSortedTable(catalog);
@@ -2669,6 +3026,7 @@ public class IcebergWritePlanProviderTest {
         private final ConnectorTableHandle tableHandle;
         private boolean overwrite;
         private Map<String, String> writeContext = Collections.emptyMap();
+        private Map<String, String> castWriteContext;
         private TSortInfo sortInfo;
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
@@ -2798,6 +3156,11 @@ public class IcebergWritePlanProviderTest {
         @Override
         public Map<String, String> getStaticPartitionSpec() {
             return writeContext;
+        }
+
+        @Override
+        public Map<String, String> getCastStaticPartitionSpec() {
+            return castWriteContext == null ? ConnectorWriteHandle.super.getCastStaticPartitionSpec() : castWriteContext;
         }
 
         @Override

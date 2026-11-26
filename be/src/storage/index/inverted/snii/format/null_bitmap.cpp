@@ -182,6 +182,12 @@ Status NullBitmapWriter::serialization_sizes(uint32_t doc_count,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "null bitmap: null serialization size output");
     }
+    // Rewrites the containers into their smallest form, as the V2 writer does before it serializes.
+    // Runs of NULL rows (a path that is absent from most rows of a sparse column) are the common
+    // case, and as plain array or bitset containers they cost about 8 KiB per 65536 rows instead
+    // of a few bytes. This is the one place that fixes the serialized size, and finish() sizes
+    // itself through here, so the sizes reported to callers and the bytes written always agree.
+    bitmap_->runOptimize();
     const size_t roaring_bytes = bitmap_->getSizeInBytes();
     const size_t prefix_bytes = varint_len(doc_count) + varint_len(roaring_bytes);
     if (roaring_bytes > std::numeric_limits<size_t>::max() - prefix_bytes) {
@@ -289,6 +295,23 @@ void NullBitmapReader::copy_to(roaring::Roaring* out) const {
 void NullBitmapReader::append_docids(std::vector<uint32_t>& out) const {
     for (uint32_t docid : *bitmap_) {
         out.push_back(docid);
+    }
+}
+
+void NullBitmapReader::for_each_non_null_run(
+        const std::function<void(uint32_t, uint32_t)>& fn) const {
+    uint32_t begin = 0;
+    for (const uint32_t null_docid : *bitmap_) {
+        if (null_docid >= doc_count_) {
+            break;
+        }
+        if (begin < null_docid) {
+            fn(begin, null_docid);
+        }
+        begin = null_docid + 1;
+    }
+    if (begin < doc_count_) {
+        fn(begin, doc_count_);
     }
 }
 

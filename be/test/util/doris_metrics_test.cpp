@@ -69,12 +69,15 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("101", metric->to_string().c_str());
     }
     {
+        // Scanner tests in the same process may already have reported query I/O.
+        DorisMetrics::instance()->query_scan_bytes->set_value(0);
         DorisMetrics::instance()->query_scan_bytes->increment(104);
         auto metric = server_entity->get_metric("query_scan_bytes");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("104", metric->to_string().c_str());
     }
     {
+        DorisMetrics::instance()->query_scan_rows->set_value(0);
         DorisMetrics::instance()->query_scan_rows->increment(105);
         auto metric = server_entity->get_metric("query_scan_rows");
         EXPECT_TRUE(metric != nullptr);

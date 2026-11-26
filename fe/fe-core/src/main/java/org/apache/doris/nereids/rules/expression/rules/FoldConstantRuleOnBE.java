@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
@@ -243,7 +244,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()
+                || expr.getDataType().typeContainsFile()) {
             return true;
         }
 
@@ -254,7 +256,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // Skip those function to avoid incorrect binary data processing during constant folding
         if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
-                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction) {
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction
+                || expr instanceof DataSketchesHllDownsample) {
             return true;
         }
 

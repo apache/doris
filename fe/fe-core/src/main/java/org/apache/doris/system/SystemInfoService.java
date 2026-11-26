@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterGuard;
 import org.apache.doris.cluster.ClusterGuardException;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendHostNameO
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -299,12 +301,14 @@ public class SystemInfoService {
         copiedBackends.remove(droppedBackend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        AgentTaskQueue.removeBackendTasks(droppedBackend.getId());
 
         // update idToReportVersion
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVersions.remove(droppedBackend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
+        TabletSlidingWindowAccessStats.getInstance().removeBackend(droppedBackend.getId());
 
         // log
         Env.getCurrentEnv().getEditLog().logDropBackend(droppedBackend);
@@ -848,12 +852,14 @@ public class SystemInfoService {
         copiedBackends.remove(backend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        AgentTaskQueue.removeBackendTasks(backend.getId());
 
         // update idToReportVersion
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
         copiedReportVersions.remove(backend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
+        TabletSlidingWindowAccessStats.getInstance().removeBackend(backend.getId());
 
     }
 

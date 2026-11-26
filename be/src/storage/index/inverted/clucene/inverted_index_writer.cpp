@@ -17,10 +17,12 @@
 
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -109,15 +111,11 @@ Status InvertedIndexColumnWriter<field_type>::init_bkd_index() {
     return open_index_directory();
 }
 
+// A plain reader on the value: the analyzer applies the index's char filter itself.
 template <FieldType field_type>
 Result<ReaderPtr> InvertedIndexColumnWriter<field_type>::create_char_string_reader(
-        CharFilterMap& char_filter_map) {
-    try {
-        return inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
-    } catch (CLuceneError& e) {
-        return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "inverted index create string reader failed: {}", e.what()));
-    }
+        CharFilterMap& /*char_filter_map*/) {
+    return std::make_shared<lucene::util::SStringReader<char>>();
 }
 
 template <FieldType field_type>
@@ -200,7 +198,8 @@ Result<std::shared_ptr<lucene::analysis::Analyzer>>
 InvertedIndexColumnWriter<field_type>::create_analyzer(
         const InvertedIndexAnalyzerConfig& analyzer_config) {
     try {
-        return inverted_index::InvertedIndexAnalyzer::create_analyzer(&analyzer_config);
+        return std::make_shared<inverted_index::LuceneAnalyzerBridge>(
+                inverted_index::InvertedIndexAnalyzer::create_analyzer(&analyzer_config));
     } catch (CLuceneError& e) {
         return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "inverted index create analyzer failed: {}", e.what()));

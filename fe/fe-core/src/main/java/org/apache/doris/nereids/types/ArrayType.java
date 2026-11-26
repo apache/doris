@@ -115,6 +115,11 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
     }
 
     @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return itemType.allowsKeyUse(keyUse);
+    }
+
+    @Override
     public Optional<Expression> zeroValue() {
         return Optional.of(new ArrayLiteral(Collections.<Literal>emptyList(), this));
     }

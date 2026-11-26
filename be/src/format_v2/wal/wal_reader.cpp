@@ -21,7 +21,6 @@
 #include <absl/strings/str_split.h>
 
 #include <ranges>
-#include <unordered_set>
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
@@ -89,14 +88,12 @@ Status parse_wal_column_ids(const std::string& encoded, std::vector<int32_t>* co
         return Status::Corruption("WAL header contains no column ids");
     }
 
-    std::unordered_set<int32_t> seen;
+    // Schema change appends shadow columns with the original column ids. Preserve all physical
+    // positions: the field-id mapper selects the first (base) column, like the legacy WAL reader.
     for (const absl::string_view token : absl::StrSplit(encoded, ',')) {
         int32_t column_id = 0;
         if (token.empty() || !absl::SimpleAtoi(token, &column_id)) {
             return Status::Corruption("invalid WAL column id '{}'", std::string(token));
-        }
-        if (!seen.emplace(column_id).second) {
-            return Status::Corruption("duplicate WAL column id {}", column_id);
         }
         column_ids->push_back(column_id);
     }
@@ -195,8 +192,11 @@ Status WalReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Corruption("WAL block has {} columns but header declares {}",
                                   source_block.columns(), _column_ids.size());
     }
+    // Empty projections still contribute every WAL row. Capture the count before materialization
+    // moves source columns into the output block and can leave the source with no owned columns.
+    const size_t source_rows = source_block.rows();
     RETURN_IF_ERROR(_materialize_requested_columns(&source_block, file_block));
-    *rows = file_block->rows();
+    *rows = source_rows;
     _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(
             apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));

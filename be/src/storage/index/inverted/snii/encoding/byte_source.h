@@ -80,6 +80,12 @@ public:
     Status get_zigzag(int64_t* v);
     Status get_bytes(size_t n, Slice* out);
 
+    // Raw cursor access for a hot loop that decodes many small runs without a Status per value and
+    // hands anything unusual back to the checked decoders above (set_cursor, then the call).
+    const uint8_t* cursor() const { return s_.data() + pos_; }
+    const uint8_t* end() const { return s_.data() + s_.size(); }
+    void set_cursor(const uint8_t* p) { pos_ = static_cast<size_t>(p - s_.data()); }
+
     size_t remaining() const { return s_.size() - pos_; }
     size_t position() const { return pos_; }
     bool eof() const { return pos_ == s_.size(); }

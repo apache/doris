@@ -14,3 +14,10 @@
 -- !reuse_probe_block_after_transfer --
 4	40
 6	60
+
+-- !shared_nullable_join_key --
+0	0
+1	2
+2	\N
+3	3
+

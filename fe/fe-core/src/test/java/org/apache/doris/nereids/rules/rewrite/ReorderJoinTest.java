@@ -19,9 +19,20 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -32,9 +43,13 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 class ReorderJoinTest implements MemoPatternMatchSupported {
 
@@ -42,6 +57,248 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
     private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
+
+    @Test
+    public void testConsecutiveFiltersAtRoot() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .build();
+
+        applyReorderJoinBatch(plan, new ReorderJoin())
+                .matchesFromRoot(logicalFilter(logicalJoin(logicalFilter(logicalOlapScan()), logicalOlapScan())));
+    }
+
+    @Test
+    public void testConsecutiveFiltersInJoinCluster() {
+        for (JoinType joinType : ImmutableList.of(JoinType.INNER_JOIN, JoinType.CROSS_JOIN,
+                JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN)) {
+            Expression leftPredicate = new IsNull(scan1.getOutput().get(0));
+            Expression rightPredicate = new IsNull(scan2.getOutput().get(0));
+            LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                    .join(scan2, joinType, Pair.of(0, 0))
+                    .filter(rightPredicate)
+                    .filter(leftPredicate)
+                    .build();
+            MultiJoin multiJoin = (MultiJoin) new ReorderJoin().joinToMultiJoin(plan, new HashMap<>());
+            Assertions.assertEquals(joinType, multiJoin.getJoinType());
+            Assertions.assertEquals(ImmutableList.of(scan1, scan2), multiJoin.children());
+            Assertions.assertTrue(multiJoin.getJoinFilter().containsAll(ImmutableSet.of(leftPredicate, rightPredicate)));
+        }
+    }
+
+    @Test
+    public void testConsecutiveFiltersDoNotShrinkJoinCluster() {
+        LogicalPlan filteredJoin = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                .filter(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .build();
+        LogicalPlan plan = new LogicalPlanBuilder(filteredJoin)
+                .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .filter(new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0)))
+                .build();
+        ReorderJoin reorderJoin = new ReorderJoin();
+        Map<Plan, DistributeHint> hints = new HashMap<>();
+        MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, hints);
+        Assertions.assertEquals(ImmutableList.of(scan1, scan2, scan3), multiJoin.children());
+        Assertions.assertEquals(4, multiJoin.getJoinFilter().size());
+        Plan reordered = reorderJoin.multiJoinToJoin(multiJoin, hints);
+        Assertions.assertFalse(reordered.anyMatch(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isCrossJoin()));
+        applyReorderJoinBatch(plan, new ReorderJoin())
+                .matchesFromRoot(logicalFilter(logicalJoin(logicalJoin(), logicalOlapScan())));
+    }
+
+    @Test
+    public void testConsecutiveFiltersWithoutJoin() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(1)))
+                .build();
+        Assertions.assertSame(plan, new ReorderJoin().joinToMultiJoin(plan, new HashMap<>()));
+        applyReorderJoinBatch(plan, new ReorderJoin())
+                .matchesFromRoot(logicalFilter(logicalFilter(logicalOlapScan())));
+    }
+
+    @Test
+    public void testConsecutiveFiltersAtRootWithVolatilePredicate() {
+        Expression volatilePredicate = new EqualTo(scan1.getOutput().get(0), new Random());
+        Expression leftPredicate = new IsNull(scan1.getOutput().get(0));
+        Expression rightPredicate = new IsNull(scan2.getOutput().get(0));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(rightPredicate)
+                .filter(leftPredicate)
+                .filter(volatilePredicate)
+                .build();
+        applyReorderJoinBatch(plan, new ReorderJoin())
+                .matchesFromRoot(logicalFilter(logicalJoin(
+                        logicalFilter(logicalOlapScan()).when(filter -> filter.getConjuncts()
+                                .equals(ImmutableSet.of(leftPredicate))), logicalOlapScan()))
+                        .when(filter -> filter.getConjuncts()
+                                .equals(ImmutableSet.of(volatilePredicate, rightPredicate))));
+    }
+
+    @Test
+    public void testConsecutiveFiltersAboveMarkAndAsofJoins() {
+        ImmutableList<LogicalPlan> joins = ImmutableList.of(
+                new LogicalPlanBuilder(scan1)
+                        .markJoin(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)).build(),
+                new LogicalPlanBuilder(scan1)
+                        .join(scan2, JoinType.ASOF_LEFT_OUTER_JOIN, Pair.of(0, 0)).build());
+        for (LogicalPlan join : joins) {
+            LogicalPlan plan = new LogicalPlanBuilder(join)
+                    .filter(new IsNull(scan1.getOutput().get(0)))
+                    .filter(new IsNull(scan1.getOutput().get(1)))
+                    .build();
+            Assertions.assertSame(plan, new ReorderJoin().joinToMultiJoin(plan, new HashMap<>()));
+            applyReorderJoinBatch(plan, new ReorderJoin())
+                    .matchesFromRoot(logicalFilter(logicalFilter(logicalJoin())));
+        }
+    }
+
+    @Test
+    public void testNonMovableConsecutiveFiltersAreJoinClusterBoundary() {
+        Expression movablePredicate = new IsNull(scan1.getOutput().get(0));
+        for (Expression nonMovablePredicate : ImmutableList.of(
+                new EqualTo(scan2.getOutput().get(0), new Random()),
+                new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must stay above join")))) {
+            for (JoinType joinType : ImmutableList.of(JoinType.INNER_JOIN, JoinType.CROSS_JOIN,
+                    JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN)) {
+                for (boolean nonMovableOnTop : ImmutableList.of(true, false)) {
+                    LogicalPlan boundary = new LogicalPlanBuilder(scan1)
+                            .join(scan2, joinType, Pair.of(0, 0))
+                            .filter(nonMovableOnTop ? movablePredicate : nonMovablePredicate)
+                            .filter(nonMovableOnTop ? nonMovablePredicate : movablePredicate)
+                            .build();
+                    LogicalPlan plan = new LogicalPlanBuilder(boundary)
+                            .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                            .build();
+                    ReorderJoin reorderJoin = new ReorderJoin();
+                    Assertions.assertSame(boundary, reorderJoin.joinToMultiJoin(boundary, new HashMap<>()));
+                    MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, new HashMap<>());
+                    Assertions.assertSame(boundary, multiJoin.child(0));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRepeatedReorderWithConsecutiveFilters() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan3.getOutput().get(0)))
+                .build();
+        Assertions.assertTrue(plan.anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
+        ReorderJoin reorderJoin = new ReorderJoin();
+        Map<Plan, DistributeHint> hints = new HashMap<>();
+        MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, hints);
+        Plan first = reorderJoin.multiJoinToJoin(multiJoin, hints);
+        Assertions.assertInstanceOf(LogicalFilter.class, first.child(0).child(0));
+        Assertions.assertFalse(first.anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
+
+        hints.clear();
+        MultiJoin repeatedMultiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(first, hints);
+        Plan repeated = reorderJoin.multiJoinToJoin(repeatedMultiJoin, hints);
+        Assertions.assertFalse(repeated.anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
+        Assertions.assertTrue(first.deepEquals(repeated));
+        Assertions.assertEquals(plan.getOutput(), repeated.getOutput());
+    }
+
+    @Test
+    public void testTopDownBatchWithGeneratedConsecutiveFilters() {
+        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+        // Use the production top-down batch: parent retries happen before child filters are merged.
+        PlanChecker checker = applyReorderJoinBatch(plan,
+                new MergeFilters(), new ReorderJoin(), new PushFilterInsideJoin(),
+                new FindHashConditionForJoin(), new ConvertInnerOrCrossJoin(),
+                new EliminateNullAwareLeftAntiJoin());
+        Assertions.assertFalse(checker.getPlan().anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
+        Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
+    }
+
+    @Test
+    public void testTopDownBatchWithoutMergeFilters() {
+        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+        PlanChecker checker = applyReorderJoinBatch(plan,
+                new ReorderJoin(), new PushFilterInsideJoin(), new FindHashConditionForJoin(),
+                new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
+        checker.matchesFromRoot(logicalFilter(logicalJoin(
+                logicalFilter(logicalJoin(logicalFilter(logicalOlapScan()), logicalOlapScan())), logicalOlapScan())));
+        Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
+    }
+
+    @Test
+    public void testTopDownBatchWithVolatileJoinCondition() {
+        Expression volatileOn = new EqualTo(scan2.getOutput().get(0), new Random());
+        Expression volatilePredicate = new EqualTo(scan1.getOutput().get(0), new Random());
+        Expression leftPredicate = new IsNull(scan1.getOutput().get(0));
+        LogicalPlan filteredJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(volatileOn))
+                .filter(volatilePredicate)
+                .build();
+        LogicalPlan plan = new LogicalPlanBuilder(filteredJoin)
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(ImmutableSet.of(leftPredicate, new IsNull(scan3.getOutput().get(0))))
+                .build();
+
+        // PlanUtils merges the predicate pushed by the parent into the existing volatile filter.
+        PlanChecker checker = applyReorderJoinBatch(plan,
+                new ReorderJoin(), new PushFilterInsideJoin(), new FindHashConditionForJoin(),
+                new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
+        checker.matchesFromRoot(logicalFilter(logicalJoin(
+                logicalFilter(logicalJoin().when(join -> join.getOtherJoinConjuncts()
+                        .equals(ImmutableList.of(volatileOn))))
+                        .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(volatilePredicate, leftPredicate))),
+                logicalOlapScan())));
+        Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
+
+        PlanChecker mergedChecker = applyReorderJoinBatch(plan,
+                new MergeFilters(), new ReorderJoin(), new PushFilterInsideJoin(), new FindHashConditionForJoin(),
+                new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
+        mergedChecker.matchesFromRoot(logicalFilter(logicalJoin(
+                logicalFilter(logicalJoin().when(join -> join.getOtherJoinConjuncts()
+                        .equals(ImmutableList.of(volatileOn))))
+                        .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(volatilePredicate, leftPredicate))),
+                logicalOlapScan())));
+        Assertions.assertEquals(plan.getOutput(), mergedChecker.getPlan().getOutput());
+
+        // Keep an explicit chain to exercise rule-entry merging independently of PlanUtils normalization.
+        LogicalPlan filterChain = new LogicalPlanBuilder(filteredJoin).filter(leftPredicate).build();
+        PlanChecker chainChecker = applyReorderJoinBatch(filterChain, new ReorderJoin());
+        chainChecker.matchesFromRoot(logicalFilter(logicalFilter(logicalJoin()
+                .when(join -> join.getOtherJoinConjuncts().equals(ImmutableList.of(volatileOn))))));
+        Assertions.assertTrue(filterChain.deepEquals(chainChecker.getPlan()));
+    }
+
+    private PlanChecker applyReorderJoinBatch(LogicalPlan plan, RuleFactory... rules) {
+        CascadesContext context = MemoTestUtils.createCascadesContext(plan);
+        // PlanChecker.applyTopDown also converts outer joins to anti joins after the requested batch.
+        Rewriter.getCteChildrenRewriter(context, ImmutableList.of(Rewriter.topDown(rules)), false).execute();
+        MemoTestUtils.initMemoAndValidState(context);
+        return PlanChecker.from(context);
+    }
+
+    private LogicalPlan nestedLeftJoinWithNullFilters() {
+        return new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(ImmutableSet.of(new IsNull(scan1.getOutput().get(0)), new IsNull(scan3.getOutput().get(0))))
+                .build();
+    }
 
     @Test
     public void testLeftOuterJoin() {

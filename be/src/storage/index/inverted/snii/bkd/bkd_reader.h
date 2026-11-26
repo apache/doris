@@ -40,19 +40,25 @@ namespace doris::snii::bkd {
 
 // Caller-owned buffers reused across queries. A new scratch is also valid for any query.
 struct BkdQueryScratch {
-    // Raw bytes of the leaf currently being examined, as read from bkd_data.
+    // Raw bytes of the leaves currently being examined, as read from bkd_data.
     std::vector<uint8_t> leaf_bytes;
     // The boundary-leaf decode (values + doc ids). Keeps its capacity across
     // leaves.
     DecodedLeafBlock decoded;
     // The whole-leaf-hit decode (doc ids only).
     std::vector<uint32_t> doc_ids;
+    std::vector<LeafValueRun> runs;
     // Doc ids gathered across consecutive whole-leaf hits, SORTED before they
     // reach the bitmap. Leaves are ordered by value, so their doc ids arrive in
     // arbitrary order, and roaring inserts sorted input far more cheaply.
     std::vector<uint32_t> gathered;
     // Ping-pong buffer for the radix sort of `gathered`.
     std::vector<uint32_t> radix_scratch;
+    // A wide range sets the doc ids of its whole-leaf hits here instead of sorting them: one bit
+    // per doc id, in whole roaring containers of 1024 words.
+    std::vector<uint64_t> doc_bits;
+    // The image `doc_bits` is loaded into a bitmap through.
+    std::vector<char> bitmap_image;
     // lookup_many's probe values, ordered and deduplicated internally.
     std::vector<Slice> probes;
 };
@@ -111,8 +117,12 @@ public:
 private:
     BkdReader(io::FileReader* file, const BkdSections& sections);
 
-    // Reads the leaf extent established by the validated directory.
-    Status read_leaf(uint32_t index, std::vector<uint8_t>* buffer) const;
+    // Reads the extents of leaves [first, end), which lie next to each other in bkd_data, as
+    // established by the validated directory.
+    Status read_leaves(uint32_t first, uint32_t end, std::vector<uint8_t>* buffer) const;
+    // Decodes the whole-leaf hits between two boundary leaves into `hits`.
+    Status add_whole_leaves(uint32_t first, uint32_t end, roaring::Roaring* hits,
+                            BkdQueryScratch* scratch) const;
 
     // Decodes and filters a boundary leaf, which may contain both matching and non-matching values.
     Status scan_boundary_leaf(uint32_t index, Slice lower, bool lower_inclusive, Slice upper,

@@ -294,7 +294,8 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertEquals(2, deepProjectionRows.size())
         String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
                 deepProjectionToken,
-                ["VariantLeafProjectionRowGroupColumns", "VariantFullProjectionRowGroupColumns"],
+                ["VariantLeafProjectionRowGroupColumns", "VariantResidualProjectionRowGroupColumns",
+                 "VariantFullProjectionRowGroupColumns"],
                 30000L, 500L)
         def counterSum = { String profile, String counterName ->
             def values = profile =~
@@ -315,8 +316,11 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
                         "VariantLeafProjectionRowGroupColumns") > 0,
                 "Paimon Native did not project the deeply shredded Variant object leaves")
         assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantResidualProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly read unrelated ancestor residual columns")
+        assertEquals(0L, counterSum(deepProjectionProfile,
                         "VariantFullProjectionRowGroupColumns"),
-                "Paimon Native unexpectedly fell back to full Variant row-group projection")
+                "Paimon Native unexpectedly fell back to complete Variant row-group projection")
         sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """
@@ -375,9 +379,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // Native Parquet requires V2 regardless of the session preference, so it remains readable
-        // when the session preference is disabled. A forced JNI scan now has a real Variant carrier;
-        // unlike native Parquet, it cannot override the explicit V2 setting.
+        // The deprecated scanner option must not change native or JNI Variant reads.
         sql """set force_jni_scanner = false"""
         def nativeVariantQuery = "select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"
         def nativeVariantRows = sql(nativeVariantQuery)
@@ -385,10 +387,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
 
         sql """set force_jni_scanner = true"""
-        test {
-            sql nativeVariantQuery
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        assertEquals(nativeVariantRows, sql(nativeVariantQuery))
         sql """set enable_file_scanner_v2 = true"""
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
     }

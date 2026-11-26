@@ -2146,6 +2146,23 @@ public class FlussSplitPlanTest {
     }
 
     @Test
+    public void scanLevelParamsCarryTheValidatedMetadataTtlOutsideClientConfig() {
+        registerLogTable(LOG_TABLE, 1);
+        for (String value : new String[] {" 0 ", " -1 ", " 17 ", " "}) {
+            Map<String, String> catalog = catalog(FlussTableInfoCache.TTL_PROPERTY, value);
+            catalog.put(FlussPartitionListCache.TTL_PROPERTY, "5");
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            FlussScanPlanProvider provider = new FlussScanPlanProvider(adminOps,
+                    FlussCatalogProperties.of(catalog), this::lakeSibling);
+            provider.populateScanLevelParams(params, nodeProperties(LOG_TABLE, catalog));
+            String expected = value.trim().isEmpty() ? "10" : value.trim();
+            Assertions.assertEquals(expected, params.getFlussProperties().get(FlussTableInfoCache.TTL_PROPERTY));
+            Assertions.assertFalse(params.getFlussProperties().containsKey("fluss.client.metadata.cache.ttl.sec"));
+            Assertions.assertFalse(params.getFlussProperties().containsKey("fluss.client.partition.cache.ttl.sec"));
+        }
+    }
+
+    @Test
     public void scanLevelParamsCarryTheClientConfigAndTableIdentity() {
         registerLogTable(LOG_TABLE, 1);
         Map<String, String> catalog = catalog();
@@ -2159,20 +2176,17 @@ public class FlussSplitPlanTest {
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("fluss.db_name", "db");
         expected.put("fluss.table_name", "log_tbl");
+        expected.put("fluss.table_id", "1");
+        expected.put("fluss.schema_id", "1");
+        expected.put("fluss.metadata.cache.ttl.sec", "10");
         expected.put("fluss.client.bootstrap.servers", "localhost:9123");
         expected.put("fluss.client.client.writer.batch-size", "2mb");
         Assertions.assertEquals(expected, params.getFlussProperties());
     }
 
-    /**
-     * BE picks between its two scanner implementations from the SCAN-level format, before it fetches a
-     * single range, and every reader this connector needs exists in FileScannerV2 alone. Without this
-     * stamp a session that turned {@code enable_file_scanner_v2} off — a supported setting, and one the
-     * regression harness sets at random because the variable is fuzzy — would land in the legacy scanner,
-     * whose JNI dispatch has no fluss branch, and fail the query at read time.
-     */
+    /** Scan-level parameters preserve the connector identity before ranges are fetched. */
     @Test
-    public void scanLevelParamsStampTheFormatThatForcesScannerV2() {
+    public void scanLevelParamsStampTheConnectorFormat() {
         registerLogTable(LOG_TABLE, 1);
         Map<String, String> catalog = catalog();
 
@@ -2186,7 +2200,7 @@ public class FlussSplitPlanTest {
 
     /**
      * A union read hands the same params to the lake half, and the fluss marker has to survive that: it
-     * decides the scanner for the WHOLE node, and the node also carries fluss ranges the sibling knows
+     * identifies the connector for the whole node, which also carries Fluss ranges the sibling knows
      * nothing about.
      */
     @Test

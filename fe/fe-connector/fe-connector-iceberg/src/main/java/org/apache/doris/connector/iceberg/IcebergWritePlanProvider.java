@@ -214,6 +214,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
+        // Shared rewrite transactions can reuse beginWrite; every native sink still enforces this boundary.
+        IcebergEncryptionRead.checkWrite(table);
         validateBoundWriteMetadata(table, handle);
         validateBoundWriteColumns(table, schemaContext, handle, writeContext.getWriteOperation());
 
@@ -236,21 +238,45 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes =
                 IcebergStatementScope.rewritableDeleteSupply(session);
 
+        if (writeOp == WriteOperation.REWRITE) {
+            schemaContext = IcebergWriteSchemaContext.create(table, tableHandle.getTableName(), Optional.empty(),
+                    mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
+            validateVariantWrite(handle, schemaContext);
+            validateNestedPartitionWriteCompatibility(handle, schemaContext);
+        }
+        TDataSink dataSink = buildDataSink(writeContext.getWriteOperation(), table, tableHandle, handle,
+                rewritableDeletes, schemaContext);
+        SortOrder fileSortOrder = SortOrder.unsorted();
+        if (dataSink.getType() == TDataSinkType.ICEBERG_TABLE_SINK) {
+            fileSortOrder = IcebergWriteSortOrder.fileSortOrder(schemaContext.getSchema(),
+                    schemaContext.getSortOrder(), dataSink.getIcebergTableSink().getSortInfo());
+        }
+        // Row-level sinks do not execute sort_info, so their replacement data files remain unsorted.
+        transaction.bindFileSortOrder(fileSortOrder);
+        // BE reports every file of the sink under the raw location the sink carries, whichever writer
+        // produced it; the transaction rejects a reported file anywhere else.
+        commitLocationsOf(dataSink).forEach(transaction::addCommitLocation);
+        return new ConnectorSinkPlan(dataSink);
+    }
+
+    private TDataSink buildDataSink(WriteOperation writeOperation, Table table, IcebergTableHandle tableHandle,
+            ConnectorWriteHandle handle, Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
+            IcebergWriteSchemaContext schemaContext) {
         // Dispatch on the write operation to the matching BE sink dialect (each is a distinct TDataSinkType,
         // byte-identical to the legacy fe-core planner sink). OVERWRITE shares TIcebergTableSink with INSERT
         // (the overwrite flag is read from the handle); UPDATE shares TIcebergMergeSink with MERGE.
-        switch (writeContext.getWriteOperation()) {
+        switch (writeOperation) {
             case INSERT:
             case OVERWRITE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
                 dataSink.setIcebergTableSink(buildSink(table, tableHandle, handle, schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case DELETE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
                 dataSink.setIcebergDeleteSink(
                         buildDeleteSink(table, tableHandle, rewritableDeletes, schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case UPDATE:
             case MERGE: {
@@ -260,7 +286,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                         handle.getBoundTargetColumns().stream()
                                 .anyMatch(column -> containsVariant(column.getType())),
                         schemaContext));
-                return new ConnectorSinkPlan(dataSink);
+                return dataSink;
             }
             case REWRITE: {
                 // Compaction rewrite (ALTER TABLE ... EXECUTE rewrite_data_files): same TIcebergTableSink
@@ -268,12 +294,30 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 // rewritableDeletes supply does not apply to rewrite (it deals with no position deletes), and
                 // is already evicted above.
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
-                dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle));
-                return new ConnectorSinkPlan(dataSink);
+                dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle, schemaContext));
+                return dataSink;
             }
             default:
-                throw new DorisConnectorException(
-                        "Unsupported iceberg write operation: " + writeContext.getWriteOperation());
+                throw new DorisConnectorException("Unsupported iceberg write operation: " + writeOperation);
+        }
+    }
+
+    /**
+     * The raw data locations BE commits the files of {@code sink} under, read from the field each dialect
+     * carries them in: data files under {@code original_output_path}, delete files and deletion vectors under
+     * {@code table_location}. The merge sink writes both kinds and carries both fields.
+     */
+    private static List<String> commitLocationsOf(TDataSink sink) {
+        switch (sink.getType()) {
+            case ICEBERG_TABLE_SINK:
+                return Collections.singletonList(sink.getIcebergTableSink().getOriginalOutputPath());
+            case ICEBERG_DELETE_SINK:
+                return Collections.singletonList(sink.getIcebergDeleteSink().getTableLocation());
+            case ICEBERG_MERGE_SINK:
+                return Arrays.asList(sink.getIcebergMergeSink().getOriginalOutputPath(),
+                        sink.getIcebergMergeSink().getTableLocation());
+            default:
+                throw new DorisConnectorException("Unsupported iceberg sink type: " + sink.getType());
         }
     }
 
@@ -466,9 +510,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         output.append(prefix).append("  ICEBERG TABLE: ")
                 .append(tableHandle.getDbName()).append(".").append(tableHandle.getTableName()).append("\n");
-        // Legacy IcebergTableSink also rendered the table's write sort order (getSortOrderSql) when sorted;
-        // reuse the SHOW CREATE TABLE renderer so EXPLAIN INSERT surfaces the same "ORDER BY (...)" the BE
-        // write applies (getWriteSortColumns), keeping EXPLAIN and SHOW CREATE TABLE consistent.
+        // Display the table's declared default order, which is preserved even when this write is unsorted.
         String sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(session, tableHandle));
         if (!sortClause.isEmpty()) {
             output.append(prefix).append("  ").append(sortClause).append("\n");
@@ -477,10 +519,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     /**
      * Declares the table's write-side sort columns (a {@code WRITE ORDERED BY} sort order) so the engine
-     * can build the {@code TSortInfo} from the bound sink output. Ports legacy
-     * {@code IcebergTableSink.bindDataSink}'s sort-order loop: only identity sort fields contribute, each
-     * mapped from its iceberg field id to the column's position in the table schema (1:1 with the sink
-     * output). An unsorted table yields an empty list (no sort).
+     * can build the {@code TSortInfo} from the bound sink output. Only complete orders consisting of
+     * top-level identity fields are executable. Other orders return null to select an unsorted writer.
      */
     @Override
     public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
@@ -496,18 +536,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 IcebergStatementScope.activeWriteSchema(
                         session, handle.getDbName(), handle.getTableName());
         Table table = active.isPresent() ? null : resolveTable(session, handle);
-        SortOrder sortOrder = active.isPresent()
-                ? active.get().getSortOrder() : table.sortOrder();
+        Schema schema = active.isPresent() ? active.get().getSchema() : table.schema();
+        SortOrder sortOrder = IcebergWriteSortOrder.supportedOrder(schema,
+                active.isPresent() ? active.get().getSortOrder() : table.sortOrder());
         if (!sortOrder.isSorted()) {
-            // null == "no write sort order" (legacy gates setSortInfo on isSorted()). A sorted table
-            // returns a (possibly empty) list so the engine still emits a TSortInfo, matching legacy's
-            // unconditional setSortInfo inside the isSorted() branch even when no identity column resolves.
             return null;
         }
         Map<Integer, Integer> positionsByFieldId = new HashMap<>();
         if (boundTargetColumns.isEmpty()) {
-            List<NestedField> currentColumns = active.isPresent()
-                    ? active.get().getSchema().columns() : table.schema().columns();
+            List<NestedField> currentColumns = schema.columns();
             for (int i = 0; i < currentColumns.size(); i++) {
                 positionsByFieldId.put(currentColumns.get(i).fieldId(), i);
             }
@@ -518,17 +555,16 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
         List<ConnectorWriteSortColumn> result = new ArrayList<>();
         for (SortField sortField : sortOrder.fields()) {
-            if (!sortField.transform().isIdentity()) {
-                continue;
-            }
             Integer position = positionsByFieldId.get(sortField.sourceId());
-            if (position != null) {
-                // Resolve against the bound field id, never a newly refreshed live ordinal; otherwise
-                // schema reorder can sort one output expression using another column's ordering contract.
-                result.add(new ConnectorWriteSortColumn(position,
-                        sortField.direction() == SortDirection.ASC,
-                        sortField.nullOrder() == NullOrder.NULLS_FIRST));
+            if (position == null) {
+                throw new DorisConnectorException("Iceberg sort field " + sortField.sourceId()
+                        + " is missing from the bound write columns for " + handle.getDbName()
+                        + "." + handle.getTableName());
             }
+            // Resolve against the bound field ID so a schema reorder cannot change the sorting expression.
+            result.add(new ConnectorWriteSortColumn(position,
+                    sortField.direction() == SortDirection.ASC,
+                    sortField.nullOrder() == NullOrder.NULLS_FIRST));
         }
         return result;
     }
@@ -829,13 +865,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle,
             IcebergWriteSchemaContext schemaContext) {
-        Map<String, String> spec = handle.getStaticPartitionSpec();
-        Map<String, String> normalized = spec;
-        if (!handle.getStaticPartitionNullKeys().isEmpty()) {
-            // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
-            normalized = new HashMap<>(spec);
-            normalized.replaceAll((key, value) ->
-                    handle.getStaticPartitionNullKeys().contains(key) ? null : value);
+        // Use the values cast to the target types for both the overwrite filter and the sink.
+        // The cast rounds a local timestamp before it applies the time zone rule. In New York,
+        // 2021-03-14 02:59:59.9999996 rounds to 03:00:00, or 07:00:00 UTC, at scale 6.
+        Map<String, String> normalized = new HashMap<>(handle.getCastStaticPartitionSpec());
+        // The cast values exclude SQL NULL keys. Restore them before the field-name conversion.
+        for (String key : handle.getStaticPartitionNullKeys()) {
+            normalized.put(key, null);
         }
         if (schemaContext != null) {
             normalized = IcebergPartitionUtils.toPartitionFieldKeys(normalized, schemaContext.getSchema(),
@@ -871,7 +907,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Sort info: the engine builds the TSortInfo from the connector-declared write-sort columns
         // (getWriteSortColumns) and threads it back on the handle; the connector stamps it verbatim.
-        if (handle.getSortInfo() != null) {
+        if (IcebergWriteSortOrder.fileSortOrder(schemaContext.getSchema(), schemaContext.getSortOrder(),
+                handle.getSortInfo()).isSorted()) {
             tSink.setSortInfo(handle.getSortInfo());
         }
 
@@ -921,19 +958,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * All other fields are inherited unchanged from the INSERT path.
      */
     private TIcebergTableSink buildRewriteSink(Table table, IcebergTableHandle tableHandle,
-            ConnectorWriteHandle handle) {
+            ConnectorWriteHandle handle, IcebergWriteSchemaContext rewriteSchemaContext) {
         // A compaction REWRITE atomically replaces a file set; it is never a user INSERT OVERWRITE, and the
         // BE writer does not accept the REWRITE write-type together with the overwrite flag.
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
-        IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
-                table, tableHandle.getTableName(), Optional.empty(),
-                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
-        // REWRITE resolves its schema after beginWrite, so its Variant check and rolling-upgrade fence must run
-        // here against the same schema and partition spec that the compaction sink will actually use.
-        validateVariantWrite(handle, rewriteSchemaContext);
-        validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
         TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
@@ -1029,13 +1059,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             tSink.setPartitionSpecId(partitionSpec.specId());
         }
 
-        // Sort fields: identity sort-order fields whose source id is a base column, carrying the iceberg
-        // source field id directly (BE merge writer field 6) — distinct from the INSERT path's sort_info(16).
-        // A sorted table with no resolving identity column still emits an (empty) sort_fields list (legacy
-        // sets it unconditionally inside the isSorted() branch).
-        SortOrder sortOrder = schemaContext.getSortOrder();
+        SortOrder sortOrder = IcebergWriteSortOrder.supportedOrder(
+                schemaContext.getSchema(), schemaContext.getSortOrder());
         if (sortOrder.isSorted()) {
-            tSink.setSortFields(buildMergeSortFields(schemaContext.getSchema(), sortOrder));
+            tSink.setSortFields(buildMergeSortFields(sortOrder));
         }
 
         tSink.setFileFormat(toTFileFormatType(schemaContext.getFileFormat()));
@@ -1085,19 +1112,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         return sets;
     }
 
-    private static List<TSortField> buildMergeSortFields(Schema schema, SortOrder sortOrder) {
-        Set<Integer> baseColumnFieldIds = new HashSet<>();
-        for (NestedField column : schema.columns()) {
-            baseColumnFieldIds.add(column.fieldId());
-        }
+    private static List<TSortField> buildMergeSortFields(SortOrder sortOrder) {
         List<TSortField> sortFields = new ArrayList<>();
         for (SortField sortField : sortOrder.fields()) {
-            if (!sortField.transform().isIdentity()) {
-                continue;
-            }
-            if (!baseColumnFieldIds.contains(sortField.sourceId())) {
-                continue;
-            }
             TSortField tSortField = new TSortField();
             tSortField.setSourceColumnId(sortField.sourceId());
             tSortField.setAscending(sortField.direction() == SortDirection.ASC);
@@ -1221,12 +1238,16 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                         + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
             }
         };
-        return resourceTracker == null
-                ? IcebergStatementScope.sharedWritableTable(
-                        session, handle.getDbName(), handle.getTableName(), loader)
-                : IcebergStatementScope.sharedTrackedWritableTable(
-                        session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
-                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
+        try {
+            return resourceTracker == null
+                    ? IcebergStatementScope.sharedWritableTable(
+                            session, handle.getDbName(), handle.getTableName(), loader)
+                    : IcebergStatementScope.sharedTrackedWritableTable(
+                            session, handle.getDbName(), handle.getTableName(), resourceTracker, loader,
+                            table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor())).table();
+        } catch (RuntimeException failure) {
+            throw IcebergExceptionUtils.wrapTableAbsenceFailure(handle, failure);
+        }
     }
 
     private IcebergWriteSchemaContext resolveWriteSchema(ConnectorSession session,

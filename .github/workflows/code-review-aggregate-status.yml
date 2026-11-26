@@ -26,7 +26,10 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.workflow_sha || github.sha }}
+          # PR target events already provide a trusted default-branch ref/SHA.
+          # Passing that SHA explicitly after merge trips checkout's fork guard
+          # when it equals the PR merge commit. Other callers stay SHA-pinned.
+          ref: ${{ github.event_name != 'pull_request_target' && (github.workflow_sha || github.sha) || '' }}
           persist-credentials: false
           path: .review-api-source
           sparse-checkout: .github/scripts/review_github_api.py
@@ -65,6 +68,7 @@ jobs:
       - name: Resolve review status across open PR contexts
         id: resolution
         env:
+          DORIS_REVIEW_APP_BOT: ${{ vars.DORIS_REVIEW_APP_BOT }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ inputs.head_sha }}
           REPO: ${{ github.repository }}
@@ -87,10 +91,12 @@ jobs:
           python3 .github/scripts/resolve_code_review_status.py \
             --pulls-file "$pulls" \
             --statuses-file "$statuses" \
+            --repository "$REPO" --github-api-helper "$REVIEW_GH_HELPER" --repo-url "$GITHUB_SERVER_URL/$REPO" \
             --head-sha "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Publish aggregate code-review status
         env:
+          REVIEW_URL: ${{ steps.resolution.outputs.target_url }}
           DESCRIPTION: ${{ steps.resolution.outputs.description }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ inputs.head_sha }}
@@ -102,7 +108,7 @@ jobs:
             -f state="$STATE" \
             -f context='code-review' \
             -f description="$DESCRIPTION" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f target_url="${REVIEW_URL:-$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID}"
 
       - name: Preserve GitHub API failure diagnostics
         if: always()

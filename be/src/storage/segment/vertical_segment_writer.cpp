@@ -59,6 +59,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
@@ -133,6 +134,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
         meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
+        if (!column.is_extracted_column() && _tablet_schema->variant_escape_dots_in_keys()) {
+            meta->set_variant_path_encoding(1);
+        }
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
@@ -183,6 +187,13 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
         tablet_schema->skip_write_index_on_load()) {
+        skip_inverted_index = true;
+    }
+    // Root VARIANT has only values indexes. RESTORE or RECOVER can carry their metadata
+    // into a legacy partition, where only the ordinary subpath indexes are written.
+    if (column.is_variant_type() && !column.is_extracted_column() &&
+        !variant_util::supports_values_index_format(
+                tablet_schema->get_inverted_index_storage_format())) {
         skip_inverted_index = true;
     }
     // Let SNII select the direct-load PRX zstd level.

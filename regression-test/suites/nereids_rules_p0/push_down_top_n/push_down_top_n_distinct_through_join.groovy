@@ -52,8 +52,10 @@ suite("push_down_top_n_distinct_through_join") {
             (7, 7, 'Test');
     """
 
+    // Keep this TopN rewrite check independent of the bucket-shuffle alternative, which can
+    // eliminate the local aggregate above the join under the unified coordinator.
     qt_push_down_topn_through_join """
-        explain shape plan select distinct * from (select t1.id from table_join t1 left join table_join t2 on t1.id = t2.id) t order by id limit 10;
+        explain shape plan select /*+ SET_VAR(enable_bucket_shuffle_join=false) */ distinct * from (select t1.id from table_join t1 left join table_join t2 on t1.id = t2.id) t order by id limit 10;
     """
 
     qt_push_down_topn_through_join_data """

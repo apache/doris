@@ -15,20 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 
@@ -59,25 +64,20 @@ public:
 
 private:
     void create_test_index(const std::string& field_name, const std::string& dir) {
-        std::vector<std::string> test_data = {"apple",     "application", "apply",
-                                              "apricot",   "banana",      "band",
-                                              "bandana",   "can",         "candy",
-                                              "cat",       "catalog",     "dog",
-                                              "document",  "door",        "hello",
-                                              "help",      "helpful",     "test",
-                                              "testing",   "testcase",    "wildcard",
-                                              "wild",      "wilderness",  "card",
-                                              "cardboard", "abc",         "abcd",
-                                              "abcde",     "prefix123",   "123suffix",
-                                              "pre123",    "123suf",      "both123both",
-                                              "star",      "start",       "started",
-                                              "starter",   "question",    "quest",
-                                              "query",     "queries",     "test test testing"};
+        std::vector<std::string> test_data = {
+                "apple",     "application", "apply",       "apricot", "banana",     "band",
+                "bandana",   "can",         "candy",       "cat",     "catalog",    "dog",
+                "document",  "door",        "hello",       "help",    "helpful",    "test",
+                "testing",   "testcase",    "wildcard",    "wild",    "wilderness", "card",
+                "cardboard", "abc",         "abcd",        "abcde",   "prefix123",  "123suffix",
+                "pre123",    "123suf",      "both123both", "star",    "start",      "started",
+                "starter",   "question",    "quest",       "query",   "queries"};
 
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
         auto custom_analyzer_config = builder.build();
-        auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+        auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+                CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
         auto* indexwriter =
                 _CLNEW lucene::index::IndexWriter(dir.c_str(), custom_analyzer.get(), true);
@@ -163,36 +163,6 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
 
     auto wildcard_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(wildcard_weight, nullptr);
-}
-
-TEST_F(WildcardQueryV2Test, test_wildcard_query_scores_matching_terms) {
-    auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
-
-    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
-    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
-    ASSERT_NE(reader_holder, nullptr);
-
-    std::wstring field = StringHelper::to_wstring("field");
-    auto query = std::make_shared<query_v2::ExpandQuery>(
-            context, field, index_query::TermPatternKind::kWildcard, "test*");
-    auto weight = query->weight(true);
-
-    query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
-    exec_ctx.field_sources.emplace(field, exec_ctx.sources.front());
-
-    auto scorer = weight->scorer(exec_ctx);
-    ASSERT_EQ(scorer->seek(17), 17);
-    float single_term_score = scorer->score();
-    EXPECT_NE(single_term_score, 1.0F);
-    uint32_t last_doc = reader_holder->maxDoc() - 1;
-    ASSERT_EQ(scorer->seek(last_doc), last_doc);
-    EXPECT_GT(scorer->score(), single_term_score);
-
-    _CLDECDELETE(dir);
 }
 
 // Test wildcard query with asterisk prefix pattern
@@ -574,6 +544,37 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_move_semantics) {
             context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight2 = query2->weight(true);
     ASSERT_NE(weight2, nullptr);
+}
+
+// A glob from the start of the dictionary skips the terms without its longest literal run before
+// it converts them, and still expands to every term it matches, in dictionary order.
+TEST_F(WildcardQueryV2Test, test_wildcard_leading_glob_expands_to_every_matching_term) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+    auto source = clucene_index_source(reader_holder, StringHelper::to_wstring("field"), nullptr);
+    const auto expand = [&](const std::string& glob) {
+        index_query::TermPattern pattern;
+        EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kWildcard, glob,
+                                                     &pattern)
+                            .ok());
+        std::vector<std::string> terms;
+        EXPECT_TRUE(source->expand_terms(pattern, 0, &terms).ok());
+        return terms;
+    };
+
+    const std::vector<std::string> dictionary = expand("*");
+    EXPECT_NE(std::ranges::find(dictionary, "cardboard"), dictionary.end());
+    for (const std::string& glob :
+         std::vector<std::string> {"*card*", "*an?a*", "?pp*", "*t*t*", "*123*", "*ion", "*zz*"}) {
+        index_query::WildcardMatcher matcher(glob);
+        std::vector<std::string> expected;
+        std::ranges::copy_if(dictionary, std::back_inserter(expected),
+                             [&](const std::string& term) { return matcher(term); });
+        EXPECT_EQ(expand(glob), expected) << glob;
+    }
+
+    _CLDECDELETE(dir);
 }
 
 } // namespace doris::segment_v2

@@ -77,6 +77,8 @@ class TimeStampNsLiteralTest {
         TimeStampNsLiteral withTimeZone = new TimeStampNsLiteral(
                 "2024-01-02 03:04:05.123456789+00:00");
         Assertions.assertEquals(123456789, withTimeZone.getNanoSecond());
+        Assertions.assertThrows(Exception.class,
+                () -> new TimeStampNsLiteral("2024-01-02 03:04:05.123456789+08:01"));
 
         TimeStampNsLiteral rounded = new TimeStampNsLiteral(
                 "2024-01-02 03:04:05.9999999995");
@@ -107,7 +109,7 @@ class TimeStampNsLiteralTest {
         context.getSessionVariable().setTimeZone("+00:00");
         context.setThreadLocalInfo();
         try {
-            Assertions.assertEquals("2024-03-10 07:00:00.123456789",
+            Assertions.assertEquals("2024-03-10 07:30:00.123456789",
                     new TimeStampNsLiteral(
                             "2024-03-10 02:30:00.123456789America/New_York").getStringValue());
         } finally {
@@ -218,7 +220,7 @@ class TimeStampNsLiteralTest {
         try {
             TimeStampNsLiteral gap = new TimeStampNsLiteral(
                     "2024-03-10 02:30:00.123456789");
-            Assertions.assertEquals("2024-03-10 07:00:00.123457+00:00",
+            Assertions.assertEquals("2024-03-10 07:30:00.123457+00:00",
                     ((Literal) gap.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
 
             TimeStampNsLiteral overlap = new TimeStampNsLiteral(

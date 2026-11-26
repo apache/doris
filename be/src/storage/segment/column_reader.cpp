@@ -52,6 +52,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -75,6 +76,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h" // for PagePointer
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -557,6 +559,23 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
 
 ColumnReader::~ColumnReader() = default;
 
+Status ColumnReader::healthy_status() const {
+    RETURN_IF_ERROR(_healthy_status.status());
+    // Child ownership is fixed before publication. Array/Map metadata can have
+    // an unused nullable-helper slot, so only inspect populated child slots.
+    for (const auto& reader : _sub_readers) {
+        if (reader != nullptr) {
+            RETURN_IF_ERROR(reader->healthy_status());
+        }
+    }
+    // Index readers, unlike column children, are added lazily under this lock.
+    std::shared_lock lock(_load_index_lock);
+    for (const auto& [id, reader] : _index_readers) {
+        RETURN_IF_ERROR(reader->healthy_status());
+    }
+    return Status::OK();
+}
+
 int64_t ColumnReader::get_metadata_size() const {
     return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
@@ -680,7 +699,8 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec,
+                               io::ReadAheadRangeBuffer* read_ahead) const {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
@@ -693,6 +713,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.read_ahead = read_ahead;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -884,14 +905,19 @@ Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memor
     if (!_ordinal_index) {
         return Status::InternalError("ordinal_index not inited");
     }
-    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats, &iter_opts.io_ctx);
+    return _load_with_health_check([&] {
+        return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                    &iter_opts.io_ctx);
+    });
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
-                                     &iter_opts.io_ctx);
+        return _load_with_health_check([&] {
+            return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                         &iter_opts.io_ctx);
+        });
     }
     return Status::OK();
 }
@@ -970,7 +996,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
         // Mirrors the writer-side split in IndexColumnWriter::create: text is
         // served by the SPIMI reader, numerics by the SNII-native BKD.
-        if (is_string_type(type)) {
+        if (is_string_type(type) || index_meta->is_variant_values_index()) {
             auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
                                                : InvertedIndexReaderType::STRING_TYPE;
             index_reader = SniiIndexReader::create_shared(
@@ -983,6 +1009,11 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
                     "SNII inverted index storage format does not support index type {}", type);
         }
         _index_readers[index_meta->index_id()] = index_reader;
+        return Status::OK();
+    }
+
+    // Only SNII segments store values indexes.
+    if (index_meta->is_variant_values_index()) {
         return Status::OK();
     }
 
@@ -1034,8 +1065,10 @@ bool ColumnReader::has_bloom_filter_index(bool ngram) const {
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts) {
     if (_bloom_filter_index != nullptr) {
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
-                                         &iter_opts.io_ctx);
+        return _load_with_health_check([&] {
+            return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                             &iter_opts.io_ctx);
+        });
     }
     return Status::OK();
 }
@@ -1054,8 +1087,9 @@ Status ColumnReader::get_ordinal_index_reader(OrdinalIndexReader*& reader,
                                               OlapReaderStatistics* index_load_stats) {
     CHECK(_ordinal_index) << fmt::format("ordinal index is null for column reader of type {}",
                                          std::to_string(int(_meta_type)));
-    RETURN_IF_ERROR(
-            _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats));
+    RETURN_IF_ERROR(_load_with_health_check([&] {
+        return _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats);
+    }));
     reader = _ordinal_index.get();
     return Status::OK();
 }
@@ -1065,16 +1099,24 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                  const StorageReadOptions* opt, bool enable_read_ahead) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
         if (is_string_type(_meta_type)) {
-            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadStringColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            }
         } else {
-            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadFileColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            }
         }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
@@ -2817,12 +2859,12 @@ Status ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
     if (_read_requirement == ReadRequirement::SKIP) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
-    _opts = opts;
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -3248,18 +3290,56 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    const auto context = _before_page_read(iter.page_index());
+    Defer finish_page_read {[&] { _after_page_read(iter.page_index(), iter.page()); }};
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    RETURN_IF_ERROR(
-            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
-    // parse data page
-    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
-                                 decoder_opts);
+    auto read_page = [&](const ColumnIteratorOptions& options, io::ReadAheadRangeBuffer* source) {
+        return _reader->read_page(options, iter.page(), &handle, &page_body, &footer,
+                                  _compress_codec, source);
+    };
+    auto retry_original = [&](const Status& status) {
+        if (!context.retry_on_error) {
+            return status;
+        }
+        LOG(WARNING) << "failed to decode page, retrying original reader, file="
+                     << _opts.file_reader->path().native() << ", page_offset=" << iter.page().offset
+                     << ", page_size=" << iter.page().size << ", page_index=" << iter.page_index()
+                     << ", error=" << status;
+        if (auto* cache = StoragePageCache::instance(); cache != nullptr) {
+            StoragePageCache::CacheKey key(_opts.file_reader->path().native(),
+                                           _opts.file_reader->size(), iter.page().offset);
+            cache->erase(key, DATA_PAGE);
+        }
+        handle = PageHandle {};
+        page_body = Slice {};
+        footer.Clear();
+        ColumnIteratorOptions fallback_options = _opts;
+        fallback_options.use_page_cache = false;
+        return read_page(fallback_options, nullptr);
+    };
+
+    auto st = read_page(_opts, context.buffer);
+    if (!st.ok()) {
+        st = retry_original(st);
+    }
+    RETURN_IF_ERROR(st);
+
+    st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                            _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                            decoder_opts);
+    if (!st.ok() && context.retry_on_error) {
+        st = retry_original(st);
+        if (st.ok()) {
+            st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                    _reader->encoding_info(), iter.page(), iter.page_index(),
+                                    &_page, decoder_opts);
+        }
+    }
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size

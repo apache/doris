@@ -277,11 +277,27 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int32_t);
         for (auto value_i = start; value_i < end; ++value_i) {
+            // A null slot has no calendar value and its payload may be outside the DATE range.
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back(DateV2Value<DateV2ValueType>());
+                continue;
+            }
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int32_t>(raw_byte_ptr);
 
+            // Arrow allows any int32 day, Doris DATE only day numbers 1..DATE_MAX_DAYNR
+            // (0000-01-01..9999-12-31). For example, 2932897 is 10000-01-01: its day number
+            // 3652425 makes get_date_from_daynr() fail, and ignoring that result used to append
+            // a non-null 0000-00-00. Add in 64 bits so INT32_MAX cannot overflow, and reject
+            // the value like the DATE64 branch above.
+            const int64_t daynr = static_cast<int64_t>(date_value) + date_threshold;
             DateV2Value<DateV2ValueType> v;
-            v.get_date_from_daynr(date_value + date_threshold);
+            if (daynr <= 0 || daynr > DATE_MAX_DAYNR ||
+                !v.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+                return Status::InvalidArgument(
+                        "Arrow Date32 value is outside the Doris DATE range: row={}, days={}",
+                        value_i, date_value);
+            }
             col_data.emplace_back(v);
         }
     } else {

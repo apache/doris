@@ -17,25 +17,25 @@
 
 #pragma once
 
-#include <CLucene.h>
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
-#include <array>
-#include <cassert>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <unordered_map>
 #include <vector>
-
-#include "CLucene/_SharedHeader.h"
-#include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
-#include "storage/index/inverted/analysis/analyzer/ik/dic/Hit.h"
 
 namespace doris::segment_v2 {
 
-class DictSegment : public std::enable_shared_from_this<DictSegment> {
+// The trie a dictionary file is loaded into, one segment per character of its words. It only
+// exists while the dictionary loads: FlatDict copies it into flat arrays, which the analysis
+// reads, and the tree is freed then.
+class DictSegment {
 private:
     static constexpr size_t ARRAY_LENGTH_LIMIT = 3;
+    // The segments that exist, for the test that a loaded Dictionary keeps none.
+    static inline std::atomic<size_t> live_count_ {0};
+
     int32_t key_char_;
     std::vector<std::unique_ptr<DictSegment>> children_array_;
     phmap::flat_hash_map<int32_t, std::unique_ptr<DictSegment>> children_map_;
@@ -46,18 +46,33 @@ private:
 
 public:
     explicit DictSegment(int32_t key_char);
-    ~DictSegment() = default;
+    ~DictSegment();
 
     DictSegment(const DictSegment&) = delete;
     DictSegment& operator=(const DictSegment&) = delete;
-    DictSegment(DictSegment&&) noexcept = default;
-    DictSegment& operator=(DictSegment&&) noexcept = default;
 
+    static size_t liveCount() { return live_count_.load(std::memory_order_relaxed); }
+
+    int32_t keyChar() const { return key_char_; }
+    bool isWordEnd() const { return is_word_end_; }
     bool hasNextNode() const;
-    Hit match(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-              size_t length);
-    void match(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
-               size_t length, Hit& search_hit);
+    size_t childCount() const { return store_size_; }
+    // The child for `key_char`, or nullptr.
+    const DictSegment* findChild(int32_t key_char) const;
+    // Calls `visitor` with each child, in no particular order.
+    template <typename Visitor>
+    void forEachChild(Visitor&& visitor) const {
+        if (store_size_ <= ARRAY_LENGTH_LIMIT) {
+            for (size_t i = 0; i < store_size_; ++i) {
+                visitor(*children_array_[i]);
+            }
+        } else {
+            for (const auto& [key, child] : children_map_) {
+                visitor(*child);
+            }
+        }
+    }
+
     void fillSegment(const char* text);
 };
 

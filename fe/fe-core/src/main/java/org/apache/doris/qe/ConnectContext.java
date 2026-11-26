@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
@@ -82,6 +83,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -460,6 +462,39 @@ public class ConnectContext {
         init();
     }
 
+    /**
+     * Isolate a read-only internal query from the client protocol and statement state while
+     * retaining the caller's session identity, name resolution and variable values.
+     * The caller still owns the session and its cleanup.
+     */
+    public ConnectContext createInternalQueryContext() {
+        return new ConnectContext(this);
+    }
+
+    private ConnectContext(ConnectContext parent) {
+        protocolAdapter = new MysqlProtocolAdapter(new DummyMysqlChannel());
+        command = MysqlCommand.COM_QUERY;
+        state = new QueryState();
+        sessionVariable = VariableMgr.cloneSessionVariable(parent.sessionVariable);
+        userVars.putAll(parent.userVars);
+        env = parent.env;
+        currentUserIdentity = parent.currentUserIdentity;
+        authenticatedPrincipal = parent.authenticatedPrincipal;
+        authenticatedRoles = parent.authenticatedRoles;
+        sessionContext = parent.sessionContext;
+        isTempUser = parent.isTempUser;
+        remoteIP = parent.remoteIP;
+        connectionId = parent.connectionId;
+        startTime = parent.startTime;
+        startTimeInstant = parent.startTimeInstant;
+        lastQueryId = parent.lastQueryId;
+        computeGroup = parent.computeGroup;
+        cloudCluster = parent.cloudCluster;
+        restoreNameSpaceContext(parent.getNameSpaceContext());
+        // Borrow the caller's temporary-table namespace without registering a new session.
+        sessionId = parent.sessionId;
+    }
+
     /** The context of a MySQL client connection. */
     public static ConnectContext forMysql(StreamConnection connection) {
         return new ConnectContext(connection);
@@ -725,6 +760,33 @@ public class ConnectContext {
         return currentUserIdentity;
     }
 
+    /** Snapshot the authenticated session for FE/BE metadata and forwarded statement RPCs. */
+    public TUserIdentity getCurrentUserIdentityForRpc() {
+        return currentUserIdentity.toThrift(getAuthenticatedRolesFor(currentUserIdentity));
+    }
+
+    /** Merge forwarded and local session roles only for the account they belong to. */
+    public Set<String> getAuthenticatedRolesFor(UserIdentity identity) {
+        Set<String> roles = identity.getAuthenticatedRoles();
+        if (!identity.equals(currentUserIdentity) || authenticatedRoles.isEmpty()) {
+            return roles;
+        }
+        if (roles.isEmpty()) {
+            return authenticatedRoles;
+        }
+        Set<String> merged = new HashSet<>(roles);
+        merged.addAll(authenticatedRoles);
+        return merged;
+    }
+
+    /** Restore session roles separately so retained account identities never inherit request authority. */
+    public void setCurrentUserIdentityFromRpc(TUserIdentity identity) {
+        setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithRoles(
+                identity.getUsername(), identity.getHost(), identity.is_domain, Collections.emptySet()));
+        setAuthenticatedRoles(identity.isSetAuthenticatedRoles()
+                ? identity.getAuthenticatedRoles() : Collections.emptySet());
+    }
+
     public Principal getAuthenticatedPrincipal() {
         return authenticatedPrincipal;
     }
@@ -874,11 +936,11 @@ public class ConnectContext {
     }
 
     // Arrow Flight SQL only.
-    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+    public void addPreparedQuery(String preparedStatementId, PreparedQuery preparedQuery) {
         FlightProtocolAdapter.of(this).addPreparedQuery(preparedStatementId, preparedQuery);
     }
 
-    public String getPreparedQuery(String preparedStatementId) {
+    public PreparedQuery getPreparedQuery(String preparedStatementId) {
         return FlightProtocolAdapter.of(this).getPreparedQuery(preparedStatementId);
     }
 
@@ -1052,11 +1114,13 @@ public class ConnectContext {
     }
 
     // A request that failed after deferring its query: the query is cancelled on the backends, then
-    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
-    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors). Returns the ids of the
+    // queries it cancelled.
+    public List<TUniqueId> cancelFlightSqlDeferredExecutors(Status cancelReason) {
         if (protocolAdapter instanceof FlightProtocolAdapter) {
-            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+            return ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
         }
+        return Collections.emptyList();
     }
 
     /**
@@ -1558,6 +1622,11 @@ public class ConnectContext {
     }
 
     public void setCloudCluster(String cluster) {
+        // A compute group only exists in cloud mode. Swallowing the call here instead of making
+        // every caller wrap it in `if (Config.isCloudMode())` keeps that check in one place.
+        if (!Config.isCloudMode()) {
+            return;
+        }
         this.getSessionVariable().setCloudCluster(cluster);
     }
 

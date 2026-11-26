@@ -58,9 +58,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -420,6 +422,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum0(Sum0 sum0, C context) {
         return visitAggregateFunction(sum0, context);
+    }
+
+    default R visitMaxTopK(MaxTopK maxTopK, C context) {
+        return visitAggregateFunction(maxTopK, context);
+    }
+
+    default R visitMinTopK(MinTopK minTopK, C context) {
+        return visitAggregateFunction(minTopK, context);
     }
 
     default R visitTopN(TopN topN, C context) {

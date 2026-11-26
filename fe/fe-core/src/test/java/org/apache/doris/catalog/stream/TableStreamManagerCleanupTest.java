@@ -20,6 +20,8 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -32,6 +34,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.TableStreamCleanupInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -138,7 +141,7 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         CountDownLatch allowUpdate = new CountDownLatch(1);
         CountDownLatch updateDone = new CountDownLatch(1);
         OlapTableStreamUpdate streamUpdate = new OlapTableStreamUpdate(
-                Collections.emptyMap(), Collections.singletonMap(removedPartitionId, 44L));
+                Map.of(removedPartitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(44L))));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> update = executor.submit(() -> {
             Assertions.assertTrue(allowUpdate.await(10, TimeUnit.SECONDS));
@@ -174,8 +177,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
 
-        Map<Long, Long> leaderOffsets = new HashMap<>(
-                Deencapsulation.getField(context.stream, "partitionOffset"));
+        String leaderStates = GsonUtils.GSON.toJson(
+                Deencapsulation.<Map<Long, PartitionStreamState>>getField(context.stream, "partitionStates"));
         setPartitionState(context.stream, keptPartitionId, removedPartitionId);
         for (Object journal : journalOrder) {
             if (journal instanceof OlapTableStreamUpdate) {
@@ -186,8 +189,9 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
-        Assertions.assertEquals(leaderOffsets, replayedOffsets);
+        Map<Long, PartitionStreamState> replayedStates =
+                Deencapsulation.getField(context.stream, "partitionStates");
+        Assertions.assertEquals(leaderStates, GsonUtils.GSON.toJson(replayedStates));
     }
 
     @Test
@@ -249,8 +253,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> leaderOffsets = new HashMap<>(
-                Deencapsulation.getField(context.stream, "partitionOffset"));
+        String leaderStates = GsonUtils.GSON.toJson(
+                Deencapsulation.<Map<Long, PartitionStreamState>>getField(context.stream, "partitionStates"));
         setPartitionState(context.stream, keptPartitionId, removedPartitionId);
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
         for (Object journal : journalOrder) {
@@ -266,9 +270,10 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
-        Assertions.assertEquals(leaderOffsets, replayedOffsets);
-        Assertions.assertTrue(replayedOffsets.containsKey(removedPartitionId));
+        Map<Long, PartitionStreamState> replayedStates =
+                Deencapsulation.getField(context.stream, "partitionStates");
+        Assertions.assertEquals(leaderStates, GsonUtils.GSON.toJson(replayedStates));
+        Assertions.assertTrue(replayedStates.containsKey(removedPartitionId));
     }
 
     @Test
@@ -366,6 +371,59 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Assertions.assertEquals(context.stream.getId(), identity.getStreamId());
     }
 
+    @Test
+    public void testLocalBaselineCaptureProtectsSourcePartition() throws Exception {
+        StreamContext context = createStreamContext("baseline_source_lock");
+        OlapTable source = Mockito.spy(context.baseTable);
+        OlapTableStream stream = Mockito.spy(context.stream);
+        Mockito.doReturn(source).when(stream).getBaseTableNullable();
+        MonitoredReentrantReadWriteLock sourceLock = Deencapsulation.getField(source, "rwLock");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(sourceLock.getReadHoldCount() > 0,
+                    "partition lookup and capture must hold the source metadata lock");
+            return invocation.callRealMethod();
+        }).when(source).getPartition(Mockito.anyLong());
+        long partitionId = context.baseTable.getPartition("p1").getId();
+        updatePartitionOffset(stream, partitionId, 100L, 10L);
+        Assertions.assertEquals(100L, stream.getPartitionState(partitionId).getBaselineOffset());
+    }
+
+    @Test
+    public void testPendingCountsSkipSourceDdlAndCommitStillPublishesOffset() throws Exception {
+        StreamContext context = createStreamContext("baseline_source_ddl");
+        long partitionId = context.baseTable.getPartition("p2").getId();
+        CountDownLatch ddlLocked = new CountDownLatch(1);
+        CountDownLatch finishDdl = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Future<?> ddl = executor.submit(() -> {
+            context.baseTable.writeLock();
+            try {
+                ddlLocked.countDown();
+                Assertions.assertTrue(finishDdl.await(10, TimeUnit.SECONDS));
+                context.baseTable.dropPartitionAndReserveTablet("p2");
+            } finally {
+                context.baseTable.writeUnlock();
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(ddlLocked.await(5, TimeUnit.SECONDS));
+            Future<?> consumption = executor.submit(() -> updatePartitionOffset(
+                    context.stream, partitionId, 100L, 10L));
+            consumption.get(2, TimeUnit.SECONDS);
+            PartitionStreamState state = context.stream.getPartitionState(partitionId);
+            Assertions.assertEquals(100L, state.getOffset());
+            Assertions.assertEquals(-1L, state.getBaseRowCount());
+            Assertions.assertEquals(-1L, state.getChangelogRowCount());
+        } finally {
+            finishDdl.countDown();
+            executor.shutdown();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+        ddl.get();
+        Assertions.assertNull(context.baseTable.getPartition(partitionId));
+    }
+
     private StreamContext createStreamContext(String suffix) throws Exception {
         String tableName = "tbl_" + suffix;
         String streamName = "s_" + suffix;
@@ -389,32 +447,20 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
     }
 
     private void setPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId) {
-        Map<Long, Long> partitionOffset = new HashMap<>();
-        partitionOffset.put(keptPartitionId, 11L);
-        partitionOffset.put(removedPartitionId, 22L);
-        Map<Long, Long> partitionConsumptionTime = new HashMap<>();
-        partitionConsumptionTime.put(keptPartitionId, 111L);
-        partitionConsumptionTime.put(removedPartitionId, 222L);
-        Map<Long, Long> historicalPartitionTSO = new HashMap<>();
-        historicalPartitionTSO.put(keptPartitionId, 1001L);
-        historicalPartitionTSO.put(removedPartitionId, 2002L);
-        Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
-        Deencapsulation.setField(stream, "partitionConsumptionTime", partitionConsumptionTime);
-        Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
+        Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
+        partitionStates.put(keptPartitionId, PartitionStreamState.restored(11L, 111L, 1001L, -1L, -1L));
+        partitionStates.put(removedPartitionId, PartitionStreamState.restored(22L, 222L, 2002L, -1L, -1L));
+        Deencapsulation.setField(stream, "partitionStates", partitionStates);
     }
 
     private void assertPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId,
             boolean removedExpected) {
-        Map<Long, Long> partitionOffset = Deencapsulation.getField(stream, "partitionOffset");
-        Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
-        Map<Long, Long> historicalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
-
-        Assertions.assertTrue(partitionOffset.containsKey(keptPartitionId));
-        Assertions.assertTrue(partitionConsumptionTime.containsKey(keptPartitionId));
-        Assertions.assertTrue(historicalPartitionTSO.containsKey(keptPartitionId));
-        Assertions.assertEquals(!removedExpected, partitionOffset.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, partitionConsumptionTime.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, historicalPartitionTSO.containsKey(removedPartitionId));
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
+        PartitionStreamState kept = partitionStates.get(keptPartitionId);
+        Assertions.assertEquals(11L, kept.getOffset());
+        Assertions.assertEquals(111L, kept.getConsumptionTime());
+        Assertions.assertEquals(1001L, kept.getHistoricalTso());
+        Assertions.assertEquals(!removedExpected, partitionStates.containsKey(removedPartitionId));
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {
@@ -429,8 +475,10 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             OlapTableStream stream, long partitionId, long offset, long commitTimeMs) {
         stream.writeLock();
         try {
-            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(
-                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset)), commitTimeMs);
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Map.of(partitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset))));
+            stream.unprotectedPrepareStreamUpdate(update);
+            stream.unprotectedUpdateStreamUpdate(update, commitTimeMs);
         } finally {
             stream.writeUnlock();
         }

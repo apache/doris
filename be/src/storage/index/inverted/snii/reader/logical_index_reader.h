@@ -62,7 +62,8 @@ class BatchRangeFetcher;
 
 namespace doris::snii::format {
 class NormsPodReader;
-}
+class NullBitmapReader;
+} // namespace doris::snii::format
 
 namespace doris::snii::reader {
 
@@ -244,8 +245,11 @@ public:
     const format::HighDfTerms& high_df_terms() const { return core_.high_df_terms; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
-    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.
-    bool has_norms() const { return core_.section_refs.norms.length != 0; }
+    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions,
+    // either one byte per row or, as sparse norms, one byte per non-NULL row.
+    bool has_norms() const {
+        return core_.section_refs.norms.length != 0 || core_.section_refs.sparse_norms.length != 0;
+    }
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
     // The chunking scheme of a gram-family index, read back from the core metadata this segment
     // carries. It is what the query side compiles a LIKE / REGEXP pattern against, so a pattern
@@ -256,11 +260,12 @@ public:
     }
     io::FileReader* reader() const { return reader_; }
 
-    // Returns a reader over the validated norms section. The first call reads
-    // and validates the section; later calls share the immutable reader-owned
-    // bytes. The full on-disk section is reserved in memory_usage() before this
-    // LogicalIndexReader enters the searcher cache, so lazy loading cannot make
-    // the cache under-report its eventual resident size.
+    // Returns a reader with one norm byte per row. The first call reads and
+    // validates the section, expanding sparse norms with kNullRowNorm on the NULL
+    // rows; later calls share the immutable reader-owned bytes. Those loaded
+    // bytes are reserved in memory_usage() before this LogicalIndexReader enters
+    // the searcher cache, so lazy loading cannot make the cache under-report its
+    // eventual resident size.
     Status open_norms(format::NormsPodReader* out) const;
     // Compaction scans one source norm vector at a time. This charge matches the
     // reader's full cache accounting; release_compaction_norms() drops the loaded
@@ -279,8 +284,22 @@ public:
     Status null_docids_scan_memory(NullDocidsScanMemory* out) const;
     size_t memory_usage() const;
 
+    // Keeps the results of exact lookups in an on-demand dictionary for the queries that share
+    // this reader, so a hot term's next lookup skips the read, zstd and CRC of its DICT block.
+    // The cache is bounded and memory_usage() reserves its whole footprint, so enable it before
+    // the reader is charged and shared. A resident dictionary does not need it.
+    void enable_term_lookup_cache();
+
 private:
     struct NormsCacheState;
+    struct TermLookupCache;
+
+    Status read_dense_norms(std::vector<uint8_t>* bytes, format::NormsPodReader* out) const;
+    Status read_sparse_norms(std::vector<uint8_t>* dense, format::NormsPodReader* out) const;
+    // Reads and validates the null bitmap. *present is false when the index has
+    // no section, which is valid only when it counts no NULL row.
+    Status open_null_bitmap(const NullDocidsDecodeReservation& reserve_decode,
+                            format::NullBitmapReader* out, bool* present) const;
     io::FileReader* reader_ = nullptr;
     format::IndexTier tier_ = format::IndexTier::kT1;
     bool has_positions_ = false;
@@ -320,18 +339,27 @@ private:
                                          const format::DictBlockReader** out) const;
     Status locate_candidate_dict_block(std::string_view term, bool* maybe_present,
                                        uint32_t* ordinal) const;
+    // Groups the candidate terms by DICT block. With `kept_results`, a term whose lookup the term
+    // lookup cache kept is resolved into it and joins no group.
     Status collect_batch_lookup_groups(const std::vector<std::string>& terms,
                                        std::vector<BatchLookupCandidate>* candidates,
-                                       std::vector<BatchLookupGroup>* groups) const;
+                                       std::vector<BatchLookupGroup>* groups,
+                                       std::vector<BatchLookupResult>* kept_results) const;
     static Status resolve_batch_lookup_entries(const std::vector<std::string>& terms,
                                                const std::vector<BatchLookupCandidate>& candidates,
                                                const BatchLookupGroup& group,
                                                const format::DictBlockReader& block_reader,
                                                std::vector<BatchLookupResult>* results);
+    // The term lookup cache: whether `term`'s lookup is kept (copied into *out), and keeping one.
+    bool find_kept_lookup(std::string_view term, BatchLookupResult* out) const;
+    void keep_lookup(std::string_view term, bool found, const format::DictEntry& entry,
+                     uint64_t frq_base, uint64_t prx_base) const;
+    void keep_group_lookups(const BatchLookupState& state, const BatchLookupGroup& group) const;
 
     std::vector<ResidentDictBlock> resident_dict_blocks_;
     std::shared_ptr<NormsCacheState> norms_cache_;
     size_t norms_reserved_charge_ = 0;
+    std::shared_ptr<TermLookupCache> term_lookups_;
 };
 
 } // namespace doris::snii::reader

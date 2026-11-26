@@ -40,7 +40,6 @@
 #include "core/value/timestamptz_value.h"
 #include "exprs/hybrid_set.h"
 #include "format/parquet/parquet_block_split_bloom_filter.h"
-#include "format/parquet/vparquet_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
@@ -318,6 +317,72 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
 
     bool matched = single_column_block_pred.evaluate_and(zone_map_info);
     EXPECT_EQ(matched, expect_match);
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDeleteSign) {
+    const auto zero = Field::create_field<TYPE_TINYINT>(0);
+    const auto one = Field::create_field<TYPE_TINYINT>(1);
+    ComparisonPredicateBase<TYPE_TINYINT, PredicateType::EQ> predicate(0, "delete_sign", zero);
+    segment_v2::ZoneMap zone_map {
+            .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+
+    // A segment containing a tombstone must retain the delete-sign filter.
+    zone_map.max_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.min_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.min_value = Field::create_field<TYPE_TINYINT>(-1);
+    zone_map.max_value = zero;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+
+    zone_map.min_value = zero;
+    zone_map.max_value = zero;
+    zone_map.has_null = true;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.has_not_null = false;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueOpposite) {
+    const auto zero = Field::create_field<TYPE_TINYINT>(0);
+    const auto one = Field::create_field<TYPE_TINYINT>(1);
+    ComparisonPredicateBase<TYPE_TINYINT, PredicateType::EQ> predicate(0, "delete_sign", zero,
+                                                                       true);
+    segment_v2::ZoneMap zone_map {
+            .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+
+    // Keep negated predicates conservative even when the non-negated equality cannot match.
+    zone_map.min_value = one;
+    zone_map.max_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueString) {
+    const auto value = Field::create_field<TYPE_STRING>("constant");
+    ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ> predicate(0, "value", value);
+    segment_v2::ZoneMap zone_map {
+            .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+    zone_map.max_value = Field::create_field<TYPE_STRING>("other");
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDouble) {
+    const auto value = Field::create_field<TYPE_DOUBLE>(1.0);
+    ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> predicate(0, "value", value);
+    segment_v2::ZoneMap zone_map {
+            .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+
+    zone_map.max_value = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> nan_predicate(0, "value",
+                                                                          zone_map.max_value);
+    zone_map.min_value = zone_map.max_value;
+    // Doris treats NaN as equal to NaN, including during row evaluation.
+    EXPECT_TRUE(nan_predicate.is_always_true(zone_map));
 }
 
 // test zonemap index

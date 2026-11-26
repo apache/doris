@@ -29,6 +29,12 @@
 namespace doris::format::hudi {
 
 Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
+    const auto& hudi = options.current_range.table_format_params.hudi_params;
+    // A base file alone cannot represent MOR rows; only the JNI reader merges delta logs.
+    if (!hudi.delta_logs.empty()) {
+        return Status::NotSupported(
+                "Native Hudi reads cannot merge delta logs; use the JNI reader");
+    }
     {
         // Derived schema selection is additive to, not nested around, the common base timers.
         SCOPED_TIMER(_profile.total_timer);
@@ -75,7 +81,9 @@ Status HudiReader::create_file_reader(std::unique_ptr<format::FileReader>* reade
     *reader = std::make_unique<format::parquet::ParquetReader>(
             _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
             _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-            parquet_int96_time_zone(), false, _parquet_profile_cache);
+            parquet_int96_time_zone(), false, _parquet_profile_cache, std::nullopt,
+            _current_task->file_context, _current_task->format_split_id,
+            _current_task->format_split_id_end);
     return Status::OK();
 }
 
@@ -106,8 +114,20 @@ Status HudiHybridReader::prepare_split(const format::SplitReadOptions& options) 
     return _current_split_reader->prepare_split(options);
 }
 
-Status HudiHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
-    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+Status HudiHybridReader::build_physical_splits(const FileScanSplit& source_split,
+                                               std::vector<FileScanSplit>* splits,
+                                               bool* was_split) {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->build_physical_splits(source_split, splits, was_split);
+}
+
+Status HudiHybridReader::refresh_conjuncts(
+        VExprContextSPtrs conjuncts, std::optional<uint64_t> condition_cache_digest,
+        bool all_runtime_filters_applied,
+        std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(
+            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied,
+            predicate_snapshot));
     if (_current_split_reader == nullptr) {
         return Status::OK();
     }
@@ -115,7 +135,9 @@ Status HudiHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
     // The hybrid wrapper owns no physical reader; forward a clone so the active child, rather than
     // only the wrapper snapshot, observes late predicates for the remainder of this split.
-    return _current_split_reader->refresh_conjuncts(std::move(child_conjuncts));
+    return _current_split_reader->refresh_conjuncts(
+            std::move(child_conjuncts), condition_cache_digest, all_runtime_filters_applied,
+            std::move(predicate_snapshot));
 }
 
 Status HudiHybridReader::get_block(Block* block, bool* eos) {
@@ -223,6 +245,7 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
+            .predicate_snapshot = _predicate_snapshot,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
     // runtime default until FileScannerV2 supplies the first positive prediction.

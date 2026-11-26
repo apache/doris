@@ -28,6 +28,50 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
+UniqueId::UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) {}
+UniqueId::UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) {}
+
+UniqueId& UniqueId::operator=(const PUniqueId puid) {
+    hi = puid.hi();
+    lo = puid.lo();
+    return *this;
+}
+
+UniqueId& UniqueId::operator=(const TUniqueId tuid) {
+    hi = tuid.hi;
+    lo = tuid.lo;
+    return *this;
+}
+
+bool UniqueId::operator==(const PUniqueId& rhs) const {
+    return hi == rhs.hi() && lo == rhs.lo();
+}
+bool UniqueId::operator!=(const PUniqueId& rhs) const {
+    return hi != rhs.hi() || lo != rhs.lo();
+}
+
+TUniqueId UniqueId::to_thrift() const {
+    TUniqueId tid;
+    tid.__set_hi(hi);
+    tid.__set_lo(lo);
+    return tid;
+}
+
+PUniqueId UniqueId::to_proto() const {
+    PUniqueId pid;
+    pid.set_hi(hi);
+    pid.set_lo(lo);
+    return pid;
+}
+
+TUniqueId generate_uuid() {
+    auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
+    TUniqueId uid;
+    memcpy(&uid.hi, uuid.data, sizeof(int64_t));
+    memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
+    return uid;
+}
+
 size_t UniqueId::hash(size_t seed) const {
     return doris::HashUtil::hash(this, sizeof(*this), cast_set<uint32_t>(seed));
 }

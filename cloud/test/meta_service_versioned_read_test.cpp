@@ -889,6 +889,7 @@ TEST(MetaServiceVersionedReadTest, GetTabletStats) {
 
         // The tablet idx should be set.
         auto tablet_stats = res.tablet_stats(0);
+        EXPECT_FALSE(tablet_stats.has_row_count_partition_version());
         EXPECT_EQ(tablet_stats.idx().tablet_id(), tablet_id);
         EXPECT_EQ(tablet_stats.idx().index_id(), index_id);
         EXPECT_EQ(tablet_stats.idx().partition_id(), partition_id);
@@ -917,9 +918,20 @@ TEST(MetaServiceVersionedReadTest, GetTabletStats) {
 
     {
         GetTabletStatsResponse res;
-        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
+        GetTabletStatsRequest req;
+        req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+        auto* idx = req.add_tablet_idx();
+        idx->set_db_id(10000);
+        idx->set_tablet_id(tablet_id);
+        idx->set_table_id(table_id);
+        idx->set_index_id(index_id);
+        idx->set_partition_id(partition_id);
+        req.add_tablet_ids_with_row_count_version(tablet_id);
+        brpc::Controller cntl;
+        meta_service->get_tablet_stats(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(res.tablet_stats_size(), 1);
+        EXPECT_EQ(res.tablet_stats(0).row_count_partition_version(), 8);
         EXPECT_EQ(res.tablet_stats(0).data_size(), 77000);
         EXPECT_EQ(res.tablet_stats(0).num_rows(), 700);
         EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 8);

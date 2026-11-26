@@ -673,11 +673,10 @@ final class IcebergPartitionUtils {
         // Dynamic commits carry an offset; only unqualified static literals use the session zone.
         ZoneId zone = timestampType.shouldAdjustToUTC()
                 ? (explicitZone != null ? explicitZone : sessionZone) : ZoneOffset.UTC;
-        java.time.zone.ZoneOffsetTransition transition = zone.getRules().getTransition(ldt);
-        // BE's cctz maps skipped civil seconds to the transition, retaining the subsecond fraction.
-        // Java's default instead shifts by the gap duration, which selects a different overwrite partition.
-        Instant instant = transition != null && transition.isGap()
-                ? transition.getInstant().plusNanos(ldt.getNano()) : ldt.atZone(zone).toInstant();
+        // Shift a local time in a gap forward by the gap length. Keep its fraction.
+        // In New York, 2021-03-14 02:30:00.123456 becomes 03:30:00.123456-04:00.
+        // The overwrite filter and the written rows must both use 07:30:00.123456 UTC.
+        Instant instant = ldt.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
     }
 
@@ -923,7 +922,7 @@ final class IcebergPartitionUtils {
             // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
             // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
             // tuple arity always equals the deduped partition-column count fe-core declares — fe-core zips
-            // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
+            // the two positionally (PluginDrivenExternalTable.toListPartitionItem's load-bearing
             // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
             // column would skip every partition and silently disable pruning.
             // Typed NULLs must not be parsed as bytes (or confused with a STRING value "null").

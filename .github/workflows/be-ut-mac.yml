@@ -18,9 +18,6 @@
 name: BE UT (macOS)
 
 on:
-  push:
-    branches:
-      - master
   schedule:
     - cron: '0 4 * * *'    # daily cache warm-up; PR-level runs moved out to relieve the macOS runner queue
 

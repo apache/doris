@@ -39,6 +39,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/unique_rowset_id_generator.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -337,6 +338,115 @@ TEST_F(CloudTabletDeleteBitmapTest, AggDeleteBitmapForCompactionReturnsPreRowset
     EXPECT_EQ(aggregated_without_stats->delete_bitmap, aggregated_delete_bitmap->delete_bitmap);
     EXPECT_EQ(rowset_versions_without_stats, pre_rowset_to_versions);
 }
+
+class CloudTabletDeleteBitmapCheckTest : public CloudTabletWarmUpStateTest,
+                                         public testing::WithParamInterface<bool> {
+public:
+    void SetUp() override {
+        CloudTabletWarmUpStateTest::SetUp();
+        TColumn key;
+        key.__set_column_name("k");
+        key.__set_is_key(true);
+        key.column_type.type = TPrimitiveType::BIGINT;
+        TColumn value;
+        value.__set_column_name(GetParam() ? SEQUENCE_COL : "v");
+        value.__set_is_key(false);
+        value.__set_aggregation_type(TAggregationType::REPLACE);
+        value.column_type.type = TPrimitiveType::BIGINT;
+        TTabletSchema schema;
+        schema.__set_short_key_column_count(1);
+        schema.__set_schema_hash(4);
+        schema.__set_keys_type(TKeysType::UNIQUE_KEYS);
+        schema.__set_columns({key, value});
+        schema.__set_sequence_col_idx(GetParam() ? 1 : -1);
+        _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, schema, 2, {{0, 0}, {1, 1}},
+                                          UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F, 0, true));
+        _tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    }
+};
+
+TEST_P(CloudTabletDeleteBitmapCheckTest, DoesNotAcquireHeaderLockDuringBitmapTraversal) {
+    auto rowset = create_rowset(Version(2, 4));
+    ASSERT_NE(rowset, nullptr);
+    _tablet->_rs_version_map.emplace(rowset->version(), rowset);
+    auto& delete_bitmap = _tablet->tablet_meta()->delete_bitmap();
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    // Version 3 is not a rowset end version, so both schema variants exercise the sequence check.
+    delete_bitmap.set({rowset->rowset_id(), 0, 3}, bitmap);
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    Defer cleanup([sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    });
+    CountDownLatch snapshot_ready(1);
+    CountDownLatch resume_check(1);
+    sp->set_call_back(
+            "BaseTablet::check_agg_delete_bitmap_for_stale_rowsets:before_traverse_delete_bitmap",
+            [&](auto&&) {
+                snapshot_ready.count_down();
+                resume_check.wait();
+            });
+    sp->enable_processing();
+
+    int64_t useless_rowsets = 0;
+    int64_t useless_versions = 0;
+    auto check = std::async(std::launch::async, [&] {
+        _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    });
+    Defer unblock_check([&] { resume_check.count_down(); });
+    ASSERT_TRUE(snapshot_ready.wait_for(seconds(10)));
+
+    // Model compaction's exclusive header ownership after the check has captured its rowsets.
+    std::unique_lock header_lock(_tablet->get_header_lock());
+    resume_check.count_down();
+    const auto check_status = check.wait_for(seconds(10));
+    if (check_status == std::future_status::ready) {
+        // Even an empty compaction bitmap takes the DBM write lock while holding the header lock.
+        DeleteBitmap empty_bitmap(_tablet->tablet_id());
+        delete_bitmap.merge(empty_bitmap);
+    }
+    // Let the old callback finish after a timeout instead of leaving a deadlocked test thread.
+    header_lock.unlock();
+    check.get();
+    EXPECT_EQ(check_status, std::future_status::ready);
+    EXPECT_EQ(useless_rowsets, 0);
+    EXPECT_EQ(useless_versions, GetParam() ? 0 : 1);
+}
+
+TEST_P(CloudTabletDeleteBitmapCheckTest, PreservesActiveAndStaleRowsetVersionChecks) {
+    auto active = create_rowset(Version(2, 4));
+    auto stale = create_rowset(Version(5, 7));
+    auto orphan = create_rowset(Version(8, 8));
+    ASSERT_TRUE(active && stale && orphan);
+    _tablet->_rs_version_map.emplace(active->version(), active);
+    _tablet->_stale_rs_version_map.emplace(stale->version(), stale);
+    auto& delete_bitmap = _tablet->tablet_meta()->delete_bitmap();
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    delete_bitmap.set({active->rowset_id(), 0, 3}, bitmap);
+    delete_bitmap.set({active->rowset_id(), 0, 4}, bitmap);
+    delete_bitmap.set({stale->rowset_id(), 0, 6}, bitmap);
+    delete_bitmap.set({stale->rowset_id(), 0, 7}, bitmap);
+    delete_bitmap.set({orphan->rowset_id(), 0, 8}, bitmap);
+
+    int64_t useless_rowsets = 0;
+    int64_t useless_versions = 0;
+    _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    EXPECT_EQ(useless_rowsets, 1);
+    EXPECT_EQ(useless_versions, GetParam() ? 0 : 2);
+
+    // A version outside the rowset's range is still useless for a sequence table.
+    delete_bitmap.set({active->rowset_id(), 0, 1}, bitmap);
+    _tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowsets, useless_versions);
+    EXPECT_EQ(useless_rowsets, 1);
+    EXPECT_EQ(useless_versions, GetParam() ? 1 : 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(SequenceModes, CloudTabletDeleteBitmapCheckTest, testing::Bool());
 
 class CloudTabletDeleteBitmapPrefillTest
         : public CloudTabletWarmUpStateTest,

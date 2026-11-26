@@ -67,10 +67,8 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('B1', 2)"""
         }
 
-        // create streaming job via cdc_stream TVF (offset=initial → snapshot then binlog)
-        sql """
-            CREATE JOB ${jobName}
-            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age)
+        String insertSql = """
+            INSERT INTO ${currentDb}.${dorisTable} (name, age)
             SELECT name, age FROM cdc_stream(
                 "type"         = "mysql",
                 "jdbc_url"     = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
@@ -84,6 +82,25 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
                 "snapshot_split_key" = "name"
             )
         """
+
+        String driverUser = "test_streaming_cdc_mysql_driver_user"
+        def jdbcTokens = context.getJdbcUrl().split('/')
+        String driverUserUrl = jdbcTokens[0] + "//" + jdbcTokens[2] + "/" + currentDb + "?"
+        sql """DROP USER IF EXISTS '${driverUser}'"""
+        sql """CREATE USER '${driverUser}' IDENTIFIED BY '123456'"""
+        sql """GRANT LOAD_PRIV ON ${currentDb}.* TO '${driverUser}'"""
+        if (isCloudMode()) {
+            def cluster = sql_return_maparray("SHOW CLUSTERS").find { it.is_current.equalsIgnoreCase("TRUE") }.cluster
+            sql """GRANT USAGE_PRIV ON CLUSTER `${cluster}` TO '${driverUser}'"""
+        }
+        connectToDoris(driverUser, "123456", driverUserUrl) {
+            test {
+                sql """CREATE JOB ${jobName} ON STREAMING DO ${insertSql}"""
+                exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+            }
+        }
+        // The administrator can create the same job with the remote driver.
+        sql """CREATE JOB ${jobName} ON STREAMING DO ${insertSql}"""
 
         // wait for at least one snapshot task to succeed
         try {
@@ -129,6 +146,33 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             s.size() == 1 && s.get(0).get(0) == "PAUSED"
         })
+
+        String driverResource = "test_streaming_cdc_mysql_driver_resource"
+        try_sql """DROP RESOURCE '${driverResource}'"""
+        try {
+            sql """CREATE RESOURCE '${driverResource}' PROPERTIES (
+                "type" = "jdbc",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "user" = "root", "password" = "123456",
+                "driver_url" = "${driver_url}", "driver_class" = "com.mysql.cj.jdbc.Driver"
+            )"""
+            // ALTER does not read the local jar; the conflicting SQL must be rejected first.
+            sql """ALTER RESOURCE '${driverResource}' PROPERTIES ("driver_url" = "file:///trusted/mysql.jar")"""
+            sql """GRANT USAGE_PRIV ON RESOURCE '${driverResource}' TO '${driverUser}'"""
+            String inheritedDriverSql = insertSql.replace('"driver_url"',
+                    '"resource" = "' + driverResource + '", "Driver_url"')
+                    .replace(driver_url, 'https://example.invalid/driver.jar')
+                    .replace('com.mysql.cj.jdbc.Driver', 'example.InvalidDriver')
+            connectToDoris(driverUser, "123456", driverUserUrl) {
+                test {
+                    sql """ALTER JOB ${jobName} ${inheritedDriverSql}"""
+                    exception "HTTP/HTTPS CDC driver URLs require ADMIN privilege"
+                }
+            }
+        } finally {
+            sql """DROP RESOURCE '${driverResource}'"""
+        }
+        sql """DROP USER '${driverUser}'"""
 
         test {
             sql """

@@ -109,6 +109,20 @@ public final class ConnectorFactory {
         return mgr.findProvider(catalogType, properties);
     }
 
+    /**
+     * The reader of {@code format} for the file table functions, when a connector plugin claims the format
+     * ({@code ConnectorProvider#getFileFormats}); empty when none does or the plugin manager is not initialized.
+     *
+     * @see ConnectorPluginManager#getFileFormat
+     */
+    public static Optional<PluginFileFormat> getFileFormat(String format) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            return Optional.empty();
+        }
+        return mgr.getFileFormat(format);
+    }
+
     /** Returns true if the plugin manager has been initialized. */
     public static boolean isInitialized() {
         return pluginManager != null;

@@ -73,6 +73,13 @@ struct IndexQueryContext {
     // evaluation.
     const roaring::Roaring* candidate_rows = nullptr;
 
+    // The same candidate rows, for a SEARCH that is a whole conjunct on its own. Its leaves
+    // combine three-valued bitmaps, so SegmentIterator hides candidate_rows from them and hands
+    // the rows here instead: SEARCH starts its root from them, and its two-valued result is
+    // read only within them. Set and reset like candidate_rows, and a result computed from
+    // them is partial in the same way: it never goes into the query cache.
+    const roaring::Roaring* search_root_candidates = nullptr;
+
     // ---- Reply direction: fields a READER writes and the CALLER reads back ----
     //
     // A reader writes them on the context it was given, never on a copy: a copy's reply would

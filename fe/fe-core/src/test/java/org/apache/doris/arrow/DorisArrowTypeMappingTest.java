@@ -151,10 +151,10 @@ public class DorisArrowTypeMappingTest {
                 row(PrimitiveType.HLL, new ArrowType.Binary()),
                 row(PrimitiveType.BITMAP, new ArrowType.Binary()),
                 row(PrimitiveType.QUANTILE_STATE, new ArrowType.Binary()),
-                // BE emits float64 for TIMEV2 and binary for VARBINARY and AGG_STATE; the schema says
-                // Null for all three. Kept as is (#67577).
-                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.Null()),
-                row(PrimitiveType.VARBINARY, new ArrowType.Null()),
+                // As BE emits them: float64 for TIMEV2 and binary for VARBINARY.
+                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+                row(PrimitiveType.VARBINARY, new ArrowType.Binary()),
+                // BE emits binary for AGG_STATE; the schema says Null. Kept as is (#67577).
                 row(PrimitiveType.AGG_STATE, new ArrowType.Null()),
                 // The element types of a complex column live in the field's children, not in its type.
                 row(PrimitiveType.ARRAY, new ArrowType.List()),
@@ -177,15 +177,29 @@ public class DorisArrowTypeMappingTest {
     }
 
     /**
-     * A type this table does not know is a type whose schema nobody has looked at: a new
-     * {@link PrimitiveType} must get a row here, and the row must say what BE emits for it.
+     * Every primitive type has a mapping or an explicit rejection test.
      */
     @Test
-    public void everyPrimitiveTypeHasARow() {
+    public void everyPrimitiveTypeIsCovered() {
         Set<PrimitiveType> covered = mapping().map(row -> (PrimitiveType) row.get()[0])
                 .collect(Collectors.toSet());
+        covered.add(PrimitiveType.FILE);
         for (PrimitiveType type : PrimitiveType.values()) {
-            Assertions.assertTrue(covered.contains(type), type + " has no row in the mapping table");
+            Assertions.assertTrue(covered.contains(type), type + " has no mapping or rejection coverage");
+        }
+    }
+
+    @Test
+    public void fileAndNestedFileHaveNoArrowRepresentation() {
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> arrowType(PrimitiveType.FILE, null, null));
+        for (TColumnDesc column : Arrays.asList(
+                desc("file", TPrimitiveType.FILE),
+                desc("files", TPrimitiveType.ARRAY, desc("item", TPrimitiveType.FILE)),
+                desc("files", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.STRING), desc("value", TPrimitiveType.FILE)),
+                desc("holder", TPrimitiveType.STRUCT, desc("file", TPrimitiveType.FILE)))) {
+            Assertions.assertThrows(UnsupportedOperationException.class, () -> buildField(column));
         }
     }
 

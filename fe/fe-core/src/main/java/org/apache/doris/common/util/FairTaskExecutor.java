@@ -192,6 +192,15 @@ public final class FairTaskExecutor implements Closeable {
             }
         }
 
+        public void remove(Runnable task) {
+            for (Entry entry : pending) {
+                if (entry.task == task && pending.remove(entry)) {
+                    queued.decrementAndGet();
+                    notifySpace();
+                }
+            }
+        }
+
         public void removeSpaceListener(Runnable listener) {
             synchronized (admissionLock) {
                 spaceListeners.remove(listener);

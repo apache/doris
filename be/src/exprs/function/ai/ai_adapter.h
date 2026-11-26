@@ -73,6 +73,8 @@ struct AIResource {
     std::string anthropic_version;
     int32_t dimensions;
     std::string effort;
+    // Optional provider output constraints for scalar batches; not serialized in AI_AGG state.
+    bool enable_structured_output = true;
 
     void serialize(BufferWritable& buf) const {
         buf.write_binary(endpoint);
@@ -120,7 +122,9 @@ private:
               retry_delay_second(tai.retry_delay_second),
               anthropic_version(tai.anthropic_version),
               dimensions(tai.dimensions),
-              effort(tai.effort) {}
+              effort(tai.effort),
+              enable_structured_output(!tai.__isset.enable_structured_output ||
+                                       tai.enable_structured_output) {}
 };
 
 enum class MultimodalType { IMAGE, VIDEO, AUDIO };
@@ -139,6 +143,8 @@ inline const char* multimodal_type_to_string(MultimodalType type) {
 
 class AIAdapter {
 public:
+    explicit AIAdapter(bool structured_batch = false) : _structured_batch(structured_batch) {}
+
     virtual ~AIAdapter() = default;
 
     // Usage is independent of result parsing and may also be present in error responses.
@@ -166,11 +172,85 @@ public:
         _config.effort = config.effort;
     }
 
-    // Build request payload based on input text strings
+    // Build request payload based on input text strings. The format fields in provider
+    // examples apply only to structured batches; AI_AGG uses the same transport without them.
     virtual Status build_request_payload(const std::vector<std::string>& inputs,
-                                         const char* const system_prompt,
-                                         std::string& request_body) const {
+                                         const char* const system_prompt, std::string& request_body,
+                                         bool structured_batch = false) const {
         return Status::NotSupported("{} don't support text generation", _config.provider_type);
+    }
+
+    bool supports_structured_batch() const { return _structured_batch; }
+
+    Status parse_batch_response(const std::string& response_body,
+                                std::vector<std::string>& results) const {
+        if (!supports_structured_batch()) {
+            return parse_response(response_body, results);
+        }
+        std::vector<std::string> texts;
+        RETURN_IF_ERROR(parse_response(response_body, texts, false));
+        // Multiple choices are alternatives, not additional rows of the same batch.
+        if (texts.size() != 1) {
+            return Status::InternalError("Expected one structured batch response, got {}",
+                                         texts.size());
+        }
+        rapidjson::Document doc;
+        doc.Parse(texts[0].data(), texts[0].size());
+        // A bare array, fenced JSON, or a missing/wrong results field violates our schema,
+        // even for a batch of one row; never return that envelope as a successful SQL value.
+        if (doc.HasParseError() || !doc.IsObject() || doc.MemberCount() != 1 ||
+            !doc.HasMember("results") || !doc["results"].IsArray()) {
+            return Status::InternalError("Invalid structured batch result: expected results array");
+        }
+        const auto& rows = doc["results"];
+        for (rapidjson::SizeType i = 0; i < rows.Size(); ++i) {
+            if (!rows[i].IsString()) {
+                return Status::InternalError(
+                        "Invalid structured batch result: element {} is not a string", i);
+            }
+        }
+        for (const auto& row : rows.GetArray()) {
+            results.emplace_back(row.GetString(), row.GetStringLength());
+        }
+        return Status::OK();
+    }
+
+    // Serialize the request while appending the provider's immutable result-format fragment.
+    // RawValue avoids constructing/parsing a schema DOM; nested fields retain siblings like effort.
+    static void append_result_format(const rapidjson::Document& doc, std::string& request_body,
+                                     const char* key, std::string_view fragment,
+                                     const char* parent = nullptr) {
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        auto write_format = [&]() {
+            writer.Key(key);
+            writer.RawValue(fragment.data(), fragment.size(), rapidjson::kObjectType);
+        };
+        writer.StartObject();
+        for (const auto& member : doc.GetObject()) {
+            writer.Key(member.name.GetString(), member.name.GetStringLength());
+            if (parent && member.name == parent) {
+                writer.StartObject();
+                for (const auto& nested : member.value.GetObject()) {
+                    writer.Key(nested.name.GetString(), nested.name.GetStringLength());
+                    nested.value.Accept(writer);
+                }
+                write_format();
+                writer.EndObject();
+            } else {
+                member.value.Accept(writer);
+            }
+        }
+        if (!parent) {
+            write_format();
+        } else if (parent && !doc.HasMember(parent)) {
+            writer.Key(parent);
+            writer.StartObject();
+            write_format();
+            writer.EndObject();
+        }
+        writer.EndObject();
+        request_body.assign(buffer.GetString(), buffer.GetSize());
     }
 
     // Parse response from AI service and extract generated text results
@@ -365,12 +445,18 @@ protected:
         }
         return result;
     }
+
+private:
+    // The batch protocol is fixed by the concrete adapter, including inherited transports.
+    const bool _structured_batch;
 };
 
 // Most LLM-providers' Embedding formats are based on VoyageAI.
 // The following adapters inherit from VoyageAIAdapter to directly reuse its embedding logic.
 class VoyageAIAdapter : public AIAdapter {
 public:
+    using AIAdapter::AIAdapter;
+
     AIUsage parse_usage(const std::string& response_body) const override {
         return parse_usage_fields(response_body, "usage", nullptr, nullptr, "total_tokens");
     }
@@ -561,8 +647,8 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -612,29 +698,39 @@ public:
                 if (choices[i].HasMember("message") && choices[i]["message"].HasMember("content") &&
                     choices[i]["message"]["content"].IsString()) {
                     RETURN_IF_ERROR(append_parsed_text_result(
-                            choices[i]["message"]["content"].GetString(), results, expand_batch));
+                            std::string_view(choices[i]["message"]["content"].GetString(),
+                                             choices[i]["message"]["content"].GetStringLength()),
+                            results, expand_batch));
                 } else if (choices[i].HasMember("text") && choices[i]["text"].IsString()) {
                     // Some local LLMs use a simpler format
-                    RETURN_IF_ERROR(append_parsed_text_result(choices[i]["text"].GetString(),
-                                                              results, expand_batch));
+                    RETURN_IF_ERROR(append_parsed_text_result(
+                            std::string_view(choices[i]["text"].GetString(),
+                                             choices[i]["text"].GetStringLength()),
+                            results, expand_batch));
                 }
             }
         } else if (doc.HasMember("text") && doc["text"].IsString()) {
             // Format 2: Simple response with just "text" or "content" field
-            RETURN_IF_ERROR(
-                    append_parsed_text_result(doc["text"].GetString(), results, expand_batch));
+            RETURN_IF_ERROR(append_parsed_text_result(
+                    std::string_view(doc["text"].GetString(), doc["text"].GetStringLength()),
+                    results, expand_batch));
         } else if (doc.HasMember("content") && doc["content"].IsString()) {
-            RETURN_IF_ERROR(
-                    append_parsed_text_result(doc["content"].GetString(), results, expand_batch));
+            RETURN_IF_ERROR(append_parsed_text_result(
+                    std::string_view(doc["content"].GetString(), doc["content"].GetStringLength()),
+                    results, expand_batch));
         } else if (doc.HasMember("response") && doc["response"].IsString()) {
             // Format 3: Response field (Ollama `generate` format)
             RETURN_IF_ERROR(
-                    append_parsed_text_result(doc["response"].GetString(), results, expand_batch));
+                    append_parsed_text_result(std::string_view(doc["response"].GetString(),
+                                                               doc["response"].GetStringLength()),
+                                              results, expand_batch));
         } else if (doc.HasMember("message") && doc["message"].IsObject() &&
                    doc["message"].HasMember("content") && doc["message"]["content"].IsString()) {
             // Format 4: message/content field (Ollama `chat` format)
-            RETURN_IF_ERROR(append_parsed_text_result(doc["message"]["content"].GetString(),
-                                                      results, expand_batch));
+            RETURN_IF_ERROR(append_parsed_text_result(
+                    std::string_view(doc["message"]["content"].GetString(),
+                                     doc["message"]["content"].GetStringLength()),
+                    results, expand_batch));
         } else {
             return Status::NotSupported("Unsupported response format from local AI.");
         }
@@ -846,6 +942,9 @@ private:
 // The OpenAI API format can be reused with some compatible AIs.
 class OpenAIAdapter : public VoyageAIAdapter {
 public:
+    explicit OpenAIAdapter(bool chat_json_schema = true)
+            : VoyageAIAdapter(true), _chat_json_schema(chat_json_schema) {}
+
     AIUsage parse_usage(const std::string& response_body) const override {
         return AIAdapter::parse_usage(response_body);
     }
@@ -858,8 +957,8 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -873,7 +972,8 @@ public:
               ],
               "temperature": 0.7,
               "max_output_tokens": 150,
-              "reasoning": {"effort": "max"}
+              "reasoning": {"effort": "max"},
+              "text": {"format": <responses_format>}
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -916,7 +1016,8 @@ public:
               ],
               "temperature": x,
               "max_tokens": x,
-              "reasoning_effort": "low"
+              "reasoning_effort": "low",
+              "response_format": <chat_format>
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -949,16 +1050,64 @@ public:
             doc.AddMember("messages", messages, allocator);
         }
 
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        doc.Accept(writer);
-        request_body = buffer.GetString();
+        if (structured_batch) {
+            // These complete format fragments are compile-time constants. RawValue writes
+            // them unchanged on every request; no schema construction or parsing is needed.
+            /* {
+              "type": "json_schema", "name": "ai_batch_result", "strict": true,
+              "schema": {
+                  "type": "object",
+                  "properties": {"results": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["results"],
+                  "additionalProperties": false
+                }
+            } */
+            static constexpr std::string_view responses_format =
+                    R"({"type":"json_schema","name":"ai_batch_result","strict":true,"schema":{"type":"object","properties":{"results":{"type":"array","items":{"type":"string"}}},"required":["results"],"additionalProperties":false}})";
+            /* {
+              "type": "json_schema",
+              "json_schema": {
+                "name": "ai_batch_result", "strict": true,
+                "schema": {
+                  "type": "object",
+                  "properties": {"results": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["results"],
+                  "additionalProperties": false
+                }
+              }
+            } */
+            static constexpr std::string_view chat_format =
+                    R"({"type":"json_schema","json_schema":{"name":"ai_batch_result","strict":true,"schema":{"type":"object","properties":{"results":{"type":"array","items":{"type":"string"}}},"required":["results"],"additionalProperties":false}}})";
+            if (_config.endpoint.ends_with("responses")) {
+                append_result_format(doc, request_body, "format", responses_format, "text");
+            } else if (_chat_json_schema) {
+                append_result_format(doc, request_body, "response_format", chat_format);
+            } else {
+                // DeepSeek, Zhipu and Baichuan Chat use JSON mode. Our prompt specifies the
+                // results envelope, which parse_batch_response validates.
+                static constexpr std::string_view json_format = R"({"type":"json_object"})";
+                append_result_format(doc, request_body, "response_format", json_format);
+            }
+        } else {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            doc.Accept(writer);
+            request_body.assign(buffer.GetString(), buffer.GetSize());
+        }
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body, std::vector<std::string>& results,
                           bool expand_batch = true) const override {
+        // For structured batches, the text field below contains a JSON-encoded string.
+        // Its decoded value is parsed by parse_batch_response:
+        // {
+        //   "results": [
+        //     "row1",
+        //     "row2"
+        //   ]
+        // }
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
@@ -989,7 +1138,7 @@ public:
                   "content": [
                     {
                       "type": "output_text",
-                      "text": "result text here"   <- result
+                      "text": "<result JSON string>"
                     }
                   ]
                 }
@@ -1072,7 +1221,7 @@ public:
                   ...
                   "message": {
                     "role": "assistant",
-                    "content": "xxx"      <- result
+                    "content": "<result JSON string>"
                   },
                   ...
                 }
@@ -1092,7 +1241,9 @@ public:
                 }
 
                 RETURN_IF_ERROR(append_parsed_text_result(
-                        choices[i]["message"]["content"].GetString(), results, expand_batch));
+                        std::string_view(choices[i]["message"]["content"].GetString(),
+                                         choices[i]["message"]["content"].GetStringLength()),
+                        results, expand_batch));
             }
         } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
@@ -1117,10 +1268,16 @@ protected:
     }
 
     std::string get_dimension_param_name() const override { return "dimensions"; }
+
+private:
+    const bool _chat_json_schema;
 };
 
 class DeepSeekAdapter : public OpenAIAdapter {
 public:
+    // Chat Completions supports JSON mode, while Responses supports JSON Schema.
+    DeepSeekAdapter() : OpenAIAdapter(false) {}
+
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
         return embed_not_supported_status();
@@ -1147,6 +1304,12 @@ public:
 
 class MinimaxAdapter : public OpenAIAdapter {
 public:
+    Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
+        return OpenAIAdapter::build_request_payload(inputs, system_prompt, request_body, false);
+    }
+
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
@@ -1176,6 +1339,10 @@ public:
 };
 
 class ZhipuAdapter : public OpenAIAdapter {
+public:
+    // Zhipu Chat accepts JSON mode, but not response_format.type=json_schema.
+    ZhipuAdapter() : OpenAIAdapter(false) {}
+
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
         return !(model_name == "embedding-2");
@@ -1341,6 +1508,10 @@ public:
 };
 
 class BaichuanAdapter : public OpenAIAdapter {
+public:
+    // Baichuan Chat supports JSON mode, not response_format.type=json_schema.
+    BaichuanAdapter() : OpenAIAdapter(false) {}
+
 protected:
     bool supports_dimension_param(const std::string& model_name) const override { return false; }
 };
@@ -1348,6 +1519,8 @@ protected:
 // Gemini's embedding format is different from VoyageAI, so it requires a separate adapter
 class GeminiAdapter : public AIAdapter {
 public:
+    GeminiAdapter() : AIAdapter(true) {}
+
     AIUsage parse_usage(const std::string& response_body) const override {
         return parse_usage_fields(response_body, "usageMetadata", "promptTokenCount",
                                   "candidatesTokenCount", "totalTokenCount");
@@ -1360,8 +1533,8 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -1387,7 +1560,8 @@ public:
           "generationConfig": {
           "temperature": 0.7,
           "maxOutputTokens": 1024,
-          "thinkingConfig": {"thinkingLevel": "high"}
+          "thinkingConfig": {"thinkingLevel": "high"},
+          "responseFormat": <format>
           }
 
         }*/
@@ -1434,16 +1608,39 @@ public:
         }
         doc.AddMember("generationConfig", generationConfig, allocator);
 
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        doc.Accept(writer);
-        request_body = buffer.GetString();
+        if (structured_batch) {
+            // Compile-time JSON fragment: reuse it without building or parsing a schema DOM.
+            /* {
+              "text": {"mimeType": "APPLICATION_JSON", "schema": {
+                  "type": "object",
+                  "properties": {"results": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["results"],
+                  "additionalProperties": false
+                }}
+            } */
+            static constexpr std::string_view format =
+                    R"({"text":{"mimeType":"APPLICATION_JSON","schema":{"type":"object","properties":{"results":{"type":"array","items":{"type":"string"}}},"required":["results"],"additionalProperties":false}}})";
+            append_result_format(doc, request_body, "responseFormat", format, "generationConfig");
+        } else {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            doc.Accept(writer);
+            request_body.assign(buffer.GetString(), buffer.GetSize());
+        }
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body, std::vector<std::string>& results,
                           bool expand_batch = true) const override {
+        // For structured batches, the text field below contains a JSON-encoded string.
+        // Its decoded value is parsed by parse_batch_response:
+        // {
+        //   "results": [
+        //     "row1",
+        //     "row2"
+        //   ]
+        // }
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
 
@@ -1462,7 +1659,7 @@ public:
               "content": {
                 "parts": [
                   {
-                    "text": "xxx"
+                    "text": "<result JSON string>"
                   }
                 ]
               }
@@ -1486,8 +1683,10 @@ public:
             }
 
             RETURN_IF_ERROR(append_parsed_text_result(
-                    candidates[i]["content"]["parts"][0]["text"].GetString(), results,
-                    expand_batch));
+                    std::string_view(
+                            candidates[i]["content"]["parts"][0]["text"].GetString(),
+                            candidates[i]["content"]["parts"][0]["text"].GetStringLength()),
+                    results, expand_batch));
         }
         return Status::OK();
     }
@@ -1692,6 +1891,8 @@ protected:
 
 class AnthropicAdapter : public VoyageAIAdapter {
 public:
+    AnthropicAdapter() : VoyageAIAdapter(true) {}
+
     AIUsage parse_usage(const std::string& response_body) const override {
         return parse_usage_fields(response_body, "usage", "input_tokens", "output_tokens", nullptr);
     }
@@ -1705,8 +1906,8 @@ public:
     }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
@@ -1714,7 +1915,7 @@ public:
         /*
             "model": "claude-opus-4-1-20250805",
             "max_tokens": 1024,
-            "output_config": {"effort": "medium"},
+            "output_config": {"effort": "medium", "format": <format>},
             "system": "system_prompt here",
             "messages": [
               {"role": "user", "content": "xxx"}
@@ -1752,16 +1953,39 @@ public:
         }
         doc.AddMember("messages", messages, allocator);
 
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        doc.Accept(writer);
-        request_body = buffer.GetString();
+        if (structured_batch) {
+            // Compile-time JSON fragment: reuse it without building or parsing a schema DOM.
+            /* {
+              "type": "json_schema", "schema": {
+                  "type": "object",
+                  "properties": {"results": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["results"],
+                  "additionalProperties": false
+                }
+            } */
+            static constexpr std::string_view format =
+                    R"({"type":"json_schema","schema":{"type":"object","properties":{"results":{"type":"array","items":{"type":"string"}}},"required":["results"],"additionalProperties":false}})";
+            append_result_format(doc, request_body, "format", format, "output_config");
+        } else {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            doc.Accept(writer);
+            request_body.assign(buffer.GetString(), buffer.GetSize());
+        }
 
         return Status::OK();
     }
 
     Status parse_response(const std::string& response_body, std::vector<std::string>& results,
                           bool expand_batch = true) const override {
+        // For structured batches, the text field below contains a JSON-encoded string.
+        // Its decoded value is parsed by parse_batch_response:
+        // {
+        //   "results": [
+        //     "row1",
+        //     "row2"
+        //   ]
+        // }
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
@@ -1776,7 +2000,7 @@ public:
         /*{
             "content": [
               {
-                "text": "xxx",
+                "text": "<result JSON string>",
                 "type": "text"
               }
             ]
@@ -1799,7 +2023,7 @@ public:
                 if (!result.empty()) {
                     result += "\n";
                 }
-                result += content[i]["text"].GetString();
+                result.append(content[i]["text"].GetString(), content[i]["text"].GetStringLength());
             }
         }
 
@@ -1821,8 +2045,8 @@ public:
     Status set_authentication(HttpClient* client) const override { return Status::OK(); }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
+                                 const char* const system_prompt, std::string& request_body,
+                                 bool structured_batch = false) const override {
         return Status::OK();
     }
 

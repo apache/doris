@@ -40,11 +40,13 @@
 #include "common/status.h"
 #include "core/types.h"
 
-namespace lucene::store {
-class Directory;
-}
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
 
 namespace doris::segment_v2 {
+class AnnIndexSink;
+class AnnIndexSource;
 struct IndexSearchParameters;
 struct IndexSearchResult;
 
@@ -121,9 +123,11 @@ public:
                                        const segment_v2::IndexSearchParameters& params,
                                        segment_v2::IndexSearchResult& result) = 0;
 
-    virtual doris::Status save(lucene::store::Directory*) = 0;
+    virtual doris::Status save(AnnIndexSink* sink) = 0;
 
-    virtual doris::Status load(lucene::store::Directory*) = 0;
+    // io_ctx is charged with every read the load makes. An index that keeps reading after the load
+    // (IVF_ON_DISK) takes each search's context from that search instead, so this one is not kept.
+    virtual doris::Status load(AnnIndexSource* source, const io::IOContext* io_ctx) = 0;
 
     size_t get_dimension() const { return _dimension; }
 

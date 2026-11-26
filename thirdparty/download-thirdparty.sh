@@ -94,12 +94,8 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
-    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
-    # package of its own: it has no build function, build_arrow_adbc() only copies
-    # the prebuilt driver out of it. Its name therefore never appears on a command
-    # line, so narrowing to the named entries alone leaves it unfetched and
-    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
-    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+    # arrow_adbc installs the patched test driver from a companion binary archive.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]] &&
         [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
         [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
         SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
@@ -262,6 +258,11 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
     if [[ ! -r "${TP_SOURCE_DIR}/${!NAME}" ]]; then
         echo "Failed to fetch ${!NAME}"
         exit 1
+    fi
+    # Binary companions need the pinned SHA-256 even when an archive was reused from a mirror/cache.
+    SHA256SUM="${TP_ARCH}_SHA256"
+    if [[ -n "${!SHA256SUM:-}" ]]; then
+        printf '%s  %s\n' "${!SHA256SUM}" "${TP_SOURCE_DIR}/${!NAME}" | sha256sum -c -
     fi
 done
 echo "===== Checking all thirdpart archives...done"
@@ -480,18 +481,28 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
+        # Arrow also verifies the overridden Brotli archive against its own SHA256.
+        # A separate marker updates sources that already have the other Arrow patches.
+        if [[ ! -f "${PATCHED_MARK}_brotli_1_0_10" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-brotli-1.0.10.patch"
+            touch "${PATCHED_MARK}_brotli_1_0_10"
+        fi
         cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
-# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
-# bridge needs no Maven. See the patch header for how to regenerate it.
+# Keep the JNI-header and connection-info patches independent so cached sources
+# with an existing JNI marker still receive the native server-info isolation fix.
 if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
         touch "${PATCHED_MARK}"
+    fi
+    if [[ ! -f "${PATCHED_MARK}_connection_info" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-connection-info.patch"
+        touch "${PATCHED_MARK}_connection_info"
     fi
     cd -
     echo "Finished patching ${ARROW_ADBC_SOURCE}"
@@ -800,16 +811,31 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
     echo "Finished patching ${BOOST_SOURCE}"
 fi
 
-# Clang on AArch64 supports __int128. Enable phmap's multiply-based hash mixer
-# instead of falling back to the longer shift/xor implementation.
+# Clang on AArch64 supports __int128. Keep the existing hash mixer patch and
+# accelerate ARM control scans without changing the eight-byte group layout.
 if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
-    cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
-        touch "${PATCHED_MARK}_aarch64_int128"
-    fi
-    cd -
-    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} for AArch64 int128"
+    (
+        cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
+            touch "${PATCHED_MARK}_aarch64_int128"
+        fi
+        neon_patch="${TP_PATCH_DIR}/parallel-hashmap-1.3.8-arm-neon.patch"
+        # A run can stop after patching but before writing the marker. Check the
+        # source even when the marker exists: the old insertion-only patch could
+        # be applied twice and still leave a marker claiming success.
+        # --forward prevents either dry-run probe from automatically changing direction.
+        if ! patch --dry-run --batch --forward --reverse --fuzz=0 -p1 \
+            <"${neon_patch}" >/dev/null 2>&1; then
+            rm -f "${PATCHED_MARK}_arm_neon"
+            # Check every hunk before modifying any file; partial or incompatible
+            # sources must fail without accepting or further applying the patch.
+            patch --dry-run --batch --forward --fuzz=0 -p1 <"${neon_patch}"
+            patch --batch --forward --fuzz=0 -p1 <"${neon_patch}"
+        fi
+        touch "${PATCHED_MARK}_arm_neon"
+    )
+    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} (AArch64 int128 and ARM NEON)"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

@@ -44,6 +44,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -207,6 +208,44 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
 
     EXPECT_EQ(2, sink->_delete_row_count);
     EXPECT_EQ(2, sink->_insert_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
+TEST_F(VIcebergMergeSinkTest, TestInnerSinksWriteAndCommitUnderBothFormsOfTheDataLocation) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    // UPDATE / MERGE write data files and delete files through one normalized location, and both
+    // kinds must be committed under the table's own form of it.
+    TDataSink t_sink = build_sink();
+    t_sink.iceberg_merge_sink.__set_output_path("s3://b/db/t/data");
+    t_sink.iceberg_merge_sink.__set_original_output_path("oss://b/db/t/data");
+    t_sink.iceberg_merge_sink.__set_table_location("oss://b/db/t/data");
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink_locations");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    ASSERT_TRUE(sink->_table_writer->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/f.parquet",
+              sink->_table_writer->_output_location->write_path("f.parquet"));
+    EXPECT_EQ("oss://b/db/t/data/f.parquet",
+              sink->_table_writer->_output_location->commit_path("f.parquet"));
+    ASSERT_TRUE(sink->_delete_writer->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/f.parquet",
+              sink->_delete_writer->_output_location->write_path("f.parquet"));
+    EXPECT_EQ("oss://b/db/t/data/f.parquet",
+              sink->_delete_writer->_output_location->commit_path("f.parquet"));
 
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
@@ -566,8 +605,8 @@ TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
     RuntimeProfile profile("iceberg_merge_cleanup_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
-    std::filesystem::path path =
-            std::filesystem::temp_directory_path() / "doris_iceberg_merge_rolled_file.parquet";
+    const doris::test::ScopedTempDirectory scoped_path("viceberg_merge_sink_test");
+    std::filesystem::path path = scoped_path.path() / "doris_iceberg_merge_rolled_file.parquet";
     {
         std::ofstream output(path);
         output << "rolled-data";
@@ -598,10 +637,12 @@ TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
     RuntimeProfile profile("iceberg_merge_delete_close_cleanup_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
-    std::filesystem::path data_path = std::filesystem::temp_directory_path() /
-                                      "doris_iceberg_merge_delete_close_data.parquet";
-    std::filesystem::path delete_path = std::filesystem::temp_directory_path() /
-                                        "doris_iceberg_merge_delete_close_position.parquet";
+    const doris::test::ScopedTempDirectory scoped_data_path("viceberg_merge_sink_test");
+    std::filesystem::path data_path =
+            scoped_data_path.path() / "doris_iceberg_merge_delete_close_data.parquet";
+    const doris::test::ScopedTempDirectory scoped_delete_path("viceberg_merge_sink_test");
+    std::filesystem::path delete_path =
+            scoped_delete_path.path() / "doris_iceberg_merge_delete_close_position.parquet";
     {
         std::ofstream output(data_path);
         output << "closed-data";

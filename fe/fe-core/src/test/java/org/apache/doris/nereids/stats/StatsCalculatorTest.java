@@ -19,11 +19,16 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -41,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -58,6 +64,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.StatisticsCache;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
@@ -278,6 +285,31 @@ public class StatsCalculatorTest {
         }
     }
 
+    @Test
+    public void testExplicitScanRowsDoNotInvalidateWholeIndexNdv() {
+        ColumnStatistic tableStatistic = new ColumnStatisticBuilder(100_000).setNdv(50_000).build();
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(false, tableStatistic, null, true, false)) {
+            CascadesContext context = Mockito.mock(CascadesContext.class);
+            Mockito.when(context.getConnectContext()).thenReturn(ConnectContext.get());
+            Assertions.assertEquals(4, fixture.computeOlapScan().getRowCount());
+            Assertions.assertTrue(StatsCalculator.disableJoinReorderIfStatsInvalid(
+                    ImmutableList.of(fixture.scan), context).isEmpty());
+            Assertions.assertFalse(context.getConnectContext().getSessionVariable().isDisableJoinReorder());
+        }
+    }
+
+    @Test
+    public void testExplicitScanRowsKeepInjectedColumnStatistics() {
+        PartitionColumnStatistic partitionStatistic = new PartitionColumnStatisticBuilder(4)
+                .setNdv(newHll128(2)).build();
+        try (MockPartitionPrunedScan fixture = mockPartitionPrunedScan(
+                true, newTableStatistic(2), partitionStatistic, true, true)) {
+            Statistics statistics = fixture.computeOlapScan();
+            Assertions.assertEquals(4, statistics.getRowCount());
+            Assertions.assertEquals(2, statistics.findColumnStatistics(fixture.slot).ndv);
+        }
+    }
+
     private static ColumnStatistic newTableStatistic(double ndv) {
         return new ColumnStatisticBuilder(12)
                 .setNdv(ndv)
@@ -305,6 +337,12 @@ public class StatsCalculatorTest {
      */
     private static MockPartitionPrunedScan mockPartitionPrunedScan(boolean enablePartitionStatics,
             ColumnStatistic tableStatistic, PartitionColumnStatistic partitionStatistic) {
+        return mockPartitionPrunedScan(enablePartitionStatics, tableStatistic, partitionStatistic, false, false);
+    }
+
+    private static MockPartitionPrunedScan mockPartitionPrunedScan(boolean enablePartitionStatics,
+            ColumnStatistic tableStatistic, PartitionColumnStatistic partitionStatistic,
+            boolean explicitScanEstimate, boolean userInjected) {
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext connectContext = new ConnectContext();
         connectContext.setThreadLocalInfo();
@@ -315,7 +353,7 @@ public class StatsCalculatorTest {
         StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
         StatisticsCache.OlapTableStatistics olapTableStatistics
                 = Mockito.mock(StatisticsCache.OlapTableStatistics.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
+        OlapTable table = explicitScanEstimate ? Mockito.mock(OlapTableWrapper.class) : Mockito.mock(OlapTable.class);
         LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
         Partition selectedPartition = Mockito.mock(Partition.class);
 
@@ -327,7 +365,6 @@ public class StatsCalculatorTest {
 
         Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
         Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
-        Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         Mockito.when(olapTableStatistics.getColumnStatistics("val", connectContext)).thenReturn(tableStatistic);
         if (partitionStatistic != null) {
             Mockito.when(olapTableStatistics.getPartitionColumnStatistics("p1", "val", connectContext))
@@ -341,6 +378,19 @@ public class StatsCalculatorTest {
         Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
         Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
         Mockito.when(table.getRowCountForPartitionIndex(selectedPartitionId, baseIndexId, true)).thenReturn(4L);
+        if (explicitScanEstimate) {
+            OlapTable origin = Mockito.mock(OlapTable.class);
+            Mockito.when(((OlapTableWrapper) table).getOriginTable()).thenReturn(origin);
+            Mockito.when(((OlapTableWrapper) table).hasRowCountEstimates(baseIndexId)).thenReturn(true);
+            Mockito.when(statisticsCache.getOlapTableStats(origin, baseIndexId)).thenReturn(olapTableStatistics);
+        } else {
+            Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
+        }
+        if (userInjected) {
+            TableStatsMeta tableStats = Mockito.mock(TableStatsMeta.class);
+            tableStats.userInjected = true;
+            Mockito.when(analysisManager.findTableStatsStatus(table.getId())).thenReturn(tableStats);
+        }
         Mockito.when(table.getPartitionNum()).thenReturn(3);
         Mockito.when(table.getPartition(selectedPartitionId)).thenReturn(selectedPartition);
         Mockito.when(table.getQualifiedDbName()).thenReturn("test");
@@ -379,6 +429,46 @@ public class StatsCalculatorTest {
             if (previousContext != null) {
                 previousContext.setThreadLocalInfo();
             }
+        }
+    }
+
+    @Test
+    public void testDeltaRowCountIsReportedForNonRowPreservingIndex() {
+        long tableId = 100L;
+        long rollupIndexId = 200L;
+        OlapTable table = Mockito.mock(OlapTable.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.doReturn(db).when(table).getDatabase();
+        Mockito.doReturn(catalog).when(db).getCatalog();
+        Mockito.doReturn(tableId).when(table).getId();
+        Mockito.doReturn(Collections.<Long>emptyList()).when(table).getIndexIdList();
+        // The scanned index aggregates the rows of the base index, it does not keep one row per base row.
+        MaterializedIndexMeta rollupMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.doReturn(KeysType.AGG_KEYS).when(rollupMeta).getKeysType();
+        Mockito.doReturn(rollupMeta).when(table).getIndexMetaByIndexId(rollupIndexId);
+
+        // The record a load creates: nothing has been collected yet, every loaded row is a delta row.
+        TableStatsMeta tableStats = new TableStatsMeta(table);
+        tableStats.updatedRows.set(100);
+
+        AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
+        Mockito.doReturn(tableStats).when(analysisManager).findTableStatsStatus(tableId);
+        Env env = Mockito.mock(Env.class);
+        Mockito.doReturn(analysisManager).when(env).getAnalysisManager();
+
+        OlapScan scan = Mockito.mock(OlapScan.class);
+        Mockito.doReturn(table).when(scan).getTable();
+        Mockito.doReturn(rollupIndexId).when(scan).getSelectedIndexId();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // These rows are not the row count of an index which does not keep one row per base row, they must
+            // not be added to it (TableStatsMeta#getRowCountWithDeltaRows gates that). They are still the
+            // population FilterEstimation retries a zero estimate with, for every index: stale column
+            // statistics are not index specific.
+            Assertions.assertEquals(100L,
+                    new StatsCalculator((CascadesContext) null).computeDeltaRowCount(scan));
         }
     }
 

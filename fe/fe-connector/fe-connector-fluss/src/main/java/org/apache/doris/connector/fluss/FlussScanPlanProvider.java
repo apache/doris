@@ -42,6 +42,7 @@ import org.apache.fluss.types.DataType;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
@@ -53,6 +54,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Turns a fluss table into the scan ranges that cover it.
@@ -156,19 +158,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static final String SESSION_UNION_READ_MODE = "fluss_union_read_mode";
 
-    /**
-     * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
-     * this connector needs lives in {@code FileScannerV2} only, so a scan planned here must use it whatever
-     * {@code enable_file_scanner_v2} says; the legacy scanner's JNI dispatch has no fluss branch and would
-     * fail the query with {@code Not supported create reader for table format}. Same literal as the per-range
-     * marker ({@link FlussScanRange#getTableFormatType}), and the mirror image of the {@code
-     * transactional_hive} stamp, which uses this same channel to force the OPPOSITE choice.
-     */
+    /** Scan-level connector identity, matching every emitted Fluss range. */
     private static final String SCAN_LEVEL_TABLE_FORMAT = FlussScanRange.TABLE_FORMAT;
 
     private final FlussAdminOps adminOps;
     private final FlussCatalogProperties catalogProperties;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
+
+    /** Lake-half scan-node properties kept across this catalog's statements. */
+    private final FlussLakePropertiesCache lakeProperties;
 
     /**
      * What the last {@link #planScan} produced, for the EXPLAIN line. Plain fields, not volatile: the
@@ -233,9 +231,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
     public FlussScanPlanProvider(FlussAdminOps adminOps, FlussCatalogProperties catalogProperties,
             Function<Map<String, String>, Connector> lakeSiblingFactory) {
+        this(adminOps, catalogProperties, lakeSiblingFactory, new FlussLakePropertiesCache(0));
+    }
+
+    public FlussScanPlanProvider(FlussAdminOps adminOps, FlussCatalogProperties catalogProperties,
+            Function<Map<String, String>, Connector> lakeSiblingFactory, FlussLakePropertiesCache lakeProperties) {
         this.adminOps = adminOps;
         this.catalogProperties = catalogProperties;
         this.lakeSiblingFactory = lakeSiblingFactory;
+        this.lakeProperties = lakeProperties;
         this.plannedUnionReadMode = catalogProperties.getUnionReadMode();
     }
 
@@ -1014,6 +1018,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         return null;
     }
 
+    /** Partition columns come from each range; known from the handle, so no properties are built for them. */
+    @Override
+    public Optional<List<String>> getPathPartitionKeys(ConnectorSession session, ConnectorTableHandle handle) {
+        FlussTableHandle flussHandle = (FlussTableHandle) handle;
+        return Optional.of(flussHandle.isPartitioned()
+                ? flussHandle.getPartitionKeys() : Collections.<String>emptyList());
+    }
+
     /**
      * The key columns BE has to read whether or not the query asked for them, so that it can tell which
      * lake rows the log tail supersedes. Empty for every other read, which is every read but this one.
@@ -1296,6 +1308,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
         props.put(PROP_DB_NAME, flussHandle.getDatabaseName());
         props.put(PROP_TABLE_NAME, flussHandle.getTableName());
+        props.put("fluss.table_id", String.valueOf(flussHandle.getTableId()));
+        props.put("fluss.schema_id", String.valueOf(flussHandle.getSchemaId()));
+        // The JNI cache reads a Doris option, not a Fluss client option. Preserve disable values
+        // under that key so FE and BE do not apply different TTLs to the same catalog.
+        props.put(FlussTableInfoCache.TTL_PROPERTY, String.valueOf(catalogProperties.getMetadataCacheTtlSec()));
         catalogProperties.getFlussClientConfig()
                 .forEach((key, value) -> props.put(PROP_CLIENT_PREFIX + key, value));
 
@@ -1312,12 +1329,32 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 props.put(PROP_UNION_MAX_TAIL_ROWS,
                         String.valueOf(catalogProperties.getMaxTailRows()));
             }
-            List<ConnectorColumnHandle> lakeColumns = lakeColumns(session, union, columns, handle);
-            mergeLakeProperties(props, LakeSibling.call(union.sibling,
-                    () -> union.siblingProvider.getScanNodeProperties(
-                            session, union.pinnedLakeHandle, lakeColumns, filter)));
+            Supplier<Map<String, String>> lake = () -> {
+                List<ConnectorColumnHandle> lakeColumns = lakeColumns(session, union, columns, handle);
+                return LakeSibling.call(union.sibling, () -> union.siblingProvider.getScanNodeProperties(
+                        session, union.pinnedLakeHandle, lakeColumns, filter));
+            };
+            // Only a request without a filter is kept - the one the engine makes before it attaches
+            // the filter, which a point lookup then throws away, and a plain scan's.
+            mergeLakeProperties(props, filter == null || !filter.isPresent()
+                    ? lakeProperties.get(lakePropertiesKey(session, flussHandle, union, columns), lake)
+                    : lake.get());
         }
         return props;
+    }
+
+    /** What the lake half's properties depend on, short of a filter: table, lake snapshot, columns, session. */
+    private static List<Object> lakePropertiesKey(ConnectorSession session, FlussTableHandle handle,
+            UnionRead union, List<ConnectorColumnHandle> columns) {
+        List<String> names = new ArrayList<>(columns.size());
+        for (ConnectorColumnHandle column : columns) {
+            names.add(((FlussColumnHandle) column).getName());
+        }
+        return Arrays.asList(handle.getDatabaseName(), handle.getTableName(), handle.getTableId(),
+                handle.getSchemaId(), handle.getLakeDatabaseName(),
+                handle.getLakeTableName(), union.snapshotId, names, session.getUser(), session.getTimeZone(),
+                session.getLocale(), session.getBeExecVersion(),
+                session.getSessionProperties());
     }
 
     /**

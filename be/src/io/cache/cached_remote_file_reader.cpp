@@ -48,10 +48,15 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_io_adaptor.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/peer_file_cache_reader.h"
+#include "io/cache/range_cache_writeback.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/hdfs_file_reader.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/read_io_trace.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -104,6 +109,7 @@ bvar::PassiveStatus<int> g_active_peer_races_bvar(
 bvar::Adder<uint64_t> g_peer_race_peer_win("peer_race_peer_win");
 bvar::Adder<uint64_t> g_peer_race_s3_win("peer_race_s3_win");
 bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
+bvar::Adder<uint64_t> g_peer_race_s3_skipped_after_queue("peer_race_s3_skipped_after_queue");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
@@ -123,7 +129,11 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
           _cache_write_mode(opts.cache_write_mode),
           _tablet_id(opts.is_doris_table ? opts.tablet_id : 0),
           _storage_resource_id(opts.storage_resource_id),
-          _remote_file_reader(std::move(remote_file_reader)) {
+          _remote_file_reader(std::move(remote_file_reader)),
+          // HDFS destroys its handle after read errors. Even a successful cache fallback would
+          // leave size() and later required misses unusable, so never issue optional HDFS reads.
+          _io_adaptor_supports_fallback(dynamic_cast<HdfsFileReader*>(_remote_file_reader.get()) ==
+                                        nullptr) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
     if (_is_doris_table) {
         _init_doris_table_cache();
@@ -132,12 +142,42 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
     }
 }
 
+std::shared_ptr<RangeCacheWriteback> CachedRemoteFileReader::make_range_cache_writeback(
+        const IOContext& io_context, PartialBlockWritebackManager* partial_block_manager) const {
+    DORIS_CHECK(_cache != nullptr);
+    DORIS_CHECK(partial_block_manager != nullptr);
+    if (_resolve_cache_write_mode(&io_context) == CacheWriteMode::NO_WRITE ||
+        use_remote_only_on_cache_miss(&io_context)) {
+        return nullptr;
+    }
+    auto* write_manager = _cache->async_write_manager();
+    DORIS_CHECK(write_manager != nullptr);
+    CacheContext cache_context(&io_context);
+    return std::make_shared<RangeCacheWriteback>(RangeCacheWritebackOptions {
+            .write_manager = write_manager,
+            .partial_block_manager = partial_block_manager,
+            .inflight_index = config::enable_async_file_cache_write_inflight_write_buffer_index
+                                      ? _cache->inflight_write_buffer_index()
+                                      : nullptr,
+            // The wrapper closes the inner reader on destruction. Keep the wrapper as the owner
+            // while background hole fills still read directly through the inner reader.
+            .source_reader = FileReaderSPtr(shared_from_this(), _remote_file_reader.get()),
+            .cache_hash = _cache_hash,
+            .file_size = size(),
+            .block_size = static_cast<size_t>(config::file_cache_each_block_size),
+            .admission_ctx = CacheAdmissionContext::from_cache_context(cache_context, _tablet_id),
+            .io_context = FileRangeReadIOContext::from_caller(io_context),
+    });
+}
+
 void CachedRemoteFileReader::_init_doris_table_cache() {
     _cache_hash = BlockFileCache::hash(path().filename().native());
     _cache = FileCacheFactory::instance()->get_by_path(_cache_hash);
     if (_can_read_cache_file_directly()) {
         // this is designed for and test in doris table, external table need extra tests
-        _cache_file_readers = _cache->get_blocks_by_key(_cache_hash);
+        for (auto& [offset, block] : _cache->get_blocks_by_key(_cache_hash)) {
+            _cache_file_readers.emplace(offset, block);
+        }
     }
 }
 
@@ -175,19 +215,32 @@ bool CachedRemoteFileReader::_should_read_from_peer(const IOContext* io_ctx) con
            doris::config::enable_cache_read_from_peer;
 }
 
+CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext* io_ctx) const {
+    if (io_ctx->is_dryrun || io_ctx->is_warmup) {
+        return CacheWriteMode::SYNC_WRITE;
+    }
+    const auto mode = io_ctx->cache_write_mode_override.value_or(_cache_write_mode);
+    if (mode == CacheWriteMode::NO_WRITE) {
+        return mode;
+    }
+    if (mode != CacheWriteMode::DEFAULT) {
+        return mode;
+    }
+    return config::enable_async_file_cache_write ? CacheWriteMode::ASYNC_WRITE
+                                                 : CacheWriteMode::SYNC_WRITE;
+}
+
 void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
     if (_can_read_cache_file_directly()) {
         std::lock_guard lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
-        file_block->_owned_by_cached_reader = true;
-        _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
+        // Overwrite rather than emplace: an older entry at this offset may point to a block the
+        // cache has already dropped, and keeping it would disable direct reads of this range.
+        _cache_file_readers.insert_or_assign(file_block->offset(), std::move(file_block));
     }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
-    for (auto& it : _cache_file_readers) {
-        it.second->_owned_by_cached_reader = false;
-    }
     static_cast<void>(close());
 }
 
@@ -294,7 +347,7 @@ void copy_peer_chunk_to_result(const PeerFetchChunk& chunk, size_t offset, size_
 }
 
 // Execute peer read targeting a specific host:port.
-Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
+Status execute_peer_read(const std::vector<FileBlock::Range>& empty_ranges,
                          PeerFetchResult* peer_result, const std::string& file_path,
                          size_t file_size, bool is_doris_table, ReadStatistics& stats,
                          const IOContext* io_ctx, const std::string& host, int32_t port) {
@@ -312,7 +365,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
     peer_read_counter << 1;
     PeerFileCacheReader peer_reader(file_path, is_doris_table, host, port);
     // Serial peer read: source BE has the data from rebalance warm-up; no fill needed.
-    auto st = peer_reader.fetch_blocks(empty_blocks, peer_result, file_size, io_ctx,
+    auto st = peer_reader.fetch_blocks(empty_ranges, peer_result, file_size, io_ctx,
                                        /*request_fill=*/false);
     if (!st.ok()) {
         LOG_WARNING("PeerFileCacheReader read from peer failed")
@@ -321,20 +374,6 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
                 .tag("error", st.msg());
     }
     stats.from_peer_cache = st.ok();
-    return st;
-}
-
-// Execute S3 read
-Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
-                       ReadStatistics& stats, const IOContext* io_ctx,
-                       FileReaderSPtr remote_file_reader) {
-    s3_read_counter << 1;
-    SCOPED_RAW_TIMER(&stats.remote_read_timer);
-    stats.from_peer_cache = false;
-    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
-    if (st.ok()) {
-        stats.remote_physical_read_bytes += size;
-    }
     return st;
 }
 
@@ -364,10 +403,31 @@ struct RaceState {
     int64_t peer_winner_io_ns = 0; // I/O time of the winning candidate only
 };
 
+// Record a successful peer fetch in the race: it wins unless S3 already did. The test sync point is
+// hit after race.mtx is released.
+void publish_peer_success(RaceState& race, PeerFetchResult&& peer_res, const PeerCandidate& cand,
+                          int64_t peer_elapsed_ns, int64_t cand_io_ns) {
+    {
+        std::unique_lock<bthread::Mutex> lk(race.mtx);
+        if (race.winner < 0) {
+            race.winner = 0;
+            race.peer_res = std::move(peer_res);
+            race.peer_winner_cg_id = cand.compute_group_id;
+            race.peer_winner_host = cand.host;
+            race.peer_elapsed_ns = peer_elapsed_ns;
+            race.peer_winner_io_ns = cand_io_ns;
+        }
+        race.peer_done = true;
+        race.peer_status = Status::OK();
+        race.cv.notify_all();
+    }
+    TEST_SYNC_POINT("run_peer_race::peer_succeeded");
+}
+
 // Peer race logic: try candidates sequentially until one succeeds or all fail.
 // NOTE: Do NOT capture io_ctx here — it points into the caller's stack which may be destroyed
 // when S3 wins the race and the caller returns before this bthread finishes.
-void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> empty_blocks,
+void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlock::Range> empty_ranges,
                    const std::string& file_path, size_t file_sz, bool is_doris,
                    std::shared_ptr<CloudWarmUpManager> manager,
                    std::vector<doris::PeerCandidate> candidates, int64_t tablet_id,
@@ -403,22 +463,12 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
                 !resource_id.empty() && !file_path.empty();
         MonotonicStopWatch cand_sw;
         cand_sw.start();
-        auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz,
+        auto st = peer_reader.fetch_blocks(empty_ranges, &local_peer_res, file_sz,
                                            /*ctx=*/nullptr, request_fill, tablet_id, resource_id);
         if (st.ok()) {
             manager->update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
-            std::unique_lock<bthread::Mutex> lk(race->mtx);
-            if (race->winner < 0) {
-                race->winner = 0;
-                race->peer_res = std::move(local_peer_res);
-                race->peer_winner_cg_id = cand.compute_group_id;
-                race->peer_winner_host = cand.host;
-                race->peer_elapsed_ns = peer_sw.elapsed_time();
-                race->peer_winner_io_ns = cand_sw.elapsed_time();
-            }
-            race->peer_done = true;
-            race->peer_status = Status::OK();
-            race->cv.notify_all();
+            publish_peer_success(*race, std::move(local_peer_res), cand, peer_sw.elapsed_time(),
+                                 cand_sw.elapsed_time());
             return;
         }
 
@@ -465,24 +515,42 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
     // Do NOT capture io_ctx: it points into the caller's stack/iterator which may be
     // destroyed when the query is cancelled before this background task runs. The S3
     // leg of the race is a best-effort background task whose result is discarded if the
-    // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
+    // peer wins; passing nullptr is safe because ObjStorageFileReader::read_at_impl ignores it.
     auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
+        TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_task_start");
+        {
+            // The peer may win while this task waits in PeerRaceS3ThreadPool. Skip the GET
+            // before allocating the span buffer or counting an S3 read.
+            std::unique_lock<bthread::Mutex> lk(race->mtx);
+            if (race->winner == 0) {
+                race->s3_done = true;
+                race->s3_status =
+                        Status::InternalError<false>("skipped: peer won before s3 task started");
+                race->cv.notify_all();
+                g_peer_race_s3_skipped_after_queue << 1;
+                return;
+            }
+        }
         auto s3_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
         s3_read_counter << 1;
         TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_before_read");
         auto st = remote_reader->read_at(empty_start, Slice(s3_buf.get(), span_size), &read_size,
                                          nullptr);
-        std::unique_lock<bthread::Mutex> lk(race->mtx);
-        race->s3_done = true;
-        race->s3_status = st;
-        if (st.ok() && race->winner < 0) {
-            race->winner = 1;
-            race->s3_buf = std::move(s3_buf);
-            race->s3_read_size = read_size;
+        {
+            std::unique_lock<bthread::Mutex> lk(race->mtx);
+            race->s3_done = true;
+            race->s3_status = st;
+            if (st.ok() && race->winner < 0) {
+                race->winner = 1;
+                race->s3_buf = std::move(s3_buf);
+                race->s3_read_size = read_size;
+            }
+            race->cv.notify_all();
         }
-        race->cv.notify_all();
+        // Outside race->mtx: the S3 leg finished and published its result.
+        TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_published");
     };
 
     // Hedge delay: give peer a head start, but wake up early if peer finishes.
@@ -518,9 +586,9 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
 }
 
 // Wait for the race to finish and populate the output accordingly.
-Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
-                           std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result,
-                           ReadStatistics& stats, const IOContext* io_ctx) {
+Status collect_race_result(std::shared_ptr<RaceState> race, std::unique_ptr<char[]>& buffer,
+                           PeerFetchResult* peer_result, ReadStatistics& stats,
+                           const IOContext* io_ctx) {
     {
         std::unique_lock<bthread::Mutex> lk(race->mtx);
         while (race->winner < 0 && !(race->peer_done && race->s3_done)) {
@@ -534,7 +602,8 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
                     ->cloud_compute_group_id();
 
     if (race->winner == 0) {
-        // Peer won.
+        // Peer won. It returned only the requested ranges, which may be sparser than the span.
+        const size_t peer_bytes = race->peer_res.bytes_read;
         if (peer_result != nullptr) {
             *peer_result = std::move(race->peer_res);
         }
@@ -553,11 +622,11 @@ Status collect_race_result(std::shared_ptr<RaceState> race, size_t span_size,
             io_ctx->file_cache_stats->peer_hosts.insert(race->peer_winner_host);
             if (is_cross_cg) {
                 io_ctx->file_cache_stats->num_cross_cg_peer_io_total++;
-                io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += span_size;
+                io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += peer_bytes;
                 io_ctx->file_cache_stats->cross_cg_peer_io_timer += race->peer_winner_io_ns;
             } else {
                 io_ctx->file_cache_stats->num_same_cg_peer_io_total++;
-                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += span_size;
+                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += peer_bytes;
                 io_ctx->file_cache_stats->same_cg_peer_io_timer += race->peer_winner_io_ns;
             }
         }
@@ -590,11 +659,11 @@ Status CachedRemoteFileReader::_execute_s3_fallback(size_t empty_start, size_t s
     }
     buffer.reset(new char[span_size]);
     size_t read_size = span_size;
-    return execute_s3_read(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
+    return _read_remote_at(empty_start, Slice(buffer.get(), span_size), &read_size, io_ctx, stats);
 }
 
 Status CachedRemoteFileReader::_execute_sequential_peer_read(
-        const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start, size_t span_size,
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
         std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
         const IOContext* io_ctx, const std::vector<doris::PeerCandidate>& candidates,
         int64_t tablet_id) {
@@ -607,11 +676,13 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
     auto& manager = get_warm_up_manager();
     PeerFetchResult serial_res;
     const int64_t timer_before = stats.peer_read_timer;
-    auto st = execute_peer_read(empty_blocks, &serial_res, path().native(), this->size(),
+    auto st = execute_peer_read(empty_ranges, &serial_res, path().native(), this->size(),
                                 _is_doris_table, stats, io_ctx, candidates[0].host,
                                 candidates[0].brpc_port);
     if (st.ok()) {
         manager.update_peer_candidate_on_success(tablet_id, candidates[0].compute_group_id);
+        // Peer returned only the requested ranges, which may be sparser than the span.
+        const size_t peer_bytes = serial_res.bytes_read;
         if (peer_result != nullptr) {
             *peer_result = std::move(serial_res);
         }
@@ -630,12 +701,12 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
             io_ctx->file_cache_stats->peer_hosts.insert(candidates[0].host);
             if (is_cross_cg) {
                 io_ctx->file_cache_stats->num_cross_cg_peer_io_total++;
-                io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += span_size;
+                io_ctx->file_cache_stats->bytes_read_from_cross_cg_peer += peer_bytes;
                 io_ctx->file_cache_stats->cross_cg_peer_io_timer +=
                         stats.peer_read_timer - timer_before;
             } else {
                 io_ctx->file_cache_stats->num_same_cg_peer_io_total++;
-                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += span_size;
+                io_ctx->file_cache_stats->bytes_read_from_same_cg_peer += peer_bytes;
                 io_ctx->file_cache_stats->same_cg_peer_io_timer +=
                         stats.peer_read_timer - timer_before;
             }
@@ -655,12 +726,10 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
     return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
 }
 
-Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks,
-                                                    size_t empty_start, size_t span_size,
-                                                    std::unique_ptr<char[]>& buffer,
-                                                    PeerFetchResult* peer_result,
-                                                    ReadStatistics& stats,
-                                                    const IOContext* io_ctx) {
+Status CachedRemoteFileReader::_execute_remote_read(
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
+        std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
+        const IOContext* io_ctx) {
     // --- Non-peer path: direct S3 ---
     if (!_should_read_from_peer(io_ctx)) {
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
@@ -673,7 +742,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         buffer.reset();
         DCHECK(peer_result != nullptr);
         peer_result->clear();
-        auto st = execute_peer_read(empty_blocks, peer_result, path().native(), this->size(),
+        auto st = execute_peer_read(empty_ranges, peer_result, path().native(), this->size(),
                                     _is_doris_table, stats, io_ctx, dp_host, dp_port);
         if (st.ok()) return st;
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
@@ -684,15 +753,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
     auto& manager = get_warm_up_manager();
     auto candidates = manager.get_peer_candidates(tablet_id);
     if (candidates.empty()) {
-        if (!manager.is_peer_cooldown(tablet_id)) {
-            // Cold miss: trigger background FE fetch and fall back to S3.
-            g_peer_lazy_fetch_triggered << 1;
-            auto manager_ptr =
-                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager_ptr();
-            start_bthread([manager_ptr = std::move(manager_ptr), tablet_id]() {
-                manager_ptr->fetch_candidates_from_fe(tablet_id);
-            });
-        }
+        _fetch_peer_candidates_unless_cooldown();
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
     }
 
@@ -701,15 +762,35 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
     // (stable_partition in get_peer_candidates), so the winner race peer bthread
     // naturally tries the most promising candidate first — whether same-CG or cross-CG.
     if (config::enable_peer_s3_race) {
-        return _execute_winner_race(empty_blocks, empty_start, span_size, buffer, peer_result,
+        return _execute_winner_race(empty_ranges, empty_start, span_size, buffer, peer_result,
                                     stats, io_ctx, candidates, tablet_id);
     }
-    return _execute_sequential_peer_read(empty_blocks, empty_start, span_size, buffer, peer_result,
+    return _execute_sequential_peer_read(empty_ranges, empty_start, span_size, buffer, peer_result,
                                          stats, io_ctx, candidates, tablet_id);
 }
 
+bool CachedRemoteFileReader::_has_peer_candidates() const {
+    // Mirror _execute_remote_read(): the UT debug point supplies the peer address instead.
+    DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", { return true; });
+    return get_warm_up_manager().has_peer_candidates(_tablet_id);
+}
+
+void CachedRemoteFileReader::_fetch_peer_candidates_unless_cooldown() const {
+    const int64_t tablet_id = _tablet_id;
+    if (get_warm_up_manager().is_peer_cooldown(tablet_id)) {
+        return;
+    }
+    // Cold miss: trigger a background FE fetch; this read itself falls back to S3.
+    g_peer_lazy_fetch_triggered << 1;
+    auto manager_ptr =
+            ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager_ptr();
+    start_bthread([manager_ptr = std::move(manager_ptr), tablet_id]() {
+        manager_ptr->fetch_candidates_from_fe(tablet_id);
+    });
+}
+
 Status CachedRemoteFileReader::_execute_winner_race(
-        const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start, size_t span_size,
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
         std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
         const IOContext* io_ctx, const std::vector<doris::PeerCandidate>& candidates,
         int64_t tablet_id) {
@@ -717,7 +798,7 @@ Status CachedRemoteFileReader::_execute_winner_race(
     if (g_active_peer_races.fetch_add(1, std::memory_order_relaxed) >=
         config::max_concurrent_peer_races) {
         g_active_peer_races.fetch_sub(1, std::memory_order_relaxed);
-        return _execute_sequential_peer_read(empty_blocks, empty_start, span_size, buffer,
+        return _execute_sequential_peer_read(empty_ranges, empty_start, span_size, buffer,
                                              peer_result, stats, io_ctx, candidates, tablet_id);
     }
 
@@ -737,10 +818,12 @@ Status CachedRemoteFileReader::_execute_winner_race(
 
     // Launch peer bthread.
     start_bthread(
-            [race, empty_blocks = std::move(empty_blocks), file_path, file_sz, is_doris,
-             manager = std::move(manager), candidates = std::move(candidates), tablet_id,
+            // Init-captures copy the const& parameters into non-const members once, so the
+            // moves below really move.
+            [race, empty_ranges = empty_ranges, file_path, file_sz, is_doris,
+             manager = std::move(manager), candidates = candidates, tablet_id,
              resource_id = _storage_resource_id, parent_resource_ctx]() mutable {
-                run_peer_race(race, std::move(empty_blocks), file_path, file_sz, is_doris,
+                run_peer_race(race, std::move(empty_ranges), file_path, file_sz, is_doris,
                               std::move(manager), std::move(candidates), tablet_id,
                               std::move(resource_id), parent_resource_ctx);
             },
@@ -753,7 +836,7 @@ Status CachedRemoteFileReader::_execute_winner_race(
                    shared_from_this());
 
     // Collect race result.
-    return collect_race_result(race, span_size, buffer, peer_result, stats, io_ctx);
+    return collect_race_result(race, buffer, peer_result, stats, io_ctx);
 }
 
 bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
@@ -777,27 +860,33 @@ bool CachedRemoteFileReader::_try_read_from_cached_files_directly(
 
     size_t current_offset = offset;
     while (need_read_size != 0 && iter != _cache_file_readers.end()) {
-        if (iter->second->offset() > current_offset ||
-            iter->second->range().right < current_offset) {
+        // Holding the block while reading it makes the cache treat it as busy, so its file is not
+        // deleted mid-read. If the block is marked deleting meanwhile, run_background_gc()
+        // reclaims it once this reference is gone.
+        FileBlockSPtr block = iter->second.lock();
+        if (block == nullptr) {
+            // The cache has dropped this block. Read the range through the cache instead.
+            break;
+        }
+        if (block->offset() > current_offset || block->range().right < current_offset) {
             break;
         }
 
-        size_t file_offset = current_offset - iter->second->offset();
-        size_t reserve_bytes = std::min(need_read_size, iter->second->range().size() - file_offset);
+        size_t file_offset = current_offset - block->offset();
+        size_t reserve_bytes = std::min(need_read_size, block->range().size() - file_offset);
         if (is_dryrun) [[unlikely]] {
             g_skip_local_cache_io_sum_bytes << reserve_bytes;
         } else {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            if (!iter->second
-                         ->read(Slice(result.data + (current_offset - offset), reserve_bytes),
-                                file_offset)
+            if (!block->read(Slice(result.data + (current_offset - offset), reserve_bytes),
+                             file_offset)
                          .ok()) { // TODO: maybe read failed because block evict, should handle error
                 break;
             }
             source_read_breakdown.local_bytes += reserve_bytes;
         }
 
-        _cache->add_need_update_lru_block(iter->second);
+        _cache->add_need_update_lru_block(std::move(block));
         need_read_size -= reserve_bytes;
         current_offset += reserve_bytes;
         already_read += reserve_bytes;
@@ -873,7 +962,12 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
     std::unique_ptr<char[]> buffer;
     PeerFetchResult peer_result;
 
-    RETURN_IF_ERROR(_execute_remote_read(empty_blocks, empty_start, span_read_size, buffer,
+    std::vector<FileBlock::Range> empty_ranges;
+    empty_ranges.reserve(empty_blocks.size());
+    for (const auto& block : empty_blocks) {
+        empty_ranges.push_back(block->range());
+    }
+    RETURN_IF_ERROR(_execute_remote_read(empty_ranges, empty_start, span_read_size, buffer,
                                          &peer_result, stats, io_ctx));
 
     std::vector<std::vector<const PeerFetchChunk*>> peer_chunks_by_block;
@@ -1048,15 +1142,11 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             size_t remote_bytes_read {0};
             stats.hit_cache = false;
             stats.from_peer_cache = false;
-            s3_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(
+            RETURN_IF_ERROR(_read_remote_at(
                     current_offset, Slice(result.data + (current_offset - offset), read_size),
-                    &remote_bytes_read, io_ctx));
+                    &remote_bytes_read, io_ctx, stats));
             indirect_read_bytes += read_size;
             source_read_breakdown.remote_bytes += remote_bytes_read;
-            // Self-heal fell back to a real storage GET; count it as physical remote IO.
-            stats.remote_physical_read_bytes += remote_bytes_read;
             DCHECK(remote_bytes_read == read_size);
         }
 
@@ -1109,6 +1199,96 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     return Status::OK();
 }
 
+bool CachedRemoteFileReader::_try_read_from_inflight_buffers(size_t offset, Slice result,
+                                                             size_t bytes_req, bool is_dryrun,
+                                                             ReadStatistics& stats) {
+    if (!config::enable_async_file_cache_write_inflight_write_buffer_index) {
+        return false;
+    }
+    auto* inflight_index = _cache->inflight_write_buffer_index();
+    DORIS_CHECK(inflight_index != nullptr);
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(block_size > 0);
+    const size_t request_end = offset + bytes_req;
+    std::vector<size_t> block_offsets;
+    for (size_t block_offset = offset / block_size * block_size; block_offset < request_end;
+         block_offset += block_size) {
+        block_offsets.emplace_back(block_offset);
+    }
+    auto entries = inflight_index->lookup_all(_cache_hash, block_offsets);
+    bool fully_covered = true;
+    for (const auto& item : entries) {
+        if (item.entry == nullptr) {
+            ++stats.inflight_write_buffer_index_miss;
+            fully_covered = false;
+        } else {
+            ++stats.inflight_write_buffer_index_hit;
+        }
+    }
+    if (!fully_covered) {
+        return false;
+    }
+    for (const auto& item : entries) {
+        const auto& entry = item.entry;
+        DORIS_CHECK(entry->buffer != nullptr);
+        DORIS_CHECK(entry->buffer_offset == item.block_offset);
+        const size_t copy_left = std::max(offset, item.block_offset);
+        const size_t copy_end = std::min(request_end, item.block_offset + block_size);
+        const size_t copy_size = copy_end - copy_left;
+        const size_t buffer_offset = copy_left - item.block_offset;
+        DORIS_CHECK(buffer_offset <= entry->buffer_size);
+        DORIS_CHECK(copy_size <= entry->buffer_size - buffer_offset);
+        if (!is_dryrun) [[likely]] {
+            entry->buffer->copy_to(buffer_offset, copy_size, result.data + copy_left - offset);
+        }
+    }
+    return true;
+}
+
+void CachedRemoteFileReader::_trace_remote_miss(size_t offset, size_t bytes_req,
+                                                const IOContext* io_ctx) {
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    const size_t aligned_start = offset / block_size * block_size;
+    const size_t request_end = offset + bytes_req;
+    auto available = _cache->downloaded_ranges(_cache_hash, offset, bytes_req);
+    ReadIOTraceEvent event {.event = "remote_miss_coverage",
+                            .context = io_ctx,
+                            .file = path().native(),
+                            .id = io_ctx->read_trace_id,
+                            .offset = offset,
+                            .size = bytes_req};
+    for (const auto& range : available) {
+        event.disk_bytes += range.size();
+    }
+    if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
+        auto* inflight_index = _cache->inflight_write_buffer_index();
+        for (size_t block_offset = aligned_start; block_offset < request_end;
+             block_offset += block_size) {
+            const auto entry = inflight_index->lookup(_cache_hash, block_offset);
+            if (entry != nullptr) {
+                const size_t left = std::max(offset, entry->buffer_offset);
+                const size_t covered_end =
+                        std::min(request_end, entry->buffer_offset + entry->buffer_size);
+                if (covered_end > left) {
+                    event.inflight_bytes += covered_end - left;
+                    available.emplace_back(left, covered_end - 1);
+                }
+            }
+        }
+    }
+    std::sort(available.begin(), available.end(),
+              [](const auto& left, const auto& right) { return left.left < right.left; });
+    size_t covered_end = offset;
+    for (const auto& range : available) {
+        const size_t end = range.right + 1;
+        if (end > covered_end) {
+            event.available_bytes += end - std::max(range.left, covered_end);
+            covered_end = end;
+        }
+    }
+    ReadIOTrace::record(event);
+}
+
 Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         size_t offset, Slice result, size_t bytes_req, bool is_dryrun, size_t* bytes_read,
         ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
@@ -1117,31 +1297,41 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         stats.hit_cache = false;
         stats.from_peer_cache = false;
         stats.skip_cache = true;
-        s3_read_counter << 1;
         if (is_dryrun) [[unlikely]] {
+            s3_read_counter << 1;
             *bytes_read = bytes_req;
             g_read_cache_indirect_bytes << 0;
             g_read_cache_indirect_total_bytes << bytes_req;
             return Status::OK();
         }
 
+        if (ReadIOTrace::enabled()) {
+            _trace_remote_miss(offset, bytes_req, io_ctx);
+        }
         size_t remote_bytes_read = bytes_req;
-        SCOPED_RAW_TIMER(&stats.remote_read_timer);
-        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
-                                                     &remote_bytes_read, io_ctx));
+        RETURN_IF_ERROR(_read_remote_at(offset, Slice(result.data, bytes_req), &remote_bytes_read,
+                                        io_ctx, stats));
         *bytes_read = remote_bytes_read;
         DCHECK_EQ(*bytes_read, bytes_req);
         source_read_breakdown.remote_bytes += remote_bytes_read;
-        // This is a real storage GET, so it must count as physical remote IO just like
-        // the block-download path; otherwise profiles show scanned-from-remote bytes
-        // with zero physical reads whenever remote-only-on-miss is active.
-        stats.remote_physical_read_bytes += remote_bytes_read;
         g_read_cache_indirect_bytes << remote_bytes_read;
         g_read_cache_indirect_total_bytes << remote_bytes_read;
         return Status::OK();
     };
 
     g_read_cache_indirect_num << 1;
+    if (_try_read_from_inflight_buffers(offset, result, bytes_req, is_dryrun, stats)) {
+        const size_t local_read_bytes = is_dryrun ? 0 : bytes_req;
+        if (is_dryrun) [[unlikely]] {
+            g_skip_local_cache_io_sum_bytes << bytes_req;
+        }
+        *bytes_read = bytes_req;
+        stats.hit_cache = true;
+        source_read_breakdown.local_bytes += local_read_bytes;
+        g_read_cache_indirect_bytes << local_read_bytes;
+        g_read_cache_indirect_total_bytes << bytes_req;
+        return Status::OK();
+    }
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
     cache_context.tablet_id = _tablet_id;
@@ -1198,6 +1388,214 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
     g_read_cache_indirect_bytes << local_read_bytes;
     g_read_cache_indirect_total_bytes << bytes_req;
     return Status::OK();
+}
+
+namespace {
+
+// A partial cache copy cannot be published: the caller retries the complete range through
+// the normal planner when any block fails, preserving its cache-repair and remote fallback.
+bool read_adaptor_cached_blocks(BlockFileCache* cache, const UInt128Wrapper& hash,
+                                const FileBlocks& blocks, size_t offset, Slice result,
+                                ReadStatistics& stats) {
+    const auto bytes_req = result.size;
+    const auto local_start = MonotonicNanos();
+    ++stats.io_adaptor_local_reads;
+    Defer local_timer {[&] {
+        const auto elapsed = MonotonicNanos() - local_start;
+        stats.io_adaptor_local_time_ns += elapsed;
+        stats.local_read_timer += elapsed;
+    }};
+    for (const auto& block : blocks) {
+        const auto left = std::max(offset, block->range().left);
+        const auto right = std::min(offset + bytes_req - 1, block->range().right);
+        Status status = block->read(Slice(result.data + left - offset, right - left + 1),
+                                    left - block->range().left);
+        if (!status.ok()) {
+            // Concurrent eviction can remove a previously downloaded file. The ordinary path
+            // already handles self-healing and remote fallback, so retry the full request there.
+            if (status.is<ErrorCode::NOT_FOUND>()) {
+                cache->remove_if_cached_async(hash);
+            }
+            return false;
+        }
+    }
+    const auto elapsed = MonotonicNanos() - local_start;
+    cache->io_adaptor().record_local(bytes_req, elapsed / 1000);
+    return true;
+}
+
+// Inspect memory coverage without taking the disk-cache mutex. The ordinary memory-first planners
+// retain responsibility for copying data and counting inflight hits or misses exactly once.
+bool fully_covered_by_inflight_buffers(BlockFileCache* cache, const UInt128Wrapper& hash,
+                                       size_t offset, size_t bytes_req) {
+    const size_t block_size = config::file_cache_each_block_size;
+    std::vector<size_t> offsets;
+    for (size_t block_offset = offset / block_size * block_size; block_offset < offset + bytes_req;
+         block_offset += block_size) {
+        offsets.push_back(block_offset);
+    }
+    const auto entries = cache->inflight_write_buffer_index()->lookup_all(hash, offsets);
+    return std::ranges::all_of(entries, [](const auto& item) { return item.entry != nullptr; });
+}
+
+} // namespace
+
+Status CachedRemoteFileReader::_read_remote_at(size_t offset, Slice result, size_t* bytes_read,
+                                               const IOContext* io_ctx, ReadStatistics& stats) {
+    s3_read_counter << 1;
+    stats.from_peer_cache = false;
+    const auto start = MonotonicNanos();
+    auto status = _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
+    const auto elapsed = MonotonicNanos() - start;
+    stats.remote_read_timer += elapsed;
+    if (status.ok()) {
+        stats.remote_physical_read_bytes += *bytes_read;
+        // Misses can expand to full blocks or issue several GETs. Sample each complete call
+        // at its actual size; neither cache writeback nor a later GET belongs to this sample.
+        if (*bytes_read == result.size && _io_adaptor_eligible(result.size, io_ctx)) {
+            _cache->io_adaptor().record_remote(*bytes_read, elapsed / 1000);
+        }
+    }
+    return status;
+}
+
+bool CachedRemoteFileReader::_io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const {
+    // Only explicitly enabled external query reads may adapt. Background/index/warmup reads
+    // and memory-cache/inflight payloads retain their existing policies. After an optional
+    // remote read fails, keep later cache hits on the normal path for this reader's lifetime.
+    return io_ctx->enable_file_cache_io_adaptor && !_is_doris_table && !io_ctx->is_dryrun &&
+           !_io_adaptor_remote_failed.load(std::memory_order_acquire) && !io_ctx->is_warmup &&
+           !io_ctx->is_index_data && !io_ctx->is_inverted_index && !io_ctx->should_stop &&
+           io_ctx->read_file_cache && bytes > 0 && _io_adaptor_supports_fallback &&
+           _cache->get_storage()->get_type() == FileCacheStorageType::DISK;
+}
+
+Status CachedRemoteFileReader::_try_read_with_io_adaptor(
+        size_t offset, Slice result, size_t bytes_req, CacheWriteMode cache_write_mode,
+        size_t* bytes_read, const IOContext* io_ctx, ReadStatistics& stats,
+        SourceReadBreakdown& sources, bool* handled) {
+    *handled = false;
+    // Accepted async payloads remain readable after async writes are disabled. NO_WRITE and
+    // remote-only-on-miss also check memory first (e.g. a query with zero cache-write budget),
+    // so none of these planners should wait for unrelated disk eviction under _cache->_mutex.
+    const bool memory_first = cache_write_mode == CacheWriteMode::ASYNC_WRITE ||
+                              cache_write_mode == CacheWriteMode::NO_WRITE ||
+                              use_remote_only_on_cache_miss(io_ctx);
+    if (memory_first && config::enable_async_file_cache_write_inflight_write_buffer_index &&
+        fully_covered_by_inflight_buffers(_cache, _cache_hash, offset, bytes_req)) {
+        return Status::OK();
+    }
+    FileBlocks blocks;
+    bool fully_covered = false;
+    CacheContext context(io_ctx);
+    context.stats = &stats;
+    context.tablet_id = _tablet_id;
+    ++stats.io_adaptor_lookup_count;
+    {
+        SCOPED_RAW_TIMER(&stats.io_adaptor_lookup_time_ns);
+        RETURN_IF_ERROR(_cache->get_downloaded_blocks_if_fully_covered(
+                _cache_hash, offset, bytes_req, context, &blocks, &fully_covered));
+    }
+    if (!fully_covered) {
+        // A mixed hit/miss or inflight-buffer request follows the existing sync/async planner.
+        // In particular, a bypass must never acquire downloader ownership or cause writeback.
+        return Status::OK();
+    }
+    auto& adaptor = _cache->io_adaptor();
+    const auto decision = adaptor.select(bytes_req, config::file_cache_io_adaptor_skip_read_factor);
+    // Release the path-wide probe permit even on cancellation, short reads or local repair.
+    Defer probe_done {[&] {
+        if (decision.is_probe()) {
+            adaptor.finish_probe();
+        }
+    }};
+    stats.io_adaptor_local_probes += decision.local_probe;
+    stats.io_adaptor_remote_probes += decision.remote_probe;
+    if (decision.read_remote()) {
+        // Requested and returned bytes differ for failed/short reads recovered from local cache.
+        ++stats.io_adaptor_bypass_count;
+        stats.io_adaptor_bypass_bytes += bytes_req;
+        size_t remote_bytes = 0;
+        s3_read_counter << 1;
+        const auto start = MonotonicNanos();
+        Status status = _remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
+                                                     &remote_bytes, io_ctx);
+        const auto elapsed = MonotonicNanos() - start;
+        stats.io_adaptor_remote_time_ns += elapsed;
+        stats.remote_read_timer += elapsed;
+        stats.io_adaptor_remote_bytes += remote_bytes;
+        if (status.ok() && remote_bytes == bytes_req) {
+            stats.remote_physical_read_bytes += remote_bytes;
+            adaptor.record_remote(remote_bytes, elapsed / 1000);
+            sources.remote_bytes += remote_bytes;
+            stats.hit_cache = false;
+            stats.skip_cache = true;
+            *bytes_read = remote_bytes;
+            *handled = true;
+            return Status::OK();
+        }
+        ++stats.io_adaptor_remote_failures;
+        if (io_ctx->should_stop || status.is<ErrorCode::CANCELLED>()) {
+            return status.ok() ? Status::Cancelled("Adaptive cache read cancelled") : status;
+        }
+        // Repeating an optional failing GET would delay every subsequent cached range. Keep
+        // required remote misses available without poisoning other readers' shared estimates.
+        _io_adaptor_remote_failed.store(true, std::memory_order_release);
+        // The same immutable range is still cached. Overwrite the complete caller range after
+        // an error/short remote read; never publish the partially overwritten buffer as success.
+        ++stats.io_adaptor_fallback_local;
+    }
+    if (read_adaptor_cached_blocks(_cache, _cache_hash, blocks, offset,
+                                   Slice(result.data, bytes_req), stats)) {
+        // Lookup alone must not count: a failed disk copy retries through the ordinary planner.
+        _cache->record_query_cache_hit(blocks);
+        sources.local_bytes += bytes_req;
+        *bytes_read = bytes_req;
+        *handled = true;
+    }
+    return Status::OK();
+}
+
+Status CachedRemoteFileReader::_read_with_cache_policy(size_t offset, Slice result,
+                                                       size_t bytes_req, size_t* bytes_read,
+                                                       const IOContext* io_ctx,
+                                                       ReadStatistics& stats,
+                                                       SourceReadBreakdown& source_read_breakdown) {
+    const bool is_dryrun = io_ctx->is_dryrun;
+    Status read_st = Status::OK();
+    const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
+    TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
+    if (_io_adaptor_eligible(bytes_req, io_ctx)) {
+        bool handled = false;
+        read_st = _try_read_with_io_adaptor(offset, result, bytes_req, cache_write_mode, bytes_read,
+                                            io_ctx, stats, source_read_breakdown, &handled);
+        if (!read_st.ok() || handled) {
+            return read_st;
+        }
+    }
+    if (cache_write_mode == CacheWriteMode::NO_WRITE || use_remote_only_on_cache_miss(io_ctx)) {
+        read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
+                                                  stats, source_read_breakdown, io_ctx);
+        return read_st;
+    }
+
+    size_t already_read = 0;
+    if (_try_read_from_cached_files_directly(offset, result, bytes_req, is_dryrun, stats,
+                                             source_read_breakdown, already_read, bytes_read)) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
+    DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
+                cache_write_mode == CacheWriteMode::ASYNC_WRITE);
+    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE) {
+        read_st = _read_async_write_path(offset, result, bytes_req, already_read, bytes_read, stats,
+                                         source_read_breakdown, io_ctx);
+    } else {
+        read_st = _read_from_indirect_cache(offset, result, bytes_req, already_read, is_dryrun,
+                                            bytes_read, stats, source_read_breakdown, io_ctx);
+    }
+    return read_st;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -1270,30 +1668,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
-    if (use_remote_only_on_cache_miss(io_ctx)) {
-        read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
-                                                  stats, source_read_breakdown, io_ctx);
-        return read_st;
-    }
-
-    size_t already_read = 0;
-    if (_try_read_from_cached_files_directly(offset, result, bytes_req, is_dryrun, stats,
-                                             source_read_breakdown, already_read, bytes_read)) {
-        return Status::OK();
-    }
-
-    const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
-    TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
-    DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
-    DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
-                cache_write_mode == CacheWriteMode::ASYNC_WRITE);
-    if (cache_write_mode == CacheWriteMode::ASYNC_WRITE) {
-        read_st = _read_async_write_path(offset, result, bytes_req, already_read, bytes_read, stats,
-                                         source_read_breakdown, io_ctx);
-    } else {
-        read_st = _read_from_indirect_cache(offset, result, bytes_req, already_read, is_dryrun,
-                                            bytes_read, stats, source_read_breakdown, io_ctx);
-    }
+    read_st = _read_with_cache_policy(offset, result, bytes_req, bytes_read, io_ctx, stats,
+                                      source_read_breakdown);
     return read_st;
 }
 
@@ -1400,10 +1776,24 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+    statis->io_adaptor_lookup_count += read_stats.io_adaptor_lookup_count;
+    statis->io_adaptor_lookup_time_ns += read_stats.io_adaptor_lookup_time_ns;
+    statis->io_adaptor_local_reads += read_stats.io_adaptor_local_reads;
+    statis->io_adaptor_local_time_ns += read_stats.io_adaptor_local_time_ns;
+    statis->io_adaptor_bypass_count += read_stats.io_adaptor_bypass_count;
+    statis->io_adaptor_bypass_bytes += read_stats.io_adaptor_bypass_bytes;
+    statis->io_adaptor_remote_bytes += read_stats.io_adaptor_remote_bytes;
+    statis->io_adaptor_remote_time_ns += read_stats.io_adaptor_remote_time_ns;
+    statis->io_adaptor_local_probes += read_stats.io_adaptor_local_probes;
+    statis->io_adaptor_remote_probes += read_stats.io_adaptor_remote_probes;
+    statis->io_adaptor_remote_failures += read_stats.io_adaptor_remote_failures;
+    statis->io_adaptor_fallback_local += read_stats.io_adaptor_fallback_local;
     statis->async_cache_write_submitted += read_stats.async_cache_write_submitted;
     statis->async_cache_write_rejected += read_stats.async_cache_write_rejected;
     statis->async_cache_write_buffer_alloc_fail += read_stats.async_cache_write_buffer_alloc_fail;
     statis->async_cache_write_drop_stale_epoch += read_stats.async_cache_write_drop_stale_epoch;
+    statis->async_copy_to_user_timer += read_stats.async_copy_to_user_timer;
+    statis->async_submit_write_timer += read_stats.async_submit_write_timer;
     statis->inflight_write_buffer_index_hit += read_stats.inflight_write_buffer_index_hit;
     statis->inflight_write_buffer_index_miss += read_stats.inflight_write_buffer_index_miss;
     statis->probe_downloaded_hit += read_stats.probe_downloaded_hit;

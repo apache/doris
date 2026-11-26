@@ -34,7 +34,10 @@ namespace doris {
 
 class DataTypeVarbinarySerDe : public DataTypeSerDe {
 public:
-    DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeVarbinarySerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {}
+
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
 
     std::string get_name() const override { return "Varbinary"; }
 

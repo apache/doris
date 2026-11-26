@@ -24,16 +24,25 @@ import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AccessRequirements;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * What the engine answers an authorization source that asks it something.
@@ -68,15 +77,112 @@ public class EngineAuthorizationContextTest {
     public void testRolesAreReadWithoutTheInternalDefaultRole() {
         Auth auth = Mockito.mock(Auth.class);
         Set<String> roles = ImmutableSet.of("analyst");
-        Mockito.when(auth.getRolesByUser(Mockito.any(UserIdentity.class), Mockito.eq(false))).thenReturn(roles);
+        Mockito.when(auth.getRoleNamesForAuthorization(Mockito.any(UserIdentity.class))).thenReturn(roles);
 
         EngineAuthorizationContext context = new EngineAuthorizationContext(
                 new AccessControllerManager(auth), auth);
         context.servedBy(new Recording());
 
         Assertions.assertEquals(roles, context.rolesOf(SUBJECT));
-        Mockito.verify(auth).getRolesByUser(
-                UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"), false);
+        Mockito.verify(auth).getRoleNamesForAuthorization(
+                UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"));
+    }
+
+    @Test
+    public void testPluginRoleLookupUsesRequestRolesAndRestoresItsContext() {
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(auth.getRoleNamesForAuthorization(Mockito.any(UserIdentity.class)))
+                .thenAnswer(invocation -> ((UserIdentity) invocation.getArgument(0)).getAuthenticatedRoles());
+        AccessControllerManager manager = new AccessControllerManager(auth);
+        EngineAuthorizationContext engine = new EngineAuthorizationContext(manager, auth);
+        AtomicReference<Set<String>> observed = new AtomicReference<>();
+        AuthorizationPlugin plugin = new AuthorizationPlugin() {
+            @Override
+            public String name() {
+                return "role_reader";
+            }
+
+            @Override
+            public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                    AccessRequirement requirement, AccessContext context) {
+                observed.set(engine.rolesOf(subject));
+            }
+        };
+        engine.servedBy(plugin);
+        Deencapsulation.setField(manager, "defaultAccessController", plugin);
+        TUserIdentity request = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%").toThrift();
+        request.setAuthenticatedRoles(ImmutableSet.of("mapped_role"));
+        Assertions.assertTrue(manager.decide(UserIdentity.fromThrift(request),
+                AuthorizedResource.global(), AccessRequirements.SELECT));
+        Assertions.assertEquals(ImmutableSet.of("mapped_role"), observed.get());
+        Assertions.assertTrue(engine.rolesOf(SUBJECT).isEmpty());
+    }
+
+    @Test
+    public void testMappedRolesDoNotRequireAnAnalyzedInputIdentity() {
+        ConnectContext session = new ConnectContext();
+        session.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"));
+        session.setAuthenticatedRoles(ImmutableSet.of("mapped_role"));
+        UserIdentity input = new UserIdentity("user1", "%");
+        AccessContext context = UserIdentityAccessContext.of(input, ConnectionAccessContext.of(session));
+        UserIdentity restored = AccessTranslation.userIdentityOf(AccessTranslation.subjectOf(input), context);
+        Assertions.assertEquals("user1", restored.getQualifiedUser());
+        Assertions.assertEquals(ImmutableSet.of("mapped_role"), restored.getAuthenticatedRoles());
+    }
+
+    @Test
+    public void testCapturedPoliciesPreserveRolesAndRoleScope() {
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(auth.getRoleNamesForAuthorization(Mockito.any(UserIdentity.class)))
+                .thenAnswer(invocation -> ((UserIdentity) invocation.getArgument(0)).getAuthenticatedRoles());
+        AccessControllerManager manager = new AccessControllerManager(auth);
+        EngineAuthorizationContext engine = new EngineAuthorizationContext(manager, auth);
+        RowFilterSpec filter = RowFilterSpec.restrictive("mapped_filter", "k > 0");
+        DataMaskSpec mask = new DataMaskSpec("mapped_mask", "NULL");
+        AuthorizationPlugin plugin = new AuthorizationPlugin() {
+            @Override
+            public String name() {
+                return "mapped_policy";
+            }
+
+            @Override
+            public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
+                    AccessContext context) {
+                return engine.rolesOf(subject).contains("mapped_role")
+                        ? Collections.singletonList(filter) : Collections.emptyList();
+            }
+
+            @Override
+            public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
+                    Set<String> columns, AccessContext context) {
+                return engine.rolesOf(subject).contains("mapped_role")
+                        ? Collections.singletonMap("k", mask) : Collections.emptyMap();
+            }
+        };
+        engine.servedBy(plugin);
+        Deencapsulation.setField(manager, "defaultAccessController", plugin);
+        ConnectContext session = new ConnectContext();
+        session.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"));
+        session.setAuthenticatedRoles(ImmutableSet.of("mapped_role"));
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.when(statement.getConnectContext()).thenReturn(session);
+        ConnectContext.remove();
+        AccessControllerManager.DataPolicyContext captured = manager.captureDataPolicyContext(
+                session.getCurrentUserIdentity(), "internal", "test", "t", ImmutableSet.of("k"), statement);
+        AccessControllerManager.DataPolicyContext same = manager.captureDataPolicyContext(
+                session.getCurrentUserIdentity(), "internal", "test", "t", ImmutableSet.of("k"), statement);
+        Assertions.assertEquals(captured, same);
+        Assertions.assertEquals(captured.hashCode(), same.hashCode());
+        session.setAuthenticatedRoles(ImmutableSet.of("other_role"));
+        AccessControllerManager.DataPolicyContext different = manager.captureDataPolicyContext(
+                session.getCurrentUserIdentity(), "internal", "test", "t", ImmutableSet.of("k"), statement);
+        Assertions.assertFalse(captured.samePolicyScope(different));
+        Assertions.assertNotEquals(captured, different);
+        Assertions.assertEquals(Collections.singletonList(filter), manager.evalRowFilterPolicies(captured));
+        Assertions.assertEquals(Collections.singletonMap("k", mask), manager.evalDataMaskPolicies(captured));
+        Assertions.assertTrue(manager.evalRowFilterPolicies(different).isEmpty());
+        Assertions.assertTrue(manager.evalDataMaskPolicies(different).isEmpty());
+        Assertions.assertTrue(engine.rolesOf(SUBJECT).isEmpty());
     }
 
     @Test

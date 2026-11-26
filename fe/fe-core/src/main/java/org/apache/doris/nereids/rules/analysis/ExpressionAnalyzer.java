@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -76,9 +78,11 @@ import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
 import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -463,12 +467,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        // The array inputs live in the lambda argument references, so they are not added as
+        // function children. A binding may still keep a scalar configuration input, such as the
+        // ascending flag of array_sorted_merge.
+        ImmutableList.Builder<Expression> functionChildren = ImmutableList.builder();
+        functionChildren.add(lambdaClosure);
+        functionChildren.addAll(binding.getExtraInputs());
+        return unboundFunction.withChildren(functionChildren.build());
     }
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        // Check the body before binding can fold subqueries or resolve names in the lambda scope.
+        // Subqueries supplying the enclosing function's array inputs are outside this body.
+        if (lambdaFunction.containsType(SubqueryExpr.class)) {
+            throw new AnalysisException("Subqueries are not supported in lambda expressions");
+        }
         ExpressionAnalyzer enclosingAnalyzer = this;
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
@@ -633,13 +647,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
-            if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof Udf) {
-                if (sqlCacheContext.isPresent()) {
-                    sqlCacheContext.get().setCannotProcessExpression(true);
-                }
-            }
         }
+        disableSqlCacheForUnsupportedFunction(buildResult.second);
         if (unboundFunction.isSkew() && unboundFunction.isDistinct() && buildResult.first instanceof AggregateFunction
                 && buildResult.first instanceof SupportMultiDistinct) {
             Expression bound = ((AggregateFunction) buildResult.first).withIsSkew(true);
@@ -669,7 +678,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        disableSqlCacheForUnsupportedFunction(boundFunction);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private void disableSqlCacheForUnsupportedFunction(BoundFunction function) {
+        if (wantToParseSqlFromSqlCache
+                && (function instanceof Udf || function instanceof AIFunction || function instanceof AIAgg)) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(cache -> cache.setCannotProcessExpression(true));
+        }
     }
 
     private ElementAt canonicalizeStructSelector(ElementAt elementAt) {
@@ -1020,8 +1038,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
 
         if (left.getDataType().isVariantType()) {
-            left = new Cast(left, right.getDataType());
+            if (Match.hasVariantValuesIndex(left)) {
+                if (match.op() != Operator.MATCH_ANY && match.op() != Operator.MATCH_ALL) {
+                    throw new AnalysisException("VARIANT root column supports only MATCH, MATCH_ANY, and MATCH_ALL. "
+                            + "Please query a subcolumn for " + match);
+                }
+                if (!right.isConstant()) {
+                    throw new AnalysisException("VARIANT root MATCH requires a constant query expression: "
+                            + right.toSql());
+                }
+            } else {
+                left = new Cast(left, right.getDataType());
+            }
         }
+
         return match.withChildren(left, right);
     }
 

@@ -24,6 +24,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format_v2/arrow/arrow_stream_reader.h"
 #include "format_v2/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -37,6 +38,11 @@ LoadTableReader::~LoadTableReader() = default;
 
 Status LoadTableReader::init(TableReadOptions&& options) {
     _scan_params = options.scan_params;
+    const auto& table_format = _scan_params->table_format_params.table_format_type;
+    // Query-only connectors can advertise Parquet without supplying a load source contract.
+    if (table_format == "adbc" || table_format == "fluss") {
+        return Status::NotSupported("Connector {} does not support file loads", table_format);
+    }
     _runtime_state = options.runtime_state;
     _format = options.format;
     RETURN_IF_ERROR(_init_source_columns());
@@ -180,7 +186,8 @@ Status LoadTableReader::prepare_split(const SplitReadOptions& options) {
     return TableReader::prepare_split(source_options);
 }
 
-Status LoadTableReader::refresh_conjuncts(VExprContextSPtrs) {
+Status LoadTableReader::refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool,
+                                          std::shared_ptr<const format::PredicateSnapshot>) {
     return Status::OK();
 }
 
@@ -352,6 +359,12 @@ TableColumnMappingMode LoadTableReader::mapping_mode() const {
 }
 
 Status LoadTableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
+    if (_format == FileFormat::ARROW) {
+        *reader = std::make_unique<arrow_stream::ArrowStreamReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _source_file_slots, _current_range_load_id);
+        return Status::OK();
+    }
     if (_format == FileFormat::WAL) {
         *reader = std::make_unique<wal::WalReader>(_system_properties, _current_task->data_file,
                                                    _io_ctx, _scanner_profile, _projected_columns);

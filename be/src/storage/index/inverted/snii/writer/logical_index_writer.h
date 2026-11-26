@@ -76,6 +76,9 @@ struct SniiIndexInput {
     // tests may only tighten them to exercise extreme-window behavior without
     // allocating hundreds of MiB.
     format::PrxWindowLimits prx_window_limits = format::kReaderPrxWindowLimits;
+    // When set, the .prx windows of the index share one format::PrxZstdBudget, which replaces
+    // prx_window_limits.zstd_min_saving_percent.
+    bool prx_zstd_budget = false;
     // Lexicographically sorted terms with ascending-docid postings. Used when
     // `term_source` is null (callers that already hold a materialized vector,
     // e.g. unit tests). The writer reads but does not retain these.
@@ -266,6 +269,9 @@ public:
 
     bool has_prx() const { return has_prx_; }
     bool has_norms() const { return has_norms_; }
+    // Whether norms_bytes() holds sparse norms, which the core metadata references in their own
+    // field. Set by finalize_build().
+    bool has_sparse_norms() const { return sparse_norms_; }
     format::IndexTier tier() const { return tier_; }
     uint64_t index_id() const { return index_id_; }
     const std::string& index_suffix() const { return index_suffix_; }
@@ -305,6 +311,8 @@ private:
     // stats/norms/null-bitmap/BSBF.
     Status prepare_build(io::FileWriter* posting_out);
     Status finalize_build();
+    // Encodes the norms section, dense or sparse; part of finalize_build().
+    Status build_norms_section();
     // Iterates terms (from the streaming source or the materialized vector),
     // splitting DICT blocks by target size and filling PODs + blocks_.
     Status build_blocks();
@@ -330,6 +338,7 @@ private:
     format::IndexTier tier_;
     bool has_prx_;
     bool has_norms_;
+    bool sparse_norms_ = false;
     uint32_t doc_count_;
     TrackedNullDocids null_docids_;
     const std::vector<TermPostings>& terms_; // materialized fallback (may be empty)
@@ -360,6 +369,8 @@ private:
     int dict_block_zstd_level_ = 3;
     int prx_zstd_level_ = 3;
     format::PrxWindowLimits prx_window_limits_ = format::kReaderPrxWindowLimits;
+    // The windows of the index share it when SniiIndexInput::prx_zstd_budget is set.
+    format::PrxZstdBudget prx_zstd_budget_;
     // The DICT region (zstd-compressed blocks) is staged here as blocks flush. It must
     // land contiguously AFTER the posting region (which streams concurrently to the
     // output), so it cannot stream directly; the orchestrator streams it into the

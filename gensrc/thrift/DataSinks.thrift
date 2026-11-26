@@ -329,6 +329,9 @@ struct TOlapTableSink {
     // initial partition list is empty, so auto-partition tables whose first partitions arrive at
     // runtime still enter the correct mode from the start.
     25: optional bool enable_adaptive_random_bucket
+
+    // Remote catalog endpoints follow their own cluster's transport policy.
+    26: optional bool remote_endpoint = false
 }
 
 struct THiveLocationParams {
@@ -439,6 +442,9 @@ struct TIcebergColumnStats {
 }
 
 struct TIcebergCommitData {
+    // The path Iceberg metadata records for the file: under the table's own form of the location
+    // the sink carries (TIcebergTableSink.original_output_path, TIcebergDeleteSink.table_location),
+    // never under the normalized output_path BE wrote it at. FE rejects a report outside it.
     1: optional string file_path
     // File-level record count used to construct Iceberg data/delete file metadata.
     2: optional i64 row_count
@@ -497,6 +503,12 @@ struct TIcebergTableSink {
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
     11: optional Types.TFileType file_type
+    // The raw (un-normalized) data location: the same directory as output_path, in the table's
+    // own form. BE writes data files under output_path and commits them under
+    // original_output_path, e.g. written to s3://b/db/t/data/p=1/x.parquet, committed as
+    // oss://b/db/t/data/p=1/x.parquet. "Same directory" is not "same text after the scheme":
+    // normalization can also rewrite the authority, e.g. abfss://c@acct.dfs.core.windows.net/t/data
+    // becomes s3://c/t/data.
     12: optional string original_output_path
     13: optional PlanNodes.TFileCompressType compression_type
     14: optional list<Types.TNetworkAddress> broker_addresses;
@@ -534,6 +546,11 @@ struct TIcebergDeleteSink {
     5: optional PlanNodes.TFileFormatType file_format
     6: optional PlanNodes.TFileCompressType compress_type
     7: optional string output_path
+    // The raw (un-normalized) data location: the same directory as output_path, in the table's
+    // own form. BE writes delete files under output_path and commits them under table_location,
+    // e.g. written to s3://b/db/t/data/delete_x.parquet, committed as oss://b/db/t/data/delete_x.parquet.
+    // It must not be the table root, or committed paths would miss the data directory. See
+    // TIcebergTableSink.original_output_path for what "same directory" means.
     8: optional string table_location
     9: optional map<string, string> hadoop_config
     10: optional Types.TFileType file_type
@@ -558,6 +575,8 @@ struct TIcebergMergeSink {
     7: optional PlanNodes.TFileFormatType file_format
     8: optional PlanNodes.TFileCompressType compression_type
     9: optional string output_path
+    // Same contract as TIcebergTableSink.original_output_path, for the data files; FE sets it to
+    // the same value as table_location, which the delete files are committed under.
     10: optional string original_output_path
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
@@ -577,6 +596,7 @@ struct TIcebergMergeSink {
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
+    // Same contract as TIcebergDeleteSink.table_location: the raw form of output_path's directory.
     21: optional string table_location
     22: optional i32 partition_spec_id_for_delete
     23: optional string partition_data_json_for_delete

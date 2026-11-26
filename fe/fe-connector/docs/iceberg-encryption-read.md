@@ -1,0 +1,343 @@
+# Iceberg encrypted-read contract
+
+This contract covers opt-in native Iceberg encrypted reads. Execution requires
+the SDK encryption chain, native Parquet readers, independent delete-file keys
+and authenticated private RPC. Building Arrow with Parquet modular encryption
+alone does not establish those capabilities.
+
+## Configuration and admission
+
+`enable_encryption_read` in the Iceberg plugin's `iceberg.conf` defaults to
+`false`. It is deployment configuration: set it consistently on every FE and
+restart the FE after changes. It is neither a catalog property nor a session
+variable. Enabling it expresses operator intent; it does not override missing
+execution capabilities or enable encrypted writes.
+
+Plaintext tables retain their existing paths, including metadata-only counts.
+For encrypted tables the same check applies to metadata binding, snapshot
+resolution, ordinary scans, metadata tables, streaming scans and COUNT pushdown.
+The check runs against the base table before constructing a metadata table or
+reading its manifests. An empty snapshot does not exempt an encrypted table.
+
+The initial target matrix is:
+
+| Dimension | Initial target | Current admission |
+| --- | --- | --- |
+| Catalog | HMS with the SDK standard encryption manager and an operator-configured KMS | Native execution remains HMS-only; REST metadata wiring is described separately below |
+| Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
+| Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | Independent data, position-delete and equality-delete keys |
+| Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
+| Backend | Native encrypted reader and protected FE/BE key transport | Fresh runtime capability required on every selectable live BE |
+| Writes | Outside this read contract | Encrypted targets are rejected before native sink dispatch and through transaction refresh/commit |
+| SQL result cache | Plaintext tables retain existing behavior | Encrypted tables reject cache admission and replay, even with both SQL cache settings enabled |
+
+Table encryption is recognized from `encryption.key-id`, retained v3
+`encryption-keys`, or a non-plaintext SDK encryption manager. Retained keys matter
+when an administrator removes the current write key while older snapshots still
+reference encrypted files. The check must not log key identifiers, key metadata,
+KMS credentials or key material.
+
+The writer's `write.format.default` is not evidence of the format of existing
+files. File format, algorithm, key metadata and AAD must be validated on the
+actual data/delete tasks. Imported files with per-file keys but no table-level
+declaration still pass the full deployment, HMS/v3 and standard-manager check
+when encountered. Unsupported encrypted file formats fail explicitly. Encrypted
+JNI metadata tables are rejected; native `$position_deletes` remains supported.
+
+## Failure classification
+
+Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
+
+| Classification | Meaning |
+| --- | --- |
+| `READ_DISABLED` | Encrypted reads were not enabled in the plugin configuration |
+| `UNSUPPORTED_CATALOG` | The catalog is outside the requested metadata or HMS-only native execution scope |
+| `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
+| `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
+| `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
+| `UNSUPPORTED_METADATA_TABLE` | The encrypted metadata table would use JNI outside the native key contract |
+| `UNSUPPORTED_FILE_FORMAT` | A keyed task does not use the supported native file format |
+| `WRITE_UNAVAILABLE` | The write target is encrypted; native sinks cannot produce encrypted physical objects |
+| `SQL_CACHE_UNAVAILABLE` | Stable table metadata cannot attest current file-key authorization |
+
+Read admission returns the first applicable failure. The write and result-cache
+guards apply independently of the read switch. For a table with an
+encryption declaration, backend admission fails without initializing its KMS
+manager. After admission, the SDK manager and each physical descriptor are
+validated before use. A rejected read must
+not fall back to plaintext, metadata counts, a JNI reader or another catalog.
+Plaintext reads in those catalogs continue to work.
+
+## Requirements before enabling execution
+
+The scan protocol carries each data/delete file's binary key and AAD independently.
+Configure every participating FE and BE for private mutual TLS as described in
+[private RPC TLS](../../../docs/private-rpc-tls.md). Both fragment gRPC/BRPC and
+split Thrift must be protected, with mandatory trusted client certificates,
+operator-managed identities and CA, and the supported static identity policy.
+Public SQL/HTTP protocols have their own authentication settings.
+
+Only the selected concrete OSS providers prove this contract automatically;
+custom providers default to unavailable and must explicitly implement the
+capability contract. A running FE TLS split listener is required. Backends
+advertise `supports_native_file_encryption=true` only with the native dependency
+and supported private transports. FE uses a fresh, process-local heartbeat lease;
+images, failed/missing capabilities and stale heartbeats cannot grant support. Failed
+heartbeats revoke encryption support immediately while preserving the configured
+backend liveness tolerance on every FE. Admission requires every backend in the
+external scan scheduler's current candidate set to be capable, using the session's
+compute group and the scheduler's availability rules.
+Default scans and admission reuse the candidate subset selected once per statement
+and compute group; capability checks still read the current backend state.
+
+Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
+parameters. Assigned targets are checked before serialization and again before
+sending and before returning lazy split batches. Before sending fragment keys, FE
+resolves the bound backend ID again and verifies that its registered BRPC address
+still matches the bound RPC target and its capability remains current. FE, BE and
+connector plugins are deployed together; split requests do not negotiate a caller version.
+Unavailable capability rejects encrypted work while ordinary plaintext reads
+retain their existing paths. A lost capability is a planning refusal and does not blacklist a healthy backend.
+
+The [scan wire contract](iceberg-encryption-wire.md) defines payloads, diagnostic
+redaction and dispatch checks. File keys remain query-scoped, with bounded
+lifetimes; they must not enter EXPLAIN output, profiles or persistent scan caches.
+No deterministic JVM memory zeroization or crash-dump protection is promised.
+
+See the upstream [Iceberg encryption documentation](https://iceberg.apache.org/docs/nightly/encryption/)
+and [table specification](https://iceberg.apache.org/spec/#encryption-keys) for
+the SDK encryption scheme and retained table keys.
+
+## SQL regression
+
+`test_iceberg_encryption_read_guard` uses the standard external Iceberg REST and
+MinIO fixture. With `enableIcebergTest=true`, run:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_read_guard
+```
+
+The suite writes ordinary v3 tables, then uses the REST fixture to add an
+encryption declaration to a populated table and an empty table. These are
+metadata admission fixtures, not encrypted payloads: the expected failure must
+precede file decryption and requires no KMS. It checks ordinary SELECT, COUNT
+with pushdown enabled/disabled, DESC and system tables, with the table cache
+enabled/disabled and repeated reads. Plaintext row/count results are checked
+before and after rejection. Missing fixture services fail the enabled suite.
+
+The suite runs against the default FE deployment, with `enable_encryption_read`
+absent or set to `false` in every FE's Iceberg plugin configuration. It always
+expects `READ_DISABLED`, including when the catalog requests encrypted reads;
+there is no separate regression setting for the expected deployment state.
+An incorrect error classification fails the suite.
+
+Connector unit tests explicitly construct enabled and disabled plugin contexts
+to cover both switch states, unsupported catalogs and table formats, retained
+v3 keys, custom managers and unavailable backend capabilities. The SQL suite
+and these unit tests validate admission; they do not exercise native decryption
+or grant encrypted-write support.
+
+## HMS/KMS metadata validation
+
+The HMS catalog forwards `encryption.kms-type`, `encryption.kms-impl` and the
+SDK KMS client properties without reimplementing the Iceberg encryption chain.
+The existing Iceberg plugin closure includes the AWS KMS client and AWS SDK KMS
+module. A connector test exercises binary-key wrap/unwrap through the SDK HTTP
+client. Other KMS implementations require their corresponding operator-installed
+local dependencies and are not validated by this fixture.
+
+The authentication FileIO decorator preserves the SDK's typed data, delete,
+manifest and manifest-list descriptors. Replacing them with path-only reads, or
+inheriting FileIO's typed defaults, loses encryption metadata and rejects encrypted
+files before the delegate can decrypt them. All four typed factory calls stay
+inside the same authentication scope. Key metadata is parsed by the SDK; v1
+`StandardKeyMetadata` in 1.12.0 also carries the physical length required for
+AES-GCM metadata streams.
+
+`test_iceberg_encrypted_hms_metadata` uses the mandatory encryption services in
+the standard Iceberg Compose stack. Run it with `enableIcebergTest=true`:
+
+```sh
+bash docker/thirdparties/run-thirdparties-docker.sh -c iceberg
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_hms_metadata
+```
+
+The isolated reference process uses checksum-pinned Iceberg 1.12.0 artifacts;
+it does not replace the existing Spark fixture's SDK. It generates two v3 tables
+in a dedicated bucket: one plaintext and one encrypted, each with two appended
+files and two snapshots. Both the SDK generic reader and Spark SQL verify the
+historical rows `[1, 2]` and `[1, 2, 3, 4]`. The fixture also verifies native
+Parquet encrypted-footer magic, independent file key metadata, encrypted
+manifests, encrypted manifest lists and the retained table key chain.
+
+The test KMS is a disposable Moto service, with no production credentials or
+keys. Missing KMS configuration fails actual HMS metadata planning. Injected AWS
+protocol errors verify propagation of invalid-credential and access-denied
+failures through that same path; this is not a live AWS IAM policy test. Replacing
+the wrapping key material with a different KMS-wrapped key must fail the SDK's
+AES-GCM authentication check before the manifest list can be read.
+
+Doris SQL verifies plaintext rows/counts and exactly `READ_DISABLED` for the real
+encrypted table, including SELECT, COUNT pushdown on/off, DESC and system tables,
+with table caching on/off and repeated reads. No additional test-mode setting is
+needed. The fixture fails rather than skipping when a required service or check
+is unavailable. It prepares input for the subsequent file-key and native-reader
+work; it does not admit encrypted SQL execution.
+
+## Per-file key descriptors
+
+Native data-file scan ranges carry the file data key and AAD from the SDK's
+`StandardKeyMetadata`. Manifest decryption has already exposed this metadata;
+extracting it does not make an additional KMS request for every split. A bounded
+adapter validates encoded lengths before invoking the SDK codec, and rejects
+unknown versions, corrupt metadata, invalid AES key lengths and absent AAD
+without including binary payloads in errors.
+
+The immutable file carrier is reused only across that file's byte-slices; every
+Thrift descriptor receives independent mutable buffers. A null per-file metadata
+field remains plaintext, including in a mixed snapshot. A plaintext data file
+with encrypted deletes still uses the protected native wire format.
+
+Declared encrypted tables bypass metadata-only COUNT and emit physical ranges.
+BE also disables aggregate shortcuts for the whole marked scan, including a
+plaintext first file, so file and delete authentication cannot be skipped.
+For undeclared per-file keys, both metadata COUNT probes validate live file
+metadata while retaining only one representative task. Such a marker causes an immediate
+`Iceberg encryption [COUNT_READ_UNAVAILABLE]` rejection, including in a table
+without a table-level encryption declaration. COUNT scheduling has already
+disabled streaming; normal-scan fallback would retain all file tasks and ranges
+for a table outside the admitted encryption scope. This deterministic rejection must not
+trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
+collapse and cache-failure fallback behavior.
+
+## REST Catalog encrypted metadata
+
+REST catalogs use the same default-off read admission and v3/standard-encryption
+requirements as HMS. The SDK REST operations used by this connector do not attach
+an encryption manager themselves; a small package-access adapter retains the
+original REST table, scan capabilities, REST credentials and refresh protocol while
+adding lazy, read-only encrypted metadata FileIO. It uses the effective FileIO
+properties after SDK catalog defaults, server overrides and table config merging.
+No KMS client is initialized merely to load a table or reject an encrypted query.
+
+The table-owned adapter closes its KMS client once. It closes a table-specific
+FileIO, but leaves a shared Catalog FileIO to the catalog owner. Refresh replaces
+the encrypted metadata generation without discarding retained historical keys.
+Missing KMS configuration or a removed table-key property is rejected explicitly;
+retained keys must never make the SDK select a plaintext manager.
+Encrypted REST writes and maintenance operations remain unsupported, and the
+common SQL execution fence remains in place pending protected key transport and
+native execution admission. Changing the REST allowlist does not bypass that fence.
+
+`test_iceberg_encrypted_rest_metadata` reuses the mandatory encryption fixture's
+`/rest` endpoint and existing ports; no extra enable flag is required. Its dedicated
+namespace and object locations do not reset the HMS regression's tables. An
+independent SDK reference view reads real encrypted Parquet and manifest/list
+files using metadata loaded through REST, checks historical rows, and verifies
+missing KMS, rejected credentials, denied decrypt and wrong-key failures. Doris
+SQL covers plaintext reads and counts, table-cache and batch/count settings,
+repeated encrypted admission, historical and metadata-table reads, and refresh.
+The fixture is a read-only protocol test service, not a production REST catalog.
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_rest_metadata
+```
+
+## Encrypted metadata cache ownership
+
+An encrypted table's SDK encryption manager can cache unwrapped keys. Such a
+table owner is therefore never retained by the cross-query table cache, under
+either count or weight limits. Concurrent cache misses have separate load scopes
+until classification, and each encrypted statement keeps its own owner alive
+through a table lease. Catalog invalidation or close retires cache ownership;
+active statements release their owners when their final leases close. A later
+statement reloads the table and performs its own SDK/KMS authorization.
+
+Each statement resolves one manifest reader bound to its frozen table lease.
+Synchronous reads, future observers and cached-only probes for data and delete
+manifests use that reader. Its identity coalesces concurrent unclassified loads
+within the statement; different statements have separate in-flight reads.
+Encrypted tables and manifest descriptors bypass shared entries, including a
+plaintext entry previously published for the same path.
+
+Decoded manifests are private to current consumers when either the table or manifest
+is encrypted. This includes an encrypted manifest containing only plaintext data
+files: its decoded contents must not bypass the next caller's manifest-key
+validation. An otherwise plaintext manifest containing data, position-delete or
+equality-delete key metadata is declined by the cache as well. Both synchronous
+and future loads isolate unclassified misses, before their contents are known.
+The adapter, raw COUNT probes and equality-delete discovery disable the SDK
+manifest byte cache for these reads; otherwise a
+path-only cache hit could reuse previously decrypted bytes with a missing current
+descriptor. Encrypted statement snapshots use the same uncached IO view for SDK
+planning. Failed reads are not cached, so correcting the current descriptor
+permits a fresh attempt. Completed in-flight registrations are removed before
+notifying consumers, so consumed private results do not accumulate until statement
+end. The existing query-wide admission and prefetch window bound active reads and
+queued results. Cancelled futures leave actual I/O leases held until the callable
+exits; statement teardown releases the reader's base lease after its active calls.
+
+Completed plaintext entries continue to use the configured caches. Concurrent
+cold misses from different statements may perform independent loads before a plaintext
+value has been published; warm cache hits are unchanged. Key-bearing table metadata is
+not weighed or serialized just to admit it to a shared cache. This bounds ownership;
+it does not promise deterministic zeroization of SDK or JVM memory.
+
+`MetaCacheRetentionTest` covers count and weight limits, load scopes, synchronous
+and future loads, direct/bulk publication, replacement and refresh cleanup.
+`IcebergEncryptedCacheTest` uses real SDK encrypted manifests to verify that KMS
+revocation after a successful statement is observed, invalid current descriptors
+cannot reuse a warm result, and concurrent statements retain distinct managers
+through catalog retirement. Manifest reader tests additionally cover concurrent
+data/delete coalescing, isolated observer cancellation, descriptor-key changes,
+plaintext cache hits, bounded private retention and losing reader-registration
+races. Native tests exercise independent decryptor state,
+malformed payloads, reader close and cancellation. Unit fixtures alone do not
+establish complete deployment interoperability.
+
+## Opt-in native SQL integration
+
+Run the separate enabled suite against a cluster configured for the supported
+private transports and with `enable_encryption_read=true` in every FE's plugin:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_native_read_integration
+```
+
+Set `enableIcebergTest=true` and `enableIcebergEncryptionNativeRead=true` in the
+regression configuration. The isolated fixture is described in its
+[README](../../../docker/thirdparties/docker-compose/iceberg/encryption/README.md).
+It covers SDK/Spark historical results, independent data/delete keys, cache,
+batch and pruning toggles, physical COUNT, joins, native position deletes,
+multi-file/row-group scans and same-endpoint warm-cache KMS revocation/restoration.
+Run the default-off admission suites in a separate deployment phase. The mock KMS
+validates protocol/error propagation and does not establish live AWS IAM policy
+acceptance. The read switch remains off by default and grants no encrypted writes.
+
+The separate `test_iceberg_encryption_native_read_guards` suite explicitly enables
+`enable_sql_cache` and `enable_hive_sql_cache`. It proves a plaintext query hits
+`PhysicalSqlCache`, while warmed encrypted COUNT/SUM queries must still contact
+KMS after permission revocation and recover after restoration. It also checks
+rejected encrypted INSERT/OVERWRITE and a successful plaintext write. Run it with
+the same native-read fixture and deployment settings:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_native_read_guards -g p0
+```
+
+V3 scan planning remains synchronous in this stage. Changing the external batch
+session setting does not enable V3 streaming. Lazy split capability checks are
+covered independently, including plaintext scans; authenticated Thrift
+RPC tests round-trip independent binary data/delete payloads through cached and
+reopened connections. This does not claim encrypted V3 lazy SQL execution.
+
+## Integration validation
+
+The [validation record](iceberg-encryption-validation.md) describes the executed
+SQL, failure, lifecycle, compatibility and cost checks, including retained failed
+performance protocols and the remaining human acceptance boundaries.

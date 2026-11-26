@@ -19,6 +19,10 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestListFile;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
@@ -93,6 +97,27 @@ class IcebergAuthenticatedFileIO implements FileIO {
         return doAs(() -> delegate.newInputFile(path, length));
     }
 
+    // Typed descriptors carry the SDK's encryption metadata; path-only calls cannot recover it.
+    @Override
+    public InputFile newInputFile(DataFile file) {
+        return doAs(() -> delegate.newInputFile(file));
+    }
+
+    @Override
+    public InputFile newInputFile(DeleteFile file) {
+        return doAs(() -> delegate.newInputFile(file));
+    }
+
+    @Override
+    public InputFile newInputFile(ManifestFile file) {
+        return doAs(() -> delegate.newInputFile(file));
+    }
+
+    @Override
+    public InputFile newInputFile(ManifestListFile file) {
+        return doAs(() -> delegate.newInputFile(file));
+    }
+
     @Override
     public OutputFile newOutputFile(String path) {
         return doAs(() -> delegate.newOutputFile(path));
@@ -109,6 +134,11 @@ class IcebergAuthenticatedFileIO implements FileIO {
     @Override
     public Map<String, String> properties() {
         return delegate.properties();
+    }
+
+    /** Exposes optional credential metadata; file operations must continue through this decorator. */
+    FileIO delegate() {
+        return delegate;
     }
 
     @Override

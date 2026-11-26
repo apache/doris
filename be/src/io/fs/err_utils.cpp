@@ -28,8 +28,6 @@
 #include "io/fs/hdfs.h"
 
 namespace doris {
-using namespace ErrorCode;
-
 namespace io {
 
 namespace {
@@ -86,6 +84,7 @@ std::string glob_err_to_str(int code) {
 }
 
 Status localfs_error(const std::error_code& ec, std::string_view msg) {
+    using namespace ErrorCode;
     auto message = fmt::format("{}: {}", msg, ec.message());
     if (ec == std::errc::io_error) {
         return Status::Error<IO_ERROR, false>(message);
@@ -105,6 +104,7 @@ Status localfs_error(const std::error_code& ec, std::string_view msg) {
 }
 
 Status localfs_error(int posix_errno, std::string_view msg) {
+    using namespace ErrorCode;
     auto message = fmt::format("{}: {}", msg, errno_message(posix_errno));
     switch (posix_errno) {
     case EIO:

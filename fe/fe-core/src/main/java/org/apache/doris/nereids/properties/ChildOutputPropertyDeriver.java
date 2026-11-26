@@ -61,10 +61,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.AggregateUtils;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -284,13 +282,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                             new DistributionSpecHash(hashJoin.getHashConjunctsExprIds().first, ShuffleType.REQUIRE))) {
                 DistributionSpecHash mockedRightHashSpec = mockAnotherSideSpecFromConjuncts(
                         hashJoin, (DistributionSpecHash) leftDistributionSpec);
-                if (SessionVariable.canUseNereidsDistributePlanner()) {
-                    return computeShuffleJoinOutputProperties(hashJoin,
-                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
-                } else {
-                    return legacyComputeShuffleJoinOutputProperties(hashJoin,
-                            (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
-                }
+                return computeShuffleJoinOutputProperties(hashJoin,
+                        (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
             } else {
                 return new PhysicalProperties(leftDistributionSpec);
             }
@@ -301,11 +294,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
-            if (SessionVariable.canUseNereidsDistributePlanner()) {
-                return computeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
-            } else {
-                return legacyComputeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
-            }
+            return computeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);
@@ -692,41 +681,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         }
         throw new IllegalStateException(
                 "Illegal join with wrong distribution, left: " + leftShuffleType + ", right: " + rightShuffleType);
-    }
-
-    private PhysicalProperties legacyComputeShuffleJoinOutputProperties(
-            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
-            DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
-        switch (hashJoin.getJoinType()) {
-            case INNER_JOIN:
-            case ASOF_LEFT_INNER_JOIN:
-            case ASOF_RIGHT_INNER_JOIN:
-            case CROSS_JOIN:
-                return new PhysicalProperties(DistributionSpecHash.merge(
-                        leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
-            case LEFT_SEMI_JOIN:
-            case LEFT_ANTI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
-            case LEFT_OUTER_JOIN:
-            case ASOF_LEFT_OUTER_JOIN:
-                return new PhysicalProperties(leftHashSpec);
-            case RIGHT_SEMI_JOIN:
-            case RIGHT_ANTI_JOIN:
-            case RIGHT_OUTER_JOIN:
-            case ASOF_RIGHT_OUTER_JOIN:
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
-                    return new PhysicalProperties(rightHashSpec);
-                } else {
-                    // retain left shuffle type, since coordinator use left most node to schedule fragment
-                    // forbid colocate join, since right table already shuffle
-                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                            leftHashSpec.getShuffleType()));
-                }
-            case FULL_OUTER_JOIN:
-                return PhysicalProperties.createAnyFromHash(leftHashSpec);
-            default:
-                throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
-        }
     }
 
     private DistributionSpecHash mockAnotherSideSpecFromConjuncts(

@@ -324,7 +324,6 @@ endif()
 target_compile_options(clucene-core-static PRIVATE ${clucene_options})
 target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
 target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
-target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
@@ -613,11 +612,12 @@ include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include
 )
 
+# Not contribs-lib: only the BE UT links clucene-contribs-lib (TEST_LINK_LIBS), so its headers are
+# on doris_be_test's include path alone (be/test/CMakeLists.txt).
 include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/clucene/src/shared
     ${CONTRIB_PATH}/clucene/src/core
     ${CONTRIB_PATH}/clucene/src/shared
-    ${CONTRIB_PATH}/clucene/src/contribs-lib
 )
 
 include_directories(
@@ -774,10 +774,8 @@ if (USE_UNWIND)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
-set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
-set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} h3)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
@@ -902,6 +900,8 @@ else()
         "-framework Foundation"
         "-framework SystemConfiguration"
         "-framework Security"
+        # liblance_c.a pulls in the Rust `sysinfo` crate, whose macOS backend calls IOKit.
+        "-framework IOKit"
     )
     if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
         set(DORIS_LINK_LIBS
@@ -911,9 +911,12 @@ else()
     endif()
 endif()
 
-# Set libraries for test
+# Set libraries for test. clucene-contribs-lib holds CLucene's LanguageBasedAnalyzer, the oracle
+# the jieba live differential (JiebaTokenizerTest, AnalysisDifferential) compares JiebaTokenizer
+# with; doris_be does not link it.
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
+    clucene-contribs-lib
     gmock
     gtest
     ${WL_END_GROUP}
@@ -1204,6 +1207,10 @@ if (BUILD_BENCHMARK)
         # without tcmalloc (see the MALLOCLIB branch above).
         ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    if (DEFINED ENV{DORIS_BENCHMARK_HEADER} AND NOT "$ENV{DORIS_BENCHMARK_HEADER}" STREQUAL "")
+        target_compile_definitions(benchmark_test PRIVATE
+            DORIS_BENCHMARK_HEADER="$ENV{DORIS_BENCHMARK_HEADER}")
+    endif()
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)
