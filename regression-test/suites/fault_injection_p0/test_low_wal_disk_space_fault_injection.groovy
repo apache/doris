@@ -75,6 +75,34 @@ suite("test_low_wal_disk_space_fault_injection","nonConcurrent") {
         GetDebugPoint().disableDebugPointForAllBEs("LoadBlockQueue.has_enough_wal_disk_space.low_space")
     }
 
+    // Both explicit sync and an async load downgraded to sync must see the commit error.
+    def lowSpace = "LoadBlockQueue.has_enough_wal_disk_space.low_space"
+    def finish = "LoadBlockQueue._finish_group_commit_load"
+    [["sync_mode", "err_st"], ["async_mode", "commit_success_and_rpc_error"]].each { mode, fault ->
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(lowSpace)
+            GetDebugPoint().enableDebugPointForAllBEs("${finish}.${fault}")
+            streamLoad {
+                table tableName
+                set 'column_separator', ','
+                set 'group_commit', mode
+                unset 'label'
+                inputText "1,2"
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    def json = parseJson(result)
+                    assertEquals("Fail", json.Status)
+                    assertTrue(json.Message.contains(fault), result)
+                }
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("${finish}.${fault}")
+            GetDebugPoint().disableDebugPointForAllBEs(lowSpace)
+        }
+    }
+
     // case 2: Set a minimal WAL limit to test HTTP layer admission checks
     logger.info("=== case 2: Set a minimal WAL limit to test HTTP layer admission checks ===")
     try {
