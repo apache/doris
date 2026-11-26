@@ -16,11 +16,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import com.google.common.collect.Maps
-import org.apache.commons.lang.RandomStringUtils
-import org.apache.doris.regression.util.Http
-import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility
 
 suite("test_key_bounds_truncation_read_scenarios", "nonConcurrent") {
 
@@ -39,31 +34,7 @@ suite("test_key_bounds_truncation_read_scenarios", "nonConcurrent") {
         "store_row_column" = "true", "enable_mow_light_delete" = "false" );
     """
 
-    def getRowsetMetas = { int version ->
-        def metaUrl = sql_return_maparray("show tablets from ${tableName};").get(0).MetaUrl
-        def jsonMeta = Http.GET(metaUrl, true, false)
-        for (def meta : jsonMeta.rs_metas) {
-            int end_version = meta.end_version
-            if (end_version == version) {
-                return meta
-            }
-        }
-        if (cloudMode) {
-            for (int retryTimes = 0; retryTimes < 100; retryTimes++) {
-                Thread.sleep(1000)
-                jsonMeta = Http.GET(metaUrl, true, false)
-                for (def meta : jsonMeta.rs_metas) {
-                    int end_version = meta.end_version
-                    if (end_version == version) {
-                        return meta
-                    }
-                }
-            }
-        }
-    }
-
-    def checkKeyBounds = { int version, int length, boolean turnedOn ->
-        def rowsetMeta = getRowsetMetas(version)
+    def checkKeyBounds = { def rowsetMeta, int version, int length, boolean turnedOn ->
         def keyBounds = rowsetMeta.segments_key_bounds
 
         logger.info("\nversion=${version}, segments_key_bounds_truncated=${rowsetMeta.segments_key_bounds_truncated}, turnedOn=${turnedOn}")
@@ -94,8 +65,14 @@ suite("test_key_bounds_truncation_read_scenarios", "nonConcurrent") {
                     (${k1},${i},3,7)"""
             }
         }
+        def tablet = sql_return_maparray("show tablets from ${tableName};").get(0)
+        // Version 91 is the last inserted rowset. Waiting for it on the serving BE also makes
+        // all preceding versions visible, while leaving cloud lazy commit at its default value.
+        syncAndWaitTabletVersion([tablet], 91)
         (2..91).each { idx ->
-            checkKeyBounds(idx, 2, true)
+            def rowsetMeta = getRowsetMetaAtVersion(tablet, idx)
+            assertNotNull(rowsetMeta, "rowset meta for version ${idx} was not found")
+            checkKeyBounds(rowsetMeta, idx, 2, true)
         }
         qt_sql "select * from ${tableName} order by k1,k2,k3;"
 

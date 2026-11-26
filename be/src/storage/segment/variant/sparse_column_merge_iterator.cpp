@@ -25,7 +25,6 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"

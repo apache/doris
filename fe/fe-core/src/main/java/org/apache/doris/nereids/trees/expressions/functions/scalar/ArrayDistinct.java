@@ -61,11 +61,12 @@ public class ArrayDistinct extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType()) {
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (itemType.isMapType() || itemType.isStructType()) {
-                throw new AnalysisException("array_distinct does not support complex types: " + toSql());
+            if (!ArrayFunctionUtils.isSupportedByArrayEqualityFunctions(itemType)) {
+                throw new AnalysisException("array_distinct does not support element type " + itemType.toSql());
             }
         }
     }

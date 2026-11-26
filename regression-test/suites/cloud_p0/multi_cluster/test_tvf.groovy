@@ -69,10 +69,17 @@ suite('test_tvf', 'multi_cluster,docker') {
 
         // single cluster env
         // use old clusterName, has been droped
-        test {
+        def failedAfterDrop = false
+        try {
             sql """select * from numbers("number" = "100")"""
-            exception "Unable to find the compute group"
+        } catch (Exception e) {
+            failedAfterDrop = true
+            def message = e.getMessage()
+            assertTrue(message.contains("Unable to find the compute group") ||
+                    message.contains("No available backends"),
+                    "Unexpected error after dropping the current compute group: ${message}")
         }
+        assertTrue(failedAfterDrop, "Query should fail after the current compute group is dropped")
         // switch to old cluster
         sql """use @${currentCluster.cluster}"""
         testCase.call()

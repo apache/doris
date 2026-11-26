@@ -33,12 +33,12 @@ suite("test_agg_state_group_concat") {
     sql "insert into a_table values(1,group_concat_state('ccc'));"
 
     qt_length1 """select k1,length(k2) from a_table order by k1;"""
-    qt_group1 """select k1,group_concat_merge(k2) from a_table group by k1 order by k1;"""
-    qt_merge1 """select group_concat_merge(k2) from a_table;"""
+    qt_group1 """select k1,array_join(array_sort(split_by_string(group_concat_merge(k2), ',')), ',') from a_table group by k1 order by k1;"""
+    qt_merge1 """select array_join(array_sort(split_by_string(group_concat_merge(k2), ',')), ',') from a_table;"""
     
     qt_length2 """select k1,length(k2) from a_table order by k1;"""
-    qt_group2 """select k1,group_concat_merge(k2) from a_table group by k1 order by k1;"""
-    qt_merge2 """select group_concat_merge(k2) from a_table;"""
+    qt_group2 """select k1,array_join(array_sort(split_by_string(group_concat_merge(k2), ',')), ',') from a_table group by k1 order by k1;"""
+    qt_merge2 """select array_join(array_sort(split_by_string(group_concat_merge(k2), ',')), ',') from a_table;"""
     
-    qt_union """ select group_concat_merge(kstate) from (select k1,group_concat_union(k2) kstate from a_table group by k1 order by k1) t; """
+    qt_union """ select array_join(array_sort(split_by_string(group_concat_merge(kstate), ',')), ',') from (select k1,group_concat_union(k2) kstate from a_table group by k1 order by k1) t; """
 }

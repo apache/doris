@@ -169,7 +169,8 @@ Status ParsedPartitionBoundaries::parse(
             if (tb.__isset.range_start) {                                                         \
                 auto parsed = parse_texpr_node(tb.range_start);                                   \
                 if (parsed) {                                                                     \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));            \
+                    static_cast<void>(                                                            \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, *parsed));         \
                 } else {                                                                          \
                     DORIS_CHECK(is_nullable);                                                     \
                     range_has_null = true;                                                        \
@@ -182,8 +183,8 @@ Status ParsedPartitionBoundaries::parse(
                 /* TPartitionBoundary.range_end_inclusive comment); single-column RANGE */        \
                 /* keeps the natural OPEN upper bound matching Doris semantics.         */        \
                 SQLFilterOp upper_op = (tb.__isset.range_end_inclusive && tb.range_end_inclusive) \
-                                               ? FILTER_LESS_OR_EQUAL                             \
-                                               : FILTER_LESS;                                     \
+                                               ? SQLFilterOp::FILTER_LESS_OR_EQUAL                \
+                                               : SQLFilterOp::FILTER_LESS;                        \
                 static_cast<void>(cvr.add_range(upper_op, *parsed));                              \
             }                                                                                     \
             if (range_has_null) {                                                                 \
@@ -208,6 +209,7 @@ Status ParsedPartitionBoundaries::parse(
             BUILD_BOUNDARY_CVR(DATETIME)
             BUILD_BOUNDARY_CVR(DATEV2)
             BUILD_BOUNDARY_CVR(DATETIMEV2)
+            BUILD_BOUNDARY_CVR(TIMESTAMP_NS)
             BUILD_BOUNDARY_CVR(TIMESTAMPTZ)
             BUILD_BOUNDARY_CVR(VARCHAR)
             BUILD_BOUNDARY_CVR(STRING)
@@ -477,6 +479,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_INPUT_COLUMNS(DATETIME)
         BUILD_INPUT_COLUMNS(DATEV2)
         BUILD_INPUT_COLUMNS(DATETIMEV2)
+        BUILD_INPUT_COLUMNS(TIMESTAMP_NS)
         BUILD_INPUT_COLUMNS(TIMESTAMPTZ)
         BUILD_INPUT_COLUMNS(VARCHAR)
         BUILD_INPUT_COLUMNS(STRING)
@@ -572,20 +575,24 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {                   \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, hi_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, hi_projected));  \
                 }                                                                               \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, lo_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, lo_projected));    \
                 }                                                                               \
             } else {                                                                            \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, lo_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, lo_projected));  \
                 }                                                                               \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, hi_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, hi_projected));    \
                 }                                                                               \
             }                                                                                   \
             ParsedBoundary projected_boundary;                                                  \
@@ -615,6 +622,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_PROJECTED_CVR(DATETIME)
         BUILD_PROJECTED_CVR(DATEV2)
         BUILD_PROJECTED_CVR(DATETIMEV2)
+        BUILD_PROJECTED_CVR(TIMESTAMP_NS)
         BUILD_PROJECTED_CVR(TIMESTAMPTZ)
         BUILD_PROJECTED_CVR(VARCHAR)
         BUILD_PROJECTED_CVR(STRING)
@@ -626,6 +634,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_PROJECTED_CVR(BOOLEAN)
         BUILD_PROJECTED_CVR(IPV4)
         BUILD_PROJECTED_CVR(IPV6)
+        BUILD_PROJECTED_CVR(UUID)
     default:
         break;
     }
@@ -641,13 +650,13 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 static std::optional<SQLFilterOp> convert_opcode_to_filter_op(TExprOpcode::type op) {
     switch (op) {
     case TExprOpcode::LE:
-        return FILTER_LESS_OR_EQUAL;
+        return SQLFilterOp::FILTER_LESS_OR_EQUAL;
     case TExprOpcode::LT:
-        return FILTER_LESS;
+        return SQLFilterOp::FILTER_LESS;
     case TExprOpcode::GE:
-        return FILTER_LARGER_OR_EQUAL;
+        return SQLFilterOp::FILTER_LARGER_OR_EQUAL;
     case TExprOpcode::GT:
-        return FILTER_LARGER;
+        return SQLFilterOp::FILTER_LARGER;
     default:
         return std::nullopt;
     }
@@ -854,66 +863,70 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         }
     }
 
-    // This function is serialized by _conjuncts_lock in the caller, so our reads
-    // of _pruned_partition_ids never race with our writes below. The only concurrent
-    // readers are is_partition_pruned() calls (under shared_lock), which are
-    // properly synchronized by the unique_lock we take when inserting.
     phmap::flat_hash_set<int64_t> newly_pruned;
+    {
+        // _try_prune_by_single_rf() skips IDs already published by previous filters.
+        // Hold a shared lock while it reads that set; concurrent updates merge their
+        // local results under the unique lock below.
+        std::shared_lock lock(_prune_mutex);
+        for (const auto& conjunct_ctx : conjuncts) {
+            VExprSPtr root = conjunct_ctx->root();
+            if (!root->is_rf_wrapper()) {
+                continue;
+            }
 
-    for (const auto& conjunct_ctx : conjuncts) {
-        VExprSPtr root = conjunct_ctx->root();
-        if (!root->is_rf_wrapper()) {
-            continue;
+            VExprSPtr impl = root->get_impl();
+            if (!impl) {
+                continue;
+            }
+
+            if (impl->children().empty()) {
+                continue;
+            }
+
+            auto* wrapper_root = assert_cast<RuntimeFilterExpr*>(root.get());
+            int filter_id = wrapper_root->filter_id();
+
+            VExprSPtr target_subtree = impl->children()[0];
+
+            auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
+            // For LIST partition targets, this metadata is also the per-partition eligibility map;
+            // BE projects every finite LIST value, so the direction itself is neutral there.
+            bool has_partition_mono =
+                    partition_mono_it != filter_id_to_partition_monotonicity.end() &&
+                    !partition_mono_it->second.empty();
+            if (!has_partition_mono) {
+                continue;
+            }
+
+            const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
+            DORIS_CHECK(leaf_slot != nullptr);
+
+            SlotId leaf_slot_id = leaf_slot->slot_id();
+            DORIS_CHECK(slot_to_boundaries.contains(leaf_slot_id));
+
+            int leaf_column_id = leaf_slot->column_id();
+
+            std::shared_ptr<const std::vector<ParsedBoundary>> projected;
+            RETURN_IF_ERROR(parsed.get_or_compute_projected_boundaries(
+                    filter_id, target_subtree, leaf_slot_id, leaf_column_id,
+                    partition_mono_it->second, conjunct_ctx.get(), &projected));
+
+            if (projected == nullptr || projected->empty()) {
+                continue;
+            }
+
+            _try_prune_by_single_rf(*projected, impl, newly_pruned);
         }
-
-        VExprSPtr impl = root->get_impl();
-        if (!impl) {
-            continue;
-        }
-
-        if (impl->children().empty()) {
-            continue;
-        }
-
-        auto* wrapper_root = assert_cast<RuntimeFilterExpr*>(root.get());
-        int filter_id = wrapper_root->filter_id();
-
-        VExprSPtr target_subtree = impl->children()[0];
-
-        auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
-        // For LIST partition targets, this metadata is also the per-partition eligibility map;
-        // BE projects every finite LIST value, so the direction itself is neutral there.
-        bool has_partition_mono = partition_mono_it != filter_id_to_partition_monotonicity.end() &&
-                                  !partition_mono_it->second.empty();
-        if (!has_partition_mono) {
-            continue;
-        }
-
-        const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
-        DORIS_CHECK(leaf_slot != nullptr);
-
-        SlotId leaf_slot_id = leaf_slot->slot_id();
-        DORIS_CHECK(slot_to_boundaries.contains(leaf_slot_id));
-
-        int leaf_column_id = leaf_slot->column_id();
-
-        std::shared_ptr<const std::vector<ParsedBoundary>> projected;
-        RETURN_IF_ERROR(parsed.get_or_compute_projected_boundaries(
-                filter_id, target_subtree, leaf_slot_id, leaf_column_id, partition_mono_it->second,
-                conjunct_ctx.get(), &projected));
-
-        if (projected == nullptr || projected->empty()) {
-            continue;
-        }
-
-        _try_prune_by_single_rf(*projected, impl, newly_pruned);
     }
 
-    auto count = static_cast<int64_t>(newly_pruned.size());
-    if (count > 0) {
+    int64_t count = 0;
+    if (!newly_pruned.empty()) {
         std::unique_lock lock(_prune_mutex);
         for (int64_t pid : newly_pruned) {
-            _pruned_partition_ids.insert(pid);
+            if (_pruned_partition_ids.insert(pid).second) {
+                ++count;
+            }
         }
     }
     *newly_pruned_count = count;

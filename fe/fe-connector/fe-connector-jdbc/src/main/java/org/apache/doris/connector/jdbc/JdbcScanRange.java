@@ -17,8 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -42,11 +41,6 @@ public class JdbcScanRange implements ConnectorScanRange {
 
     private JdbcScanRange(Map<String, String> properties) {
         this.properties = Collections.unmodifiableMap(new LinkedHashMap<>(properties));
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

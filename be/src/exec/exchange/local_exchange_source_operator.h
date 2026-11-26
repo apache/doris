@@ -86,23 +86,15 @@ public:
         }
         return Status::OK();
     }
-    const RowDescriptor& intermediate_row_desc() const override {
-        if (_planned_by_fe) {
-            return Base::intermediate_row_desc();
+
+    Status set_child(OperatorPtr child) override {
+        RETURN_IF_ERROR(Base::set_child(child));
+        if (!_planned_by_fe) {
+            // A runtime-created local exchange has no FE plan to initialize its row descriptor,
+            // so its original output schema is inherited from the child.
+            _row_descriptor = _child->operator_row_desc_after_projection();
         }
-        return _child->intermediate_row_desc();
-    }
-    RowDescriptor& row_descriptor() override {
-        if (_planned_by_fe) {
-            return Base::row_descriptor();
-        }
-        return _child->row_descriptor();
-    }
-    const RowDescriptor& row_desc() const override {
-        if (_planned_by_fe) {
-            return Base::row_desc();
-        }
-        return _child->row_desc();
+        return Status::OK();
     }
 
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

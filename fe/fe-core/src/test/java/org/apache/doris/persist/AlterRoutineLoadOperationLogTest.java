@@ -24,8 +24,8 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -70,16 +70,16 @@ public class AlterRoutineLoadOperationLogTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
-        Assert.assertEquals(1, log2.getJobProperties().size());
-        Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+        Assertions.assertEquals(1, log2.getJobProperties().size());
+        Assertions.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
-        Assert.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
-        Assert.assertEquals(null, kafkaDataSourceProperties.getTopic());
-        Assert.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());
-        Assert.assertEquals("mygroup", kafkaDataSourceProperties.getCustomKafkaProperties().get("group.id"));
-        Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
+        Assertions.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
+        Assertions.assertEquals(null, kafkaDataSourceProperties.getTopic());
+        Assertions.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());
+        Assertions.assertEquals("mygroup", kafkaDataSourceProperties.getCustomKafkaProperties().get("group.id"));
+        Assertions.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
-        Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
+        Assertions.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
 
         in.close();

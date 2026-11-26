@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+
+import java.util.Optional;
 
 /**
  * Abstract class for all numeric type in Nereids.
@@ -51,5 +54,10 @@ public class NumericType extends PrimitiveType implements RangeScalable {
     @Override
     public int width() {
         return -1;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

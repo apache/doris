@@ -16,6 +16,7 @@
 // under the License.
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import org.apache.doris.regression.util.Http
 import javax.net.ssl.*
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -76,7 +77,7 @@ def http_post = { url, data = null ->
     logger.info("request: " + dst + url)
     conn.setRequestMethod("POST")
     conn.setRequestProperty("Content-Type", "application/json")
-    conn.setRequestProperty("Authorization", "Basic cm9vdDo=")
+    conn.setRequestProperty("Authorization", Http.basicAuthorization('root', context.config.getRootPassword()))
     if (data) {
         // 
         logger.info("query body: " + data)

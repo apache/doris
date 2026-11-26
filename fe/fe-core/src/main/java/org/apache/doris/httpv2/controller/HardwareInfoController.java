@@ -55,11 +55,18 @@ public class HardwareInfoController {
 
     private static final Logger LOG = LogManager.getLogger(HardwareInfoController.class);
 
-    @RequestMapping(path = "/hardware_info/fe/", method = RequestMethod.GET)
+    @RequestMapping(path = "/hardware_info/fe", method = RequestMethod.GET)
     public Object index() {
         Map<String, Map<String, String>> map = new HashMap<>();
         appendVersionInfo(map);
         appendHardwareInfo(map);
+        return ResponseEntityBuilder.ok(map);
+    }
+
+    @RequestMapping(path = "/hardware_info/fe/version", method = RequestMethod.GET)
+    public Object version() {
+        Map<String, Map<String, String>> map = new HashMap<>();
+        appendVersionInfo(map);
         return ResponseEntityBuilder.ok(map);
     }
 

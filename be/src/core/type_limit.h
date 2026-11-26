@@ -24,6 +24,8 @@
 
 namespace doris {
 
+class TimeStampNsValue;
+
 template <typename T>
 struct type_limit {
     static constexpr T min() { return std::numeric_limits<T>::lowest(); }
@@ -116,6 +118,12 @@ struct type_limit<DateV2Value<DateTimeV2ValueType>> {
         uint64_t max = MAX_DATETIME_V2;
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(max);
     }
+};
+
+template <>
+struct type_limit<TimeStampNsValue> {
+    static TimeStampNsValue min();
+    static TimeStampNsValue max();
 };
 
 template <>

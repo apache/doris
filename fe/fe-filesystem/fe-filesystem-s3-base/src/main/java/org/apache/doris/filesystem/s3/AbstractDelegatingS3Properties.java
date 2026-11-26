@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
@@ -94,6 +95,11 @@ public abstract class AbstractDelegatingS3Properties
      * without the dot (e.g. {@code gs}); {@code displayName} the human-readable storage name.
      */
     protected final void validateHmacDialect(String aliasPrefix, String displayName) {
+        // GCS resolves native credentials before reaching the shared connection/HMAC checks.
+        // MinIO and Ozone have no native GCP authentication path.
+        if (!"gs".equals(aliasPrefix)) {
+            S3CompatSignals.rejectNativeGcpCredentials(rawProperties);
+        }
         new ParamRules()
                 .requireTogether(new String[] {getAccessKey(), getSecretKey()},
                         aliasPrefix + ".access_key and " + aliasPrefix
@@ -105,10 +111,15 @@ public abstract class AbstractDelegatingS3Properties
                         "Property " + aliasPrefix + ".endpoint is required.")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
-                .check(() -> S3CompatSignals.hasAwsOnlyCredentialOptions(rawProperties),
+                .check(() -> S3CompatSignals.hasAwsOnlyCredentialOptions(credentialProperties()),
                         displayName + " supports only HMAC access_key/secret_key credentials; "
                                 + "role_arn/instance-profile style options are not supported")
                 .validate("Invalid " + displayName + " filesystem properties");
+    }
+
+    /** Raw credential aliases belonging to this storage, excluding independent metadata clients. */
+    protected Map<String, String> credentialProperties() {
+        return rawProperties;
     }
 
     @Override
@@ -174,7 +185,7 @@ public abstract class AbstractDelegatingS3Properties
         // requested mode (validation restricts it to DEFAULT/ANONYMOUS): a user asking for DEFAULT
         // keeps the credential chain instead of being silently downgraded to unsigned ANONYMOUS.
         if (!hasStaticCredentials()) {
-            String requested = S3CompatSignals.requestedCredentialsProviderType(rawProperties);
+            String requested = S3CompatSignals.requestedCredentialsProviderType(credentialProperties());
             kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", requested != null ? requested : "ANONYMOUS");
         }
         customizeS3CompatibleKv(kv);
@@ -190,8 +201,10 @@ public abstract class AbstractDelegatingS3Properties
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        cfg.put("fs.s3.impl.disable.cache", "true");
-        cfg.put("fs.s3a.impl.disable.cache", "true");
+        // No blanket cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         cfg.put("fs.s3a.endpoint", getEndpoint());
         cfg.put("fs.s3a.endpoint.region", getRegion());
         if (StringUtils.isNotBlank(getAccessKey())) {

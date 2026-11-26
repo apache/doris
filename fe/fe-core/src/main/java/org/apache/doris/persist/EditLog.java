@@ -40,7 +40,6 @@ import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -52,6 +51,7 @@ import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -60,13 +60,13 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -92,6 +92,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
@@ -100,16 +101,16 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.NewPartitionLoadedEvent;
-import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.UpdateRowsEvent;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.NewPartitionLoadedEvent;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.analysis.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.tso.TSOTimestamp;
+import org.apache.doris.tso.TSOServiceState;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -174,7 +175,8 @@ public class EditLog {
     private EditLogOutputStream editStream = null;
 
     private long txId = 0;
-
+    // This best-effort timer starts when EditLog is created and resets after every roll.
+    private volatile long lastEditLogRollTimeMs = System.currentTimeMillis();
 
     private AtomicLong numTransactions = new AtomicLong(0);
     private AtomicLong totalTimeTransactions = new AtomicLong(0);
@@ -270,9 +272,10 @@ public class EditLog {
 
         txId += batch.size();
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
@@ -356,6 +359,8 @@ public class EditLog {
                 case OperationType.OP_DROP_DB: {
                     DropDbInfo dropDbInfo = (DropDbInfo) journal.getData();
                     env.replayDropDb(dropDbInfo);
+                    env.onDatabaseChanged(Strings.isNullOrEmpty(dropDbInfo.getCtlName())
+                            ? InternalCatalog.INTERNAL_CATALOG_NAME : dropDbInfo.getCtlName(), dropDbInfo.getDbName());
                     break;
                 }
                 case OperationType.OP_ALTER_DB: {
@@ -373,6 +378,8 @@ public class EditLog {
                 case OperationType.OP_RECOVER_DB: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverDatabase(info);
+                    env.onDatabaseChanged(InternalCatalog.INTERNAL_CATALOG_NAME,
+                            env.getInternalCatalog().getDbOrMetaException(info.getDbId()).getFullName());
                     break;
                 }
                 case OperationType.OP_RENAME_DB: {
@@ -380,6 +387,8 @@ public class EditLog {
                     String dbName = dbInfo.getDbName();
                     LOG.info("Begin to unprotect rename db {}", dbName);
                     env.replayRenameDatabase(dbName, dbInfo.getNewDbName());
+                    env.onDatabaseChanged(InternalCatalog.INTERNAL_CATALOG_NAME, dbName);
+                    env.onDatabaseChanged(InternalCatalog.INTERNAL_CATALOG_NAME, dbInfo.getNewDbName());
                     break;
                 }
                 case OperationType.OP_CREATE_TABLE: {
@@ -388,8 +397,12 @@ public class EditLog {
                     env.replayCreateTable(info);
                     if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName().equals(
                             InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                        // Legacy internal journals can omit the top-level table name.
+                        env.onTableChanged(info.getTable());
                         CreateTableRecord record = new CreateTableRecord(logId, info);
                         env.getBinlogManager().addCreateTableRecord(record);
+                    } else {
+                        env.onTableChanged(info.getCtlName(), info.getDbName(), info.getTblName());
                     }
                     break;
                 }
@@ -398,6 +411,7 @@ public class EditLog {
                     LOG.info("Begin to unprotect alter external table schema. db = {} table = {}", info.getDbName(),
                             info.getTableName());
                     env.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
+                    env.onTableChanged(InternalCatalog.INTERNAL_CATALOG_NAME, info.getDbName(), info.getTableName());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
@@ -414,6 +428,7 @@ public class EditLog {
                                 .getCatalog(info.getCtl());
                         if (ctl != null) {
                             ctl.replayDropTable(info.getDb(), info.getTableName());
+                            env.onTableChanged(info.getCtl(), info.getDb(), info.getTableName());
                         }
                     }
                     break;
@@ -425,6 +440,7 @@ public class EditLog {
                                     + " partitionName = " + info.getPartition().getName());
                     AddPartitionRecord addPartitionRecord = new AddPartitionRecord(logId, info);
                     env.replayAddPartition(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addAddPartitionRecord(addPartitionRecord);
                     break;
                 }
@@ -442,6 +458,7 @@ public class EditLog {
                             + info.getTableId() + " partitionId = " + info.getPartitionId());
                     BatchModifyPartitionsInfo infos = new BatchModifyPartitionsInfo(info);
                     env.getAlterInstance().replayModifyPartition(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addModifyPartitions(infos, logId);
                     break;
                 }
@@ -450,6 +467,9 @@ public class EditLog {
                     for (ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
                         env.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
                     }
+                    info.getModifyPartitionInfos().stream()
+                            .map(partition -> Pair.of(partition.getDbId(), partition.getTableId()))
+                            .distinct().forEach(table -> env.onTableChanged(table.first, table.second));
                     env.getBinlogManager().addModifyPartitions(info, logId);
                     break;
                 }
@@ -466,12 +486,14 @@ public class EditLog {
                 case OperationType.OP_RECOVER_TABLE: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverTable(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RECOVER_PARTITION: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverPartition(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
@@ -484,18 +506,21 @@ public class EditLog {
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     env.getAlterInstance().replayModifyViewDef(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addModifyViewDef(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addPartitionRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
                     TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
                     env.replayRenameColumn(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addColumnRename(info, logId);
                     break;
                 }
@@ -513,6 +538,7 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
                     env.getMaterializedViewHandler().replayDropRollup(info, env);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addDropRollup(info, logId);
                     break;
                 }
@@ -534,6 +560,7 @@ public class EditLog {
                             env.getMaterializedViewHandler().replayDropRollup(info, env);
                         }
                     }
+                    env.onTableChanged(batchDropInfo.getDbId(), batchDropInfo.getTableId());
                     break;
                 }
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
@@ -544,6 +571,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addRollupRename(info, logId);
                     break;
                 }
@@ -819,6 +847,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     env.replayModifyTableColocate(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     break;
                 }
                 case OperationType.OP_HEARTBEAT: {
@@ -993,6 +1022,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                     TableInfo tableInfo = (TableInfo) journal.getData();
                     env.replayConvertDistributionType(tableInfo);
+                    env.onTableChanged(tableInfo.getDbId(), tableInfo.getTableId());
                     env.getBinlogManager().addModifyDistributionType(tableInfo, logId);
                     break;
                 }
@@ -1015,6 +1045,7 @@ public class EditLog {
                     ModifyTableDefaultDistributionBucketNumOperationLog log =
                             (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
                     env.replayModifyTableDefaultDistributionBucketNum(log);
+                    env.onTableChanged(log.getDbId(), log.getTableId());
                     env.getBinlogManager().addModifyDistributionNum(log, logId);
                     break;
                 }
@@ -1022,6 +1053,7 @@ public class EditLog {
                     ReplacePartitionOperationLog replaceTempPartitionLog =
                             (ReplacePartitionOperationLog) journal.getData();
                     env.replayReplaceTempPartition(replaceTempPartitionLog);
+                    env.onTableChanged(replaceTempPartitionLog.getDbId(), replaceTempPartitionLog.getTblId());
                     env.getBinlogManager().addReplacePartitions(replaceTempPartitionLog, logId);
                     break;
                 }
@@ -1062,6 +1094,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    env.onTableChanged(operation.getDbId(), operation.getTblId());
                     env.getBinlogManager().addModifyComment(operation, logId);
                     break;
                 }
@@ -1130,6 +1163,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
                     ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
                     env.getAlterInstance().replayProcessModifyEngine(log);
+                    env.onTableChanged(log.getDbId(), log.getTableId());
                     break;
                 }
                 case OperationType.OP_CREATE_POLICY: {
@@ -1180,12 +1214,14 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addModifyTableAddOrDropColumns(info, logId);
                     break;
                 }
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
                     final AlterLightSchemaChangeInfo info = (AlterLightSchemaChangeInfo) journal.getData();
                     env.getSchemaChangeHandler().replayAlterLightSchChange(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     break;
                 }
                 case OperationType.OP_CLEAN_QUERY_STATS: {
@@ -1197,12 +1233,16 @@ public class EditLog {
                     final TableAddOrDropInvertedIndicesInfo info =
                             (TableAddOrDropInvertedIndicesInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropInvertedIndices(info);
+                    env.onTableChanged(info.getDbId(), info.getTableId());
                     env.getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
                     break;
                 }
                 case OperationType.OP_INVERTED_INDEX_JOB: {
                     IndexChangeJob indexChangeJob = (IndexChangeJob) journal.getData();
                     env.getSchemaChangeHandler().replayIndexChangeJob(indexChangeJob);
+                    if (indexChangeJob.getJobState() == IndexChangeJob.JobState.FINISHED) {
+                        env.onTableChanged(indexChangeJob.getDbId(), indexChangeJob.getTableId());
+                    }
                     env.getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
                     break;
                 }
@@ -1220,12 +1260,11 @@ public class EditLog {
                                 constraint.getName());
                         break;
                     }
-                    List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
+                    List<BaseTableInfo> affected = MTMVUtil.getConstraintRelatedBaseTables(tni, constraint);
                     env.getConstraintManager().addConstraint(
                             tni, constraint.getName(), constraint, true);
-                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                            String.format("when replaying add constraint %s on table %s",
-                                    constraint.getName(), tni));
+                    affected.forEach(table -> env.onTableChanged(
+                            table.getCtlName(), table.getDbName(), table.getTableName()));
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
@@ -1237,12 +1276,11 @@ public class EditLog {
                                 constraint.getName());
                         break;
                     }
-                    List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tni, constraint);
+                    List<BaseTableInfo> affected = MTMVUtil.getConstraintRelatedBaseTables(tni, constraint);
                     env.getConstraintManager().dropConstraint(
                             tni, constraint.getName(), true);
-                    MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                            String.format("when replaying drop constraint %s on table %s",
-                                    constraint.getName(), tni));
+                    affected.forEach(table -> env.onTableChanged(
+                            table.getCtlName(), table.getDbName(), table.getTableName()));
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1404,6 +1442,8 @@ public class EditLog {
                 case OperationType.OP_ALTER_MTMV: {
                     final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
                     env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    env.onTableChanged(alterMtmv.getMvName().getCtl(),
+                            alterMtmv.getMvName().getDb(), alterMtmv.getMvName().getTbl());
                     break;
                 }
                 case OperationType.OP_INSERT_OVERWRITE: {
@@ -1472,6 +1512,7 @@ public class EditLog {
                     CatalogIf ctl = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.getCtlName());
                     if (ctl != null) {
                         ctl.replayOperateOnBranchOrTag(info.getDbName(), info.getTblName());
+                        env.onTableChanged(info.getCtlName(), info.getDbName(), info.getTblName());
                     }
                     break;
                 }
@@ -1491,7 +1532,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
-                    env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
+                    env.getTSOService().replayWindowEndTSO((TSOServiceState) journal.getData());
                     break;
                 }
                 default: {
@@ -1555,6 +1596,7 @@ public class EditLog {
      */
     public void rollEditLog() {
         journal.rollJournal();
+        lastEditLogRollTimeMs = System.currentTimeMillis();
     }
 
     // NOTICE: No guarantee atomicity of entries
@@ -1683,14 +1725,21 @@ public class EditLog {
         // get a new transactionId
         txId++;
 
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
+        if (txId >= Config.edit_log_roll_num || exceedEditLogRollInterval()) {
+            LOG.info("edit log roll condition met. txId: {}, edit log roll num: {}, "
+                            + "cloud edit log roll interval: {} seconds",
+                    txId, Config.edit_log_roll_num, Config.cloud_edit_log_roll_interval_second);
             rollEditLog();
             txId = 0;
         }
 
         return logId;
+    }
+
+    private boolean exceedEditLogRollInterval() {
+        return Config.isCloudMode() && Config.cloud_edit_log_roll_interval_second > 0
+                && System.currentTimeMillis() - lastEditLogRollTimeMs
+                        >= TimeUnit.SECONDS.toMillis(Config.cloud_edit_log_roll_interval_second);
     }
 
     /**
@@ -1937,7 +1986,7 @@ public class EditLog {
         logEdit(OperationType.OP_TIMESTAMP, stamp);
     }
 
-    public void logTSOTimestampWindowEnd(TSOTimestamp windowEnd) {
+    public void logTSOTimestampWindowEnd(TSOServiceState windowEnd) {
         logEdit(OperationType.OP_TSO_TIMESTAMP_WINDOW_END, windowEnd);
     }
 
@@ -2185,6 +2234,10 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
+    public void logUpdateJob(String serializedJob) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, out -> Text.writeString(out, serializedJob));
+    }
+
     public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
@@ -2298,8 +2351,8 @@ public class EditLog {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 
-    public void logTableStreamCleanup(TableStreamCleanupInfo info) {
-        logEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
+    public EditLogItem logTableStreamCleanup(TableStreamCleanupInfo info) {
+        return submitEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
     }
 
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
@@ -2412,10 +2465,6 @@ public class EditLog {
 
     public void logDropRoleMapping(DropRoleMappingOperationLog log) {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
-    }
-
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
     public void logCreatePolicy(Policy policy) {

@@ -1,0 +1,101 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands;
+
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
+
+/**
+ * Per-table strategy that turns a row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against an
+ * external table into a synthesized INSERT-shaped plan plus the connector-specific wiring the generic
+ * {@link RowLevelDmlCommand} shell drives. Implementations are registered in {@link RowLevelDmlRegistry}; the
+ * dispatching commands look one up via {@link RowLevelDmlRegistry#find(TableIf)} instead of testing the table
+ * type directly (the reverse {@code instanceof} moves into {@link #handles(TableIf)}).
+ *
+ * <p>The single live row-level-DML loop lives in {@link RowLevelDmlCommand}; this interface parameterizes the
+ * six points that differ per table/operation (mode check, synthesis, required sink, executor factory, label
+ * prefix, finalize) plus the connector-agnostic write-constraint extraction.</p>
+ */
+public interface RowLevelDmlTransform {
+
+    /** Whether this transform handles the table's row-change representation and write operations. */
+    boolean handles(TableIf table);
+
+    /** Reject unsupported table modes (e.g. copy-on-write) for the operation, mirroring legacy command checks. */
+    void checkMode(TableIf table, RowLevelDmlOp op);
+
+    /** Synthesize the logical plan (the table-sink-rooted INSERT-shaped plan) for the operation. */
+    LogicalPlan synthesize(ConnectContext ctx, RowLevelDmlArgs args, RowLevelDmlOp op);
+
+    /** Create the executor that performs the write for the operation. */
+    BaseExternalTableInsertExecutor newExecutor(ConnectContext ctx, TableIf table, String label,
+            NereidsPlanner planner, boolean emptyInsert, RowLevelDmlOp op);
+
+    /** Locate and validate the required physical sink in the planned plan (throws with the legacy messages). */
+    PhysicalSink<?> requirePhysicalSink(NereidsPlanner planner, RowLevelDmlOp op);
+
+    /** The connector-owned label prefix; the shell appends {@code _<hi>_<lo>}. */
+    String labelPrefix(TableIf table, RowLevelDmlOp op);
+
+    /** Whether planning must disable external-table batch mode so every source split is available. */
+    default boolean requiresExternalTableBatchModeDisabled() {
+        return false;
+    }
+
+    /** Finalize the sink (op-specific; e.g. attaching rewritable delete-file metadata for the BE). */
+    void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,
+            DataSink sink, PhysicalSink<?> physicalSink);
+
+    /**
+     * write-constraint extraction: the target-only predicate handed to a {@code ConnectorTransaction} via
+     * {@code applyWriteConstraint}. Supplies the connector-specific synthetic-column exclusion. Returns empty
+     * when no target-only conjunct survives.
+     */
+    Optional<ConnectorPredicate> extractWriteConstraint(Plan analyzedPlan, TableIf table);
+
+    /**
+     * Whole-file "metadata delete" fast path for {@code DELETE}, attempted once the analyzed plan is available
+     * and before the row-level (position-delete) plan is executed.
+     *
+     * <p>The implementation asks the connector whether the statement's predicate can be honoured by dropping
+     * whole data files ({@code ConnectorWriteOps.deleteUsingMetadata}). A returned count means the connector
+     * already committed the remote delete, so {@link RowLevelDmlCommand} reports the result and skips the scan,
+     * the sink and the connector transaction entirely. Returning empty — the default for transforms whose
+     * connector has no such path — runs the ordinary row-level delete.</p>
+     *
+     * <p>Callers must only invoke this for a DELETE whose statement scope is exactly its predicate (no
+     * {@code PARTITION(...)} clause), because a predicate that silently ignores another row restriction would
+     * delete too much.</p>
+     */
+    default OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan,
+            BooleanSupplier isCancelled) {
+        return OptionalLong.empty();
+    }
+}

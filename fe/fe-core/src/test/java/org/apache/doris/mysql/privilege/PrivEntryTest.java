@@ -17,8 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class PrivEntryTest {
     @Test
@@ -47,15 +47,15 @@ public class PrivEntryTest {
     @Test
     public void testPrivBitSet() {
         PrivBitSet privBitSet = PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV);
-        Assert.assertTrue(privBitSet.containsPrivs(Privilege.ADMIN_PRIV));
-        Assert.assertTrue(privBitSet.containsPrivs(Privilege.NODE_PRIV));
+        Assertions.assertTrue(privBitSet.containsPrivs(Privilege.ADMIN_PRIV));
+        Assertions.assertTrue(privBitSet.containsPrivs(Privilege.NODE_PRIV));
         privBitSet.set(Privilege.DROP_PRIV.getIdx());
-        Assert.assertTrue(privBitSet.containsPrivs(Privilege.DROP_PRIV));
+        Assertions.assertTrue(privBitSet.containsPrivs(Privilege.DROP_PRIV));
         privBitSet.set(Privilege.DROP_PRIV.getIdx());
-        Assert.assertTrue(privBitSet.containsPrivs(Privilege.DROP_PRIV));
+        Assertions.assertTrue(privBitSet.containsPrivs(Privilege.DROP_PRIV));
         privBitSet.unset(Privilege.NODE_PRIV.getIdx());
-        Assert.assertFalse(privBitSet.containsPrivs(Privilege.NODE_PRIV));
+        Assertions.assertFalse(privBitSet.containsPrivs(Privilege.NODE_PRIV));
         privBitSet.unset(Privilege.NODE_PRIV.getIdx());
-        Assert.assertFalse(privBitSet.containsPrivs(Privilege.NODE_PRIV));
+        Assertions.assertFalse(privBitSet.containsPrivs(Privilege.NODE_PRIV));
     }
 }

@@ -46,11 +46,11 @@ void SM3Digest::digest() {
 
     char hex_buf[2 * SM3_DIGEST_LENGTH];
 
-    static char dig_vec_lower[] = "0123456789abcdef";
+    static constexpr char sm3_dig_vec_lower[] = "0123456789abcdef";
     char* to = hex_buf;
     for (int i = 0; i < SM3_DIGEST_LENGTH; ++i) {
-        *to++ = dig_vec_lower[buf[i] >> 4];
-        *to++ = dig_vec_lower[buf[i] & 0x0F];
+        *to++ = sm3_dig_vec_lower[buf[i] >> 4];
+        *to++ = sm3_dig_vec_lower[buf[i] & 0x0F];
     }
     _hex.assign(hex_buf, 2 * SM3_DIGEST_LENGTH);
 }

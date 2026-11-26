@@ -20,13 +20,25 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.TimeZone;
+
 public class DateLiteralUtilsTest {
+
+    private static TimeStampNsLiteral createTimeStampNsLiteral(String value) throws AnalysisException {
+        return (TimeStampNsLiteral) DateLiteralUtils.createLiteral(
+                value, ScalarType.createTimeStampNsType());
+    }
 
     @Test
     public void testTimestampTzInit() throws AnalysisException {
@@ -199,6 +211,276 @@ public class DateLiteralUtilsTest {
         Assertions.assertEquals(0, dl0.getMicrosecond());
         Assertions.assertEquals(2023, dl0.getYear());
         Assertions.assertTrue(dl0.getType().isDatetimeV2());
+    }
+
+    @Test
+    public void testTimestampNsWithNanoseconds() throws AnalysisException {
+        TimeStampNsLiteral dl7 = createTimeStampNsLiteral("2023-06-15 14:30:45.1234567");
+        Assertions.assertTrue(dl7.getType().isTimeStampNs());
+        Assertions.assertEquals(123456700, dl7.getNanosecond());
+        Assertions.assertEquals(123456, dl7.getMicrosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.123456700", dl7.getStringValue());
+
+        TimeStampNsLiteral dl8 = createTimeStampNsLiteral("2023-06-15 14:30:45.12345678");
+        Assertions.assertTrue(dl8.getType().isTimeStampNs());
+        Assertions.assertEquals(123456780, dl8.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.123456780", dl8.getStringValue());
+
+        TimeStampNsLiteral dl9 = createTimeStampNsLiteral("2023-06-15 14:30:45.123456789");
+        Assertions.assertTrue(dl9.getType().isTimeStampNs());
+        Assertions.assertEquals(123456789, dl9.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.123456789", dl9.getStringValue());
+    }
+
+    @Test
+    public void testDateTimeV2MaximumSentinelUsesMicroseconds() throws AnalysisException {
+        DateLiteral maximum = new DateLiteral(Type.DATETIMEV2_WITH_MAX_SCALAR, true);
+        Assertions.assertEquals("9999-12-31 23:59:59.999999", maximum.getStringValue());
+        Assertions.assertEquals(999999, maximum.getMicrosecond());
+    }
+
+    @Test
+    public void testTimestampNsUsesFixedNanosecondPrecision() throws AnalysisException {
+        TimeStampNsLiteral rounded7 = createTimeStampNsLiteral("2023-06-15 14:30:45.12345675");
+        TimeStampNsLiteral canonical7 = createTimeStampNsLiteral("2023-06-15 14:30:45.123456750");
+        Assertions.assertEquals("2023-06-15 14:30:45.123456750", rounded7.getStringValue());
+        Assertions.assertEquals(123456750, rounded7.getNanosecond());
+        Assertions.assertEquals(canonical7, rounded7);
+        Assertions.assertEquals(canonical7.hashCode(), rounded7.hashCode());
+
+        TimeStampNsLiteral rounded8 = createTimeStampNsLiteral("2023-06-15 14:30:45.123456785");
+        Assertions.assertEquals("2023-06-15 14:30:45.123456785", rounded8.getStringValue());
+        Assertions.assertEquals(123456785, rounded8.getNanosecond());
+
+        TimeStampNsLiteral rounded9 = createTimeStampNsLiteral("2023-06-15 14:30:45.1234567895");
+        Assertions.assertEquals("2023-06-15 14:30:45.123456790", rounded9.getStringValue());
+        Assertions.assertEquals(123456790, rounded9.getNanosecond());
+
+        TimeStampNsLiteral carry7 = createTimeStampNsLiteral("2023-06-15 14:30:45.99999995");
+        TimeStampNsLiteral carry8 = createTimeStampNsLiteral("2023-06-15 14:30:45.999999995");
+        TimeStampNsLiteral carry9 = createTimeStampNsLiteral("2023-06-15 14:30:45.9999999995");
+        Assertions.assertEquals("2023-06-15 14:30:45.999999950", carry7.getStringValue());
+        Assertions.assertEquals("2023-06-15 14:30:45.999999995", carry8.getStringValue());
+        Assertions.assertEquals("2023-06-15 14:30:46.000000000", carry9.getStringValue());
+    }
+
+    @Test
+    public void testTimestampNsRoundFloorRequiresFixedScale() throws AnalysisException {
+        TimeStampNsLiteral timestampNs = createTimeStampNsLiteral("2023-06-15 14:30:45.123456789");
+
+        timestampNs.roundFloor(ScalarType.TIMESTAMP_NS_SCALE);
+        Assertions.assertEquals(123456789, timestampNs.getNanosecond());
+
+        int[] invalidScales = {-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10};
+        for (int scale : invalidScales) {
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> timestampNs.roundFloor(scale));
+            Assertions.assertEquals("TIMESTAMP_NS has fixed scale " + ScalarType.TIMESTAMP_NS_SCALE
+                    + ", but got " + scale, exception.getMessage());
+            Assertions.assertEquals(123456789, timestampNs.getNanosecond());
+        }
+    }
+
+    @Test
+    public void testTimestampNsTypeInference() throws AnalysisException {
+        // An explicit DATETIME target keeps its legacy six-digit input contract. TIMESTAMP_NS is
+        // a distinct type and must not be selected merely because a DATETIME input has more digits.
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
+                "2023-06-15 14:30:45.123456789", Type.DATETIME));
+
+        TimeStampNsLiteral inferredScale7 = (TimeStampNsLiteral) DateLiteralUtils.createLiteral(
+                "2023-06-15 14:30:45.123456700", null);
+        Assertions.assertTrue(inferredScale7.getType().isTimeStampNs());
+        Assertions.assertEquals(123456700, inferredScale7.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.123456700", inferredScale7.getStringValue());
+
+        TimeStampNsLiteral inferredScale9 = (TimeStampNsLiteral) DateLiteralUtils.createLiteral(
+                "1970-01-01 00:00:00.000000001", null);
+        Assertions.assertTrue(inferredScale9.getType().isTimeStampNs());
+        Assertions.assertEquals(1, inferredScale9.getNanosecond());
+        Assertions.assertEquals(1L, inferredScale9.getRealValue());
+
+        TimeStampNsLiteral inferredWithGuardDigit = (TimeStampNsLiteral) DateLiteralUtils.createLiteral(
+                "2023-06-15 14:30:45.1234567895", null);
+        Assertions.assertEquals("2023-06-15 14:30:45.123456790",
+                inferredWithGuardDigit.getStringValue());
+
+        TimeStampNsLiteral inferredFromGuardDigit = (TimeStampNsLiteral) DateLiteralUtils.createLiteral(
+                "2023-06-15 14:30:45.1234560005", null);
+        Assertions.assertEquals("2023-06-15 14:30:45.123456001",
+                inferredFromGuardDigit.getStringValue());
+    }
+
+    @Test
+    public void testTimestampTzDoesNotAcceptNanosecondInput() {
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
+                "2023-06-15 14:30:45.123456789+00:00", ScalarType.createTimeStampTzType(6)));
+    }
+
+    @Test
+    public void testTimestampNsEpochAndBoundaries() throws AnalysisException {
+        TimeStampNsLiteral beforeEpoch = createTimeStampNsLiteral("1969-12-31 23:59:59.999999999");
+        Assertions.assertEquals(-1L, beforeEpoch.getRealValue());
+
+        TimeStampNsLiteral epoch = createTimeStampNsLiteral("1970-01-01 00:00:00.000000000");
+        Assertions.assertEquals(0L, epoch.getRealValue());
+
+        TimeStampNsLiteral lowerBoundary = createTimeStampNsLiteral("1677-09-21 00:12:43.145224192");
+        Assertions.assertEquals(Long.MIN_VALUE, lowerBoundary.getRealValue());
+        Assertions.assertFalse(lowerBoundary.isMinValue());
+
+        TimeStampNsLiteral upperBoundary = createTimeStampNsLiteral("2262-04-11 23:47:16.854775807");
+        Assertions.assertEquals(Long.MAX_VALUE, upperBoundary.getRealValue());
+
+        TimeStampNsLiteral minimum = new TimeStampNsLiteral(false);
+        Assertions.assertEquals(Long.MIN_VALUE, minimum.getRealValue());
+        Assertions.assertTrue(minimum.isMinValue());
+
+        TimeStampNsLiteral maximum = new TimeStampNsLiteral(true);
+        Assertions.assertEquals(Long.MAX_VALUE, maximum.getRealValue());
+    }
+
+    @Test
+    public void testTimestampNsDateArithmeticPreservesLiteralType() throws AnalysisException {
+        TimeStampNsLiteral literal = new TimeStampNsLiteral(
+                1970, 1, 1, 0, 0, 0, 123456789);
+
+        TimeStampNsLiteral result = literal.plusSeconds(1).plusDays(1);
+
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, result);
+        Assertions.assertEquals("1970-01-02 00:00:01.123456789", result.getStringValue());
+        Assertions.assertEquals(86401123456789L, result.getRealValue());
+    }
+
+    @Test
+    public void testTimestampNsIsIndependentFromDateLiteral() throws AnalysisException {
+        TimeStampNsLiteral timestampNs = createTimeStampNsLiteral(
+                "2024-01-02 03:04:05.123456000");
+        DateLiteral datetimeV2 = DateLiteralUtils.createDateLiteral(
+                "2024-01-02 03:04:05.123456", ScalarType.createDatetimeV2Type(6));
+
+        Assertions.assertInstanceOf(LiteralExpr.class, timestampNs);
+        Assertions.assertFalse(DateLiteral.class.isInstance(timestampNs));
+        Assertions.assertEquals(0, timestampNs.compareLiteral(datetimeV2));
+        Assertions.assertEquals(0, datetimeV2.compareLiteral(timestampNs));
+        Assertions.assertEquals(timestampNs, datetimeV2);
+        Assertions.assertEquals(datetimeV2, timestampNs);
+        Assertions.assertEquals(datetimeV2.hashCode(), timestampNs.hashCode());
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, timestampNs.clone());
+        DateLiteral dateV2 = new DateLiteral(2024, 1, 2, Type.DATEV2);
+        TimeStampNsLiteral timestampAtMidnight = new TimeStampNsLiteral(
+                2024, 1, 2, 0, 0, 0, 0);
+        Assertions.assertTrue(dateV2.compareLiteral(timestampAtMidnight) < 0);
+        Assertions.assertTrue(timestampAtMidnight.compareLiteral(dateV2) > 0);
+        TimeStampNsLiteral oneNanosecondLater = new TimeStampNsLiteral(
+                2024, 1, 2, 0, 0, 0, 1);
+        Assertions.assertTrue(timestampAtMidnight.compareLiteral(oneNanosecondLater) < 0);
+        Assertions.assertEquals("'2024-01-02 03:04:05.123456000'",
+                timestampNs.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+        TExpr thrift = ExprToThriftVisitor.treeToThrift(timestampNs);
+        Assertions.assertEquals(TExprNodeType.DATE_LITERAL, thrift.nodes.get(0).node_type);
+        Assertions.assertEquals(timestampNs.getStringValue(), thrift.nodes.get(0).date_literal.value);
+
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                timestampNs.getStringValue(), ScalarType.createTimeStampNsType()));
+    }
+
+    @Test
+    public void testTimestampNsCheckRangeUsesInt64EpochNanosecondBounds() {
+        Assertions.assertFalse(new TimeStampNsLiteral(
+                1677, 9, 21, 0, 12, 43, 145224192).checkRange());
+        Assertions.assertTrue(new TimeStampNsLiteral(
+                1677, 9, 21, 0, 12, 43, 145224191).checkRange());
+        Assertions.assertFalse(new TimeStampNsLiteral(
+                2262, 4, 11, 23, 47, 16, 854775807).checkRange());
+        Assertions.assertTrue(new TimeStampNsLiteral(
+                2262, 4, 11, 23, 47, 16, 854775808).checkRange());
+        TimeStampNsLiteral beforeMinimumYear = new TimeStampNsLiteral(
+                1676, 12, 31, 23, 59, 59, 999999999);
+        Assertions.assertTrue(beforeMinimumYear.checkRange());
+        AnalysisException beforeMinimumYearException = Assertions.assertThrows(
+                AnalysisException.class, beforeMinimumYear::checkValueValid);
+        Assertions.assertTrue(beforeMinimumYearException.getMessage().contains("invalid year value: 1676"));
+        TimeStampNsLiteral afterMaximumYear = new TimeStampNsLiteral(
+                2263, 1, 1, 0, 0, 0, 0);
+        Assertions.assertTrue(afterMaximumYear.checkRange());
+        AnalysisException afterMaximumYearException = Assertions.assertThrows(
+                AnalysisException.class, afterMaximumYear::checkValueValid);
+        Assertions.assertTrue(afterMaximumYearException.getMessage().contains("invalid year value: 2263"));
+        Assertions.assertTrue(new TimeStampNsLiteral(
+                2024, 13, 1, 0, 0, 0, 0).checkRange());
+
+        DateLiteral maxDatetimeV2 = new DateLiteral(
+                9999, 12, 31, 23, 59, 59, 999999, ScalarType.createDatetimeV2Type(6));
+        Assertions.assertFalse(maxDatetimeV2.checkRange());
+    }
+
+    @Test
+    public void testFractionalSecondRangeIsTypeSpecific() throws AnalysisException {
+        LocalDateTime lastMicrosecond = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 999999000);
+        LocalDateTime afterLastMicrosecond = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 999999001);
+
+        for (Type type : new Type[] {
+                ScalarType.createDatetimeV2Type(6), ScalarType.createTimeStampTzType(6)}) {
+            DateLiteral valid = new DateLiteral(lastMicrosecond, type);
+            Assertions.assertFalse(valid.checkRange());
+            Assertions.assertDoesNotThrow(valid::checkValueValid);
+
+            DateLiteral canonicalized = new DateLiteral(afterLastMicrosecond, type);
+            Assertions.assertEquals(999999, canonicalized.getMicrosecond());
+            Assertions.assertFalse(canonicalized.checkRange());
+            Assertions.assertDoesNotThrow(canonicalized::checkValueValid);
+        }
+
+        TimeStampNsLiteral timestampNs = new TimeStampNsLiteral(
+                LocalDateTime.of(2024, 1, 1, 0, 0, 0, 999999999));
+        Assertions.assertFalse(timestampNs.checkRange());
+        Assertions.assertDoesNotThrow(timestampNs::checkValueValid);
+
+        TimeStampNsLiteral invalidTimestampNs = new TimeStampNsLiteral(
+                2024, 1, 1, 0, 0, 0, 1000000000L);
+        Assertions.assertTrue(invalidTimestampNs.checkRange());
+        Assertions.assertThrows(AnalysisException.class, invalidTimestampNs::checkValueValid);
+    }
+
+    @Test
+    public void testTimestampNsTimezoneOffset() throws AnalysisException {
+        TimeStampNsLiteral utc = createTimeStampNsLiteral("2023-06-15 12:00:00.123456789+00:00");
+        TimeStampNsLiteral plus8 = createTimeStampNsLiteral("2023-06-15 20:00:00.123456789+08:00");
+        TimeStampNsLiteral minus5 = createTimeStampNsLiteral("2023-06-15 07:00:00.123456789-05:00");
+
+        Assertions.assertEquals(utc.getStringValue(), plus8.getStringValue());
+        Assertions.assertEquals(utc.getStringValue(), minus5.getStringValue());
+        Assertions.assertEquals(123456789, utc.getNanosecond());
+        Assertions.assertEquals(123456789, plus8.getNanosecond());
+        Assertions.assertEquals(123456789, minus5.getNanosecond());
+    }
+
+    @Test
+    public void testTimestampNsRoundsBeforeDstTimezoneConversion() throws AnalysisException {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            Assertions.assertEquals("2024-03-10 03:00:00.000000000",
+                    createTimeStampNsLiteral(
+                            "2024-03-10 06:59:59.9999999995Z").getStringValue());
+            Assertions.assertEquals("2024-11-03 01:00:00.000000000",
+                    createTimeStampNsLiteral(
+                            "2024-11-03 05:59:59.9999999995Z").getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testInvalidTimestampNsseconds() {
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
+                "2023-02-29 14:30:45.123456789", ScalarType.createTimeStampNsType()));
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
+                "1677-09-21 00:12:43.145224191", ScalarType.createTimeStampNsType()));
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createLiteral(
+                "2262-04-11 23:47:16.854775808", ScalarType.createTimeStampNsType()));
     }
 
     @Test
@@ -423,5 +705,102 @@ public class DateLiteralUtilsTest {
 
         // Verify getStringValue includes +00:00 suffix for TimestampTz
         Assertions.assertTrue(dl.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testDatetimeWithTzOffsetDstAwareUnixTimestamp() throws AnalysisException {
+        // Regression: createDateLiteral must compute the timezone offset using
+        // the target date rather than Instant.now().  When the session timezone
+        // has DST (e.g. America/Chicago = UTC-5 summer, UTC-6 winter), a winter-
+        // target value with +00:00 suffix was shifted using the summer DST
+        // offset, then unixTimestamp() applied the winter offset, producing a
+        // 1-hour error.
+        TimeZone originalTz = TimeZone.getDefault();
+        ConnectContext savedCtx = ConnectContext.get();
+        try {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.getSessionVariable().setTimeZone("America/Chicago");
+
+            // Winter-target instant: 2027-01-01 00:00:00 UTC.
+            long expectedEpochMs = Instant.parse("2027-01-01T00:00:00Z").toEpochMilli();
+
+            // Z suffix
+            DateLiteral dlZ = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00Z", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlZ.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'Z' suffix must produce correct UTC epoch ms");
+
+            // +00:00 suffix
+            DateLiteral dl00 = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00+00:00", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dl00.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter '+00:00' suffix must produce correct UTC epoch ms");
+
+            // UTC suffix
+            DateLiteral dlUtc = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00UTC", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlUtc.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'UTC' suffix must produce correct UTC epoch ms");
+
+            // GMT suffix
+            DateLiteral dlGmt = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00GMT", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlGmt.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'GMT' suffix must produce correct UTC epoch ms");
+
+            // Summer-target baseline: a +00:00 value for July must also work.
+            long summerEpochMs = Instant.parse("2027-07-01T00:00:00Z").toEpochMilli();
+            DateLiteral dlSummer = DateLiteralUtils.createDateLiteral(
+                    "2027-07-01 00:00:00+00:00", Type.DATETIME);
+            Assertions.assertEquals(summerEpochMs,
+                    dlSummer.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Summer '+00:00' suffix must also produce correct UTC epoch ms");
+
+            // Non-UTC offset with DST zone: -05:00 in winter should produce
+            // 2027-01-01 05:00:00 UTC = +5h from original.
+            long minus5EpochMs = Instant.parse("2027-01-01T05:00:00Z").toEpochMilli();
+            DateLiteral dlMinus5 = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00-05:00", Type.DATETIME);
+            Assertions.assertEquals(minus5EpochMs,
+                    dlMinus5.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter '-05:00' suffix must produce correct UTC epoch ms");
+
+            // Source-zone DST gap: CET spring-forward on March 28, 2027 (last
+            // Sunday of March, EU DST transition).  02:30 CET is nonexistent
+            // (gap 02:00→03:00); Java resolves it forward to 03:30 CEST = 01:30Z.
+            // The original code derived destination fields via offset difference,
+            // which lost the gap-forward shift and produced 02:30 again → 1 hour
+            // earlier than the resolved instant.
+            ctx.getSessionVariable().setTimeZone("CET");
+            long cetGapEpochMs = Instant.parse("2027-03-28T01:30:00Z").toEpochMilli();
+
+            DateLiteral dlCetGap = DateLiteralUtils.createDateLiteral(
+                    "2027-03-28 02:30:00CET", Type.DATETIME);
+            Assertions.assertEquals(cetGapEpochMs,
+                    dlCetGap.unixTimestamp(TimeUtils.getTimeZone()),
+                    "CET spring-forward gap (DATETIME) must produce correct UTC epoch ms");
+
+            DateLiteral dlCetGapTz = DateLiteralUtils.createDateLiteral(
+                    "2027-03-28 02:30:00CET", ScalarType.createTimeStampTzType(0));
+            Assertions.assertEquals(1, dlCetGapTz.getHour(),
+                    "CET spring-forward gap (TIMESTAMPTZ) must store UTC hour = 01");
+            Assertions.assertEquals(30, dlCetGapTz.getMinute(),
+                    "CET spring-forward gap (TIMESTAMPTZ) must store UTC minute = 30");
+
+            // Restore America/Chicago for any future test additions.
+            ctx.getSessionVariable().setTimeZone("America/Chicago");
+        } finally {
+            TimeZone.setDefault(originalTz);
+            if (savedCtx != null) {
+                savedCtx.setThreadLocalInfo();
+            } else {
+                ConnectContext.remove();
+            }
+        }
     }
 }

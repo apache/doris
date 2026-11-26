@@ -50,6 +50,8 @@ std::map<std::string, std::string> VJdbcTableWriter::_build_writer_params(const 
     params["jdbc_driver_url"] = driver_url;
 
     params["jdbc_driver_checksum"] = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
+    // The unified JNI writer needs the dialect to preserve instant semantics in parameter binds.
+    params["table_type"] = to_string(t_jdbc_sink.table_type);
     params["insert_sql"] = t_jdbc_sink.insert_sql;
     params["use_transaction"] = t_jdbc_sink.use_transaction ? "true" : "false";
     params["catalog_id"] = std::to_string(t_jdbc_sink.jdbc_table.catalog_id);
@@ -76,8 +78,8 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
           _use_transaction(t_sink.jdbc_table_sink.use_transaction) {}
 
 Status VJdbcTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
-    _writer = std::make_unique<VJniFormatTransformer>(
-            state, _vec_output_expr_ctxs, "org/apache/doris/jdbc/JdbcJniWriter", _writer_params);
+    _writer = std::make_unique<VJniFormatTransformer>(state, _vec_output_expr_ctxs,
+                                                      Jni::plugin::JDBC_WRITER, _writer_params);
     return _writer->open();
 }
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -55,9 +57,9 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.statistics.model.StatisticsBuilder;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -90,6 +92,8 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    // present when IVM rewrite is active; absent otherwise
+    private Optional<IvmRewriteResult> ivmRewriteResult = Optional.empty();
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -268,20 +272,27 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        this.memo = new Memo(getConnectContext(), plan, statementContext.getCostWeight());
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
             for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // the rewritten plan may define a constant output with another exprId than the origin plan, align
+                // the outputs before the comparison, only a same constant is allowed to change the exprId
+                Plan alignedPlan = MaterializedViewUtils.normalizeSinkExpressions(rewrittenPlan, plan);
+                if (alignedPlan != null && !alignedPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    alignedPlan = MaterializedViewUtils.alignPlanOutputWithOrigin(rewrittenPlan, plan);
+                }
                 // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
                 // tmp rewritten plan output is different from final rewritten plan output
-                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                if (alignedPlan == null
+                        || !alignedPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     LOG.error("rewritten plan in rbo logical properties are "
                                     + "different from original plan, query id is {}",
                             getConnectContext().getQueryIdentifier());
                     continue;
                 }
-                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+                this.memo.copyIn(alignedPlan, this.memo.getRoot(), false);
             }
         }
     }
@@ -365,6 +376,30 @@ public class CascadesContext implements ScheduleContext {
 
     public Plan getRewritePlan() {
         return plan;
+    }
+
+    /**
+     * Returns the unified IVM rewrite result for the current statement.
+     */
+    public Optional<IvmRewriteResult> getIvmRewriteResult() {
+        return ivmRewriteResult;
+    }
+
+    /**
+     * Returns the unified IVM rewrite result, creating it when this statement first enters IVM rewrite.
+     */
+    public IvmRewriteResult getOrCreateIvmRewriteResult() {
+        if (!ivmRewriteResult.isPresent()) {
+            ivmRewriteResult = Optional.of(new IvmRewriteResult());
+        }
+        return ivmRewriteResult.get();
+    }
+
+    /**
+     * Sets the unified IVM rewrite result for the current statement.
+     */
+    public void setIvmRewriteResult(IvmRewriteResult ivmRewriteResult) {
+        this.ivmRewriteResult = Optional.ofNullable(ivmRewriteResult);
     }
 
     public void setRewritePlan(Plan plan) {

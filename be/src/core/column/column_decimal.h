@@ -128,8 +128,6 @@ public:
              data.data() + origin_size, indices_begin, indices_end);
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
-
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
         size_t old_size = data.size();
@@ -285,31 +283,11 @@ public:
 protected:
     Container data;
     UInt32 scale;
+    // Defined in column_decimal.cpp (its only caller is get_permutation there):
+    // the body dereferences HybridSorter, which is forward-declared in column.h.
     template <typename U>
     void permutation(bool reverse, size_t limit, HybridSorter& sorter,
-                     PaddedPODArray<U>& res) const {
-        size_t s = data.size();
-        res.resize(s);
-        for (U i = 0; i < s; ++i) res[i] = i;
-
-        auto sort_end = res.end();
-        if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
-            sort_end = res.begin() + limit;
-            if (reverse)
-                std::partial_sort(res.begin(), sort_end, res.end(),
-                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
-            else
-                std::partial_sort(res.begin(), sort_end, res.end(),
-                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
-        } else {
-            if (reverse)
-                sorter.sort(res.begin(), res.end(),
-                            [this](size_t a, size_t b) { return data[a] > data[b]; });
-            else
-                sorter.sort(res.begin(), res.end(),
-                            [this](size_t a, size_t b) { return data[a] < data[b]; });
-        }
-    }
+                     PaddedPODArray<U>& res) const;
 
     void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {
         const auto& dec_val = (const DecimalV2Value&)data[i];
@@ -325,5 +303,12 @@ using ColumnDecimal64 = ColumnDecimal<TYPE_DECIMAL64>;
 using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
 using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
+
+/// Instantiated once in column_decimal.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnDecimal<TYPE_DECIMAL32>;
+extern template class ColumnDecimal<TYPE_DECIMAL64>;
+extern template class ColumnDecimal<TYPE_DECIMALV2>;
+extern template class ColumnDecimal<TYPE_DECIMAL128I>;
+extern template class ColumnDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris

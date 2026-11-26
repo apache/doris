@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_string.h"
@@ -73,6 +74,10 @@ struct AggregateFunctionGroupConcatData {
             separator = rhs.separator;
             data.assign(rhs.data);
         } else {
+            if (UNLIKELY(separator != rhs.separator)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "group_concat aggregate states have incompatible separators");
+            }
             auto offset = data.size();
 
             auto delta_size = separator.size() + rhs.data.size();

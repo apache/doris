@@ -17,20 +17,13 @@
 
 #include "util/block_compression.h"
 
+#include <brotli/decode.h>
 #include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <glog/logging.h>
-
-#include <exception>
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
-#include <libdeflate.h>
-#endif
-#include <brotli/decode.h>
 #include <glog/log_severity.h>
 #include <glog/logging.h>
+#include <libdeflate.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>
@@ -43,6 +36,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <orc/Exceptions.hh>
@@ -1443,9 +1437,6 @@ private:
     const static int MEM_LEVEL = 8;
 };
 
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
 class GzipBlockCompressionByLibdeflate final : public GzipBlockCompression {
 public:
     GzipBlockCompressionByLibdeflate() : GzipBlockCompression() {}
@@ -1456,8 +1447,7 @@ public:
     ~GzipBlockCompressionByLibdeflate() override = default;
 
     Status decompress(const Slice& input, Slice* output) override {
-        if (input.empty()) {
-            output->size = 0;
+        if (input.empty() && output->size == 0) {
             return Status::OK();
         }
         thread_local std::unique_ptr<libdeflate_decompressor, void (*)(libdeflate_decompressor*)>
@@ -1465,16 +1455,34 @@ public:
         if (!decompressor) {
             return Status::InternalError("libdeflate_alloc_decompressor error.");
         }
-        std::size_t out_len;
-        auto result = libdeflate_gzip_decompress(decompressor.get(), input.data, input.size,
-                                                 output->data, output->size, &out_len);
-        if (result != LIBDEFLATE_SUCCESS) {
-            return Status::InternalError("libdeflate_gzip_decompress error, res={}", result);
+        // A Parquet GZIP page may contain concatenated members. libdeflate decodes only
+        // one member per call; the page header's exact size applies to their combined output.
+        size_t input_offset = 0;
+        size_t output_offset = 0;
+        while (input_offset < input.size) {
+            size_t consumed = 0;
+            size_t produced = 0;
+            auto result = libdeflate_gzip_decompress_ex(
+                    decompressor.get(), input.data + input_offset, input.size - input_offset,
+                    output->data + output_offset, output->size - output_offset, &consumed,
+                    &produced);
+            if (result != LIBDEFLATE_SUCCESS) {
+                return Status::InternalError(
+                        "libdeflate_gzip_decompress_ex error, res={}, input size={}, output "
+                        "size={}",
+                        result, input.size, output->size);
+            }
+            input_offset += consumed;
+            output_offset += produced;
+        }
+        if (output_offset != output->size) {
+            return Status::InternalError(
+                    "GZIP page decompressed size mismatch, actual={}, expected={}", output_offset,
+                    output->size);
         }
         return Status::OK();
     }
 };
-#endif
 
 class LzoBlockCompression final : public BlockCompressionCodec {
 public:
@@ -1663,13 +1671,7 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         *codec = ZstdBlockCompression::instance();
         break;
     case tparquet::CompressionCodec::GZIP:
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
         *codec = GzipBlockCompressionByLibdeflate::instance();
-#else
-        *codec = GzipBlockCompression::instance();
-#endif
         break;
     case tparquet::CompressionCodec::LZO:
         *codec = LzoBlockCompression::instance();

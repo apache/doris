@@ -17,7 +17,6 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Tablet.CopyType;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TStorageMedium;
@@ -44,8 +43,6 @@ public class CloneTask extends AgentTask {
     private int timeoutS;
 
     private int taskVersion = VERSION_1;
-
-    private int copyType = CopyType.DEFAULT;
 
     public CloneTask(TBackend destBackend, long backendId, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long replicaId, int schemaHash, List<TBackend> srcBackends,
@@ -82,11 +79,6 @@ public class CloneTask extends AgentTask {
         return taskVersion;
     }
 
-    public void setCopyType(int copyType) {
-        CopyType.validate(copyType);
-        this.copyType = copyType;
-    }
-
     public TCloneReq toThrift() {
         TCloneReq request = new TCloneReq(tabletId, schemaHash, srcBackends);
         request.setReplicaId(replicaId);
@@ -100,7 +92,6 @@ public class CloneTask extends AgentTask {
         }
         request.setTimeoutS(timeoutS);
         request.setTableId(tableId);
-        request.setCopyType(copyType);
         return request;
     }
 

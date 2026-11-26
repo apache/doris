@@ -250,10 +250,12 @@ static std::unordered_map<std::string_view,
     {"TxnInfoKey",                 {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_info_key(KeyInfoSetter<TxnInfoKeyInfo>{p}.get());                                       }, parse<TxnInfoPB>                , parse_json<TxnInfoPB>}},
     {"TxnIndexKey",                {{"instance_id", "txn_id"},                                       [](param_type& p) { return txn_index_key(KeyInfoSetter<TxnIndexKeyInfo>{p}.get());                                     }, parse<TxnIndexPB>               , parse_json<TxnIndexPB>}},
     {"TxnRunningKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_running_key(KeyInfoSetter<TxnRunningKeyInfo>{p}.get());                                 }, parse<TxnRunningPB>             , parse_json<TxnRunningPB>}},
+    {"TxnTsoFenceKey",             {{"instance_id"},                                                 [](param_type& p) { return txn_tso_fence_key(KeyInfoSetter<TxnTsoFenceKeyInfo>{p}.get());                             }, parse<TxnTsoFencePB>            , parse_json<TxnTsoFencePB>}},
     {"PartitionVersionKey",        {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return partition_version_key(KeyInfoSetter<PartitionVersionKeyInfo>{p}.get());                     }, parse<VersionPB>                , parse_json<VersionPB>}},
     {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get());                             }, parse<VersionPB>                , parse_json<VersionPB>}},
     {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get());                                 }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
     {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get());                          }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
+    {"TableStreamOffsetKey",       {{"instance_id", "base_db_id", "base_table_id", "stream_db_id", "stream_id", "partition_id"}, [](param_type& p) { return table_stream_offset_key(KeyInfoSetter<TableStreamOffsetKeyInfo>{p}.get()); }, parse<TableStreamOffsetPB>, parse_json<TableStreamOffsetPB>}},
     {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get());                                 }, parse<doris::TabletMetaCloudPB> , parse_json<doris::TabletMetaCloudPB>}},
     {"MetaTabletIdxKey",           {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_tablet_idx_key(KeyInfoSetter<MetaTabletIdxKeyInfo>{p}.get());                          }, parse<TabletIndexPB>            , parse_json<TabletIndexPB>}},
     {"RecycleIndexKey",            {{"instance_id", "index_id"},                                     [](param_type& p) { return recycle_index_key(KeyInfoSetter<RecycleIndexKeyInfo>{p}.get());                             }, parse<RecycleIndexPB>           , parse_json<RecycleIndexPB>}},
@@ -265,7 +267,8 @@ static std::unordered_map<std::string_view,
     {"CopyJobKey",                 {{"instance_id", "stage_id", "table_id", "copy_id", "group_id"},  [](param_type& p) { return copy_job_key(KeyInfoSetter<CopyJobKeyInfo>{p}.get());                                       }, parse<CopyJobPB>                , parse_json<CopyJobPB>}},
     {"CopyFileKey",                {{"instance_id", "stage_id", "table_id", "obj_key", "obj_etag"},  [](param_type& p) { return copy_file_key(KeyInfoSetter<CopyFileKeyInfo>{p}.get());                                     }, parse<CopyFilePB>               , parse_json<CopyFilePB>}},
     {"RecycleStageKey",            {{"instance_id", "stage_id"},                                     [](param_type& p) { return recycle_stage_key(KeyInfoSetter<RecycleStageKeyInfo>{p}.get());                             }, parse<RecycleStagePB>           , parse_json<RecycleStagePB>}},
-    {"JobRecycleKey",              {{"instance_id"},                                                 [](param_type& p) { return job_check_key(KeyInfoSetter<JobRecycleKeyInfo>{p}.get());                                   }, parse<JobRecyclePB>             , parse_json<JobRecyclePB>}},
+    {"JobRecycleKey",              {{"instance_id"},                                                 [](param_type& p) { return job_recycle_key(KeyInfoSetter<JobRecycleKeyInfo>{p}.get());                                   }, parse<JobRecyclePB>             , parse_json<JobRecyclePB>}},
+    {"JobCheckKey",              {{"instance_id"},                                                 [](param_type& p) { return job_check_key(KeyInfoSetter<JobRecycleKeyInfo>{p}.get());                                   }, parse<JobRecyclePB>             , parse_json<JobRecyclePB>}},
     {"MetaSchemaKey",              {{"instance_id", "index_id", "schema_version"},                   [](param_type& p) { return meta_schema_key(KeyInfoSetter<MetaSchemaKeyInfo>{p}.get());                                 }, parse_tablet_schema             , parse_json<doris::TabletSchemaCloudPB>}},
     {"MetaDeleteBitmap",           {{"instance_id", "tablet_id", "rowest_id", "version", "seg_id"},  [](param_type& p) { return meta_delete_bitmap_key(KeyInfoSetter<MetaDeleteBitmapInfo>{p}.get());                       }, parse_delete_bitmap             , parse_json<DeleteBitmapPB>}},
     {"MetaDeleteBitmapUpdateLock", {{"instance_id", "table_id", "partition_id"},                     [](param_type& p) { return meta_delete_bitmap_update_lock_key(KeyInfoSetter<MetaDeleteBitmapUpdateLockInfo>{p}.get()); }, parse<DeleteBitmapUpdateLockPB> , parse_json<DeleteBitmapUpdateLockPB>}},
@@ -304,9 +307,28 @@ static std::unordered_map<std::string_view,
     {"VersionedMetaRowsetLoadKey",          {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_load_key(KeyInfoSetter<versioned::MetaRowsetLoadKeyInfo>{p}.get());          }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
     {"VersionedMetaRowsetCompactKey",       {{"instance_id", "tablet_id", "version"},                        [](param_type& p) { return versioned::meta_rowset_compact_key(KeyInfoSetter<versioned::MetaRowsetCompactKeyInfo>{p}.get());    }, true, [](const std::string& s) { return ""; }, parse_json<doris::RowsetMetaCloudPB>}},
     {"VersionedMetaDeleteBitmapKey",        {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::meta_delete_bitmap_key(KeyInfoSetter<versioned::MetaDeleteBitmapInfo>{p}.get());         }, false, parse_to_json<DeleteBitmapStoragePB>, parse_json<DeleteBitmapStoragePB>}},
+    {"VersionedTableStreamOffsetKey",       {{"instance_id", "base_db_id", "base_table_id", "stream_db_id", "stream_id", "partition_id"}, [](param_type& p) { return versioned::table_stream_offset_key(KeyInfoSetter<versioned::TableStreamOffsetKeyInfo>{p}.get()); }, true, parse_to_json<TableStreamOffsetPB>, parse_json<TableStreamOffsetPB>}},
     {"VersionedDataRowsetRefCountKey",      {{"instance_id", "tablet_id", "rowset_id"},                      [](param_type& p) { return versioned::data_rowset_ref_count_key(KeyInfoSetter<versioned::DataRowsetRefCountKeyInfo>{p}.get()); }, false, parse_int64_value, nullptr}},
 };
 // clang-format on
+
+std::vector<std::string_view> get_supported_http_key_types() {
+    std::vector<std::string_view> key_types;
+    key_types.reserve(param_set.size());
+    for (const auto& entry : param_set) {
+        key_types.push_back(entry.first);
+    }
+    return key_types;
+}
+
+std::vector<std::string_view> get_supported_http_versioned_key_types() {
+    std::vector<std::string_view> key_types;
+    key_types.reserve(versioned_param_set.size());
+    for (const auto& entry : versioned_param_set) {
+        key_types.push_back(entry.first);
+    }
+    return key_types;
+}
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* key,
                                             std::string* key_type = nullptr) {
@@ -556,6 +578,14 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
         std::shared_ptr<google::protobuf::Message> pb_to_save;
         if (json_to_proto_function) {
             pb_to_save = json_to_proto_function(body);
+            if (pb_to_save == nullptr) {
+                LOG(WARNING) << "invalid input json value for key_type=" << key_type;
+                return http_json_reply(
+                        MetaServiceCode::INVALID_ARGUMENT,
+                        fmt::format(
+                                "invalid input json value, cannot parse json to pb, key_type={}",
+                                key_type));
+            }
         }
 
         // Check if versionstamp parameter is provided

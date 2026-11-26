@@ -448,6 +448,9 @@ suite("test_build_mtmv") {
         alter Materialized View ${mvName} set("grace_period"="3333");
     """
     order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
+    def ivmStreamsNonIvm = sql """select IvmBaseTableStreams from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"""
+    logger.info("mv_infos ivm streams for non-ivm mv: " + ivmStreamsNonIvm.toString())
+    assertTrue(ivmStreamsNonIvm[0][0] == "")
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // not allow use mv modify property of table
     if (!isCloudMode()) {

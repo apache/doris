@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TTabletLocation;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -40,18 +39,17 @@ public class GroupCommitBlockSink extends OlapTableSink {
     private double maxFilterRatio;
 
     public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
-            boolean singleReplicaLoad, String groupCommit, double maxFilterRatio) {
-        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
+            String groupCommit, double maxFilterRatio) {
+        super(dstTable, tupleDescriptor, partitionIds);
         this.groupCommit = groupCommit;
         this.maxFilterRatio = maxFilterRatio;
     }
 
     // new constructor for nereids
     public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor,
-            List<Long> partitionIds, boolean singleReplicaLoad, List<Expr> partitionExprs,
+            List<Long> partitionIds, List<Expr> partitionExprs,
             Map<Long, Expr> syncMvWhereClauses, String groupCommit, double maxFilterRatio) {
-        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad, partitionExprs,
-                syncMvWhereClauses);
+        super(dstTable, tupleDescriptor, partitionIds, partitionExprs, syncMvWhereClauses);
         this.groupCommit = groupCommit;
         this.maxFilterRatio = maxFilterRatio;
     }
@@ -69,19 +67,17 @@ public class GroupCommitBlockSink extends OlapTableSink {
         return tDataSink;
     }
 
-    // BE-side GroupCommitBlockSinkOperatorX::init does not consume location/slave_location
+    // BE-side GroupCommitBlockSinkOperatorX::init does not consume location
     // (it only reads tuple_id/schema/db_id/table_id/partition/group_commit_mode/load_id/
     // max_filter_ratio). Skip the per-tablet replica enumeration in createLocation, which
     // is the dominant FE CPU cost under high-concurrency group-commit stream load.
     // We still return placeholder TOlapTableLocationParam objects because
     // TOlapTableSink.location is a required thrift field.
     @Override
-    protected List<TOlapTableLocationParam> initLocationParams(TOlapTableSink tSink) throws UserException {
+    protected TOlapTableLocationParam initLocationParam(TOlapTableSink tSink) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
-        TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         locationParam.setTablets(Lists.<TTabletLocation>newArrayList());
-        slaveLocationParam.setTablets(Lists.<TTabletLocation>newArrayList());
-        return Arrays.asList(locationParam, slaveLocationParam);
+        return locationParam;
     }
 
     public static TGroupCommitMode parseGroupCommit(String groupCommit) {

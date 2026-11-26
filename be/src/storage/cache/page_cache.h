@@ -277,4 +277,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(PageCacheHandle);
 };
 
+/// Instantiated once in page_cache.cpp; suppresses per-TU implicit instantiation.
+extern template class MemoryTrackedPageWithPagePtr<segment_v2::SegmentFooterPB>;
+
 } // namespace doris

@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ThriftAdapter;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
@@ -84,15 +84,18 @@ public class PushStoragePolicyTask extends AgentTask {
         resource.forEach(r -> {
             TStorageResource item = new TStorageResource();
             r.readLock();
-            item.setId(r.getId());
-            item.setName(r.getName());
-            item.setVersion(r.getVersion());
-            if (r.getType() == ResourceType.S3) {
-                item.setS3StorageParam(S3Properties.getS3TStorageParam(r.getCopiedProperties()));
-            } else if (r.getType() == ResourceType.HDFS) {
-                item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
+            try {
+                item.setId(r.getId());
+                item.setName(r.getName());
+                item.setVersion(r.getVersion());
+                if (r.getType() == ResourceType.S3) {
+                    item.setS3StorageParam(S3ThriftAdapter.getS3TStorageParam(r.getCopiedProperties()));
+                } else if (r.getType() == ResourceType.HDFS) {
+                    item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
+                }
+            } finally {
+                r.readUnlock();
             }
-            r.readUnlock();
             tStorageResources.add(item);
         });
         ret.setResource(tStorageResources);

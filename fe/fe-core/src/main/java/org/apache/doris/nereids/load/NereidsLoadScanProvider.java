@@ -121,8 +121,12 @@ public class NereidsLoadScanProvider {
                     Column seqCol = olapTable.getFullSchema().stream()
                             .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
                             .findFirst().get();
-                    if (seqCol.getDefaultValue() == null
-                            || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    boolean isCurrentTimestamp = seqCol.getDefaultValue() != null
+                            && (seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)
+                            || (seqCol.getType().isTimeStampNs()
+                            && org.apache.doris.analysis.ColumnDef.DefaultValue
+                                    .isCurrentTimeStampDefaultValue(seqCol.getDefaultValue())));
+                    if (!isCurrentTimestamp) {
                         throw new UserException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -231,6 +235,10 @@ public class NereidsLoadScanProvider {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("add hidden column {} to stream load task", Column.SEQUENCE_COL);
                     }
+                }
+                // Direct TTL is a writable value; the JSON reader records absence in the skip bitmap.
+                if (((OlapTable) tbl).isDirectRowTtl()) {
+                    copiedColumnExprs.add(new NereidsImportColumnDesc(Column.TTL_COL));
                 }
                 copiedColumnExprs.add(new NereidsImportColumnDesc(Column.SKIP_BITMAP_COL));
             }
@@ -366,9 +374,8 @@ public class NereidsLoadScanProvider {
             } else {
                 Column slotColumn;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-                // Use real column type for arrow/native format, other formats read as varchar first
-                if (fileFormatType == TFileFormatType.FORMAT_ARROW
-                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
+                // Use real column type for arrow format, other formats read as varchar first
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
                     if (tblColumn == null) {
                         throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
                                 + " for " + fileFormatType + " load");

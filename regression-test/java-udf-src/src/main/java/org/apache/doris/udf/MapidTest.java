@@ -18,7 +18,6 @@
 package org.apache.doris.udf;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.orc.impl.IntegerReader;
 
 import java.util.*;
 

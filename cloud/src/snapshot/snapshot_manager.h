@@ -19,6 +19,9 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <string>
+#include <string_view>
+
 #include "meta-store/txn_kv.h"
 #include "meta-store/versionstamp.h"
 
@@ -30,6 +33,12 @@ class StorageVaultAccessor;
 class InstanceDataMigrator;
 class InstanceChainCompactor;
 class MetaChecker;
+
+struct SnapshotRetainedAnalysisResult {
+    MetaServiceCode code;
+    std::string message;
+    std::string result_json;
+};
 
 // A abstract class for managing cluster snapshots.
 class SnapshotManager {
@@ -65,6 +74,12 @@ public:
 
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
             std::string_view instance_id, MultiVersionStatus multi_version_status);
+
+    virtual SnapshotRetainedAnalysisResult analyze_snapshot_retained(std::string_view request_body);
+
+    virtual SnapshotRetainedAnalysisResult get_snapshot_retained_analysis(
+            std::string_view request_body, std::string_view instance_id,
+            std::string_view analysis_id);
 
     virtual int check_snapshots(InstanceChecker* checker);
 

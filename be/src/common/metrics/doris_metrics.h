@@ -19,6 +19,7 @@
 
 #include <jni.h>
 
+#include <atomic>
 #include <memory>
 #include <set>
 #include <string>
@@ -118,10 +119,16 @@ public:
 
     IntCounter* base_compaction_task_running_total = nullptr;
     IntCounter* base_compaction_task_pending_total = nullptr;
-    IntCounter* binlog_compaction_task_running_total = nullptr;
-    IntCounter* binlog_compaction_task_pending_total = nullptr;
+    IntCounter* changelog_compaction_task_running_total = nullptr;
+    IntCounter* changelog_compaction_task_pending_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
+
+    // The compactions that drop expired changelog rowsets, counted as each of them finishes.
+    IntCounter* changelog_ttl_cleanup_success_total = nullptr;
+    IntCounter* changelog_ttl_cleanup_failed_total = nullptr;
+    // The size of the expired changelog rowsets the successful ones dropped.
+    IntCounter* changelog_ttl_reclaimed_bytes_total = nullptr;
 
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
@@ -165,20 +172,24 @@ public:
     IntGauge* process_fd_num_limit_hard = nullptr;
 
     // the max compaction score of all tablets.
-    // Record base and cumulative scores separately, because
-    // we need to get the larger of the two.
+    // Keep the cumulative score as the aggregate for compatibility, and record
+    // size-based and time-series cumulative scores separately.
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
+    IntGauge* tablet_size_based_max_compaction_score = nullptr;
+    IntGauge* tablet_time_series_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
-    IntGauge* tablet_binlog_max_compaction_score = nullptr;
+    IntGauge* tablet_changelog_max_compaction_score = nullptr;
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;
-    IntGauge* binlog_compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
+
+    // when a compaction that drops expired changelog rowsets last succeeded, in seconds since the epoch
+    IntGauge* changelog_ttl_last_success_timestamp_seconds = nullptr;
 
     HistogramMetric* tablet_version_num_distribution = nullptr;
 
@@ -231,6 +242,7 @@ public:
     UIntGauge* load_mem_consumption = nullptr;
     UIntGauge* load_channel_mem_consumption = nullptr;
     UIntGauge* memtable_memory_limiter_mem_consumption = nullptr;
+    UIntGauge* snii_index_build_mem_consumption = nullptr;
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;
@@ -245,6 +257,11 @@ public:
     UIntGauge* upload_total_byte = nullptr;
     IntCounter* upload_rowset_count = nullptr;
     IntCounter* upload_fail_count = nullptr;
+
+    UIntGauge* load_light_work_pool_queue_size = nullptr;
+    UIntGauge* load_light_work_active_threads = nullptr;
+    UIntGauge* load_light_work_pool_max_queue_size = nullptr;
+    UIntGauge* load_light_work_max_threads = nullptr;
 
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;
@@ -316,7 +333,8 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
+    // nullptr until the JVM of this process exists, which may never happen.
+    JvmMetrics* jvm_metrics() { return _jvm_metrics_view.load(std::memory_order_acquire); }
     void init_jvm_metrics();
 
 private:
@@ -335,6 +353,9 @@ private:
 
     std::unique_ptr<SystemMetrics> _system_metrics;
     std::unique_ptr<JvmMetrics> _jvm_metrics;
+    // Published only once _jvm_metrics is fully built: it is now created while the metric
+    // hooks of other threads are already running.
+    std::atomic<JvmMetrics*> _jvm_metrics_view {nullptr};
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
 };

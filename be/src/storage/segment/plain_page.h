@@ -22,6 +22,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -98,7 +99,7 @@ private:
     size_t _remain_element_capacity {0};
     uint64_t _raw_data_size = 0;
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 };
 
 template <FieldType Type>
@@ -191,7 +192,8 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
         const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE];
 
-        dst->insert_many_fix_len_data((const char*)src_data, max_fetch);
+        StorageLayout<Type>::storage_to_column(static_cast<const uint8_t*>(src_data), max_fetch,
+                                               *dst);
 
         *n = max_fetch;
         _cur_idx += max_fetch;
@@ -220,7 +222,8 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
+                                                   read_count, *dst);
         }
 
         *n = read_count;
@@ -244,7 +247,7 @@ private:
     uint32_t _num_elems;
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };

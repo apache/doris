@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
 #include "core/column/column_vector.h"
@@ -136,6 +137,13 @@ TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
     EXPECT_EQ(nested_alias->size(), 1);
     EXPECT_EQ(null_map_alias->size(), 1);
+    EXPECT_FALSE(nullable->is_exclusive());
+
+    nested.reset();
+    nested_alias.reset();
+    null_map.reset();
+    null_map_alias.reset();
+    EXPECT_TRUE(nullable->is_exclusive());
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchKeepsBlockInsertable) {
@@ -223,6 +231,35 @@ TEST(ColumnNullableTest, UpdateCrc32cBatchDoesNotMutateSharedNestedColumn) {
     ASSERT_TRUE(
             mutable_block->add_rows(&block, indices.data(), indices.data() + indices.size()).ok());
     EXPECT_EQ(mutable_block->rows(), block.rows());
+}
+
+TEST(ColumnNullableTest, ApplyNullMapAfterMutateLeavesSharedSourceUnchanged) {
+    auto nested_mut = ColumnString::create();
+    nested_mut->insert_data("-", 1);
+    nested_mut->insert_data("-", 1);
+    nested_mut->insert_data("2628", 4);
+    ColumnPtr nested = std::move(nested_mut);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr src = ColumnNullable::create(nested, null_map);
+    ColumnPtr held = src; // second owner, as if() holds arg_else.column alongside the block's copy
+
+    auto cond = ColumnUInt8::create();
+    cond->insert_value(1);
+    cond->insert_value(1);
+    cond->insert_value(0);
+
+    // mirrors if(cond, NULL, nullable_col): mutate() the shared column, then OR in the null map
+    auto mutated = (*std::move(held)).mutate();
+    assert_cast<ColumnNullable&>(*mutated).apply_null_map(*cond);
+
+    EXPECT_FALSE(assert_cast<const ColumnNullable&>(*src).has_null());
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*mutated).has_null());
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsNestedDefaultForWideType) {
@@ -454,6 +491,50 @@ TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
                   << column_res->get_data_at(i).to_string() << std::endl;
         // EXPECT_EQ(column->get_data_at(i).to_string(), column_res->get_data_at(i).to_string());
     }
+}
+
+// The null bits come back offset to row_pos, so a batch reads its own rows' flags from
+// index 0; a column that is not Nullable has none.
+TEST(ColumnNullableTest, PeelNullableOffsetsTheNullBitsToTheBatch) {
+    auto values = ColumnInt32::create();
+    values->insert_value(1);
+    values->insert_value(2);
+    values->insert_value(3);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    nulls->insert_value(0);
+    const auto nullable = ColumnNullable::create(std::move(values), std::move(nulls));
+
+    const uint8_t* null_map = nullptr;
+    const IColumn& peeled = peel_nullable(*nullable, 1, &null_map);
+    EXPECT_EQ(&peeled, &nullable->get_nested_column());
+    ASSERT_NE(null_map, nullptr);
+    EXPECT_EQ(null_map[0], 1);
+    EXPECT_EQ(null_map[1], 0);
+
+    auto plain = ColumnInt32::create();
+    plain->insert_value(1);
+    EXPECT_EQ(&peel_nullable(*plain, 0, &null_map), plain.get());
+    EXPECT_EQ(null_map, nullptr);
+}
+
+// A Const over a Nullable is not a ColumnNullable, so without the check it would come back as
+// itself, with no null bits for its NULL row.
+TEST(ColumnNullableTest, PeelNullableRejectsAConstColumn) {
+    auto values = ColumnInt32::create();
+    values->insert_value(0);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(1);
+    const auto constant =
+            ColumnConst::create(ColumnNullable::create(std::move(values), std::move(nulls)), 3);
+
+    const uint8_t* null_map = nullptr;
+#ifndef NDEBUG
+    EXPECT_DEATH(peel_nullable(*constant, 0, &null_map), "Check failed: !is_column_const");
+#else
+    EXPECT_THROW(peel_nullable(*constant, 0, &null_map), doris::Exception);
+#endif
 }
 
 } // namespace doris

@@ -69,7 +69,7 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
                 // 2. if the conjunct contains unique function, it should not be pushed down;
                 //    e.g. 'select a, sum(a) from t group by a having a + random() >  10'
                 //    not equals 'select a, sum(a) from t where a + random() > 10 group by a'
-                if (!conjunct.containsVolatileExpression()
+                if (!conjunct.containsVolatileOrNoneMovableExpression()
                         && !conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {

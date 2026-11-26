@@ -97,12 +97,12 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
 Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         std::shared_ptr<RPCFnImpl> fn = std::make_shared<RPCFnImpl>(_tfn);
         if (!fn->available()) {
             return Status::InternalError("rpc env init error");
         }
-        context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
+        context->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
 }

@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "exec/operator/operator.h"
+#include "service/brpc.h" // IWYU pragma: keep (brpc::Controller member below)
 
 namespace doris {
 class RuntimeState;
@@ -46,6 +47,7 @@ public:
     Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
     Status create_muiltget_result(const Columns& columns, bool eos);
 
+    Status validate_rpc_results(int node_id);
     Status merge_multi_response(RuntimeProfile* profile);
     void get_block(Block* block);
 
@@ -148,5 +150,8 @@ private:
     TMaterializationNode _materialization_node;
     VExprContextSPtrs _rowid_exprs;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<MaterializationLocalState>;
 
 } // namespace doris

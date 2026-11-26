@@ -31,7 +31,7 @@
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
-#include "storage/olap_common.h"
+#include "storage/rowset_id.h"
 
 class SipHash;
 
@@ -62,6 +62,11 @@ private:
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
+    struct NullMapState {
+        bool has_null;
+        bool only_null;
+    };
+
     /** Create a column from immutable/shared subcolumns without cloning them.
       * Call IColumn::mutate before modifying the returned column tree.
       */
@@ -154,11 +159,6 @@ public:
         assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(_nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
         _null_map->insert_from(src_concrete.get_null_map_column(), n);
-    }
-
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
-        push_false_to_nullmap(num);
-        get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
@@ -275,7 +275,10 @@ public:
                get_null_map_column().is_exclusive();
     }
 
+    bool try_replace_null_payload_with_default_without_cow() const override;
+
     bool only_null() const override;
+    NullMapState get_null_map_state() const;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
@@ -419,4 +422,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+
+// Return the nested column if nullable, otherwise the column itself.
+// Set null_map to the flags at row_pos, or nullptr for a non-nullable column.
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map);
 } // namespace doris

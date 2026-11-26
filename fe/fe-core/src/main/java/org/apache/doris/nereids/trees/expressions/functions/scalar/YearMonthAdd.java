@@ -19,13 +19,14 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -39,10 +40,12 @@ import java.util.List;
  */
 public class YearMonthAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullable, CalendarAddSubMonotonic {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeStampTzType.WILDCARD)
                     .args(TimeStampTzType.WILDCARD, VarcharType.SYSTEM_DEFAULT)
     );

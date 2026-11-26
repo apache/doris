@@ -139,8 +139,10 @@ suite("test_hive_orc", "p0,external") {
     }
     def test_topn_abs = {
         def test_col_topn = { String col -> 
-            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col asc limit 10; """
-            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col desc limit 10; """
+            // Numeric functions require an explicit text interpretation of binary fixture data.
+            def numericInput = col == "binary_col" ? "cast(binary_col as string)" : col
+            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col asc limit 10; """
+            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col desc limit 10; """
         }
 
         test_col_topn("tinyint_col")
@@ -182,100 +184,106 @@ suite("test_hive_orc", "p0,external") {
 
 
     for (String hivePrefix : ["hive3"]) {
-        try {
-            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String catalog_name = "${hivePrefix}_test_orc"
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_orc"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """create catalog if not exists ${catalog_name} properties (
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
+        sql """use `${catalog_name}`.`default`"""
+
+        select_top50()
+        count_all()
+        search_lg_int()
+        search_in_int()
+        search_mix()
+        only_partition_col()
+        decimals()
+        string_col_dict_plain_mixed()
+        predicate_pushdown()
+        test_topn()
+        test_topn_abs()
+        test_orc_nextbatch_error()
+
+        sql """drop catalog if exists ${catalog_name}"""
+
+        // test old create-catalog syntax for compatibility
+        sql """
+            create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-            );"""
-            sql """use `${catalog_name}`.`default`"""
+            );
+        """
+        sql """use `${catalog_name}`.`default`"""
+        select_top50()
+        sql """drop catalog if exists ${catalog_name}"""
 
-            select_top50()
-            count_all()
-            search_lg_int()
-            search_in_int()
-            search_mix()
-            only_partition_col()
-            decimals()
-            string_col_dict_plain_mixed()
-            predicate_pushdown()    
-            test_topn()
-            test_topn_abs()
-            test_orc_nextbatch_error()
+        sql """drop catalog if exists test_hive_orc_mapping_varbinary"""
+        sql """create catalog if not exists test_hive_orc_mapping_varbinary properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'enable.mapping.varbinary' = 'true'
+        );"""
+        sql """use `test_hive_orc_mapping_varbinary`.`default`"""
 
-            sql """drop catalog if exists ${catalog_name}"""
+        explain {
+            sql("select  binary_col from  orc_all_types order by binary_col,string_col asc limit 10;")
+            contains("TOPN OPT:1")
+        }
+        explain {
+            sql("select  binary_col from  orc_all_types order by binary_col asc limit 10;")
+            contains("TOPN OPT:1")
+        }
+        order_qt_sql_topn_binary_col1 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc limit 10; """
+        order_qt_sql_topn_binary_col2 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc ,string_col asc limit 10; """
+        order_qt_sql_topn_binary_col3 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc limit 10; """
+        order_qt_sql_topn_binary_col4 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc,string_col desc limit 10; """
 
-            // test old create-catalog syntax for compatibility
-            sql """
-                create catalog if not exists ${catalog_name} properties (
-                    "type"="hms",
-                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-                );
-            """
-            sql """use `${catalog_name}`.`default`"""
-            select_top50()
-            sql """drop catalog if exists ${catalog_name}"""
+        sql """ switch internal; """
+        // Reset fixtures before the test and retain them afterwards for failure diagnosis.
+        sql """ drop database if exists test_view_varbinary_db force"""
+        sql """ create database if not exists test_view_varbinary_db"""
+        sql """use test_view_varbinary_db"""
+        // Binary mapping enables transport; compare hexadecimal strings without binary hash keys.
+        def binaryQuery = ("SELECT binary_col FROM `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` "
+                + "ORDER BY int_col, from_binary(binary_col) LIMIT 100")
+        def binarySource = "(${binaryQuery}) binary_src"
+        def expectedBinary = sql "SELECT from_binary(binary_col) FROM ${binarySource} ORDER BY from_binary(binary_col)"
+        // Views retain execution types; materialized objects still obey native storage restrictions.
+        sql "CREATE VIEW test_view_varbinary AS SELECT binary_col FROM ${binarySource}"
+        assertEquals(expectedBinary,
+                sql("SELECT from_binary(binary_col) FROM test_view_varbinary ORDER BY from_binary(binary_col)"))
+        test {
+            sql """CREATE TABLE test_ctas_varbinary DISTRIBUTED BY RANDOM BUCKETS 2
+                   PROPERTIES ('replication_num'='1') AS SELECT binary_col FROM ${binarySource}"""
+            exception "varbinary"
+        }
+        test {
+            sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
+                    BUILD DEFERRED REFRESH AUTO ON MANUAL
+                    DISTRIBUTED BY RANDOM BUCKETS 2
+                    PROPERTIES ('replication_num' = '1')
+                    AS SELECT binary_col FROM ${binarySource}"""
+            exception "varbinary"
+        }
+        qt_desc_varbinary_view "DESC test_view_varbinary"
 
-            sql """drop catalog if exists test_hive_orc_mapping_varbinary"""
-            sql """create catalog if not exists test_hive_orc_mapping_varbinary properties (
-                "type"="hms",
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'enable.mapping.varbinary' = 'true'
-            );"""
-            sql """use `test_hive_orc_mapping_varbinary`.`default`"""
+        test {
+            sql " select count() from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` group by binary_col; "
+            exception " errCode = 2"
+        }
 
-            explain {
-                sql("select  binary_col from  orc_all_types order by binary_col,string_col asc limit 10;")
-                contains("TOPN OPT:1")
-            }
-            explain {
-                sql("select  binary_col from  orc_all_types order by binary_col asc limit 10;")
-                contains("TOPN OPT:1")
-            }
-            order_qt_sql_topn_binary_col1 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc limit 10; """
-            order_qt_sql_topn_binary_col2 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc ,string_col asc limit 10; """
-            order_qt_sql_topn_binary_col3 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc limit 10; """
-            order_qt_sql_topn_binary_col4 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc,string_col desc limit 10; """
+        test {
+            sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` as a join `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`  as b on a.binary_col = b.binary_col; "
+            exception " errCode = 2,"
+        }
 
-            sql """ switch internal; """
-            sql """ drop database if exists test_view_varbinary_db"""
-            sql """ create database if not exists test_view_varbinary_db"""
-            sql """use test_view_varbinary_db"""
-            test {
-                sql " create view test_view_varbinary as select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; "
-                exception " View does not support VARBINARY type: binary_col"
-            }
-
-            test {
-                sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
-                        BUILD DEFERRED REFRESH AUTO ON MANUAL
-                        DISTRIBUTED BY RANDOM BUCKETS 2
-                        PROPERTIES ('replication_num' = '1')
-                        AS select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; """
-                exception " MTMV do not support varbinary type : binary_col"
-            }
-
-            test {
-                sql " select count() from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` group by binary_col; "
-                exception " errCode = 2"
-            }
-
-            test {
-                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` as a join `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`  as b on a.binary_col = b.binary_col; "
-                exception " errCode = 2,"
-            }
-
-            test {
-                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where binary_col = X'AB'; "
-                exception " could not used in ComparisonPredicate now"
-            }
-
-        } finally {
+        test {
+            sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where binary_col = X'AB'; "
+            exception " could not used in ComparisonPredicate now"
         }
     }
 }
-

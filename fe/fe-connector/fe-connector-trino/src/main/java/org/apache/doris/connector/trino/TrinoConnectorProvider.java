@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -29,13 +29,30 @@ import java.util.Map;
  */
 public class TrinoConnectorProvider implements ConnectorProvider {
 
+    /**
+     * This connector's type, and therefore its {@code name()} — which is what the engine names its
+     * conf file after, so the plugin must ship {@code trino-connector.conf.template}. Note that this is
+     * NOT the plugin directory name ({@code plugins/connector/trino}); the directory is the deployer's
+     * choice, the conf file name is this string.
+     */
+    public static final String TYPE = "trino-connector";
+
     @Override
     public String getType() {
-        return "trino-connector";
+        return TYPE;
     }
 
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new TrinoDorisConnector(properties, context);
+    }
+
+    /**
+     * Binds and validates through the typed holder; the ALTER door reaches this same method through the
+     * SPI default {@code validatePropertiesForUpdate}, which validates the merged candidate.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        TrinoCatalogProperties.of(properties);
     }
 }

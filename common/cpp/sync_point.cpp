@@ -204,10 +204,10 @@ void SyncPoint::Data::process(const std::string& point, std::vector<std::any>&& 
   auto callback_pair = callbacks_.find(point);
   if (callback_pair != callbacks_.end()) {
     num_callbacks_running_++;
-    auto callback = callback_pair->second; 
-    mutex_.unlock();
+    auto callback = callback_pair->second;
+    lock.unlock();
     callback(std::move(cb_arg));
-    mutex_.lock();
+    lock.lock();
     num_callbacks_running_--;
   }
   cleared_points_.insert(point);

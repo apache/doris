@@ -23,6 +23,8 @@ suite("mtmv_range_date_datetrunc_date_part_up") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
+
     String mv_prefix = "range_datetrunc_date_up"
     String tb_name = mv_prefix + "_tb"
     String mv_name = mv_prefix + "_mv"

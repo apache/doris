@@ -22,11 +22,10 @@
 7	C	golf	2026-03-01T07:00	70	\N
 
 -- !mor_delete_files --
-0	4	4
-2	2	2
+0	3	3
+2	1	1
 
 -- !cow_after_rejections --
 1	A	alpha	2026-01-01T01:00	10	base
 2	\N	null-key	\N	20	null-partition
 3	B	beta	2026-02-01T03:00	30	new-spec
-

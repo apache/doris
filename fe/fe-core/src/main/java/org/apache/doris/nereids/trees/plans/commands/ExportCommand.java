@@ -38,6 +38,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -92,6 +93,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
+            .add(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS)
             .add(OutFileClause.PROP_WITH_BOM)
             .add(COMPRESS_TYPE)
             .build();
@@ -275,7 +277,11 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setWhereExpression(this.expr);
         exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
-        exportJob.setExportPath(this.path);
+        try {
+            exportJob.setExportPath(this.brokerDesc.get().getFileLocationForExport(this.path));
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Invalid export path: " + this.path + ", " + e.getMessage(), e);
+        }
 
         // set column separator
         String columnSeparator = Separator.convertSeparator(fileProperties.getOrDefault(
@@ -290,6 +296,12 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         // set format
         exportJob.setFormat(fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
+
+        String enableInt96Timestamps = fileProperties.get(ParquetFileFormatProperties.ENABLE_INT96_TIMESTAMPS);
+        if (enableInt96Timestamps != null) {
+            ParquetFileFormatProperties.parseEnableInt96Timestamps(enableInt96Timestamps);
+        }
+        exportJob.setEnableInt96Timestamps(enableInt96Timestamps);
 
         // set withBom
         exportJob.setWithBom(fileProperties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false"));
@@ -431,4 +443,3 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         return sb.toString();
     }
 }
-

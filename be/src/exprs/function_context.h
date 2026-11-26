@@ -30,7 +30,7 @@
 
 namespace doris {
 
-struct ColumnPtrWrapper;
+class ConstantExprResult;
 struct StringRef;
 class RuntimeState;
 
@@ -42,7 +42,7 @@ using DataTypePtr = std::shared_ptr<const IDataType>;
 // and manage memory.
 class FunctionContext {
 public:
-    enum FunctionStateScope {
+    enum class FunctionStateScope {
         /// Indicates that function state for this FunctionContext's UDF is shared across
         /// plan fragment (a query is divided into multiple plan fragments, each of which
         /// is responsible for a part of query execution). Within plan fragment, there
@@ -73,7 +73,7 @@ public:
     /// it.
     std::unique_ptr<doris::FunctionContext> clone();
 
-    void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
+    void set_constant_cols(const std::vector<std::shared_ptr<doris::ConstantExprResult>>& cols);
 
     RuntimeState* state() { return _state; }
 
@@ -84,6 +84,8 @@ public:
 
     bool enable_strict_mode() const { return _enable_strict_mode; }
 
+    bool is_auto_partition_boundary_context() const { return _is_auto_partition_boundary_context; }
+
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
     }
@@ -91,6 +93,8 @@ public:
     bool set_enable_strict_mode(bool enable_strict_mode) {
         return _enable_strict_mode = enable_strict_mode;
     }
+
+    void set_auto_partition_boundary_context() { _is_auto_partition_boundary_context = true; }
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
         _string_as_jsonb_string = string_as_jsonb_string;
@@ -155,7 +159,7 @@ public:
     // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
-    doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
+    doris::ConstantExprResult* get_constant_col(int arg_idx) const;
 
     // Creates a StringRef, which memory is available when this function context is used next time
     StringRef create_temp_string_val(int64_t len);
@@ -192,12 +196,13 @@ private:
     // Type descriptors for each argument of the function.
     std::vector<DataTypePtr> _arg_types;
 
-    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
+    std::vector<std::shared_ptr<doris::ConstantExprResult>> _constant_cols;
 
     // UDF execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
     bool _enable_strict_mode = false;
+    bool _is_auto_partition_boundary_context = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;

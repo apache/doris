@@ -37,6 +37,7 @@ enum class Encoding {
 enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY };
 enum class Pattern { CLUSTERED, ALTERNATING };
 enum class Projection { PREDICATE_ONLY, PREDICATE_PROJECTED };
+enum class SelectionOperation { RESIZE_IDENTITY, ROW_FILTER, CASCADE_FILTER };
 enum class ReaderOperation {
     OPEN_TO_FIRST_BLOCK,
     FULL_SCAN,
@@ -50,8 +51,11 @@ enum class Kernel {
     DELTA_PREFIX_SUM,
     DICTIONARY_GATHER,
     NULLABLE_EXPAND,
-    RAW_PREDICATE
+    RAW_PREDICATE,
+    NESTED_SELECTION
 };
+enum class NestedSelectionImplementation { LEGACY, FUSED };
+enum class NullableSelectionImplementation { LEGACY, FUSED };
 
 struct DecoderScenario {
     Encoding encoding;
@@ -77,6 +81,21 @@ struct KernelScenario {
     int null_percent;
     Pattern pattern;
     size_t dictionary_entries;
+    NestedSelectionImplementation nested_implementation = NestedSelectionImplementation::FUSED;
+};
+
+struct SelectionScenario {
+    SelectionOperation operation;
+    int selectivity_percent;
+    Pattern pattern;
+};
+
+struct NullableSelectionScenario {
+    int selectivity_percent;
+    int null_percent;
+    Pattern selection_pattern;
+    Pattern null_pattern;
+    NullableSelectionImplementation implementation;
 };
 
 struct SelectionRange {
@@ -139,6 +158,47 @@ inline std::vector<KernelScenario> kernel_scenarios() {
         for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
             scenarios.push_back(
                     {Kernel::RAW_PREDICATE, value_type, selectivity, 0, Pattern::ALTERNATING, 256});
+        }
+    }
+    for (const int selectivity : {1, 10, 50}) {
+        for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            for (const auto implementation :
+                 {NestedSelectionImplementation::LEGACY, NestedSelectionImplementation::FUSED}) {
+                scenarios.push_back({Kernel::NESTED_SELECTION, ValueType::INT32, selectivity, 10,
+                                     pattern, 256, implementation});
+            }
+        }
+    }
+    return scenarios;
+}
+
+inline std::vector<SelectionScenario> selection_scenarios() {
+    std::vector<SelectionScenario> scenarios {
+            {SelectionOperation::RESIZE_IDENTITY, 100, Pattern::CLUSTERED}};
+    for (const auto operation :
+         {SelectionOperation::ROW_FILTER, SelectionOperation::CASCADE_FILTER}) {
+        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+            for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                scenarios.push_back({operation, selectivity, pattern});
+            }
+        }
+    }
+    return scenarios;
+}
+
+inline std::vector<NullableSelectionScenario> nullable_selection_scenarios() {
+    std::vector<NullableSelectionScenario> scenarios;
+    for (const int selectivity : {1, 10, 50, 90, 99}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const auto selection_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                    for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                                      NullableSelectionImplementation::FUSED}) {
+                        scenarios.push_back({selectivity, null_percent, selection_pattern,
+                                             null_pattern, implementation});
+                    }
+                }
+            }
         }
     }
     return scenarios;
@@ -335,6 +395,18 @@ inline std::string to_string(Projection value) {
     return value == Projection::PREDICATE_ONLY ? "predicate_only" : "predicate_projected";
 }
 
+inline std::string to_string(SelectionOperation value) {
+    switch (value) {
+    case SelectionOperation::RESIZE_IDENTITY:
+        return "resize_identity";
+    case SelectionOperation::ROW_FILTER:
+        return "row_filter";
+    case SelectionOperation::CASCADE_FILTER:
+        return "cascade_filter";
+    }
+    return "unknown";
+}
+
 inline std::string to_string(ReaderOperation value) {
     switch (value) {
     case ReaderOperation::OPEN_TO_FIRST_BLOCK:
@@ -374,6 +446,28 @@ inline std::string to_string(Kernel value) {
         return "nullable_expand";
     case Kernel::RAW_PREDICATE:
         return "raw_predicate";
+    case Kernel::NESTED_SELECTION:
+        return "nested_selection";
+    }
+    return "unknown";
+}
+
+inline std::string to_string(NestedSelectionImplementation value) {
+    switch (value) {
+    case NestedSelectionImplementation::LEGACY:
+        return "legacy";
+    case NestedSelectionImplementation::FUSED:
+        return "fused";
+    }
+    return "unknown";
+}
+
+inline std::string to_string(NullableSelectionImplementation value) {
+    switch (value) {
+    case NullableSelectionImplementation::LEGACY:
+        return "legacy";
+    case NullableSelectionImplementation::FUSED:
+        return "fused";
     }
     return "unknown";
 }

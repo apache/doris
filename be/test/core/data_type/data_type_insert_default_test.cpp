@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -166,14 +167,22 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
         SCOPED_TRACE("date");
         auto actual = get_default_field(make_simple_type(TYPE_DATE));
         ASSERT_EQ(actual.get_type(), TYPE_DATE);
-        EXPECT_EQ(actual.get<TYPE_DATE>(), VecDateTimeValue::DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATE>(), VecDateTimeValue::DATE_DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATE>().type(), TIME_DATE);
+        char buffer[64];
+        actual.get<TYPE_DATE>().to_string(buffer);
+        EXPECT_STREQ(buffer, "1970-01-01");
     }
 
     {
         SCOPED_TRACE("datetime");
         auto actual = get_default_field(make_simple_type(TYPE_DATETIME));
         ASSERT_EQ(actual.get_type(), TYPE_DATETIME);
-        EXPECT_EQ(actual.get<TYPE_DATETIME>(), VecDateTimeValue::DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATETIME>(), VecDateTimeValue::DATETIME_DEFAULT_VALUE);
+        EXPECT_EQ(actual.get<TYPE_DATETIME>().type(), TIME_DATETIME);
+        char buffer[64];
+        actual.get<TYPE_DATETIME>().to_string(buffer);
+        EXPECT_STREQ(buffer, "1970-01-01 00:00:00");
     }
 
     {
@@ -288,8 +297,10 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
     {
         SCOPED_TRACE("variant");
         auto actual = get_default_field(std::make_shared<DataTypeVariant>());
-        ASSERT_EQ(actual.get_type(), TYPE_NULL);
-        EXPECT_TRUE(actual.is_null());
+        ASSERT_EQ(actual.get_type(), TYPE_VARIANT);
+        const auto encoded_value = actual.get<TYPE_VARIANT>().value();
+        EXPECT_EQ(std::string_view(encoded_value.data, encoded_value.size),
+                  std::string_view("\x02\x00\x00", 3));
     }
 
     {

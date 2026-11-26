@@ -38,6 +38,10 @@
 #include "util/bthread_shared_mutex.h"
 
 namespace doris {
+namespace io {
+class FileRangeReadContext;
+}
+
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
@@ -78,6 +82,10 @@ public:
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_ttl_expiration_time() const {
+        return _tablet_meta->file_cache_ttl_expiration_time();
+    }
     // currently used by schema change, inverted index building, and cooldown
     std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
@@ -89,8 +97,20 @@ public:
         return _tablet_meta->enable_unique_key_merge_on_write();
     }
 
+    bool need_read_delete_bitmap() const {
+        return _tablet_meta->enable_unique_key_merge_on_write() ||
+               _tablet_meta->is_changelog_tablet();
+    }
+
+    bool is_changelog_tablet() const { return _tablet_meta->is_changelog_tablet(); }
+
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
+
+    BinlogConfig binlog_config() const {
+        std::shared_lock rlock(_meta_lock);
+        return _tablet_meta->binlog_config();
+    }
 
     int32_t max_version_config();
 
@@ -102,11 +122,6 @@ public:
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
-    }
-
-    TabletSchemaSPtr row_binlog_tablet_schema() const {
-        std::shared_lock rlock(_meta_lock);
-        return _tablet_meta->row_binlog_schema();
     }
 
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
@@ -141,7 +156,6 @@ public:
     // The caller must call hold _meta_lock when call this three function.
     RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
     RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
-    RowsetSharedPtr get_row_binlog_rowset_by_version(const Version& version) const;
     RowsetSharedPtr get_rowset_with_max_version() const;
 
     Status get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
@@ -149,12 +163,13 @@ public:
 
     // Get the missed versions until the spec_version.
     Versions get_missed_versions(int64_t spec_version) const;
-    Versions get_missed_versions_unlocked(int64_t spec_version,
-                                          bool capture_row_binlog = false) const;
+    Versions get_missed_versions_unlocked(int64_t spec_version) const;
 
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
                                             bool cloud_get_rowset_meta) const;
+
+    bool scan_expired_changelog_rowsets();
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
@@ -171,6 +186,22 @@ public:
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
+
+    // Reuse the segment returned by lookup_row_key. The caller must keep the segment and
+    // its acquired rowset alive until this method returns.
+    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                           const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
+                           OlapReaderStatistics& stats, std::string& values,
+                           bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
+
+    // Read from the resolved segment with query-scoped range read-ahead admission. The caller
+    // keeps the segment and its acquired rowset alive as with lookup_row_data above.
+    Status lookup_row_data_with_read_ahead(
+            const Slice& encoded_key, const RowLocation& row_location,
+            const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+            const io::IOContext* io_ctx,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -182,7 +213,8 @@ public:
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
                           DeleteBitmapPtr tablet_delete_bitmap = nullptr,
-                          const io::IOContext* io_ctx = nullptr);
+                          const io::IOContext* io_ctx = nullptr,
+                          segment_v2::SegmentSharedPtr* segment = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -227,10 +259,10 @@ public:
     static const signed char* get_delete_sign_column_data(const Block& block,
                                                           size_t rows_at_least = 0);
 
-    static Status generate_default_value_block(const TabletSchema& schema,
-                                               const std::vector<uint32_t>& cids,
-                                               const std::vector<std::string>& default_values,
-                                               const Block& ref_block, Block& default_value_block);
+    static Status generate_default_value_block(
+            const TabletSchema& schema, const std::vector<uint32_t>& cids,
+            const PartialUpdateInfo& partial_update_info, const Block& row_block,
+            Block& default_value_block, const std::map<uint32_t, uint32_t>* row_indices = nullptr);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
@@ -251,6 +283,12 @@ public:
                                                  const std::vector<uint32_t>& rowids,
                                                  const std::vector<uint32_t>& cids, Block& block);
 
+    static Status fetch_values_by_rowids(RowsetSharedPtr input_rowset,
+                                         const TabletSchema& tablet_schema, uint32_t segid,
+                                         const std::vector<uint32_t>& rowids,
+                                         const std::vector<uint32_t>& cids,
+                                         MutableColumns& dst_columns);
+
     static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                         const std::vector<uint32_t>& rowids,
                                         const TabletColumn& tablet_column, MutableColumnPtr& dst);
@@ -269,7 +307,7 @@ public:
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(
-            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
@@ -354,6 +392,14 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
+    Status _lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                            const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
+                            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+                            const io::IOContext* io_ctx) const;
+
+    // Protected by the tablet header lock; discovery resumes after this version.
+    Version _changelog_ttl_scan_cursor {-1, -1};
+
     // Find the missed versions until the spec_version.
     //
     // for example:
@@ -382,7 +428,6 @@ protected:
 
     mutable BthreadSharedMutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
-    TimestampedVersionTracker _row_binlog_version_tracker;
 
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsets will be saved in _stale_rs_version_map;
@@ -391,8 +436,6 @@ protected:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
-    // for row_binlog
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _row_binlog_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
 
@@ -411,6 +454,32 @@ public:
     IntCounter* query_scan_count = nullptr;
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
+    // Last time this tablet was scanned by a query / flushed by a load (ms since epoch),
+    // named after the counter each one accompanies (query_scan_count / flush_finish_count).
+    // Set only on the query scan path and the memtable flush path respectively, so they are
+    // NOT polluted by compaction / snapshot / agent tasks the way CloudTablet::
+    // last_access_time_ms is. Do NOT shorten to last_load_time_ms: CloudTablet already has
+    // a field by that name tracking load start for the compaction freeze check.
+    std::atomic<int64_t> last_query_scan_time_ms {0};
+    std::atomic<int64_t> last_load_flush_time_ms {0};
+    // Snapshots taken at the last SUCCESSFULLY DELIVERED report. Committed only after
+    // handle_report() returns true, never with exchange() during collection -- see
+    // ActiveTabletCollector::commit(). Seeded in the constructor from the counters' current
+    // values, which are shared with any other live BaseTablet for the same tablet id.
+    std::atomic<int64_t> last_reported_scan_count {0};
+    std::atomic<int64_t> last_reported_flush_count {0};
+    // Monotonic clock of that commit -- NOT wall clock. Its only use is the
+    // `now - last_reported_mono_ms` subtraction that yields the delta window; a backward
+    // NTP step on the wall clock would clamp that window to 1 ms and inflate every rate
+    // by orders of magnitude. The two last_*_time_ms fields above must stay wall clock:
+    // they are shipped to FE, which compares them against its own clock.
+    //
+    // Shared by every tablet in a round, because commit() is all-or-nothing: a dropped
+    // report (5 retries exhausted, or handle_report() returning false) advances no
+    // baseline at all, so the next round's delta spans several intervals. Backends also
+    // report on independent phases. FE compares entries across backends and across
+    // rounds, so it must normalise delta by this window rather than compare raw counts.
+    std::atomic<int64_t> last_reported_mono_ms {0};
     std::atomic<int64_t> published_count = 0;
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;
@@ -466,7 +535,6 @@ struct CaptureRowsetOps {
     bool quiet = false;
     bool include_stale_rowsets = true;
     bool enable_fetch_rowsets_from_peers = false;
-    bool capture_row_binlog = false;
 
     // ======== only take effect in cloud mode ========
 

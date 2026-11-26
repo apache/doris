@@ -17,82 +17,142 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Version;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.manager.JobManager;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolTestSupport;
+import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class MetricsTest {
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
     }
 
     @Test
+    public void testVersionMetricIsExportedWithBuildLabels() {
+        Assertions.assertEquals(26000100L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 0));
+        Assertions.assertEquals(26000101L, MetricRepo.encodeVersionMetricValue(26, 0, 1, 1));
+        Assertions.assertTrue(MetricRepo.encodeVersionMetricValue(4, 99, 0, 0)
+                < MetricRepo.encodeVersionMetricValue(5, 0, 0, 0));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetricRepo.encodeVersionMetricValue(26, 0, 100, 0));
+
+        long value = MetricRepo.encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                Version.DORIS_BUILD_VERSION_HOTFIX);
+
+        String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
+                + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
+                + "\", minor=\"" + Version.DORIS_BUILD_VERSION_MINOR
+                + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
+                + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
+                + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
+                + "\"} " + value;
+
+        String metricResult = getPrometheusMetrics();
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_version gauge"), metricResult);
+        Assertions.assertTrue(metricResult.contains(expectedSample), metricResult);
+    }
+
+    @Test
     public void testTcpMetrics() {
         List<Metric> metrics = MetricRepo.getMetricsByName("snmp");
-        Assert.assertEquals(4, metrics.size());
+        Assertions.assertEquals(4, metrics.size());
         for (Metric metric : metrics) {
             GaugeMetric<Long> gm = (GaugeMetric<Long>) metric;
             String metricName = gm.getLabels().get(0).getValue();
             if (metricName.equals("tcp_retrans_segs")) {
-                Assert.assertEquals(Long.valueOf(826271L), (Long) gm.getValue());
+                Assertions.assertEquals(Long.valueOf(826271L), (Long) gm.getValue());
             } else if (metricName.equals("tcp_in_errs")) {
-                Assert.assertEquals(Long.valueOf(12712L), (Long) gm.getValue());
+                Assertions.assertEquals(Long.valueOf(12712L), (Long) gm.getValue());
             } else if (metricName.equals("tcp_in_segs")) {
-                Assert.assertEquals(Long.valueOf(1034019111L), (Long) gm.getValue());
+                Assertions.assertEquals(Long.valueOf(1034019111L), (Long) gm.getValue());
             } else if (metricName.equals("tcp_out_segs")) {
-                Assert.assertEquals(Long.valueOf(1166716939L), (Long) gm.getValue());
+                Assertions.assertEquals(Long.valueOf(1166716939L), (Long) gm.getValue());
             } else {
-                Assert.fail();
+                Assertions.fail();
             }
         }
     }
 
     @Test
     public void testConnectionMaxMetrics() throws Exception {
-        int originQeMaxConnection = Config.qe_max_connection;
-        int originArrowFlightMaxConnections = Config.arrow_flight_max_connections;
-        try {
-            Config.qe_max_connection = 4321;
-            Config.arrow_flight_max_connections = 8765;
+        // One pool for every protocol: connection_max is its limit, connection_total every
+        // connection in it, and the two arrow_flight gauges the Flight share of each. A scheduler
+        // of known numbers, with one connection of each protocol registered, so that each gauge is
+        // pinned to a literal and not to the getter it reads.
+        ConnectScheduler scheduler = new ConnectScheduler(4321, 300);
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectContext mysql = ConnectPoolTestSupport.mysqlConnection(env, UserIdentity.ROOT);
+        ConnectContext flight = ConnectPoolTestSupport.flightSession(env, UserIdentity.ROOT, "metric-token");
+        scheduler.submit(mysql);
+        scheduler.submit(flight);
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(flight));
+        ExecuteEnv executeEnv = Mockito.mock(ExecuteEnv.class);
+        Mockito.when(executeEnv.getScheduler()).thenReturn(scheduler);
+        try (MockedStatic<ExecuteEnv> mockedExecuteEnv = Mockito.mockStatic(ExecuteEnv.class)) {
+            mockedExecuteEnv.when(ExecuteEnv::getInstance).thenReturn(executeEnv);
             MetricRepo.updateUserConnectionMaxMetric("metric_user", 321L);
 
             MetricVisitor visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             String metricResult = visitor.finish();
-            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
-            Assert.assertTrue(metricResult.contains("doris_fe_connection_max 13086"));
-            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
-            Assert.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0"));
-            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
-            Assert.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 8765"));
-            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
-            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_connection_max 4321\n"), metricResult);
+            Assertions.assertTrue(metricResult.contains("doris_fe_connection_total 2\n"), metricResult);
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 1\n"), metricResult);
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 300\n"), metricResult);
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
 
             Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "456")), true);
@@ -100,7 +160,7 @@ public class MetricsTest {
             visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             metricResult = visitor.finish();
-            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
 
             Auth auth = new Auth();
             auth.updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
@@ -109,14 +169,83 @@ public class MetricsTest {
             visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             metricResult = visitor.finish();
-            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
-            Assert.assertFalse(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 789"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
+            Assertions.assertFalse(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 789"));
         } finally {
-            Config.qe_max_connection = originQeMaxConnection;
-            Config.arrow_flight_max_connections = originArrowFlightMaxConnections;
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
             Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100")), true);
+        }
+    }
+
+    @Test
+    public void testStreamingJobTimeAndLagMetrics() {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        job.setJobId(1787039821000L);
+        job.setJobName("streaming_metric_job");
+        job.setLastTaskSuccessTime(1787039821123L);
+
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setLagBytes(4096);
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("file", "mysql-bin.000001");
+        committedOffset.put("pos", "100");
+        committedOffset.put("ts_sec", "1787039800");
+        provider.setCurrentOffset(
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset))));
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        Env env = Env.getCurrentEnv();
+        FrontendNodeType originalFeType = Deencapsulation.getField(env, "feType");
+        Deencapsulation.setField(env, "feType", FrontendNodeType.MASTER);
+        JobManager jobManager = env.getJobManager();
+        ConcurrentHashMap<Long, AbstractJob> jobMap = Deencapsulation.getField(jobManager, "jobMap");
+        jobMap.put(job.getJobId(), job);
+        try {
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            String metricResult = getPrometheusMetrics();
+
+            Assertions.assertTrue(metricResult.contains("doris_fe_streaming_job_per_job_lag_bytes"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 4096"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_task_success_time_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039821"));
+            Assertions.assertFalse(metricResult.contains("doris_fe_streaming_job_per_job_lag{"));
+            String messageLag = "doris_fe_streaming_job_per_job_lag_messages"
+                    + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"}";
+            Assertions.assertFalse(metricResult.contains(messageLag));
+
+            S3EventSourceOffsetProvider eventProvider = new S3EventSourceOffsetProvider("test-queue");
+            Deencapsulation.setField(job, "offsetProvider", eventProvider);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 12L);
+            Deencapsulation.setField(eventProvider, "lastSourceEventTimestampSeconds", 1787039800L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            metricResult = getPrometheusMetrics();
+            Assertions.assertTrue(metricResult.contains(messageLag + " 12"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_streaming_job_per_job_last_source_event_timestamp_seconds"
+                            + "{job_id=\"1787039821000\", job_name=\"streaming_metric_job\"} 1787039800"));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", null);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+
+            Deencapsulation.setField(eventProvider, "approximateNumberOfMessages", 0L);
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertTrue(getPrometheusMetrics().contains(messageLag + " 0"));
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Assertions.assertFalse(getPrometheusMetrics().contains(messageLag));
+        } finally {
+            jobMap.remove(job.getJobId());
+            MetricRepo.updateStreamingJobPerJobMetrics();
+            Deencapsulation.setField(env, "feType", originalFeType);
         }
     }
 
@@ -125,51 +254,51 @@ public class MetricsTest {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
-        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("qing.lu@lbk.one").update(20L);
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("xxx.yyy@example.com").update(20L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
-        Assert.assertTrue(metricResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"qing.lu@lbk.one\"} 20.0"));
-        Assert.assertFalse(metricResult.contains("doris_fe_query_latency_ms_lu@lbk_one"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
+        Assertions.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));
+        Assertions.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
+        Assertions.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
+        Assertions.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+        Assertions.assertTrue(metricResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 20.0"));
+        Assertions.assertFalse(metricResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
 
     }
 
     @Test
     public void testPrometheusVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "thomas.liu@developertools.com")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(30L);
         MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
         prometheusVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String prometheusResult = prometheusVisitor.finish();
-        Assert.assertTrue(prometheusResult.contains(
-                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"thomas.liu@developertools.com\"} 30.0"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_liu@developertools_com"));
-        Assert.assertFalse(prometheusResult.contains("user=\"thomas\""));
+        Assertions.assertTrue(prometheusResult.contains(
+                "doris_fe_query_latency_ms{quantile=\"0.999\",user=\"xxx.yyy@example.com\"} 30.0"));
+        Assertions.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_yyy@example_com"));
+        Assertions.assertFalse(prometheusResult.contains("user=\"xxx\""));
     }
 
     @Test
     public void testJsonVisitorKeepsLabeledHistogramValuesOutOfMetricName() {
         HistogramMetric histogramMetric = new HistogramMetric("query.latency.ms",
-                Lists.newArrayList(new MetricLabel("user", "qing.lu@lbk.one")));
+                Lists.newArrayList(new MetricLabel("user", "xxx.yyy@example.com")));
         histogramMetric.update(20L);
         MetricVisitor jsonVisitor = new JsonMetricVisitor();
         jsonVisitor.visitHistogram(MetricVisitor.FE_PREFIX, histogramMetric.getName(),
                 histogramMetric.getHistogram(), histogramMetric.getLabels());
         String jsonResult = jsonVisitor.finish();
-        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms\""));
-        Assert.assertTrue(jsonResult.contains("\"user\":\"qing.lu@lbk.one\""));
-        Assert.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_lu@lbk_one\""));
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms\""));
+        Assertions.assertTrue(jsonResult.contains("\"user\":\"xxx.yyy@example.com\""));
+        Assertions.assertFalse(jsonResult.contains("\"metric\":\"doris_fe_query_latency_ms_yyy@example_com\""));
     }
 
     @Test
@@ -204,15 +333,101 @@ public class MetricsTest {
         MetricVisitor prometheusVisitor = new PrometheusMetricVisitor();
         registry.acceptHistograms(prometheusVisitor);
         String prometheusResult = prometheusVisitor.finish();
-        Assert.assertTrue(prometheusResult.contains(
+        Assertions.assertTrue(prometheusResult.contains(
                 "doris_fe_query_latency_ms{quantile=\"0.999\",cluster_id=\"cluster.id-1\","
                         + "cluster_name=\"cluster.name@prod\"} 40.0"));
-        Assert.assertTrue(prometheusResult.contains(
+        Assertions.assertTrue(prometheusResult.contains(
                 "doris_fe_meta_service_rpc_latency_ms{quantile=\"0.999\",method=\"get.Instance\"} 50.0"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_id-1_cluster"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_stale_latency_ms"));
-        Assert.assertFalse(prometheusResult.contains("doris_fe_disabled_latency_ms"));
+        Assertions.assertFalse(prometheusResult.contains("doris_fe_query_latency_ms_id-1_cluster"));
+        Assertions.assertFalse(prometheusResult.contains("doris_fe_meta_service_rpc_latency_ms_Instance"));
+        Assertions.assertFalse(prometheusResult.contains("doris_fe_stale_latency_ms"));
+        Assertions.assertFalse(prometheusResult.contains("doris_fe_disabled_latency_ms"));
+    }
+
+    @Test
+    public void testPrometheusVisitorEscapesLabelValues() {
+        // A table name may contain a backslash, a double quote and a line feed, which the text format only
+        // accepts escaped in a label value; the plain label beside it is written as is.
+        String name = "a\\b\"c\nd";
+        String escapedName = "a\\\\b\\\"c\\nd";
+        GaugeMetricImpl<Long> gauge = new GaugeMetricImpl<>("escape_test", MetricUnit.NOUNIT, "escape test", 1L);
+        gauge.addLabel(new MetricLabel("table_name", name)).addLabel(new MetricLabel("db_name", "db1"));
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        visitor.visit(MetricVisitor.FE_PREFIX, gauge);
+        Assertions.assertEquals("# HELP doris_fe_escape_test escape test\n"
+                + "# TYPE doris_fe_escape_test gauge\n"
+                + "doris_fe_escape_test{table_name=\"" + escapedName + "\", db_name=\"db1\"} 1\n", visitor.finish());
+
+        HistogramMetric histogram = new HistogramMetric("escape.latency.ms",
+                Lists.newArrayList(new MetricLabel("table_name", name)));
+        histogram.update(10L);
+        visitor = new PrometheusMetricVisitor();
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, histogram.getName(), histogram.getHistogram(),
+                histogram.getLabels());
+        // a histogram of the codahale registry carries its labels in the name, as part.part.key=value
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, "escape.name.ms.table_name=" + name,
+                histogram.getHistogram());
+        String result = visitor.finish();
+        Assertions.assertTrue(result.contains("doris_fe_escape_latency_ms{quantile=\"0.999\",table_name=\""
+                + escapedName + "\"} 10.0\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_latency_ms_count{table_name=\""
+                + escapedName + "\"} 1\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_name_ms{quantile=\"0.999\",table_name=\""
+                + escapedName + "\"} 10.0\n"), result);
+        Assertions.assertTrue(result.contains("doris_fe_escape_name_ms_count{table_name=\""
+                + escapedName + "\"} 1\n"), result);
+    }
+
+    @Test
+    public void testPrometheusVisitorWritesNullLabelValue() {
+        // A table warm-up job has no source cluster, so the series of its start and finish times carry a null
+        // src_cluster_name; it is written as null, as before label values were escaped.
+        GaugeMetricImpl<Long> gauge = new GaugeMetricImpl<>("null_label_test", MetricUnit.NOUNIT, "null label test",
+                1L);
+        gauge.addLabel(new MetricLabel("src_cluster_name", null)).addLabel(new MetricLabel("dst_cluster_name", "cg1"));
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        visitor.visit(MetricVisitor.FE_PREFIX, gauge);
+        Assertions.assertEquals("# HELP doris_fe_null_label_test null label test\n"
+                + "# TYPE doris_fe_null_label_test gauge\n"
+                + "doris_fe_null_label_test{src_cluster_name=\"null\", dst_cluster_name=\"cg1\"} 1\n",
+                visitor.finish());
+
+        HistogramMetric histogram = new HistogramMetric("null_label.latency.ms",
+                Lists.newArrayList(new MetricLabel("src_cluster_name", null)));
+        histogram.update(10L);
+        visitor = new PrometheusMetricVisitor();
+        visitor.visitHistogram(MetricVisitor.FE_PREFIX, histogram.getName(), histogram.getHistogram(),
+                histogram.getLabels());
+        String result = visitor.finish();
+        Assertions.assertTrue(result.contains("doris_fe_null_label_latency_ms_count{src_cluster_name=\"null\"} 1\n"),
+                result);
+    }
+
+    @Test
+    public void testCloudTableStatsEscapeTableName() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        Env env = Env.getCurrentEnv();
+        Object originTabletStatMgr = Deencapsulation.getField(env, "tabletStatMgr");
+        CloudTabletStatMgr tabletStatMgr = Mockito.mock(CloudTabletStatMgr.class);
+        Mockito.when(tabletStatMgr.getCloudTableStats()).thenReturn(Collections.singletonList(
+                new OlapTable.Statistics("db1", "a\\b\"c\nd", 100L, 300L, 0L, 3L, 10L, 2L, 4L,
+                        0L, 0L, 0L, 0L, 0L, 0L)));
+        Mockito.when(tabletStatMgr.getTotalTableSize()).thenReturn(100L);
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            Deencapsulation.setField(env, "tabletStatMgr", tabletStatMgr);
+            MetricVisitor visitor = new PrometheusMetricVisitor();
+            visitor.visitCloudTableStats();
+            String result = visitor.finish();
+            String labels = "{db_name=\"db1\", table_name=\"a\\\\b\\\"c\\nd\"} ";
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_data_size" + labels + "100\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_rowset_count" + labels + "2\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_segment_count" + labels + "4\n"), result);
+            Assertions.assertTrue(result.contains("\ndoris_fe_table_row_count" + labels + "10\n"), result);
+        } finally {
+            Deencapsulation.setField(env, "tabletStatMgr", originTabletStatMgr);
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
     }
 
     @Test
@@ -233,19 +448,61 @@ public class MetricsTest {
             MetricVisitor visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             String metricResult = visitor.finish();
-            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_virtual_compute_group_switch_total counter"));
-            Assert.assertTrue(metricResult.contains("src_compute_group_name=\"src_new_name\""));
-            Assert.assertTrue(metricResult.contains("doris_fe_virtual_compute_group_switch_total"
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_virtual_compute_group_switch_total counter"));
+            Assertions.assertTrue(metricResult.contains("src_compute_group_name=\"src_new_name\""));
+            Assertions.assertTrue(metricResult.contains("doris_fe_virtual_compute_group_switch_total"
                     + "{virtual_compute_group_id=\"virtual_id\", virtual_compute_group_name=\"virtual_name\", "
                     + "src_compute_group_id=\"src_id\", src_compute_group_name=\"src_new_name\", "
                     + "dst_compute_group_id=\"dst_id\", dst_compute_group_name=\"dst_name\"} 2"));
-            Assert.assertFalse(metricResult.contains("src_compute_group_name=\"src_old_name\""));
+            Assertions.assertFalse(metricResult.contains("src_compute_group_name=\"src_old_name\""));
         } finally {
             MetricRepo.DORIS_METRIC_REGISTER.removeMetrics("virtual_compute_group_switch_total");
             if (CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER != null) {
                 CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getMetrics().clear();
             }
             CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = originMetric;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testCloudTabletRebalancerMetrics() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            CloudMetrics.initCloudTabletRebalancerMetrics();
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(125L, 4096L, 200L);
+
+            String metricResult = getPrometheusMetrics();
+            Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_cloud_tablet_rebalancer_round_total counter"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 1"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes 4096"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 125"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 125"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 200"));
+
+            MetricRepo.updateCloudTabletRebalancerMetrics(25L, -1L, 50L);
+
+            metricResult = getPrometheusMetrics();
+            Assertions.assertTrue(metricResult.contains("doris_fe_cloud_tablet_rebalancer_round_total 2"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_allocated_bytes_total 4096"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_allocated_bytes -1"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_duration_ms_total 150"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_last_round_duration_ms 25"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_cloud_tablet_rebalancer_tablet_scan_total 250"));
+        } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
     }
@@ -283,23 +540,23 @@ public class MetricsTest {
 
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.singletonList(job));
             String metricResult = getPrometheusMetrics();
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_info"
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_info"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", sync_mode=\"EVENT_DRIVEN\", "
                     + "sync_event=\"LOAD\", job_state=\"RUNNING\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\"} 1"));
-            Assert.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_create_time_ms"));
-            Assert.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_last_trigger_time_ms"));
-            Assert.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_stats"));
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_create_time_ms"));
+            Assertions.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_last_trigger_time_ms"));
+            Assertions.assertFalse(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_stats"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"src\", window=\"5m\"} 113246208"));
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"dst\", window=\"5m\"} 100663296"));
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"src\", window=\"30m\"} 226492416"));
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"dst\", window=\"1h\"} 301989888"));
 
@@ -309,10 +566,10 @@ public class MetricsTest {
             updatedStats.computeGap();
             job.setSyncStats(updatedStats);
             String updatedMetricResult = getPrometheusMetrics();
-            Assert.assertTrue(updatedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(updatedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"src\", window=\"5m\"} 12"));
-            Assert.assertTrue(updatedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(updatedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"dst\", window=\"5m\"} 10"));
 
@@ -332,16 +589,16 @@ public class MetricsTest {
             replayedJob.setSyncStats(replayedStats);
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.singletonList(replayedJob));
             String replayedMetricResult = getPrometheusMetrics();
-            Assert.assertTrue(replayedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
+            Assertions.assertTrue(replayedMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"
                     + "{job_id=\"1778211593204\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\", side=\"src\", window=\"5m\"} 10"));
 
             replayedJob.setJobState(CloudWarmUpJob.JobState.CANCELLED);
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.singletonList(replayedJob));
             String cancelledMetricResult = getPrometheusMetrics();
-            Assert.assertTrue(cancelledMetricResult.contains("job_state=\"CANCELLED\""));
-            Assert.assertFalse(cancelledMetricResult.contains("job_state=\"RUNNING\""));
-            Assert.assertFalse(cancelledMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"));
+            Assertions.assertTrue(cancelledMetricResult.contains("job_state=\"CANCELLED\""));
+            Assertions.assertFalse(cancelledMetricResult.contains("job_state=\"RUNNING\""));
+            Assertions.assertFalse(cancelledMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_size_bytes"));
         } finally {
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.emptyList());
             Config.cloud_unique_id = oldCloudUniqueId;
@@ -375,7 +632,7 @@ public class MetricsTest {
 
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.singletonList(job));
             String metricResult = getPrometheusMetrics();
-            Assert.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_trigger_gap_ms"
+            Assertions.assertTrue(metricResult.contains("doris_fe_file_cache_warm_up_sync_job_trigger_gap_ms"
                     + "{job_id=\"1778211593205\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\"} 800"));
 
@@ -392,7 +649,7 @@ public class MetricsTest {
 
             MetricRepo.syncCloudWarmUpSyncJobMetricDefinitions(Collections.singletonList(clusterLevelJob));
             String clusterMetricResult = getPrometheusMetrics();
-            Assert.assertTrue(clusterMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_trigger_gap_ms"
+            Assertions.assertTrue(clusterMetricResult.contains("doris_fe_file_cache_warm_up_sync_job_trigger_gap_ms"
                     + "{job_id=\"1778211593206\", job_type=\"CLUSTER\", src_cluster_name=\"warmup_source\", "
                     + "dst_cluster_name=\"warmup_target\"} 800"));
         } finally {
@@ -418,8 +675,8 @@ public class MetricsTest {
         String finalMetricPrometheus = metric;
         gcMxBeans.forEach(gcMxBean -> {
             String name = gcMxBean.getName();
-            Assert.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Count\", type=\"count\"} "));
-            Assert.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Time\", type=\"time\"} "));
+            Assertions.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Count\", type=\"count\"} "));
+            Assertions.assertTrue(finalMetricPrometheus.contains("jvm_gc{name=\"" + name + " Time\", type=\"time\"} "));
         });
 
         JsonMetricVisitor jsonMetricVisitor = new JsonMetricVisitor();
@@ -433,55 +690,55 @@ public class MetricsTest {
             if (jsonObject.findValue("tags").findValue("metric").asText().equals("jvm_gc")
                     && jsonObject.findValue("tags").findValue("name").asText().contains(name + " Count")) {
                 size.getAndDecrement();
-                Assert.assertTrue(jsonObject.findValue("tags").findValue("name").asText().contains(name + " Count")
+                Assertions.assertTrue(jsonObject.findValue("tags").findValue("name").asText().contains(name + " Count")
                         || jsonObject.findValue("tags").findValue("name").asText().contains(name + " Time"));
             }
 
         }));
-        Assert.assertTrue(size.get() < JsonUtil.parseArray(finalMetricJson).size());
+        Assertions.assertTrue(size.get() < JsonUtil.parseArray(finalMetricJson).size());
 
     }
 
     @Test
     public void testCatalogAndDatabaseMetrics() {
         List<Metric> catalogMetrics = MetricRepo.getMetricsByName("catalog_num");
-        Assert.assertEquals(1, catalogMetrics.size());
+        Assertions.assertEquals(1, catalogMetrics.size());
         GaugeMetric<Integer> catalogMetric = (GaugeMetric<Integer>) catalogMetrics.get(0);
-        Assert.assertEquals("catalog_num", catalogMetric.getName());
-        Assert.assertEquals(MetricUnit.NOUNIT, catalogMetric.getUnit());
-        Assert.assertEquals("total catalog num", catalogMetric.getDescription());
+        Assertions.assertEquals("catalog_num", catalogMetric.getName());
+        Assertions.assertEquals(MetricUnit.NOUNIT, catalogMetric.getUnit());
+        Assertions.assertEquals("total catalog num", catalogMetric.getDescription());
 
         List<Metric> dbMetrics = MetricRepo.getMetricsByName("internal_database_num");
-        Assert.assertEquals(1, dbMetrics.size());
+        Assertions.assertEquals(1, dbMetrics.size());
         GaugeMetric<Integer> dbMetric = (GaugeMetric<Integer>) dbMetrics.get(0);
-        Assert.assertEquals("internal_database_num", dbMetric.getName());
-        Assert.assertEquals(MetricUnit.NOUNIT, dbMetric.getUnit());
-        Assert.assertEquals("total internal database num", dbMetric.getDescription());
+        Assertions.assertEquals("internal_database_num", dbMetric.getName());
+        Assertions.assertEquals(MetricUnit.NOUNIT, dbMetric.getUnit());
+        Assertions.assertEquals("total internal database num", dbMetric.getDescription());
 
         List<Metric> tableMetrics = MetricRepo.getMetricsByName("internal_table_num");
-        Assert.assertEquals(1, tableMetrics.size());
+        Assertions.assertEquals(1, tableMetrics.size());
         GaugeMetric<Integer> tableMetric = (GaugeMetric<Integer>) tableMetrics.get(0);
-        Assert.assertEquals("internal_table_num", tableMetric.getName());
-        Assert.assertEquals(MetricUnit.NOUNIT, tableMetric.getUnit());
-        Assert.assertEquals("total internal table num", tableMetric.getDescription());
+        Assertions.assertEquals("internal_table_num", tableMetric.getName());
+        Assertions.assertEquals(MetricUnit.NOUNIT, tableMetric.getUnit());
+        Assertions.assertEquals("total internal table num", tableMetric.getDescription());
 
         // Test metrics in Prometheus format
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         String metricResult = visitor.finish();
 
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_catalog_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_internal_database_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_internal_table_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_catalog_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_internal_database_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_internal_table_num gauge"));
 
         // Test metrics in JSON format
         JsonMetricVisitor jsonVisitor = new JsonMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(jsonVisitor);
         String jsonResult = jsonVisitor.finish();
 
-        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_catalog_num\""));
-        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_database_num\""));
-        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_table_num\""));
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_catalog_num\""));
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_database_num\""));
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_table_num\""));
     }
 
     @Test
@@ -494,13 +751,13 @@ public class MetricsTest {
         MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_failed_num counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_success_num counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_pending_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_skip_num counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_running_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_num gauge"));
-        Assert.assertTrue(
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_failed_num counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_success_num counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_pending_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_skip_num counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_running_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_num gauge"));
+        Assertions.assertTrue(
                 metricResult.contains("# TYPE doris_fe_async_materialized_view_task_duration_ms summary"));
     }
 
@@ -514,21 +771,21 @@ public class MetricsTest {
         MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_job counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_job counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_task counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_task counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_invalid_stats counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_rate gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_rate gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_not_analyzed_table_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_empty_table_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_high_priority_queue_length gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_mid_priority_queue_length gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_low_priority_queue_length gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_very_low_priority_queue_length gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_job counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_job counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_task counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_task counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_invalid_stats counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_rate gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_rate gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_not_analyzed_table_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_empty_table_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_high_priority_queue_length gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_mid_priority_queue_length gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_low_priority_queue_length gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_very_low_priority_queue_length gauge"));
     }
 
     @Test
@@ -541,10 +798,10 @@ public class MetricsTest {
         MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_added counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_hit counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_total_search_times counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_added counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_hit counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_total_search_times counter"));
     }
 
     @Test
@@ -557,23 +814,23 @@ public class MetricsTest {
         MetricRepo.visitHistograms(visitor);
         String metricResult = visitor.finish();
 
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_num gauge"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_parse_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_analyze_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_rewrite_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_fold_const_by_be_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_optimize_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_translate_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_init_scan_node_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_finalize_scan_node_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_create_scan_range_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_distribute_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_catalog_meta_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_tvf_init_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_lock_tables_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_partition_prune_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_num gauge"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_parse_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_analyze_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_rewrite_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_fold_const_by_be_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_optimize_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_translate_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_init_scan_node_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_finalize_scan_node_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_create_scan_range_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_distribute_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_catalog_meta_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_tvf_init_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_lock_tables_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_partition_prune_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
     }
 }

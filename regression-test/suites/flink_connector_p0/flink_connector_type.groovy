@@ -24,13 +24,15 @@ import org.awaitility.Awaitility
 
 suite("flink_connector_type") {
 
+    def inputTable = "test_types_input"
     def tableName1 = "test_types_source"
     def tableName2 = "test_types_sink"
+    sql """DROP TABLE IF EXISTS ${inputTable}"""
     sql """DROP TABLE IF EXISTS ${tableName1}"""
     sql """DROP TABLE IF EXISTS ${tableName2}"""
 
     sql """
-        CREATE TABLE `test_types_source` (
+        CREATE TABLE `${inputTable}` (
             `id` int,
             `c1` boolean,
             `c2` tinyint,
@@ -59,9 +61,9 @@ PROPERTIES (
 );
     """;
 
-    sql """CREATE TABLE `test_types_sink` like `test_types_source` """
+    sql """CREATE TABLE `${tableName2}` like `${inputTable}` """
 
-    sql """ INSERT INTO `test_types_source`
+    sql """ INSERT INTO `${inputTable}`
 VALUES 
 (
     1,  
@@ -106,23 +108,34 @@ VALUES
     '{"B":"variant_value1"}' 
 );"""
 
+    // The connector declares c18 as STRING and cannot decode native Arrow Variant.
+    // Materialize an explicit text projection while retaining Variant ingestion in the sink.
+    sql """
+        CREATE TABLE `${tableName1}`
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+        AS SELECT id, c1, c2, c3, c4, c5, c6, c7, c8, c9,
+                  c10, c11, c12, c13, c14, c15, c16, c17, CAST(c18 AS STRING) AS c18
+        FROM `${inputTable}`
+    """
+
     def thisDb = sql """select database()""";
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
 
-    logger.info("start delete local flink-doris-case.jar....")
-    def delete_local_flink_jar = "rm -rf flink-doris-case.jar".execute()
-    logger.info("start download regression/flink-doris-case.jar ....")
-    logger.info("getS3Url: ${getS3Url()}")
-    def download_flink_jar = "wget --quiet --continue --tries=5 ${getS3Url()}/regression/flink-doris-case.jar".execute().getText()
+    def jarName = "flink-doris-regression-case-flink-connector-type.jar"
 
-    def file = new File('flink-doris-case.jar')
+    logger.info("start download regression/flink-doris-regression-case.jar ....")
+    logger.info("getS3Url: ${getS3Url()}")
+    def download_flink_jar = "wget --quiet --tries=5 --output-document=${jarName} ${getS3Url()}/regression/flink-doris-regression-case.jar".execute().getText()
+
+    def file = new File(jarName)
     if (file.exists()) {
         def fileSize = file.length()
-        logger.info("finish download flink-doris-case.jar, size " + fileSize)
+        logger.info("finish download flink-doris-regression-case.jar, size " + fileSize)
     } else {
-        logger.info("flink-doris-case.jar download failed")
-        throw new Exception("File flink-doris-case.jar download failed.")
+        logger.info("flink-doris-regression-case.jar download failed")
+        throw new Exception("File flink-doris-regression-case.jar download failed.")
     }
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
     logger.info("System java path: ${systemJavaPath}")
@@ -139,16 +152,25 @@ VALUES
         addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens=java.base/java.lang=ALL-UNNAMED"
     }
 
-    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-case.jar org.apache.doris.FlinkConnectorTypeCase $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
-    logger.info("run_cmd : $run_cmd")
-    def run_flink_jar = run_cmd.execute().getText()
-    logger.info("result: $run_flink_jar")
+    def run_cmd = [javaPath]
+    run_cmd.addAll(addOpens.tokenize())
+    run_cmd.addAll(["-cp", jarName, "org.apache.doris.FlinkConnectorTypeCase",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-database", thisDb,
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword])
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
+    // Drain both streams and check the exit code so a failed Flink job cannot look successful.
+    def flinkProcess = new ProcessBuilder(run_cmd.collect { it.toString() }).redirectErrorStream(true).start()
+    logger.info("result: ${flinkProcess.text}")
+    assertEquals(0, flinkProcess.waitFor())
     // The publish in the commit phase is asynchronous
     Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).await().until(
             {
                 def resultTbl = sql """ select count(1) from test_types_sink"""
                 logger.info("retry test_types_sink  count: $resultTbl")
-                resultTbl.size() >= 1
+                resultTbl[0][0] == 2
             })
 
     logger.info("flink job execute finished.");

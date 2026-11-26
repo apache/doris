@@ -59,7 +59,7 @@ public:
     size_t field_count() const { return _fields.size(); }
 
     const TabletColumn* column(uint32_t cid) const { return _schema->column(cid); }
-    const Schema* schema() const { return _schema.get(); }
+    const ReadSchema* schema() const { return _schema.get(); }
 
     // Returns a deep copy of this RowCursor with the same schema and field values.
     RowCursor clone() const;
@@ -68,8 +68,8 @@ public:
     std::string to_string() const;
 
     // Encode one row into binary according given num_keys.
-    // Internally converts each core::Field to its storage representation via
-    // PrimitiveTypeConvertor before passing to KeyCoder.
+    // Internally converts each core::Field to its StorageValue via StorageLayout
+    // before passing to KeyCoder.
     // CHAR fields are zero-padded to column.length() for encoding.
     template <bool is_mow = false>
     void encode_key_with_padding(std::string* buf, size_t num_keys, bool padding_minimal) const;
@@ -97,7 +97,7 @@ private:
     void _encode_column_value(const TabletColumn* column, const Field& value, bool full_encode,
                               std::string* buf) const;
 
-    std::unique_ptr<Schema> _schema;
+    std::unique_ptr<ReadSchema> _schema;
     std::vector<Field> _fields;
 };
 } // namespace doris

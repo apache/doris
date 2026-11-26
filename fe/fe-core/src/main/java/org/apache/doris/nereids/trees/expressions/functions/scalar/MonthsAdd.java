@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CalendarAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -39,13 +40,15 @@ import java.util.List;
  * ScalarFunction 'months_add'.
  */
 public class MonthsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullable, CalendarAddSubMonotonic {
 
     //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
     // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
     // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
+                    IntegerType.INSTANCE),
+            FunctionSignature.ret(TimeStampNsType.INSTANCE).args(TimeStampNsType.INSTANCE,
                     IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD, IntegerType.INSTANCE)

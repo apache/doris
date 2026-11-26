@@ -31,6 +31,8 @@ class SlotDescriptor;
 
 namespace doris::format::csv {
 
+class HiveCsvParser;
+
 // FileScannerV2 CSV reader.
 //
 // CSV files do not carry a physical schema. FE provides the table slot descriptors plus
@@ -58,13 +60,16 @@ private:
     Status _create_line_reader() override;
     Status _validate_line(const Slice& line) override;
     void _split_line(const Slice& line) override;
+    void _prepare_columns(std::vector<MutableColumnPtr>& columns, size_t batch_size) override;
     Status _deserialize_one_cell(const RequestedColumn& column, IColumn* output,
                                  Slice value) override;
     Slice _normalize_value(Slice value) const override;
     bool _can_split() const override;
+    bool _empty_line_as_record() const override { return _hive_csv_parser != nullptr; }
     void _on_bom_removed(size_t bom_size) override;
 
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    std::unique_ptr<HiveCsvParser> _hive_csv_parser;
     char _enclose = 0;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;

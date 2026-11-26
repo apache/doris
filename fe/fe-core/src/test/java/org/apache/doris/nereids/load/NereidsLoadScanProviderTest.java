@@ -22,10 +22,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.NativeFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -113,15 +113,31 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
-    public void testNativeSourceColumnUsesCaseInsensitiveTableType() throws Exception {
+    public void testTimestampNsSequenceDefaultWithPrecisionMayBeOmitted() {
         OlapTable table = mockTable();
-        NereidsParamCreateContext context = createLoadContext(table,
-                ImmutableList.of(new NereidsImportColumnDesc("time"),
-                        new NereidsImportColumnDesc("securityid"),
-                        new NereidsImportColumnDesc("ev")),
-                new NativeFileFormatProperties());
+        Column sequenceColumn = new Column("time", org.apache.doris.catalog.Type.TIMESTAMP_NS,
+                false, null, true, "CURRENT_TIMESTAMP(9)", "");
+        Mockito.when(table.hasSequenceCol()).thenReturn(true);
+        Mockito.when(table.getSequenceMapCol()).thenReturn("time");
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(sequenceColumn));
 
-        assertSlot(context, "ev", PrimitiveType.DOUBLE);
+        Assertions.assertDoesNotThrow(() -> createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("securityid")),
+                new ArrowFileFormatProperties()));
+    }
+
+    @Test
+    public void testDateTimeV2SequenceDefaultBehaviorIsUnchanged() {
+        OlapTable table = mockTable();
+        Column sequenceColumn = new Column("time", ScalarType.createDatetimeV2Type(6),
+                false, null, true, "CURRENT_TIMESTAMP(6)", "");
+        Mockito.when(table.hasSequenceCol()).thenReturn(true);
+        Mockito.when(table.getSequenceMapCol()).thenReturn("time");
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(sequenceColumn));
+
+        Assertions.assertThrows(UserException.class, () -> createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("securityid")),
+                new ArrowFileFormatProperties()));
     }
 
     @Test

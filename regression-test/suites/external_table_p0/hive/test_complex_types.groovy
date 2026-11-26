@@ -30,7 +30,8 @@ suite("test_complex_types", "p0,external") {
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hive.parquet.time-zone' = 'Asia/Shanghai'
         );"""
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""

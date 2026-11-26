@@ -37,5 +37,5 @@ suite("test_agg_state_array") {
     sql "insert into a_table values(1,array_agg_state(2));"
     sql "insert into a_table values(2,array_agg_state(3));"
 
-    qt_test "select k1,array_agg_merge(k2) from a_table group by k1 order by k1;"
+    qt_test "select k1,array_sort(array_agg_merge(k2)) from a_table group by k1 order by k1;"
 }

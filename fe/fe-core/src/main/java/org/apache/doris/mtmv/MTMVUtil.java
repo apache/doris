@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -49,6 +50,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -80,6 +82,18 @@ public class MTMVUtil {
                     .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
                     .getDbOrAnalysisException(baseTableInfo.getDbName())
                     .getTableOrAnalysisException(baseTableInfo.getTableName());
+        }
+    }
+
+    /** Reject time-dependent row TTL inputs from asynchronous materialization. */
+    public static void checkNoRowTtlBaseTable(MTMVRelation relation) throws AnalysisException {
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            TableIf table = getTable(baseTableInfo);
+            if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                throw new AnalysisException(
+                        "asynchronous materialized views do not support base tables with row ttl: "
+                                + table.getName());
+            }
         }
     }
 
@@ -202,6 +216,14 @@ public class MTMVUtil {
         }
         if (expr instanceof org.apache.doris.analysis.DateLiteral) {
             return ((org.apache.doris.analysis.DateLiteral) expr).unixTimestamp(TimeUtils.getTimeZone()) / 1000;
+        }
+        if (expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+            org.apache.doris.analysis.TimeStampNsLiteral timestampNs
+                    = (org.apache.doris.analysis.TimeStampNsLiteral) expr;
+            if (timestampNs.isMinValue()) {
+                return Long.MIN_VALUE;
+            }
+            return ZonedDateTime.of(timestampNs.toLocalDateTime(), TimeUtils.getDorisZoneId()).toEpochSecond();
         }
         if (!dateFormatOptional.isPresent()) {
             throw new AnalysisException("expr is not DateLiteral and DateFormat is not present.");

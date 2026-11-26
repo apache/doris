@@ -74,4 +74,39 @@ suite("test_agg_state_nereids") {
     
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
     qt_max_by_null """ select max_by_merge(max_by_state(k1,null)),min_by_merge(min_by_state(null,k3)) from d_table; """
+
+    test {
+        sql """
+            SELECT percentile_approx_merge(percentile_approx_state(k1, k2 / 10.0))
+            FROM d_table
+        """
+        exception "percentile_approx requires second parameter must be a constant"
+    }
+
+    test {
+        sql """
+            SELECT percentile_approx_union(percentile_approx_state(k1, k2 / 10.0))
+            FROM d_table
+        """
+        exception "percentile_approx requires second parameter must be a constant"
+    }
+
+    qt_percentile_approx_merge_after_subquery """
+        SELECT percentile_approx_merge(state)
+        FROM (
+            SELECT percentile_approx_state(k1, 0.5) AS state
+            FROM d_table
+        ) states
+    """
+
+    qt_percentile_approx_union_after_subquery """
+        SELECT percentile_approx_merge(state)
+        FROM (
+            SELECT percentile_approx_union(state) AS state
+            FROM (
+                SELECT percentile_approx_state(k1, 0.5) AS state
+                FROM d_table
+            ) states
+        ) unions
+    """
 }

@@ -51,6 +51,16 @@ suite("test_streaming_oceanbase_job_schema_change",
             log.info("jobs: " + sql("""SELECT * FROM jobs("type"="insert") WHERE Name='${jobName}'"""))
             log.info("tasks: " + sql("""SELECT * FROM tasks("type"="insert") WHERE JobName='${jobName}'"""))
         }
+        def succeedCount = {
+            (sql """SELECT SucceedTaskCount FROM jobs("type"="insert") WHERE Name='${jobName}'""")[0][0].toLong()
+        }
+        long committedCount = 0L
+        def waitForCommit = {
+            Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+                succeedCount() > committedCount
+            })
+            committedCount = succeedCount()
+        }
 
         connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
             sql """CREATE DATABASE IF NOT EXISTS ${sourceDb}"""
@@ -81,10 +91,14 @@ suite("test_streaming_oceanbase_job_schema_change",
 
         try {
             waitForValue(1, "name", "snapshot")
+            Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+                (sql """SELECT SucceedTaskCount FROM jobs("type"="insert") WHERE Name='${jobName}'""")[0][0].toLong() >= 2
+            })
         } catch (Exception ex) {
             dumpJobState()
             throw ex
         }
+        committedCount = succeedCount()
 
         connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
             sql """ALTER TABLE ${sourceDb}.${table1} ADD COLUMN city VARCHAR(50)"""
@@ -102,6 +116,7 @@ suite("test_streaming_oceanbase_job_schema_change",
         order_qt_oceanbase_after_add """
             SELECT id, name, city FROM ${currentDb}.${table1} ORDER BY id
         """
+        waitForCommit()
 
         connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
             sql """UPDATE ${sourceDb}.${table1} SET city='Shanghai' WHERE id=2"""
@@ -113,6 +128,7 @@ suite("test_streaming_oceanbase_job_schema_change",
             dumpJobState()
             throw ex
         }
+        waitForCommit()
 
         connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
             sql """ALTER TABLE ${sourceDb}.${table1} DROP COLUMN city"""
@@ -130,6 +146,35 @@ suite("test_streaming_oceanbase_job_schema_change",
         order_qt_oceanbase_after_drop """
             SELECT id, name FROM ${currentDb}.${table1} ORDER BY id
         """
+        waitForCommit()
+        connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
+            sql """ALTER TABLE ${sourceDb}.${table1} MODIFY COLUMN name VARCHAR(150)"""
+            sql """INSERT INTO ${sourceDb}.${table1} VALUES (4, 'after_modify')"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def rows = sql """SELECT Status, ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            rows[0][0] == "PAUSED" && rows[0][1].toString().contains("SCHEMA_CHANGE_UNSUPPORTED")
+        })
+        qt_oceanbase_modify_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+        sql "RESUME JOB WHERE jobname='${jobName}'"
+        waitForValue(4, "name", "after_modify")
+        waitForCommit()
+        order_qt_oceanbase_after_modify "SELECT id, name FROM ${currentDb}.${table1} ORDER BY id"
+
+        // Preserve the source type and length; only the column comment changes.
+        connect("root@test", "123456", "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
+            sql """ALTER TABLE ${sourceDb}.${table1} MODIFY COLUMN name VARCHAR(150) COMMENT 'comment only'"""
+            sql """INSERT INTO ${sourceDb}.${table1} VALUES (5, 'after_column_comment')"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def rows = sql """SELECT Status, ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            rows[0][0] == "PAUSED" && rows[0][1].toString().contains("SCHEMA_CHANGE_UNSUPPORTED")
+        })
+        qt_oceanbase_column_comment_paused """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+        sql "RESUME JOB WHERE jobname='${jobName}'"
+        waitForValue(5, "name", "after_column_comment")
+        waitForCommit()
+        qt_oceanbase_column_comment_resumed "SELECT id, name FROM ${currentDb}.${table1} WHERE id=5 ORDER BY id"
 
         def status = sql """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
         assert status.size() == 1 && status[0][0] == "RUNNING"

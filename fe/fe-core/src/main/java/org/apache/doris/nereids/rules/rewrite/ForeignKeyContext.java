@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -41,6 +42,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,10 +50,10 @@ import java.util.stream.Collectors;
  * Record Foreign Key Context
  */
 public class ForeignKeyContext {
-    Set<Map<Column, Column>> constraints = new HashSet<>();
-    Set<Column> foreignKeys = new HashSet<>();
-    Set<Column> primaryKeys = new HashSet<>();
-    Map<Slot, Column> slotToColumn = new HashMap<>();
+    Set<Map<QualifiedColumn, QualifiedColumn>> constraints = new HashSet<>();
+    Set<QualifiedColumn> foreignKeys = new HashSet<>();
+    Set<QualifiedColumn> primaryKeys = new HashSet<>();
+    Map<Slot, QualifiedColumn> slotToColumn = new HashMap<>();
     Map<Slot, Set<Expression>> slotWithPredicates = new HashMap<>();
 
     /**
@@ -71,12 +73,13 @@ public class ForeignKeyContext {
             @Override
             public Void visitLogicalRelation(LogicalRelation relation, ForeignKeyContext context) {
                 if (relation instanceof LogicalCatalogRelation) {
-                    context.putAllForeignKeys(((LogicalCatalogRelation) relation).getTable());
-                    context.putAllPrimaryKeys(((LogicalCatalogRelation) relation).getTable());
+                    TableIf table = ((LogicalCatalogRelation) relation).getTable();
+                    context.putAllForeignKeys(table);
+                    context.putAllPrimaryKeys(table);
                     relation.getOutput().stream()
                             .filter(SlotReference.class::isInstance)
                             .map(SlotReference.class::cast)
-                            .forEach(context::putSlot);
+                            .forEach(slot -> context.putSlot(slot, table));
                 }
                 return null;
             }
@@ -109,7 +112,12 @@ public class ForeignKeyContext {
         }
         for (ForeignKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
                 .getForeignKeyConstraints(tableNameInfo)) {
-            Map<Column, Column> constraint = c.getForeignToPrimary(table);
+            TableIf referencedTable = c.getReferencedTable();
+            Map<QualifiedColumn, QualifiedColumn> constraint = c.getForeignToReference().entrySet().stream()
+                    .collect(ImmutableMap.toImmutableMap(
+                            entry -> new QualifiedColumn(table, table.getColumn(entry.getKey())),
+                            entry -> new QualifiedColumn(
+                                    referencedTable, referencedTable.getColumn(entry.getValue()))));
             constraints.add(constraint);
             foreignKeys.addAll(constraint.keySet());
         }
@@ -122,7 +130,8 @@ public class ForeignKeyContext {
         }
         for (PrimaryKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
                 .getPrimaryKeyConstraints(tableNameInfo)) {
-            Set<Column> primaryKey = c.getPrimaryKeys(table);
+            Set<QualifiedColumn> primaryKey = c.getPrimaryKeys(table).stream()
+                    .map(column -> new QualifiedColumn(table, column)).collect(Collectors.toSet());
             primaryKeys.addAll(primaryKey);
         }
     }
@@ -137,12 +146,12 @@ public class ForeignKeyContext {
                 key.stream().map(s -> slotToColumn.get(s)).collect(Collectors.toSet()));
     }
 
-    void putSlot(SlotReference slot) {
+    void putSlot(SlotReference slot, TableIf table) {
         if (!slot.getOriginalColumn().isPresent()) {
             return;
         }
         Column c = slot.getOriginalColumn().get();
-        slotToColumn.put(slot, c);
+        slotToColumn.put(slot, new QualifiedColumn(table, c));
     }
 
     void putAlias(Slot newSlot, Slot originSlot) {
@@ -186,7 +195,7 @@ public class ForeignKeyContext {
      * Check whether the given mapping relation satisfies any constraints
      */
     public boolean satisfyConstraint(Map<Slot, Slot> primaryToForeign) {
-        Map<Column, Column> foreignToPrimary = primaryToForeign.entrySet().stream()
+        Map<QualifiedColumn, QualifiedColumn> foreignToPrimary = primaryToForeign.entrySet().stream()
                 .collect(ImmutableMap.toImmutableMap(
                         e -> slotToColumn.get(e.getValue()),
                         e -> slotToColumn.get(e.getKey())));
@@ -217,5 +226,33 @@ public class ForeignKeyContext {
                     .collect(Collectors.toSet());
             return slotWithPredicates.get(pf.getValue()).containsAll(primaryPredicates);
         });
+    }
+
+    /** A column identity qualified by its owning table. */
+    private static final class QualifiedColumn {
+        private final TableIdentifier tableIdentifier;
+        private final Column column;
+
+        private QualifiedColumn(TableIf table, Column column) {
+            this.tableIdentifier = new TableIdentifier(table);
+            this.column = column;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof QualifiedColumn)) {
+                return false;
+            }
+            QualifiedColumn other = (QualifiedColumn) obj;
+            return tableIdentifier.equals(other.tableIdentifier) && column.equals(other.column);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableIdentifier, column);
+        }
     }
 }

@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
@@ -42,7 +43,6 @@
 namespace doris {
 namespace {
 
-const std::string TABLET_ID = "tablet_id";
 const std::string START_VERSION = "start_version";
 const std::string END_VERSION = "end_version";
 

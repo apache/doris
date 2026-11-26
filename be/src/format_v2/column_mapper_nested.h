@@ -34,6 +34,7 @@
 namespace doris::format {
 
 struct StructChildSelector {
+    bool is_array_element = false;
     bool by_name = true;
     std::string name;
     size_t ordinal = 0;
@@ -41,6 +42,7 @@ struct StructChildSelector {
 
 struct NestedStructPath {
     GlobalIndex root_global_index;
+    DataTypePtr root_table_type;
     std::vector<StructChildSelector> selectors;
 };
 
@@ -48,6 +50,8 @@ struct ResolvedNestedStructPath {
     LocalColumnIndex file_projection;
     std::vector<std::string> file_child_names;
     std::vector<DataTypePtr> file_child_types;
+    std::vector<DataTypePtr> table_child_types;
+    std::vector<bool> file_array_elements;
 };
 
 // A split-local literal produced by slot-literal predicate localization. This wrapper keeps the
@@ -85,8 +89,6 @@ bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
 bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
                                          const std::vector<ColumnMapping>& mappings,
                                          ResolvedNestedStructPath* resolved);
-
-void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStructPath>* paths);
 
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(
         const std::vector<ColumnMapping>& child_mappings);

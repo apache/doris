@@ -33,8 +33,8 @@ template <template <PrimitiveType> class ImplNumericData, typename ImplStringDat
 inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
         const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    const auto& nested_type = remove_nullable(
-            assert_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
+    const auto& array_type = assert_cast<const DataTypeArray&>(*remove_nullable(argument_types[0]));
+    const auto& nested_type = remove_nullable(array_type.get_nested_type());
     auto pt = nested_type->get_primitive_type();
 
     AggregateFunctionPtr result;

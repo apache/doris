@@ -68,6 +68,12 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
     }
 
     @Override
+    public TryCast withTargetType(DataType targetType) {
+        return this.targetType.equals(targetType)
+                ? this : new TryCast(children, targetType, isExplicitType);
+    }
+
+    @Override
     public String computeToSql() throws UnboundException {
         return "tryCast(" + child().toSql() + " as " + targetType.toSql() + ")";
     }

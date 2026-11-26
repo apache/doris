@@ -172,56 +172,7 @@ def add_brokers():
         os.system(cmd)
 
 
-def add_auditload_plugin():
-    """add audit load plugin"""
-    sql = """
-          create table doris_audit_db__.doris_audit_tbl__ \
-          ( \
-              query_id varchar(48) comment 'Unique query id', \
-              \`time\` datetime not null comment 'Query start time', \
-              client_ip varchar(32) comment 'Client IP', \
-              user varchar(64) comment 'User name', \
-              db varchar(96) comment 'Database of this query', \
-              state varchar(8) comment 'Query result state. EOF, ERR, OK', \
-              query_time bigint comment 'Query execution time in millisecond', \
-              scan_bytes bigint comment 'Total scan bytes of this query', \
-              scan_rows bigint comment 'Total scan rows of this query', \
-              return_rows bigint comment 'Returned rows of this query', \
-              stmt_id int comment 'An incremental id of statement', \
-              is_query tinyint comment 'Is this statemt a query. 1 or 0', \
-              frontend_ip varchar(32) comment 'Frontend ip of executing this statement', \
-              cpu_time_ms bigint comment 'Total scan cpu time in millisecond of this query', \
-              sql_hash varchar(48) comment 'Hash value for this query', \
-              sql_digest varchar(48) comment 'Sql digest of this query, will be empty if not a slow query', \
-              peak_memory_bytes bigint comment 'Peak memory bytes used on all backends of this query', \
-              stmt string comment 'The original statement, trimed if longer than 2G ' \
-          ) engine=OLAP \
-          duplicate key(query_id, \`time\`, client_ip) \
-          partition by range(\`time\`) () \
-          distributed by hash(query_id) buckets 1 \
-          properties( \
-              'dynamic_partition.time_unit' = 'HOUR', \
-              'dynamic_partition.start' = '-48', \
-              'dynamic_partition.end' = '3', \
-              'dynamic_partition.prefix' = 'p', \
-              'dynamic_partition.buckets' = '1', \
-              'dynamic_partition.enable' = 'true', \
-              'replication_num' = '3' \
-          );
-          """
-    cmd = 'mysql -h %s -P%s -uroot -p%s -e "%s"' % (env_config.master, env_config.fe_query_port,
-                                                    env_config.fe_password, "create database doris_audit_db__")
-    os.system(cmd)
-    cmd = 'mysql -h %s -P%s -uroot -p%s -e "%s"' % (env_config.master, env_config.fe_query_port,
-                                                    env_config.fe_password, sql)
-    os.system(cmd)
-    sql = "INSTALL PLUGIN FROM '%s/fe/plugin_auditloader'" % env_config.fe_path
-    cmd = 'mysql -h %s -P%s -uroot -p%s -e "%s"' % (env_config.master, env_config.fe_query_port,
-                                                    env_config.fe_password, sql)
-    os.system(cmd)
-
-
-def start_palo(init_state=False, deploy_audit=False):
+def start_palo(init_state=False):
     """start palo
     """
     start_master()
@@ -235,8 +186,6 @@ def start_palo(init_state=False, deploy_audit=False):
     start_other_fe()
     start_be()
     time.sleep(5)
-    if deploy_audit:
-        add_auditload_plugin()
 
 
 if __name__ == '__main__':

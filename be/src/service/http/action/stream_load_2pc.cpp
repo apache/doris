@@ -39,10 +39,10 @@
 
 namespace doris {
 
-StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
-    // Use LOAD privilege type: requires LOAD permission
-    // Note: _exec_env is set by parent class HttpHandlerWithAuth
+StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    // 2PC commit/abort resolves the transaction's table list in FE and checks LOAD
+    // privilege for each table there. A BE HTTP pre-check may only have db/label or
+    // txn_id, so it would be less accurate and can reject valid table-scoped users.
 }
 
 void StreamLoad2PCAction::handle(HttpRequest* req) {
@@ -82,6 +82,9 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     if (!parse_basic_auth(*req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed.";
         status = Status::InternalError("no valid Basic authorization");
+        status_result = status.to_json();
+        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
+        return;
     }
 
     status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());

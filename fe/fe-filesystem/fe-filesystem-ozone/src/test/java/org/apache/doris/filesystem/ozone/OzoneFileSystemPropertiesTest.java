@@ -135,4 +135,34 @@ class OzoneFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("ozone-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("accessKey=ozone-ak-plain"), rendered);
     }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2, inherited by fe-core OzoneProperties).
+    // Expected values are hardcoded from the legacy fe-core S3URI algorithm.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_defaultPathStyle_derivesEndpointBeforeEndpointRequiredCheck() {
+        // Ozone defaults to path-style addressing, so the whole authority is the endpoint.
+        OzoneFileSystemProperties properties = OzoneFileSystemProperties.of(Map.of(
+                "uri", "http://ozone-s3g.local:9878/vol-bucket/key1",
+                "ozone.access_key", "ak",
+                "ozone.secret_key", "sk"));
+
+        Assertions.assertEquals("ozone-s3g.local:9878", properties.getEndpoint());
+        // Region keeps the legacy Ozone default.
+        Assertions.assertEquals("us-east-1", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenEndpointRequiredFires() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> OzoneFileSystemProperties.of(Map.of(
+                        "uri", "ozone-s3g.local:9878/vol-bucket/key1", // no scheme
+                        "ozone.access_key", "ak",
+                        "ozone.secret_key", "sk")));
+        Assertions.assertTrue(exception.getMessage().contains("Property ozone.endpoint is required."),
+                exception.getMessage());
+    }
 }

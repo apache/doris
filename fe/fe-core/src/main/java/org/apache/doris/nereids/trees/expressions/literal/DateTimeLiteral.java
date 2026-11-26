@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -103,6 +105,7 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    @Override
     public boolean isMidnight() {
         return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
     }
@@ -220,7 +223,10 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     protected void init(String s) throws AnalysisException {
-        TemporalAccessor temporal = parseDateTime(s).get();
+        TemporalAccessor temporal = parseDateTime(s, 7,
+                this.dataType instanceof TimeStampTzType
+                        ? TimeZoneParser.Usage.TIMESTAMPTZ
+                        : TimeZoneParser.Usage.DATETIME).get();
 
         year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
         month = DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR);
@@ -300,6 +306,17 @@ public class DateTimeLiteral extends DateLiteral {
         return transition.getInstant();
     }
 
+    /**
+     * Resolve a local civil second with the BE cctz policy while preserving its fraction.
+     * In a DST gap cctz maps the civil second to the transition instant independently of the
+     * subsecond part, so resolve the integral second first and then restore the fraction.
+     */
+    public static Instant convertLocalToInstantPreservingFraction(
+            LocalDateTime localDateTime, ZoneId fromZone) {
+        return convertLocalToInstant(localDateTime.withNano(0), fromZone)
+                .plusNanos(localDateTime.getNano());
+    }
+
     public boolean checkRange() {
         return checkRange(year, month, day) || hour > MAX_DATETIME.getHour() || minute > MAX_DATETIME.getMinute()
                 || second > MAX_DATETIME.getSecond() || microSecond > MAX_MICROSECOND;
@@ -317,6 +334,18 @@ public class DateTimeLiteral extends DateLiteral {
 
     public long timePartToMicroSecond() {
         return ((hour * 60L + minute) * 60L + second) * 1000L * 1000L + microSecond;
+    }
+
+    @Override
+    public long getTimePartInNanoseconds() {
+        return timePartToMicroSecond() * 1000L;
+    }
+
+    @Override
+    public long getFractionalSecondInNanoseconds() {
+        // Legacy DATETIME has second precision. Some protocol/cast paths retain an internal
+        // microsecond payload, but it must not make two DATETIME values compare differently.
+        return dataType instanceof DateTimeType ? 0 : microSecond * 1000L;
     }
 
     @Override
@@ -408,6 +437,13 @@ public class DateTimeLiteral extends DateLiteral {
             return new DateV2Literal(year, month, day);
         } else if (targetType.isDateType()) {
             return new DateLiteral(year, month, day);
+        } else if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, hour, minute, second,
+                        microSecond * 1000);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         } else if (targetType.isDateTimeV2Type()) {
             // High scale datetime to low scale datetime may overflow.
             try {

@@ -25,6 +25,4 @@ import java.util.concurrent.Executor;
 
 public interface BackendServiceClientChannelProvider {
     ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor);
-
-    long currentConfigVersion();
 }

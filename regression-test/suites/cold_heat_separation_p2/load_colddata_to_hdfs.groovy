@@ -73,6 +73,7 @@ suite("load_colddata_to_hdfs") {
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
             file """${getS3Url()}/regression/tpch/sf1/lineitem.csv.split${partnum}.gz"""
             time 10000 // limit inflight 10s
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 

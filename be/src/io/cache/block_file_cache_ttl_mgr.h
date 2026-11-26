@@ -22,7 +22,9 @@
 #include <bvar/bvar.h>
 #include <concurrentqueue.h>
 
+#include <array>
 #include <atomic>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -38,8 +40,25 @@ class BlockFileCache;
 class CacheBlockMetaStore;
 
 struct TtlInfo {
-    uint64_t ttl;
-    uint64_t tablet_ctime;
+    uint64_t ttl = 0;
+    uint64_t tablet_ctime = 0;
+    // True once this manager has put the tablet's blocks into the TTL queue and nothing has
+    // taken them out since. Note it records what we did, not what the blocks are: it starts
+    // false for a tablet seen for the first time after a restart, whose blocks on disk may
+    // well be TTL already, because this process has no record of putting them there and must
+    // scan to find out.
+    bool blocks_promoted = false;
+
+    // Whether this tablet's blocks belong in the TTL queue right now.
+    bool is_ttl_active(uint64_t now) const {
+        if (ttl == 0 || tablet_ctime == 0) {
+            return false;
+        }
+        if (tablet_ctime > std::numeric_limits<uint64_t>::max() - ttl) {
+            return false;
+        }
+        return tablet_ctime + ttl >= now;
+    }
 };
 
 class BlockFileCacheTtlMgr {
@@ -48,6 +67,9 @@ public:
     ~BlockFileCacheTtlMgr();
 
     void register_tablet_id(int64_t tablet_id);
+    // Number of tablets whose TTL state is currently tracked. Mirrors the
+    // file_cache_ttl_mgr_ttl_info_map_size bvar; entry leaks are otherwise invisible.
+    size_t tracked_tablet_num();
     void stop();
     void resume();
 
@@ -60,6 +82,19 @@ public:
 
 private:
     FileBlocks get_file_blocks_from_tablet_id(int64_t tablet_id);
+
+    // Drive this tablet's cached blocks to the cache type its current TTL state asks for.
+    // Both background threads funnel through here and it is serialized per tablet, so they can
+    // never scan the same tablet concurrently and leave the blocks in whatever type the scan
+    // that happened to finish last wrote.
+    void reconcile_tablet_blocks(int64_t tablet_id);
+
+    // Caller must hold _ttl_info_mutex.
+    void update_ttl_info_map_size_metrics();
+
+    std::mutex& transition_lock_for(int64_t tablet_id) {
+        return _transition_locks[static_cast<uint64_t>(tablet_id) % kTransitionLockStripes];
+    }
 
 private:
     // Tablet ids waiting to be deduplicated + set of unique ids known to have cached data
@@ -79,7 +114,13 @@ private:
 
     std::mutex _ttl_info_mutex;
 
+    // Striped locks serializing block conversions per tablet. Lock order is always
+    // _transition_locks[i] -> _ttl_info_mutex; _ttl_info_mutex is never held across a block scan.
+    static constexpr size_t kTransitionLockStripes = 64;
+    std::array<std::mutex, kTransitionLockStripes> _transition_locks;
+
     std::shared_ptr<bvar::Status<size_t>> _tablet_id_set_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _ttl_info_map_size_metrics;
 };
 
 } // namespace doris::io

@@ -48,7 +48,11 @@ public class ForEachCombinator extends NullableAggregateFunction
             add("percentile");
             add("percentile_array");
             add("percentile_approx");
+            add("percentile_approx_array");
             add("percentile_approx_weighted");
+            // k is a scalar constant; the foreach combinator would turn it into an array.
+            add("min_topk");
+            add("max_topk");
         }
     });
 

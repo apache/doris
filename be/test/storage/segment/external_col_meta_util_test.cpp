@@ -32,9 +32,9 @@
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/segment/variant/variant_external_meta_reader.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/types.h"
 #include "util/coding.h"
@@ -175,13 +175,14 @@ using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                KeysType keys_type = UNIQUE_KEYS);
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir);
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir, std::string* out_path);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir,
+                   std::string* out_path);
 
 } // namespace doris
 
@@ -580,7 +581,7 @@ TEST(ExternalColMetaUtilTest, WriteAndReadV3SegmentExternalMetaRoundTrip) {
         col1->set_is_nullable(true);
     }
 
-    // Stamp V3 version like SegmentWriter::_write_footer does for external meta enabled tablets.
+    // Stamp V3 version like VerticalSegmentWriter::_write_footer does for external meta enabled tablets.
     footer.set_version(segment_v2::SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
 
     std::string file_path = make_test_file_path("v3_ext_col_meta_segment.bin");
@@ -655,12 +656,12 @@ TEST(ExternalColMetaUtilTest, BuildSegmentAndVerifyDataAndFooterMeta) {
     columns.emplace_back(create_int_key(/*id=*/0));
     columns.emplace_back(create_int_value(/*id=*/1));
     TabletSchemaSPtr tablet_schema = create_schema(columns, UNIQUE_KEYS);
-    // Enable external ColumnMetaPB so that SegmentWriter produces a V3 footer with
+    // Enable external ColumnMetaPB so that VerticalSegmentWriter produces a V3 footer with
     // externalized column meta region + column_meta_entries.
     tablet_schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
-    // 2. Use existing build_segment helper (SegmentWriter-based) to write a segment file.
-    SegmentWriterOptions opts;
+    // 2. Use existing build_segment helper (VerticalSegmentWriter-based) to write a segment file.
+    VerticalSegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = true;
     const size_t nrows = 16;
 

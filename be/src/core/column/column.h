@@ -36,8 +36,7 @@
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
-#include "exec/sort/hybrid_sorter.h"
-#include "storage/olap_common.h"
+#include "storage/rowset_id.h"
 
 namespace doris {
 class SipHash;
@@ -47,6 +46,7 @@ namespace doris {
 
 class Arena;
 class ColumnSorter;
+class HybridSorter;
 
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
@@ -113,7 +113,7 @@ public:
         return nullptr;
     }
 
-    // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
+    // Only used by columns that need special lifecycle handling.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -237,12 +237,6 @@ public:
     virtual void insert_data(const char* pos, size_t length) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_data is not supported for " + get_name());
-    }
-
-    virtual void insert_many_fix_len_data(const char* pos, size_t num) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method insert_many_fix_len_data is not supported for " + get_name());
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments
@@ -514,11 +508,10 @@ public:
     }
 
 #ifdef BE_TEST
+    // Defined in column.cpp: constructs a HybridSorter, which is only
+    // forward-declared here to keep exec/sort out of column.h's closure.
     void get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
-        HybridSorter sorter;
-        get_permutation(reverse, limit, nan_direction_hint, sorter, res);
-    }
+                                 Permutation& res) const;
 #endif
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
@@ -764,6 +757,17 @@ public:
     // column_vector and column_decimal override this method to return true
     virtual bool support_replace_column_null_data() const { return false; }
 
+    /**
+     * Try to replace the payload of NULL rows with the nested column's default value without
+     * going through COW. Implementations must return false without modifying data unless the
+     * complete column ownership chain is exclusive. This is only safe because payloads of rows
+     * that are already NULL are not observable through the nullable column. In particular, a
+     * shared nested column may belong to another nullable column with a different null map.
+     *
+     * This bypasses the normal COW mutation path. Do not use it for general column mutation.
+     */
+    virtual bool try_replace_null_payload_with_default_without_cow() const { return false; }
+
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
     virtual void replace_float_special_values() {}
@@ -889,11 +893,18 @@ bool is_column_const(const IColumn& column);
 bool is_column_nullable(const IColumn& column);
 } // namespace doris
 
-// Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
+// Hold a constant expression's single-row result column. For example, both a one-row Int64
+// column and ColumnConst(Int64, N) store the same Int64 row here; broadcast wraps it again.
+// This class also allows forward declarations where the ColumnPtr alias cannot be used.
 namespace doris {
-struct ColumnPtrWrapper {
-    ColumnPtr column_ptr;
+class ConstantExprResult {
+public:
+    explicit ConstantExprResult(ColumnPtr column);
 
-    ColumnPtrWrapper(ColumnPtr col) : column_ptr(std::move(col)) {}
+    const IColumn& column() const { return *_column_ptr; }
+    const ColumnPtr& column_ptr() const { return _column_ptr; }
+
+private:
+    ColumnPtr _column_ptr;
 };
 } // namespace doris

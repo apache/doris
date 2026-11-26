@@ -30,10 +30,10 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nothing.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
-#include "util/simd/bits.h"
 
 namespace doris {
 
@@ -105,41 +105,58 @@ void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     type->to_pb_column_meta(col_meta);
 }
 
+const ColumnNullable& ColumnWithTypeAndName::get_nullable_column() const {
+    DCHECK(type->is_nullable());
+    DCHECK(column);
+    const auto& [physical_column, _] = unpack_if_const(column);
+    return assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*physical_column);
+}
+
+const ColumnUInt8::Ptr& ColumnWithTypeAndName::get_nullable_null_map_column() const {
+    return get_nullable_column().get_null_map_column_ptr();
+}
+
+NullableColumnInfo ColumnWithTypeAndName::get_nullable_column_info() const {
+    DCHECK(type->is_nullable());
+    DCHECK(column);
+
+    const auto [has_null, only_null] = get_nullable_column().get_null_map_state();
+    return {.has_null = has_null,
+            .only_null = only_null,
+            .is_const = is_column_const(*column),
+            .is_nullable = true};
+}
+
 ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
-        bool replace_null_data_to_default) const {
-    if (type->is_nullable()) {
-        auto nested_type =
-                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
-                        ->get_nested_type();
-        ColumnPtr nested_column = column;
-        if (column) {
-            // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
-            auto [column_ptr, is_const] = unpack_if_const(column);
-            const auto* source_column =
-                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                            column_ptr.get());
-            if (is_const) {
-                nested_column =
-                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
-            } else {
-                nested_column = source_column->get_nested_column_ptr();
-            }
-
-            if (replace_null_data_to_default) {
-                const auto& null_map = source_column->get_null_map_data();
-                // only need to mutate nested column, avoid to copy nullmap
-                auto mutable_nested_col = (*std::move(nested_column)).mutate();
-                if (simd::contain_one(null_map.data(), null_map.size())) {
-                    mutable_nested_col->replace_column_null_data(null_map.data());
-                }
-
-                return {std::move(mutable_nested_col), nested_type, ""};
-            }
-        }
-        return {nested_column, nested_type, ""};
-    } else {
+        const NullableColumnInfo& info, bool replace_null_data_to_default) const {
+    if (!type->is_nullable()) {
         return {column, type, ""};
     }
+    DCHECK(info.is_nullable);
+
+    const auto& nullable_column = get_nullable_column();
+    const auto get_nested_column = [&]() -> ColumnPtr {
+        const auto& nested_column = nullable_column.get_nested_column_ptr();
+        if (info.is_const) {
+            return ColumnConst::create(nested_column, column->size());
+        }
+        return nested_column;
+    };
+
+    auto nested_type = assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                               ->get_nested_type();
+    if (replace_null_data_to_default && info.has_null) {
+        if (column->try_replace_null_payload_with_default_without_cow()) {
+            return {get_nested_column(), nested_type, ""};
+        }
+
+        // Only copy the nested column because the original nullable column must remain unchanged.
+        const auto nested_column = get_nested_column();
+        auto mutable_nested_col = nested_column->clone_resized(nested_column->size());
+        mutable_nested_col->replace_column_null_data(nullable_column.get_null_map_data().data());
+        return {std::move(mutable_nested_col), nested_type, ""};
+    }
+    return {get_nested_column(), nested_type, ""};
 }
 
 Status ColumnWithTypeAndName::check_type_and_column_match() const {

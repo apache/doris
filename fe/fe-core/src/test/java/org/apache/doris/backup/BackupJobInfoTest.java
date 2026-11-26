@@ -17,10 +17,10 @@
 
 package org.apache.doris.backup;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -31,7 +31,7 @@ public class BackupJobInfoTest {
 
     private static String fileName = "job_info.txt";
 
-    @BeforeClass
+    @BeforeAll
     public static void createFile() {
         String json = "{\n"
                 + "    \"backup_time\": 1522231864000,\n"
@@ -124,11 +124,11 @@ public class BackupJobInfoTest {
             out.print(json);
         } catch (FileNotFoundException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 
-    @AfterClass
+    @AfterAll
     public static void deleteFile() {
         File file = new File(fileName);
         if (file.exists()) {
@@ -143,23 +143,23 @@ public class BackupJobInfoTest {
             jobInfo = BackupJobInfo.fromFile(fileName);
         } catch (IOException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
-        Assert.assertNotNull(jobInfo);
+        Assertions.assertNotNull(jobInfo);
 
-        Assert.assertEquals(1522231864000L, jobInfo.backupTime);
-        Assert.assertEquals("snapshot1", jobInfo.name);
-        Assert.assertEquals(2, jobInfo.backupOlapTableObjects.size());
+        Assertions.assertEquals(1522231864000L, jobInfo.backupTime);
+        Assertions.assertEquals("snapshot1", jobInfo.name);
+        Assertions.assertEquals(2, jobInfo.backupOlapTableObjects.size());
 
-        Assert.assertEquals(2, jobInfo.getOlapTableInfo("table1").partitions.size());
-        Assert.assertEquals(2, jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").indexes.size());
-        Assert.assertEquals(2,
+        Assertions.assertEquals(2, jobInfo.getOlapTableInfo("table1").partitions.size());
+        Assertions.assertEquals(2, jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").indexes.size());
+        Assertions.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").getIdx("rollup1").tablets.size());
-        Assert.assertEquals(2,
+        Assertions.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1")
                             .getIdx("rollup1").getTabletFiles(10007L).size());
 
-        Assert.assertEquals(1, jobInfo.newBackupObjects.views.size());
-        Assert.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
+        Assertions.assertEquals(1, jobInfo.newBackupObjects.views.size());
+        Assertions.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
     }
 }

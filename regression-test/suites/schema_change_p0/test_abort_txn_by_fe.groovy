@@ -86,10 +86,10 @@ suite('test_abort_txn_by_fe', 'docker') {
             }
         }
         if (max_try_time < 1){
-            assertEquals(1,2)
+            assertTrue("schema change job did not leave PENDING before FE restart, last state: ${result}", false)
         }
         sleep 10000
-        assertEquals(result, "WAITING_TXN");
+        assertEquals("schema change job should wait for the running load txn before FE restart", "WAITING_TXN", result);
 
         def oldMasterFe = cluster.getMasterFe()
         cluster.restartFrontends(oldMasterFe.index)
@@ -115,10 +115,12 @@ suite('test_abort_txn_by_fe', 'docker') {
             if (result == "FINISHED") {
                 sleep(3000)
                 break
+            } else if (result == "CANCELLED") {
+                assertTrue("schema change job was cancelled after FE restart", false)
             } else {
                 sleep(100)
                 if (max_try_time < 1){
-                    assertEquals(1,2)
+                    assertTrue("schema change job did not finish after FE restart, last state: ${result}", false)
                 }
             }
         }

@@ -18,8 +18,8 @@
 package org.apache.doris.common.util;
 
 import com.google.common.net.InetAddresses;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -30,10 +30,10 @@ public class NetUtilsTest {
     public void testConvertIp() throws Exception {
         long ipValue = 3232235786L;
         InetAddress ip = InetAddress.getByName("192.168.1.10");
-        Assert.assertTrue(ip instanceof Inet4Address);
-        Assert.assertEquals(ipValue, NetUtils.inet4AddressToLong((Inet4Address) ip));
+        Assertions.assertTrue(ip instanceof Inet4Address);
+        Assertions.assertEquals(ipValue, NetUtils.inet4AddressToLong((Inet4Address) ip));
         Inet4Address convertIp = NetUtils.longToInet4Address(ipValue);
-        Assert.assertEquals(ip, convertIp);
+        Assertions.assertEquals(ip, convertIp);
         System.out.println(InetAddresses.forString("192.168.1.10").toString());
     }
 }

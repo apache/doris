@@ -29,8 +29,10 @@ set(COMMON_FILES
     encryption_util.cpp
     http_helper.cpp
     metric.cpp
+    version_metrics.cpp
     kms.cpp
     network_util.cpp
+    auth/obj_credential.cpp
     ../server/oss/cloud_server_starter_factory.cpp
 )
 

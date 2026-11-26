@@ -28,6 +28,7 @@
 #include <string>
 #include <type_traits>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -110,7 +111,10 @@ struct AggregateFunctionCollectSetData {
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        max_size = -1;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -178,7 +182,10 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        max_size = -1;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -230,7 +237,10 @@ struct AggregateFunctionCollectListData {
         read_var_int(max_size, buf);
     }
 
-    void reset() { data.clear(); }
+    void reset() {
+        data.clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data();
@@ -296,7 +306,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         read_var_int(max_size, buf);
     }
 
-    void reset() { data->clear(); }
+    void reset() {
+        data->clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const {
         auto& to_str = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
@@ -306,7 +319,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
+             !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
@@ -387,7 +400,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         read_var_int(max_size, buf);
     }
 
-    void reset() { column_data->clear(); }
+    void reset() {
+        column_data->clear();
+        max_size = -1;
+    }
 
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
 };
@@ -425,8 +441,7 @@ public:
         if constexpr (HasLimit) {
             if (data.max_size == -1) {
                 data.max_size =
-                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(
-                                columns[1])
+                        assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                                 ->get_element(row_num);
             }
             if (data.size() >= data.max_size) {
@@ -444,6 +459,18 @@ public:
                Arena& arena) const override {
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
+        if constexpr (HasLimit) {
+            if (rhs_data.size() == 0) {
+                return;
+            }
+            if (data.size() == 0) {
+                data.max_size = rhs_data.max_size;
+            } else if (UNLIKELY(data.max_size != rhs_data.max_size)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "{} aggregate states have incompatible limits: {} vs {}",
+                                get_name(), data.max_size, rhs_data.max_size);
+            }
+        }
         if constexpr (ENABLE_ARENA) {
             data.merge(rhs_data, arena);
         } else {

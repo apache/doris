@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.SessionVariable;
-
 /**
  * CostV1.
  */
@@ -37,7 +35,7 @@ public class Cost {
     /**
      * Constructor of CostV1.
      */
-    public Cost(SessionVariable sessionVariable, double cpuCost, double memoryCost, double networkCost) {
+    public Cost(CostWeight costWeight, double cpuCost, double memoryCost, double networkCost) {
         // TODO: fix stats
         cpuCost = Double.max(0, cpuCost);
         memoryCost = Double.max(0, memoryCost);
@@ -46,7 +44,6 @@ public class Cost {
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
 
-        CostWeight costWeight = CostWeight.get(sessionVariable);
         this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
                 + costWeight.networkWeight * networkCost;
     }
@@ -82,12 +79,20 @@ public class Cost {
         return cost;
     }
 
-    public static Cost of(SessionVariable sessionVariable, double cpuCost, double maxMemory, double networkCost) {
-        return new Cost(sessionVariable, cpuCost, maxMemory, networkCost);
+    public static Cost of(CostWeight costWeight, double cpuCost, double maxMemory, double networkCost) {
+        return new Cost(costWeight, cpuCost, maxMemory, networkCost);
     }
 
-    public static Cost ofCpu(SessionVariable sessionVariable, double cpuCost) {
-        return new Cost(sessionVariable, cpuCost, 0, 0);
+    public static Cost ofCpu(CostWeight costWeight, double cpuCost) {
+        return new Cost(costWeight, cpuCost, 0, 0);
+    }
+
+    /** Add another cost and compute the weighted value from the summed components. */
+    public Cost add(Cost other, CostWeight costWeight) {
+        return new Cost(costWeight,
+                cpuCost + other.cpuCost,
+                memoryCost + other.memoryCost,
+                networkCost + other.networkCost);
     }
 
     @Override

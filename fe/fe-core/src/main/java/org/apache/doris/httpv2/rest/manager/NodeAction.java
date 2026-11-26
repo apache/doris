@@ -25,16 +25,20 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.SetConfigAction;
+import org.apache.doris.httpv2.security.CsrfTokenUtils;
+import org.apache.doris.httpv2.ui.UiApiException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -46,6 +50,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -61,6 +66,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +76,9 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -109,8 +119,21 @@ public class NodeAction extends RestBaseController {
     public static final ImmutableList<String> BE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>().add(CONFIG)
             .add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE).add(CONFIG_VALUE).add(IS_MUTABLE).build();
 
+    // Header the BE reads its cluster auth token from (BE HttpHeaders::AUTH_TOKEN).
+    private static final String AUTH_TOKEN_HEADER = "Auth-Token";
+    private static final long BACKEND_AUTH_TOKEN_CACHE_MILLIS = TimeUnit.MINUTES.toMillis(30);
+
     private Object httpExecutorLock = new Object();
     private static volatile ExecutorService httpExecutor = null;
+    private static volatile String cachedBackendAuthToken = null;
+    private static volatile long cachedBackendAuthTokenMillis = 0L;
+
+    @ExceptionHandler(UiApiException.class)
+    public ResponseEntity<Map<String, String>> handleUiApiException(UiApiException exception) {
+        return ResponseEntity.status(exception.getStatus()).body(ImmutableMap.of(
+                "code", exception.getCode(),
+                "message", exception.getMessage()));
+    }
 
     // Returns all fe information, similar to 'show frontends'.
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
@@ -261,12 +284,20 @@ public class NodeAction extends RestBaseController {
     public Object config(HttpServletRequest request, HttpServletResponse response) {
         // This endpoint lists all FE config, matching the SQL "SHOW FRONTEND CONFIG", which
         // requires ADMIN. Use an unconditional ADMIN check: checkAdminAuth only enforces the
-        // privilege when enable_all_http_auth is true, so it would be a no-op by default.
+        // privilege when enable_all_http_auth is true, which an operator can turn off.
         // Sensitive config values (e.g. fe_meta_auth_token) are additionally masked by ConfigBase,
         // so they are never returned in plaintext even to an admin.
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
         checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
+        return localConfigRows();
+    }
+
+    /**
+     * This FE's own configuration, in the column order the /config endpoint publishes:
+     * name, type, master-only, value, mutable.
+     */
+    private static List<List<String>> localConfigRows() {
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
         configs.sort(Comparator.comparing(o -> o.get(0)));
@@ -327,38 +358,37 @@ public class NodeAction extends RestBaseController {
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         // Reads FE/BE config via fan-out to the per-node config endpoints, so it must be
         // ADMIN-gated too. Unconditional check (see config() above for why checkAdminAuth is not).
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
+        String authorization = authenticateConfigurationRequest(request, response);
 
         initHttpExecutor();
 
         if (requestBody == null) {
             requestBody = new ConfigInfoRequestBody();
         }
-        List<Pair<String, Integer>> hostPorts;
         if (type.equalsIgnoreCase("fe")) {
-            if (requestBody.getNodes() != null && !requestBody.getNodes().isEmpty()) {
-                hostPorts = parseHostPort(requestBody.getNodes());
-            } else {
-                hostPorts = parseHostPort(getFeList());
-            }
-
-            List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, request.getHeader(AUTHORIZATION),
-                    "/rest/v2/manager/node/config", "FE", requestBody.getConfNames(), errNodes);
-            if (!errNodes.isEmpty()) {
-                LOG.warn("Failed to get fe node configuration information from:{}", errNodes.toString());
-            }
-            return ResponseEntityBuilder.ok(new NodeInfo(FE_CONFIG_TITLE_NAMES, data));
+            return ResponseEntityBuilder.ok(
+                    new NodeInfo(FE_CONFIG_TITLE_NAMES, feConfigurationInfo(authorization, requestBody)));
         } else if (type.equalsIgnoreCase("be")) {
-            if (requestBody.getNodes() != null && !requestBody.getNodes().isEmpty()) {
-                hostPorts = parseHostPort(requestBody.getNodes());
+            Map<String, String> headers;
+            if (Strings.isNullOrEmpty(authorization)) {
+                // A cookie caller has no Basic credential to forward. Every BE already accepts the
+                // cluster auth token on its authenticated HTTP handlers, so presenting it here adds
+                // nothing to the BE's surface -- unlike having an FE accept it, which this class
+                // deliberately does not do.
+                try {
+                    headers = ImmutableMap.of(AUTH_TOKEN_HEADER, backendAuthToken());
+                } catch (UserException exception) {
+                    LOG.warn("Failed to acquire the cluster token for the BE configuration fan-out", exception);
+                    return ResponseEntityBuilder.serviceUnavailable(
+                            "Cannot read backend configuration: the master FE is unreachable.");
+                }
             } else {
-                hostPorts = parseHostPort(getBeList());
+                headers = ImmutableMap.of(AUTHORIZATION, authorization);
             }
 
+            List<Pair<String, Integer>> hostPorts = requestedClusterNodes(requestBody, getBeList(), "BE");
             List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, request.getHeader(AUTHORIZATION),
+            List<List<String>> data = handleConfigurationInfo(hostPorts, headers,
                     "/api/show_config", "BE", requestBody.getConfNames(), errNodes);
             if (!errNodes.isEmpty()) {
                 LOG.warn("Failed to get be node configuration information from:{}", errNodes.toString());
@@ -369,9 +399,115 @@ public class NodeAction extends RestBaseController {
                 "Unsupported type: " + type + ". Only types of fe or be are " + "supported");
     }
 
+    /**
+     * FE configuration for the caller.
+     *
+     * <p>A caller that authenticated with HTTP Basic gets the historical behaviour: their own
+     * Authorization header is forwarded to each frontend, so every FE answers as that operator.
+     *
+     * <p>A caller that authenticated with the UI session cookie has no credential this FE could
+     * present to its peers. Rather than letting an FE accept some cluster-wide shared secret on
+     * /config -- which would turn possession of that secret into a cluster configuration read --
+     * this FE answers with its own configuration, read in process.
+     */
+    private List<List<String>> feConfigurationInfo(String authorization, ConfigInfoRequestBody requestBody) {
+        if (Strings.isNullOrEmpty(authorization)) {
+            return localFeConfigurationRows(requestBody.getConfNames());
+        }
+
+        List<Pair<String, Integer>> hostPorts = requestedClusterNodes(requestBody, getFeList(), "FE");
+        List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
+        List<List<String>> data = handleConfigurationInfo(hostPorts, ImmutableMap.of(AUTHORIZATION, authorization),
+                "/rest/v2/manager/node/config", "FE", requestBody.getConfNames(), errNodes);
+        if (!errNodes.isEmpty()) {
+            LOG.warn("Failed to get fe node configuration information from:{}", errNodes.toString());
+        }
+        return data;
+    }
+
+    /** This FE's configuration, shaped like a fan-out row: name, node, node type, then the rest. */
+    private static List<List<String>> localFeConfigurationRows(List<String> confNames) {
+        String address = NetUtils.getHostPortInAccessibleFormat(
+                Env.getCurrentEnv().getSelfNode().getHost(), HttpURLUtil.getHttpPort());
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<String> config : localConfigRows()) {
+            if (confNames != null && !confNames.isEmpty() && !confNames.contains(config.get(0))) {
+                continue;
+            }
+            List<String> row = Lists.newArrayList(config);
+            row.add(1, address);
+            row.add(2, "FE");
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /**
+     * The nodes to fan out to: the ones the caller named, restricted to current cluster members,
+     * or every member when the caller named none. Nodes that are not cluster members are dropped
+     * and logged rather than contacted -- this endpoint must never make the FE issue an
+     * authenticated request to a host chosen by the caller.
+     */
+    private static List<Pair<String, Integer>> requestedClusterNodes(ConfigInfoRequestBody requestBody,
+            List<String> clusterNodes, String nodeType) {
+        List<Pair<String, Integer>> members = parseHostPort(clusterNodes);
+        if (requestBody.getNodes() == null || requestBody.getNodes().isEmpty()) {
+            return members;
+        }
+        List<Pair<String, Integer>> requested = parseHostPort(requestBody.getNodes());
+        List<Pair<String, Integer>> retained = retainClusterMembers(requested, members);
+        if (retained.size() != requested.size()) {
+            List<Pair<String, Integer>> dropped = Lists.newArrayList(requested);
+            dropped.removeAll(retained);
+            LOG.warn("Ignored {} requested node(s) that are not {} cluster members: {}",
+                    dropped.size(), nodeType, dropped);
+        }
+        return retained;
+    }
+
+    /**
+     * Authenticates a configuration read. Returns the caller's Authorization header when they
+     * used HTTP Basic, or null when they authenticated with the UI session cookie.
+     */
+    private String authenticateConfigurationRequest(HttpServletRequest request, HttpServletResponse response) {
+        String authorization = request.getHeader(AUTHORIZATION);
+        if (!Strings.isNullOrEmpty(authorization)) {
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
+            return authorization;
+        }
+
+        SessionValue session = requireCookieSession(request, response);
+        checkGlobalAuth(session.currentUser, PrivPredicate.ADMIN);
+        if (!CsrfTokenUtils.csrfTokenMatches(
+                session.csrfToken, request.getHeader(CsrfTokenUtils.HEADER_NAME))) {
+            throw UiApiException.invalidCsrf();
+        }
+        return null;
+    }
+
+    /**
+     * The cluster auth token, used only as a client credential towards backends. A non-master FE
+     * has to ask the master for it, so it is cached: the token rotates every
+     * Config.token_generate_period_hour hours and the master keeps the last
+     * Config.token_queue_size of them valid.
+     */
+    private static String backendAuthToken() throws UserException {
+        long now = System.currentTimeMillis();
+        String token = cachedBackendAuthToken;
+        if (token != null && now - cachedBackendAuthTokenMillis < BACKEND_AUTH_TOKEN_CACHE_MILLIS) {
+            return token;
+        }
+        token = Env.getCurrentEnv().getTokenManager().acquireToken();
+        cachedBackendAuthToken = token;
+        cachedBackendAuthTokenMillis = now;
+        return token;
+    }
+
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
-    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts, String authorization,
-            String questPath, String nodeType, List<String> confNames, List<Map.Entry<String, Integer>> errNodes) {
+    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts,
+            Map<String, String> headers, String questPath, String nodeType, List<String> confNames,
+            List<Map.Entry<String, Integer>> errNodes) {
         // The configuration information returned by each node is a List<List<String>> type,
         // configInfoTotal is used to store the configuration information of all nodes.
         List<List<List<String>>> configInfoTotal = Lists.newArrayList();
@@ -387,8 +523,8 @@ public class NodeAction extends RestBaseController {
             String scheme = (Config.enable_https && "FE".equals(nodeType)) ? "https://" : "http://";
             String url = scheme + address + questPath;
             httpExecutor.submit(
-                    new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
-                            configInfoTotal.get(i)));
+                    new HttpConfigInfoTask(url, hostPort, headers, nodeType, confNames,
+                            configRequestDoneSignal, configInfoTotal.get(i)));
         }
         List<List<String>> resultConfigs = Lists.newArrayList();
         try {
@@ -426,21 +562,32 @@ public class NodeAction extends RestBaseController {
         return hostPorts;
     }
 
+    static List<Pair<String, Integer>> retainClusterMembers(List<Pair<String, Integer>> requestedNodes,
+            List<Pair<String, Integer>> clusterNodes) {
+        Set<String> clusterAddresses = clusterNodes.stream()
+                .map(node -> NetUtils.getHostPortInAccessibleFormat(node.first, node.second))
+                .collect(Collectors.toSet());
+        return requestedNodes.stream()
+                .filter(node -> clusterAddresses.contains(
+                        NetUtils.getHostPortInAccessibleFormat(node.first, node.second)))
+                .collect(Collectors.toList());
+    }
+
     private class HttpConfigInfoTask implements Runnable {
         private String url;
         private Pair<String, Integer> hostPort;
-        private String authorization;
+        private Map<String, String> headers;
         private String nodeType;
         private List<String> confNames;
         private MarkedCountDownLatch<String, Integer> configRequestDoneSignal;
         private List<List<String>> config;
 
-        public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, String authorization, String nodeType,
-                List<String> confNames, MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
-                List<List<String>> config) {
+        public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, Map<String, String> headers,
+                String nodeType, List<String> confNames,
+                MarkedCountDownLatch<String, Integer> configRequestDoneSignal, List<List<String>> config) {
             this.url = url;
             this.hostPort = hostPort;
-            this.authorization = authorization;
+            this.headers = headers;
             this.nodeType = nodeType;
             this.confNames = confNames;
             this.configRequestDoneSignal = configRequestDoneSignal;
@@ -451,8 +598,7 @@ public class NodeAction extends RestBaseController {
         public void run() {
             String configInfo;
             try {
-                configInfo = HttpUtils.doGet(url,
-                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build());
+                configInfo = HttpUtils.doGet(url, headers);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo, new TypeToken<List<List<String>>>() {
                 }.getType());
                 for (List<String> conf : configs) {
@@ -593,12 +739,21 @@ public class NodeAction extends RestBaseController {
                 sb.append("?");
                 addAnd = true;
             }
-            sb.append(entry.getKey()).append("=").append(entry.getValue());
+            sb.append(encodeQueryParameter(entry.getKey())).append("=")
+                    .append(encodeQueryParameter(entry.getValue()));
         }
         if (isPersist) {
             sb.append("&persist=true&reset_persist=false");
         }
         return sb.toString();
+    }
+
+    static String encodeQueryParameter(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException("UTF-8 is not available", e);
+        }
     }
 
     // Modify fe configuration.
@@ -882,7 +1037,7 @@ public class NodeAction extends RestBaseController {
             boolean isPersist) {
         StringBuilder stringBuffer = new StringBuilder();
         stringBuffer.append("http://").append(host).append(":").append(port).append("/api/update_config").append("?")
-                .append(configName).append("=").append(configValue);
+                .append(encodeQueryParameter(configName)).append("=").append(encodeQueryParameter(configValue));
         if (isPersist) {
             stringBuffer.append("&persist=true");
         }

@@ -61,11 +61,9 @@ private:
         DCHECK(children.size() == 2);
         DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
         if (children[1]->is_constant()) {
-            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+            std::shared_ptr<ConstantExprResult> const_col_wrapper;
             THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
-            const auto* const_column =
-                    assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
-            constant_val = const_column->operator[](0);
+            constant_val = const_col_wrapper->column()[0];
             return PushDownType::ACCEPTABLE;
         } else {
             // only handle constant value
@@ -82,6 +80,12 @@ public:
     void set_output_block(Block block) {
         _output_blocks.clear();
         _output_blocks.push_back(std::move(block));
+    }
+
+    // Mirrors the constructor of ScanOperatorX: the shared counter starts at the SQL LIMIT.
+    void set_limit_for_test(int64_t limit) {
+        _limit = limit;
+        _shared_scan_limit.store(limit, std::memory_order_relaxed);
     }
 
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
@@ -102,5 +106,10 @@ public:
 private:
     std::list<Block> _output_blocks;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<MockScanLocalState>;
+extern template class ScanLocalState<MockScanLocalState>;
+
 } // namespace doris
 #endif

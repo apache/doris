@@ -37,6 +37,21 @@ public interface QeProcessor {
 
     void unregisterQuery(TUniqueId queryId);
 
+    /**
+     * Register a callback to run when the given query finishes (is unregistered).
+     * Connector-agnostic: lets a connector hook query completion (for example to
+     * commit a read transaction / release a metastore lock) without fe-core
+     * naming the connector in its generic query-cleanup path.
+     */
+    void registerQueryFinishCallback(String queryId, Runnable callback);
+
+    /**
+     * Release resources of a finished attempt, including planning-only attempts without a coordinator.
+     * Coordinator-backed queries also call this from unregisterQuery; repeated calls are harmless.
+     */
+    void finishQueryCallbacks(TUniqueId queryId);
+
+
     Map<String, QueryStatisticsItem> getQueryStatistics();
 
     String getCurrentQueryByQueryId(TUniqueId queryId);

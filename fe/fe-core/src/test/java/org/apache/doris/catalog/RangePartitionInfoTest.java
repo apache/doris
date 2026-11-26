@@ -32,9 +32,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -52,81 +52,89 @@ public class RangePartitionInfoTest {
 
     private List<SinglePartitionDesc> singlePartitionDescs;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         partitionColumns = new LinkedList<Column>();
         singlePartitionDescs = new LinkedList<SinglePartitionDesc>();
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testTinyInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.TINYINT), true, null, "", "");
-        partitionColumns.add(k1);
+        Assertions.assertThrows(DdlException.class, () -> {
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.TINYINT), true, null, "", "");
+            partitionColumns.add(k1);
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-128"))),
-                null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
+                    PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-128"))),
+                    null));
 
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(1, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(1, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testSmallInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.SMALLINT), true, null, "", "");
-        partitionColumns.add(k1);
+        Assertions.assertThrows(DdlException.class, () -> {
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.SMALLINT), true, null, "", "");
+            partitionColumns.add(k1);
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-32768"))),
-                null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
+                    PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-32768"))),
+                    null));
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(1, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(1, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        partitionColumns.add(k1);
+        Assertions.assertThrows(DdlException.class, () -> {
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            partitionColumns.add(k1);
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-2147483648"))),
-                null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
+                    PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("-2147483648"))),
+                    null));
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(1, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(1, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testBigInt() throws DdlException, AnalysisException {
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
-        partitionColumns.add(k1);
+        Assertions.assertThrows(DdlException.class, () -> {
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+            partitionColumns.add(k1);
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", PartitionKeyDesc.createLessThan(Lists
-                .newArrayList(new PartitionValue("-9223372036854775808"))), null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", PartitionKeyDesc.createLessThan(Lists
-                .newArrayList(new PartitionValue("-9223372036854775806"))), null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", PartitionKeyDesc.createLessThan(Lists
-                .newArrayList(new PartitionValue("0"))), null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p4", PartitionKeyDesc.createLessThan(Lists
-                .newArrayList(new PartitionValue("9223372036854775806"))), null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", PartitionKeyDesc.createLessThan(Lists
+                    .newArrayList(new PartitionValue("-9223372036854775808"))), null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", PartitionKeyDesc.createLessThan(Lists
+                    .newArrayList(new PartitionValue("-9223372036854775806"))), null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", PartitionKeyDesc.createLessThan(Lists
+                    .newArrayList(new PartitionValue("0"))), null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p4", PartitionKeyDesc.createLessThan(Lists
+                    .newArrayList(new PartitionValue("9223372036854775806"))), null));
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
+            partitionInfo = new RangePartitionInfo(partitionColumns);
 
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(1, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(1, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
     }
 
     @Test
@@ -203,40 +211,42 @@ public class RangePartitionInfoTest {
      *       partition p3 values less than("2021-02-01")
      * )
      */
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testFixedRange1() throws DdlException, AnalysisException {
-        //add columns
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        partitionColumns.add(k1);
-        partitionColumns.add(k2);
-        partitionColumns.add(k3);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            //add columns
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
+            Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            partitionColumns.add(k1);
+            partitionColumns.add(k2);
+            partitionColumns.add(k3);
 
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(
-                Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"), new PartitionValue("200")));
-        PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"), new PartitionValue("200")),
-                Lists.newArrayList(new PartitionValue("2020-03-01")));
-        PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(
-                Lists.newArrayList(new PartitionValue("2021-02-01")));
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(
+                    Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"), new PartitionValue("200")));
+            PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"), new PartitionValue("200")),
+                    Lists.newArrayList(new PartitionValue("2020-03-01")));
+            PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(
+                    Lists.newArrayList(new PartitionValue("2021-02-01")));
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-        PartitionKeyValueType partitionKeyValueType = PartitionKeyValueType.INVALID;
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            // check partitionType
-            if (partitionKeyValueType == PartitionKeyValueType.INVALID) {
-                partitionKeyValueType = singlePartitionDesc.getPartitionKeyDesc().getPartitionType();
-            } else if (partitionKeyValueType != singlePartitionDesc.getPartitionKeyDesc().getPartitionType()) {
-                throw new AnalysisException("You can only use one of these methods to create partitions");
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+            PartitionKeyValueType partitionKeyValueType = PartitionKeyValueType.INVALID;
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                // check partitionType
+                if (partitionKeyValueType == PartitionKeyValueType.INVALID) {
+                    partitionKeyValueType = singlePartitionDesc.getPartitionKeyDesc().getPartitionType();
+                } else if (partitionKeyValueType != singlePartitionDesc.getPartitionKeyDesc().getPartitionType()) {
+                    throw new AnalysisException("You can only use one of these methods to create partitions");
+                }
+                singlePartitionDesc.analyze(partitionColumns.size(), null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
             }
-            singlePartitionDesc.analyze(partitionColumns.size(), null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+        });
     }
 
     /**
@@ -273,28 +283,30 @@ public class RangePartitionInfoTest {
      *     PARTITION p1 VALUES  [("20190301", "400"), ())
      * )
      */
-    @Test (expected = AnalysisException.class)
+    @Test
     public void testFixedRange3() throws DdlException, AnalysisException {
-        //add columns
-        int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
-        partitionColumns.add(k1);
-        partitionColumns.add(k2);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            //add columns
+            int columns = 2;
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+            partitionColumns.add(k1);
+            partitionColumns.add(k2);
 
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("200")),
-                new ArrayList<>());
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("200")),
+                    new ArrayList<>());
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
+            partitionInfo = new RangePartitionInfo(partitionColumns);
 
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(columns, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(columns, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
     }
 
     /**
@@ -332,128 +344,136 @@ public class RangePartitionInfoTest {
      *       PARTITION p0 VALUES  [("20190101", "100"),("20190101", "100"))
      *   )
      */
-    @Test (expected = DdlException.class)
+    @Test
     public void testFixedRange5() throws DdlException, AnalysisException {
-        //add columns
-        int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
-        partitionColumns.add(k1);
-        partitionColumns.add(k2);
+        Assertions.assertThrows(DdlException.class, () -> {
+            //add columns
+            int columns = 2;
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            Column k2 = new Column("k2", new ScalarType(PrimitiveType.BIGINT), true, null, "", "");
+            partitionColumns.add(k1);
+            partitionColumns.add(k2);
 
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")),
-                Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")));
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")),
+                    Lists.newArrayList(new PartitionValue("20190101"), new PartitionValue("100")));
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
 
-        partitionInfo = new RangePartitionInfo(partitionColumns);
+            partitionInfo = new RangePartitionInfo(partitionColumns);
 
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(columns, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
-    }
-
-
-    @Test (expected = DdlException.class)
-    public void testFixedRange6() throws DdlException, AnalysisException {
-        //add columns
-        int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
-        partitionColumns.add(k1);
-
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-06-01")),
-                Lists.newArrayList(new PartitionValue("2021-06-02")));
-
-        PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-07-01")),
-                Lists.newArrayList(new PartitionValue("2021-08-01")));
-
-        PartitionKeyDesc p3 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-06-01")),
-                Lists.newArrayList(new PartitionValue("2021-07-01")));
-
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-
-        long partitionId = 20000L;
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(columns, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
-        }
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testFixedRange7() throws DdlException, AnalysisException {
-        //add columns
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
-        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
-        partitionColumns.add(k1);
-        partitionColumns.add(k2);
-        partitionColumns.add(k3);
-
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2019-02-01"),
-                new PartitionValue("100"), new PartitionValue("200")));
-        PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(Lists.newArrayList(new PartitionValue("2020-02-01"),
-                new PartitionValue("100"), new PartitionValue("200")),
-                Lists.newArrayList(new PartitionValue("2020-03-01")));
-        PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2021-02-01")));
-
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
-        partitionInfo = new RangePartitionInfo(partitionColumns);
-        PartitionKeyValueType partitionKeyValueType = PartitionKeyValueType.INVALID;
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            // check partitionType
-            if (partitionKeyValueType == PartitionKeyValueType.INVALID) {
-                partitionKeyValueType = singlePartitionDesc.getPartitionKeyDesc().getPartitionType();
-            } else if (partitionKeyValueType != singlePartitionDesc.getPartitionKeyDesc().getPartitionType()) {
-                throw new AnalysisException("You can only use one of these methods to create partitions");
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(columns, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
             }
-            singlePartitionDesc.analyze(partitionColumns.size(), null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
-        }
+        });
     }
 
-    @Test (expected = DdlException.class)
+
+    @Test
+    public void testFixedRange6() throws DdlException, AnalysisException {
+        Assertions.assertThrows(DdlException.class, () -> {
+            //add columns
+            int columns = 2;
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
+            partitionColumns.add(k1);
+
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-06-01")),
+                    Lists.newArrayList(new PartitionValue("2021-06-02")));
+
+            PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-07-01")),
+                    Lists.newArrayList(new PartitionValue("2021-08-01")));
+
+            PartitionKeyDesc p3 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-06-01")),
+                    Lists.newArrayList(new PartitionValue("2021-07-01")));
+
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+
+            long partitionId = 20000L;
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(columns, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
+            }
+        });
+    }
+
+    @Test
+    public void testFixedRange7() throws DdlException, AnalysisException {
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            //add columns
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+            Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            Column k3 = new Column("k3", new ScalarType(PrimitiveType.INT), true, null, "", "");
+            partitionColumns.add(k1);
+            partitionColumns.add(k2);
+            partitionColumns.add(k3);
+
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2019-02-01"),
+                    new PartitionValue("100"), new PartitionValue("200")));
+            PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(Lists.newArrayList(new PartitionValue("2020-02-01"),
+                    new PartitionValue("100"), new PartitionValue("200")),
+                    Lists.newArrayList(new PartitionValue("2020-03-01")));
+            PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("2021-02-01")));
+
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
+            partitionInfo = new RangePartitionInfo(partitionColumns);
+            PartitionKeyValueType partitionKeyValueType = PartitionKeyValueType.INVALID;
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                // check partitionType
+                if (partitionKeyValueType == PartitionKeyValueType.INVALID) {
+                    partitionKeyValueType = singlePartitionDesc.getPartitionKeyDesc().getPartitionType();
+                } else if (partitionKeyValueType != singlePartitionDesc.getPartitionKeyDesc().getPartitionType()) {
+                    throw new AnalysisException("You can only use one of these methods to create partitions");
+                }
+                singlePartitionDesc.analyze(partitionColumns.size(), null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
+            }
+        });
+    }
+
+    @Test
     public void testFixedRange8() throws DdlException, AnalysisException {
-        //add columns
-        int columns = 2;
-        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
-        partitionColumns.add(k1);
+        Assertions.assertThrows(DdlException.class, () -> {
+            //add columns
+            int columns = 2;
+            Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+            partitionColumns.add(k1);
 
-        //add RangePartitionDescs
-        PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-06-01")),
-                Lists.newArrayList(new PartitionValue("2021-06-02")));
+            //add RangePartitionDescs
+            PartitionKeyDesc p1 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-06-01")),
+                    Lists.newArrayList(new PartitionValue("2021-06-02")));
 
-        PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-07-01")),
-                Lists.newArrayList(new PartitionValue("2021-08-01")));
+            PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-07-01")),
+                    Lists.newArrayList(new PartitionValue("2021-08-01")));
 
-        PartitionKeyDesc p3 = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue("2021-06-01")),
-                Lists.newArrayList(new PartitionValue("2021-07-01")));
+            PartitionKeyDesc p3 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2021-06-01")),
+                    Lists.newArrayList(new PartitionValue("2021-07-01")));
 
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
-        partitionInfo = new RangePartitionInfo(partitionColumns);
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p1", p1, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p2", p2, null));
+            singlePartitionDescs.add(new SinglePartitionDesc(false, "p3", p3, null));
+            partitionInfo = new RangePartitionInfo(partitionColumns);
 
-        long partitionId = 20000L;
-        for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
-            singlePartitionDesc.analyze(columns, null);
-            partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
-        }
+            long partitionId = 20000L;
+            for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
+                singlePartitionDesc.analyze(columns, null);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
+            }
+        });
     }
 
     @Test
@@ -473,7 +493,7 @@ public class RangePartitionInfoTest {
 
         RangePartitionInfo partitionInfo2 = GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);
 
-        Assert.assertEquals(partitionInfo.getType(), partitionInfo2.getType());
+        Assertions.assertEquals(partitionInfo.getType(), partitionInfo2.getType());
 
         // 3. delete files
         in.close();
@@ -501,6 +521,6 @@ public class RangePartitionInfoTest {
         String sql = partitionInfo.toSql(table, null);
 
         String expected = "AUTO PARTITION BY RANGE (date_trunc(`tbl`.`k1`, 'day'))";
-        Assert.assertTrue("got: " + sql + ", should have: " + expected, sql.contains(expected));
+        Assertions.assertTrue(sql.contains(expected), "got: " + sql + ", should have: " + expected);
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Pair;
@@ -158,5 +159,21 @@ public class OneListPartitionEvaluator<K>
     @Override
     public boolean isDefaultPartition() {
         return partitionItem.isDefaultPartition();
+    }
+
+    /**
+     * Whether any partition key contains MAXVALUE (MaxLiteral). Such keys cannot be
+     * converted into a concrete literal, so the predicate cannot be evaluated against
+     * this partition and it must not be pruned.
+     */
+    public boolean containsMaxValueKey() {
+        for (PartitionKey partitionKey : partitionItem.getItems()) {
+            for (LiteralExpr literalExpr : partitionKey.getKeys()) {
+                if (literalExpr == MaxLiteral.MAX_VALUE) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

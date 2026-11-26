@@ -17,12 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
-import lombok.Getter;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -44,8 +42,8 @@ public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
     @SerializedName("st")
     protected StorageBackend.StorageType storageType;
 
-    @Getter
-    protected StorageProperties storageProperties;
+    /** SPI facade binding; lazily bound from the raw properties. Not Gson-serialized. */
+    protected StorageAdapter storageAdapter;
 
     public StorageDesc() {
     }
@@ -54,22 +52,22 @@ public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
         this.name = name;
         this.storageType = storageType;
         this.properties = properties;
-        initStorageProperties();
+        initStorageAdapter();
     }
 
-    protected void initStorageProperties() {
-        if (storageProperties != null) {
+    protected void initStorageAdapter() {
+        if (storageAdapter != null) {
             return;
         }
         if (properties == null) {
             properties = new HashMap<>();
         }
         if (null != storageType && storageType.equals(StorageBackend.StorageType.BROKER)) {
-            this.storageProperties = BrokerProperties.of(name, properties);
+            this.storageAdapter = StorageAdapter.ofBroker(name, properties);
             return;
         }
         if (!properties.isEmpty()) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
+            this.storageAdapter = StorageAdapter.of(properties);
         }
     }
 
@@ -98,20 +96,20 @@ public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
     }
 
     public Map<String, String> getBackendConfigProperties() {
-        initStorageProperties();
-        if (null == storageProperties) {
+        initStorageAdapter();
+        if (null == storageAdapter) {
             return properties;
         }
-        return storageProperties.getBackendConfigProperties();
+        return storageAdapter.getBackendConfigProperties();
     }
 
-    public StorageProperties getStorageProperties() {
-        initStorageProperties();
-        return storageProperties;
+    public StorageAdapter getStorageAdapter() {
+        initStorageAdapter();
+        return storageAdapter;
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
-        initStorageProperties();
+        initStorageAdapter();
     }
 }

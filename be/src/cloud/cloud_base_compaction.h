@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <optional>
 
@@ -45,6 +46,9 @@ public:
 
 private:
     Status pick_rowsets_to_compact();
+
+    void record_compaction_success(std::chrono::steady_clock::time_point execution_start_time);
+    Status record_compaction_failure(Status status);
 
     std::string_view compaction_name() const override { return "CloudBaseCompaction"; }
 

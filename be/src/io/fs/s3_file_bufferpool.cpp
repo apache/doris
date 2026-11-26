@@ -28,10 +28,10 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/arena.h"
+#include "cpp/obj-client/s3_common.h"
 #include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
-#include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
@@ -171,7 +171,8 @@ void UploadFileBuffer::on_upload() {
  * write the content of the memory buffer to local file cache
  */
 void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
-    if (!config::enable_file_cache || _alloc_holder == nullptr) {
+    if (!config::enable_file_cache_write_from_s3_file_writer || !config::enable_file_cache ||
+        _alloc_holder == nullptr) {
         return;
     }
     if (_holder) {

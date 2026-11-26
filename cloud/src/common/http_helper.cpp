@@ -370,7 +370,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_query_rate_limit((MS*)s, c);
                           },
                   .role = HttpRole::META_SERVICE}},
-
+                {"check_instance_recycle_completed",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_check_instance_recycle_completed((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
                 // Recycler APIs
                 {"recycle_instance",
                  {.handler =
@@ -400,6 +405,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
                   .role = HttpRole::RECYCLER}},
+                {"skip_instance_data_cleanup",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_skip_instance_data_cleanup((RS*)s, c);
+                          },
+                  .role = HttpRole::RECYCLER}},
                 {"check_job_info",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_job_info((RS*)s, c); },
@@ -412,6 +423,18 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler =
                           [](void* s, brpc::Controller* c) {
                               return process_adjust_rate_limiter((RS*)s, c);
+                          },
+                  .role = HttpRole::RECYCLER}},
+                {"analyze_snapshot_retained",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_analyze_snapshot_retained((RS*)s, c);
+                          },
+                  .role = HttpRole::RECYCLER}},
+                {"get_snapshot_retained_analysis",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_get_snapshot_retained_analysis((RS*)s, c);
                           },
                   .role = HttpRole::RECYCLER}},
 
@@ -561,6 +584,17 @@ HttpResponse process_alter_instance(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
+HttpResponse process_skip_instance_data_cleanup(RecyclerServiceImpl* service,
+                                                brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    auto [code, msg] = service->skip_instance_data_cleanup(instance_id);
+    return http_json_reply(code, msg);
+}
+
 HttpResponse process_abort_txn(MetaServiceImpl* service, brpc::Controller* ctrl) {
     AbortTxnRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
@@ -701,6 +735,32 @@ HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
 }
 
+HttpResponse process_check_instance_recycle_completed(MetaServiceImpl* service,
+                                                      brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (!instance_id || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+
+    bool finished = false;
+    std::string reason;
+    auto [code, msg] = service->check_instance_recycle_completed(*instance_id, finished, reason);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    rapidjson::Document result;
+    result.SetObject();
+    result.AddMember("finished", finished, result.GetAllocator());
+    result.AddMember("reason",
+                     rapidjson::Value(reason.data(), reason.size(), result.GetAllocator()),
+                     result.GetAllocator());
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    result.Accept(writer);
+    return http_json_reply(code, msg, buffer.GetString());
+}
+
 // Recycler HTTP handlers
 HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Controller* cntl) {
     std::string request_body = cntl->request_attachment().to_string();
@@ -813,6 +873,26 @@ HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*, brpc::Controller*
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "adjust failed");
     }
     return http_json_reply(MetaServiceCode::OK, "");
+}
+
+HttpResponse process_analyze_snapshot_retained(RecyclerServiceImpl* service,
+                                               brpc::Controller* cntl) {
+    auto [code, message, result] =
+            service->recycler()->snapshot_manager()->analyze_snapshot_retained(
+                    cntl->request_attachment().to_string());
+    return http_json_reply(code, message,
+                           result.empty() ? std::nullopt : std::optional<std::string>(result));
+}
+
+HttpResponse process_get_snapshot_retained_analysis(RecyclerServiceImpl* service,
+                                                    brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    auto [code, message, result] =
+            service->recycler()->snapshot_manager()->get_snapshot_retained_analysis(
+                    cntl->request_attachment().to_string(), http_query(uri, "instance_id"),
+                    http_query(uri, "analysis_id"));
+    return http_json_reply(code, message,
+                           result.empty() ? std::nullopt : std::optional<std::string>(result));
 }
 
 HttpResponse process_show_config(MetaServiceImpl*, brpc::Controller* cntl) {

@@ -25,6 +25,7 @@ suite("test_javaudf_sessionize") {
     def tableName = "test_javaudf_sessionize"
     File path = new File("${context.file.parent}")
     def jarPath = """${path.getParent()}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -59,4 +60,3 @@ suite("test_javaudf_sessionize") {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
-

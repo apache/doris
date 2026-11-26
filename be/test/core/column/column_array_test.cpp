@@ -365,15 +365,6 @@ protected:
 };
 
 //////////////////////// basic function from column.h ////////////////////////
-TEST_F(ColumnArrayTest, InsertManyFixLengthDataTest) {
-    auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        for (auto& col : array_columns) {
-            EXPECT_ANY_THROW(col->insert_many_fix_len_data(nullptr, 0));
-        }
-    };
-    assert_insert_many_fix_len_data(array_columns, serdes, callback);
-}
-
 TEST_F(ColumnArrayTest, InsertManyDictDataTest) {
     auto callback = [&](MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         for (auto& col : array_columns) {
@@ -808,7 +799,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
 }
 
 TEST_F(ColumnArrayTest, IsDefaultAtTest) {
-    // default means meet empty array row in column_array, now just only used in ColumnVariant.
+    // default means meet empty array row in column_array, now just only used by Variant.
     // test is_default_at
     for (int i = 0; i < array_columns.size(); i++) {
         auto column = check_and_get_column<ColumnArray>(

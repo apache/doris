@@ -145,6 +145,20 @@ public class SubgraphEnumerator {
                 return false;
             }
         }
+        // A successful enumeration must actually build the full join (the root
+        // bitmap). DPHyp can walk every CSG/CMP without any receiver returning
+        // FAIL while never inserting the root — e.g. when the only full split
+        // is rejected by the alias-dependency rule (a producer alias whose
+        // source spans both children, as in a producer-after-consumer alias
+        // chain: x on {A,B} consumed by y on {A,B,C} at split {A,C}--{B}).
+        // Accepting such a rootless probe makes GraphSimplifier stop
+        // simplifying and makes the final PlanReceiver pass return a null best
+        // plan for the root. Requiring the root bitmap forces the simplifier
+        // to keep applying steps, or the caller to fall back to the original
+        // group, instead of returning a null plan.
+        if (!receiver.contain(hyperGraph.getNodesMap())) {
+            return false;
+        }
         if (enableTrace) {
             LOG.info(traceBuilder.toString());
         }

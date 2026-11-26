@@ -24,6 +24,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -34,7 +35,6 @@
 #include "storage/task/engine_storage_migration_task.h"
 
 namespace doris {
-const static std::string HEADER_JSON = "application/json";
 
 void TabletMigrationAction::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;

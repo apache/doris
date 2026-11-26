@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.ArrayList;
 import java.util.HashMap;

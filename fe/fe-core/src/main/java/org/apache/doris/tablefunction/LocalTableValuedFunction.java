@@ -21,8 +21,9 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
@@ -62,22 +63,28 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        checkAccess();
+
+        // Check privileges before listing files or discovering their schema.
+        checkAuth(ConnectContext.get());
+
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
 
         try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-            String uri = storageProperties.validateAndGetUri(props);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
-        } catch (UserException e) {
+            this.storageAdapter = StorageAdapter.of(props);
+            backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
+            String uri = storageAdapter.validateAndGetUri(props);
+            filePath = storageAdapter.validateAndNormalizeUri(uri);
+        } catch (RuntimeException e) {
+            // legacy wrapped checked UserException here; the facade throws unchecked, keep the
+            // same user-facing AnalysisException classification and message shape
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
-
-        backendId = Long.parseLong(storageProperties.getBackendConfigProperties()
+        backendId = Long.parseLong(storageAdapter.getBackendConfigProperties()
                 .getOrDefault(PROP_BACKEND_ID, "-1"));
-        sharedStorage = Boolean.parseBoolean(storageProperties.getBackendConfigProperties()
+        sharedStorage = Boolean.parseBoolean(storageAdapter.getBackendConfigProperties()
                 .getOrDefault(PROP_SHARED_STORAGE, "false"));
 
         // If not shared storage, backend_id is required
@@ -130,6 +137,21 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
         }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.OPERATOR)) {
+            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN/OPERATOR");
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+        }
+        super.checkAuth(ctx);
+    }
+
+    /** Reject LOCAL before property parsing, file discovery or sink binding. */
+    public static void checkAccess() {
+        throw new org.apache.doris.nereids.exceptions.AnalysisException("LOCAL TVF is disabled.");
     }
 
     @Override

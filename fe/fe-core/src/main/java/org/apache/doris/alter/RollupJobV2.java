@@ -23,7 +23,6 @@ import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -37,6 +36,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
@@ -221,7 +221,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
         tbl.readLock();
         try {
-            BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            TabletBinlogConfig binlogConfig = tbl.getTabletBinlogConfig();
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -272,7 +272,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.variantEnableFlattenNested(),
                                 tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                 tbl.storageDictPageSize(), null,
-                                tbl.getVerticalCompactionNumColumnsPerGroup(), null);
+                                tbl.getVerticalCompactionNumColumnsPerGroup(),
+                                tbl.getRowTtlConfig(),
+                                tbl.getRowTtlTimeZoneOffsetSeconds());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -647,6 +649,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     tbl.getIndexIdToSchema(true));
         }
         tbl.rebuildFullSchema();
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /**
@@ -708,8 +711,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         if (Config.enable_abort_txn_by_checking_conflict_txn) {
             List<TransactionState> failedTxns = GlobalTransactionMgr.checkFailedTxns(unFinishedTxns);
             for (TransactionState txn : failedTxns) {
-                Env.getCurrentGlobalTransactionMgr()
-                        .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                try {
+                    Env.getCurrentGlobalTransactionMgr()
+                            .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                } catch (UserException e) {
+                    LOG.warn("failed to abort previous load txn {}, wait next round. rollup job: {}",
+                            txn.getTransactionId(), jobId, e);
+                    return false;
+                }
             }
         }
         return unFinishedTxns.isEmpty();
@@ -747,7 +756,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                        rollupSchemaHash, medium);
+                        rollupSchemaHash, medium, false /* isChangelog */);
                 invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
                 for (Replica rollupReplica : rollupTablet.getReplicas()) {
                     invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
@@ -904,12 +913,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        showJobState = jobState;
+
         // analyze define stmt
         if (origStmt == null) {
             return;
         }
 
-        showJobState = jobState;
         if (jobState != JobState.PENDING) {
             return;
         }

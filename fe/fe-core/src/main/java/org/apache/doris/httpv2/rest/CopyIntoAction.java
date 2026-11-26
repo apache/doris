@@ -28,13 +28,14 @@ import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
+import org.apache.doris.httpv2.util.HttpHeaderUtils;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -120,7 +121,7 @@ public class CopyIntoAction extends RestBaseController {
             }
             while (headerNames.hasMoreElements()) {
                 String key = headerNames.nextElement();
-                String value = request.getHeader(key);
+                String value = HttpHeaderUtils.getRedactedHeaderValueForLogging(request, key);
                 map.put(key, value);
             }
             return map;
@@ -187,8 +188,8 @@ public class CopyIntoAction extends RestBaseController {
 
             // 2. use ObjFileSystem to get pre-signedUrl
             ObjectInfo objectInfo = new ObjectInfo(objPb);
-            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
+            StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageAdapter);
             String signedUrl = fs.getPresignedUrl(fileName);
             long elapseMs = System.currentTimeMillis() - startTime;
             MetricRepo.HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY.update(elapseMs);

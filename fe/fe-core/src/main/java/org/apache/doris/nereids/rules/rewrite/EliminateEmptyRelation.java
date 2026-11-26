@@ -23,14 +23,17 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -231,7 +234,8 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
     }
 
     private boolean canReplaceJoinByEmptyRelation(LogicalJoin<?, ?> join) {
-        return !join.isMarkJoin() && ((join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin()
+        return !join.isMarkJoin() && !containsSideEffect(join) && ((join.getJoinType().isInnerJoin()
+            || join.getJoinType().isAsofInnerJoin()
             || join.getJoinType() == JoinType.LEFT_SEMI_JOIN
             || join.getJoinType() == JoinType.RIGHT_SEMI_JOIN
             || join.getJoinType() == JoinType.CROSS_JOIN)
@@ -239,6 +243,34 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
             || (join.getJoinType().isAsofLeftOuterJoin() && join.left() instanceof EmptyRelation)
             || (join.getJoinType().isRightOuterJoin() && join.right() instanceof EmptyRelation)
             || (join.getJoinType().isAsofRightOuterJoin() && join.right() instanceof EmptyRelation));
+    }
+
+    /**
+     * Whether replacing the join with an empty relation would discard a side-effecting check that still has
+     * to run. The subtree must be preserved (i.e. the join must not be eliminated) when it contains a scalar
+     * cardinality check ({@link LogicalAssertNumRows}) or an assert_true ({@link NoneMovableFunction}),
+     * otherwise the expected error is silently suppressed. For example
+     * {@code nvl(o.x = (select s.x from s) and exists(select 1 where false), false)}: the higher empty EXISTS is
+     * lowered to a non-mark CROSS join with an empty relation, and replacing it with empty would delete the lower
+     * scalar's {@link LogicalAssertNumRows} and return an empty result instead of raising the
+     * "must return only 1 row" error. Volatile functions are intentionally not checked here: their values are
+     * non-deterministic but not side-effecting, and they produce no rows inside an empty join anyway.
+     */
+    private boolean containsSideEffect(Plan plan) {
+        if (plan instanceof LogicalAssertNumRows) {
+            return true;
+        }
+        for (Expression expression : plan.getExpressions()) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
+        }
+        for (Plan child : plan.children()) {
+            if (containsSideEffect(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

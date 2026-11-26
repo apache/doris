@@ -68,11 +68,16 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
-                    || ((ArrayType) argType).getItemType().isVariantType()
-                    || ((ArrayType) argType).getItemType().isJsonType())) {
-            throw new AnalysisException("arrays_overlap does not support types: " + argType.toSql());
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+        for (Expression argument : getArguments()) {
+            DataType argType = argument.getDataType();
+            if (!argType.isArrayType()) {
+                continue;
+            }
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!ArrayFunctionUtils.isSupportedByArrayEqualityFunctions(itemType)) {
+                throw new AnalysisException("arrays_overlap does not support element type " + itemType.toSql());
+            }
         }
     }
 

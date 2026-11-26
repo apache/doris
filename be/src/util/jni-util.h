@@ -23,17 +23,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <cstdlib>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/status.h"
 #include "jni_md.h"
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
 
-#ifdef USE_HADOOP_HDFS
 // defined in hadoop/hadoop-hdfs-project/hadoop-hdfs/src/main/native/libhdfs/jni_helper.c
 extern "C" JNIEnv* getJNIEnv(void);
-#endif
 
 namespace doris {
 
@@ -48,6 +51,8 @@ namespace doris {
 // to confirm whether the jni method will throw an exception.
 
 namespace Jni {
+class JvmLauncher;
+
 class Env {
 public:
     static Status Get(JNIEnv** env) {
@@ -72,17 +77,34 @@ public:
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
+    // What the JVM of this process was created from, for the one error message that has to
+    // report a deployment problem rather than a programming one. Says so explicitly when the
+    // variable is unset, which is what a BE not started by bin/start_be.sh looks like.
+    static std::string class_path_of_this_process() {
+        const char* class_path = getenv("CLASSPATH");
+        return class_path == nullptr ? std::string("<CLASSPATH unset>") : std::string(class_path);
+    }
     static Status init_throw_exception() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
         // Find JniUtil class and create a global ref.
-        jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
+        jclass local_jni_util_cl = env->FindClass("org/apache/doris/jni/spi/utils/JniUtil");
         if (local_jni_util_cl == nullptr) {
             if (env->ExceptionOccurred()) {
                 env->ExceptionDescribe();
             }
-            return Status::JniError("Failed to find JniUtil class.");
+            // Named rather than left as a bare FindClass failure: this is the first class BE
+            // resolves out of the shared layer, so a deployment whose lib/jni/spi is missing or
+            // was not put on the class path fails exactly here, and the answer is a directory
+            // name and a jar name. The failure is then cached for the life of the process, so
+            // this is also the only chance to say it.
+            return Status::JniError(
+                    "Failed to find the JniUtil class of the Java plugin SPI. It ships in "
+                    "doris-jni-spi.jar under DORIS_HOME/lib/jni/spi, which bin/start_be.sh puts "
+                    "on the class path; check that the directory exists and holds "
+                    "doris-jni-spi.jar and doris-jni-bootstrap.jar. Class path: {}",
+                    class_path_of_this_process());
         }
         jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
         env->DeleteLocalRef(local_jni_util_cl);
@@ -117,6 +139,20 @@ private:
         }
         return Status::OK();
     }
+
+    // Drops the cached JNIEnv of the calling thread. Only the thread exit hook and the JVM
+    // bootstrap may call this: the env it caches is gone the moment the thread is detached,
+    // and anything reading it afterwards - another thread exit hook, say - would read freed
+    // memory.
+    static void reset_tls_env() { tls_env_ = nullptr; }
+    // Caches an env the bootstrap attached by itself, so that resolving the JNI base right
+    // after the JVM comes up stays on Get()'s fast path instead of re-entering ensure_jvm().
+    static void set_tls_env(JNIEnv* env) { tls_env_ = env; }
+    // What Get() would hand out on this thread without asking anyone, nullptr when nothing is
+    // cached. For JvmLauncher::ScopedVmEnv, which primes the cache for one scope and has to put
+    // back what it found rather than assume there was nothing: on the bootstrap thread there is.
+    static JNIEnv* tls_env() { return tls_env_; }
+    friend class JvmLauncher;
 
 private:
     // Thread-local cache of the JNIEnv for this thread.
@@ -606,6 +642,9 @@ public:
 
     bool uninitialized() const { return _obj == nullptr; }
 
+    // Access the JNI handle without changing ownership.
+    jobject get() const { return _obj; }
+
     void reset(JNIEnv* env) {
         if (_obj == nullptr) {
             return;
@@ -747,11 +786,15 @@ using ByteArrayBufferGuard = BufferGuard<ByteArray, Ref>;
 using LocalByteArrayBufferGuard = BufferGuard<ByteArray, Local>;
 using GlobalByteArrayBufferGuard = BufferGuard<ByteArray, Global>;
 
+// Reads a borrowed Java String as standard UTF-8 without taking ownership of the reference.
+Status get_string_utf8(JNIEnv* env, jstring value, std::string* result);
+
 template <RefType Ref>
 class String : public Object<Ref> {
 public:
     String() = default;
 
+    // Accepts JNI modified UTF-8. Use new_string_utf8 for standard UTF-8, e.g. scanner SQL.
     static Status new_string(JNIEnv* env, const char* utf_chars, String<Ref>* result) {
         DCHECK(result->uninitialized());
 
@@ -759,23 +802,39 @@ public:
             result->_obj = env->NewStringUTF(utf_chars);
             RETURN_ERROR_IF_EXC(env);
         } else if constexpr (Ref == Global) {
-            String local_result;
-            local_result->_obj = env->NewStringUTF(utf_chars);
-            RETURN_ERROR_IF_EXC(env);
+            String<Local> local_result;
+            RETURN_IF_ERROR(String<Local>::new_string(env, utf_chars, &local_result));
             RETURN_IF_ERROR(local_to_global_ref(env, local_result, result));
         } else {
             static_assert(false);
         }
+        // JNI allocation may return null without a pending exception.
+        if (result->uninitialized()) {
+            return Status::JniError("Failed to allocate modified UTF-8 Java string reference");
+        }
         return Status::OK();
     }
+
+    // Decodes standard UTF-8, including supplementary characters and embedded NULs.
+    static Status new_string_utf8(JNIEnv* env, std::string_view utf_chars, String<Ref>* result);
 
     Status get_string_chars(JNIEnv* env, StringBufferGuard<Ref>* jni_chars) const {
         return StringBufferGuard<Ref>::create(env, *this, jni_chars, nullptr);
     }
 
+    // Unlike get_string_chars (JNI modified UTF-8), preserves standard UTF-8 and embedded NULs.
+    // Rejects unpaired UTF-16 surrogates instead of replacing them.
+    Status get_string_utf8(JNIEnv* env, std::string* result) const {
+        DCHECK(!this->uninitialized());
+        return Jni::get_string_utf8(env, static_cast<jstring>(this->_obj), result);
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(String);
 };
+
+extern template Status String<Local>::new_string_utf8(JNIEnv*, std::string_view, String<Local>*);
+extern template Status String<Global>::new_string_utf8(JNIEnv*, std::string_view, String<Global>*);
 
 template <RefType Ref>
 class Array : public Object<Ref> {
@@ -868,6 +927,45 @@ public:
         } else {
             static_assert(false);
         }
+    }
+
+    /**
+     * The class of an object that is already in hand.
+     *
+     * Needed where a class cannot be named: an object produced by a plugin is an instance of a
+     * class inside that plugin's classloader, which FindClass - searching BE's own loader -
+     * cannot see. Asking the object is the only way to reach it.
+     */
+    template <RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        DCHECK(!object.uninitialized());
+        DCHECK(result->uninitialized());
+        if constexpr (Ref == Local) {
+            result->_obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return Status::OK();
+        } else if constexpr (Ref == Global) {
+            Class<Local> local_class;
+            local_class._obj = env->GetObjectClass(object._obj);
+            RETURN_ERROR_IF_EXC(env);
+            return local_to_global_ref(env, local_class, result);
+        } else {
+            static_assert(false);
+        }
+    }
+
+    /**
+     * Whether an object is an instance of this class.
+     *
+     * The one way to check the kind of something a plugin handed back: the object's own class is
+     * private to the plugin's classloader, so the only comparable identity is a shared base class
+     * BE resolved itself. IsInstanceOf raises no exception, hence the plain bool.
+     */
+    template <RefType R>
+    bool is_instance(JNIEnv* env, const Object<R>& object) const {
+        DCHECK(!this->uninitialized());
+        DCHECK(!object.uninitialized());
+        return env->IsInstanceOf(object._obj, (jclass)this->_obj) == JNI_TRUE;
     }
 
     Status get_static_method(JNIEnv* env, const char* method_str, const char* method_signature,
@@ -1045,11 +1143,25 @@ NonvirtualFunctionCall<NonvirtualBooleanMethod> Object<Ref>::call_nonvirtual_boo
 
 class Util {
 public:
+    // Converts standard UTF-8 strings to a Java String[]. On success the caller owns the
+    // returned local reference; *result must be null on entry and is unchanged on failure.
+    static Status create_string_array_utf8(JNIEnv* env, const std::vector<std::string>& values,
+                                           jobjectArray* result);
+
+    // Throws java.io.IOException with a standard UTF-8 message, using an ASCII fallback if
+    // message conversion fails. Exceptions from the IOException constructor are preserved.
+    static void throw_java_io_exception_utf8(JNIEnv* env, const std::string& message);
+
     static size_t get_max_jni_heap_memory_size();
 
     template <RefType Ref>
     static Status find_class(JNIEnv* env, const char* class_str, Class<Ref>* result) {
         return Class<Ref>::find_class(env, class_str, result);
+    }
+
+    template <RefType Ref, RefType R>
+    static Status get_object_class(JNIEnv* env, const Object<R>& object, Class<Ref>* result) {
+        return Class<Ref>::get_object_class(env, object, result);
     }
 
     template <RefType Ref>
@@ -1080,17 +1192,6 @@ public:
     }
 
     template <RefType Ref>
-    static Status get_jni_scanner_class(JNIEnv* env, const char* classname,
-                                        Object<Ref>* jni_scanner_class) {
-        // Get JNI scanner class by class name;
-        LocalString class_name_str;
-        RETURN_IF_ERROR(LocalString::new_string(env, classname, &class_name_str));
-        return jni_scanner_loader_obj_.call_object_method(env, jni_scanner_loader_method_)
-                .with_arg(class_name_str)
-                .call(jni_scanner_class);
-    }
-
-    template <RefType Ref>
     static Status convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
                                       Object<Ref>* hashmap_object) {
         RETURN_IF_ERROR(hashmap_class.new_object(env, hashmap_constructor)
@@ -1099,10 +1200,10 @@ public:
 
         for (const auto& it : map) {
             LocalString key;
-            RETURN_IF_ERROR(String<Local>::new_string(env, it.first.c_str(), &key));
+            RETURN_IF_ERROR(String<Local>::new_string_utf8(env, it.first, &key));
 
             LocalString value;
-            RETURN_IF_ERROR(String<Local>::new_string(env, it.second.c_str(), &value));
+            RETURN_IF_ERROR(String<Local>::new_string_utf8(env, it.second, &value));
 
             LocalObject result;
             RETURN_IF_ERROR(hashmap_object->call_object_method(env, hashmap_put)
@@ -1140,40 +1241,67 @@ public:
             LocalString javaValue;
             RETURN_IF_ERROR(entry.call_object_method(env, getEntryValueMethod).call(&javaValue));
 
-            LocalStringBufferGuard key;
-            RETURN_IF_ERROR(javaKey.get_string_chars(env, &key));
+            std::string key;
+            RETURN_IF_ERROR(javaKey.get_string_utf8(env, &key));
 
-            LocalStringBufferGuard value;
-            RETURN_IF_ERROR(javaValue.get_string_chars(env, &value));
+            std::string value;
+            RETURN_IF_ERROR(javaValue.get_string_utf8(env, &value));
 
             // Store the key-value pair in the map
-            (*resultMap)[key.get()] = value.get();
+            (*resultMap)[std::move(key)] = std::move(value);
         }
         return Status::OK();
     }
 
-    static Status clean_udf_class_load_cache(const std::string& function_signature);
-
-    static Status Init();
+    // The outcome of the one attempt to resolve the JNI base, or nullopt when nothing has
+    // attempted it yet. Public, unlike ensure_jni_base() below, precisely because it never
+    // triggers the attempt: this is what a reader that must not create a JVM asks - the
+    // /api/jni_plugin_status endpoint, which exists to answer "why is Java not working here"
+    // and would otherwise have to start a JVM to find out.
+    static std::optional<Status> jni_base_outcome();
 
 private:
+    // Resolves everything the BE needs from the JVM before it can call any Java code: the
+    // exception helpers, the native methods the Java side links against, and the
+    // collection classes cached below. Runs once, right after the JVM appears; every
+    // caller that follows gets the outcome of that one attempt.
+    //
+    // Deliberately NOT part of "does this process have a JVM": all of it comes out of
+    // doris-jni-spi.jar, and a BE whose Java deployment is incomplete still serves HDFS through
+    // libhdfs. JvmLauncher runs it once at the end of its bootstrap and logs a failure; Env, the
+    // door every Java caller comes through, refuses to hand out a JNIEnv while it is failing.
+    //
+    // Only those two may call it. JvmLauncher calls it from inside its bootstrap, with the
+    // calling thread already attached and its env cached, because the resolution asks Env::Get()
+    // for a JNIEnv and an unattached thread there would go back through ensure_jvm() and deadlock
+    // on the once flag the bootstrap is already holding.
+    //
+    // Env::GetJNIEnvSlowPath() calls it from an unattached thread on purpose, and the invariant
+    // that makes THAT safe is a different one, worth stating because nothing enforces it: by the
+    // time the slow path gets here, ensure_jvm()'s call_once has already run to completion on
+    // some thread, so the resolution below is never the one that runs - it is always the cached
+    // answer of the attempt the bootstrap made. Every early exit of _bootstrap() leaves
+    // jvm_status non-OK, and the slow path returns on that before reaching this line.
+    //
+    // Making the base lazy (that is, resolving it here for real rather than reading a cached
+    // answer) would put the deadlock straight back, so GetJNIEnvSlowPath() holds it down with a
+    // DCHECK: on that path an outcome must already exist before this is called.
+    static Status ensure_jni_base();
+    friend class JvmLauncher;
+    friend class Env;
+
     static void _parse_max_heap_memory_size_from_jvm();
 
+    // Bytes named by the last -Xmx in `options`, or 0 when none of them says. Split out from the
+    // above so that the parsing can be tested without a JVM; see jni_util_test.cpp.
+    static jlong _parse_xmx(const std::string& options);
+
+    static Status _init_jni_base() WARN_UNUSED_RESULT;
     static Status _init_collect_class() WARN_UNUSED_RESULT;
     static Status _init_register_natives() WARN_UNUSED_RESULT;
-    static Status _init_jni_scanner_loader() WARN_UNUSED_RESULT;
-
-    static bool jvm_inited_;
 
     // for jvm heap
     static jlong max_jvm_heap_memory_size_;
-
-    // for JNI scanner loader
-    static GlobalObject jni_scanner_loader_obj_;
-    static MethodId jni_scanner_loader_method_;
-
-    // for clean udf cache
-    static MethodId _clean_udf_cache_method_id;
 
     //for hashmap
     static GlobalClass hashmap_class;

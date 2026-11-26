@@ -19,7 +19,7 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import org.apache.hadoop.fs.Path;
 
@@ -32,11 +32,11 @@ import java.io.OutputStream;
 class HdfsOutputFile implements DorisOutputFile {
 
     private final Path path;
-    private final HadoopAuthenticator authenticator;
+    private final ExecutionAuthenticator authenticator;
     private final DFSFileSystem dfs;
     private final Location location;
 
-    HdfsOutputFile(Path path, HadoopAuthenticator authenticator, DFSFileSystem dfs) {
+    HdfsOutputFile(Path path, ExecutionAuthenticator authenticator, DFSFileSystem dfs) {
         this.path = path;
         this.authenticator = authenticator;
         this.dfs = dfs;

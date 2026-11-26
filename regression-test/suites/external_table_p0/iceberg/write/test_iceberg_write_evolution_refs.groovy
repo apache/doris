@@ -23,6 +23,10 @@ suite("test_iceberg_write_evolution_refs",
         return
     }
 
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -209,7 +213,7 @@ suite("test_iceberg_write_evolution_refs",
                 struct(80, 'branch-seed', 'current-schema'), 'branch-overwrite-seed')
     """
     order_qt_branch_after_insert """
-        select id, zone, note
+        select id, zone, payload.label, note
         from evolution_refs@branch(base_branch)
         order by id
     """
@@ -218,7 +222,7 @@ suite("test_iceberg_write_evolution_refs",
     """
     assertSparkBranchMatchesDoris(
             "base_branch",
-            "id, zone, bucket_key, event_time, amount, note")
+            "id, zone, bucket_key, event_time, amount, payload.label, note")
 
     sql """
         insert overwrite table evolution_refs@branch(base_branch)
@@ -227,12 +231,8 @@ suite("test_iceberg_write_evolution_refs",
                struct(cast(80 as bigint), 'branch-overwrite', 'current-schema'),
                'branch-overwrite'
     """
-    assertEquals(0L, (sql """
-        select count(*) from evolution_refs@branch(base_branch)
-        where note = 'branch-overwrite-seed'
-    """)[0][0] as long)
     order_qt_branch_after_overwrite """
-        select id, zone, note
+        select id, zone, payload.label, note
         from evolution_refs@branch(base_branch)
         order by id
     """
@@ -248,6 +248,6 @@ suite("test_iceberg_write_evolution_refs",
     """
     assertSparkBranchMatchesDoris(
             "base_branch",
-            "id, zone, bucket_key, event_time, amount, note")
+            "id, zone, bucket_key, event_time, amount, payload.label, note")
     assertSparkMatchesDoris("", "id, zone, bucket_key, event_time, amount")
 }

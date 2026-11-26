@@ -17,9 +17,10 @@
 
 package org.apache.doris.connector.jdbc.client;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.jdbc.JdbcDbType;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -66,20 +66,17 @@ public abstract class JdbcConnectorClient implements Closeable {
     protected static final int JDBC_DATETIME_SCALE = 6;
     protected static final int MAX_DECIMAL128_PRECISION = 38;
 
-    private static final Map<URL, RefCountedClassLoader> CLASS_LOADER_MAP = new ConcurrentHashMap<>();
-
-    /**
-     * Pairs a ClassLoader with a reference count so the map entry can be removed
-     * when the last client using that driver URL is closed.
-     */
-    static final class RefCountedClassLoader {
-        final ClassLoader loader;
-        final AtomicInteger refCount = new AtomicInteger(1);
-
-        RefCountedClassLoader(ClassLoader loader) {
-            this.loader = loader;
-        }
-    }
+    // Keep-alive cache of driver classloaders: one per distinct driver URL, shared across all catalogs
+    // and never evicted. A JDBC driver self-registers into the static java.sql.DriverManager when its
+    // class is loaded, which strong-references the driver's classloader (and all its classes) for the
+    // life of the FE process. Evicting a URL's classloader while DriverManager still pins it frees NO
+    // Metaspace; it only forces the NEXT catalog for that URL to build a fresh, separately-pinned
+    // classloader -- so create/drop/recreate churn leaked one driver's worth of Metaspace per cycle
+    // (FE Metaspace 165MB->1565MB, external regression 986696 OOM). Keeping one loader per URL forever
+    // is bounded by the number of distinct driver jars (a handful) and mirrors the pre-SPI JdbcClient.
+    // Do NOT reintroduce per-close eviction here without first deregistering the drivers loaded by the
+    // classloader (java.sql.DriverManager.deregisterDriver) and closing the URLClassLoader.
+    private static final Map<URL, ClassLoader> CLASS_LOADER_MAP = new ConcurrentHashMap<>();
 
     protected final String catalogName;
     protected final JdbcDbType dbType;
@@ -90,13 +87,14 @@ public abstract class JdbcConnectorClient implements Closeable {
     protected final boolean enableMappingVarbinary;
     protected final boolean enableMappingTimestampTz;
     protected ClassLoader classLoader;
-    private URL classLoaderUrl;
     protected HikariDataSource dataSource;
+    private String jdbcPassword = "";
 
     /**
      * Factory method to create the correct client subclass for the given DB type.
      *
-     * @param urlSanitizer engine-level JDBC URL sanitizer (e.g., SSRF protection).
+     * @param urlSanitizer engine-level outbound URL sanitizer (e.g., SSRF protection). Applied here because
+     *                     this is where the connector itself opens the connection.
      *                     Applied before passing the URL to HikariCP. Pass
      *                     {@link UnaryOperator#identity()} if no sanitization is needed.
      */
@@ -183,12 +181,21 @@ public abstract class JdbcConnectorClient implements Closeable {
             default:
                 throw new DorisConnectorException("Unsupported JDBC DB type: " + dbType);
         }
-        client.initializeClassLoader(driverUrl);
-        String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
-        client.initializeDataSource(sanitizedUrl, user, password, driverClass,
-                poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
-        client.postInitialize();
-        return client;
+        try {
+            client.initializeClassLoader(driverUrl);
+            String sanitizedUrl = urlSanitizer.apply(jdbcUrl);
+            client.initializeDataSource(sanitizedUrl, user, password, driverClass,
+                    poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime);
+            client.postInitialize();
+            return client;
+        } catch (RuntimeException | Error e) {
+            try {
+                client.close();
+            } catch (RuntimeException | Error closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
+            throw e;
+        }
     }
 
     protected JdbcConnectorClient(
@@ -204,8 +211,9 @@ public abstract class JdbcConnectorClient implements Closeable {
         this.onlySpecifiedDatabase = onlySpecifiedDatabase;
         this.includeDatabaseMap = includeDatabaseMap != null ? includeDatabaseMap : Collections.emptyMap();
         this.excludeDatabaseMap = excludeDatabaseMap != null ? excludeDatabaseMap : Collections.emptyMap();
-        this.enableMappingVarbinary = enableMappingVarbinary;
-        this.enableMappingTimestampTz = enableMappingTimestampTz;
+        // Deprecated flags cannot change the external logical type contract.
+        this.enableMappingVarbinary = true;
+        this.enableMappingTimestampTz = true;
     }
 
     // -- lifecycle --
@@ -219,11 +227,19 @@ public abstract class JdbcConnectorClient implements Closeable {
 
     private void initializeDataSource(String url, String user, String password,
             String driverClass, int poolMin, int poolMax, int maxWait, int maxLife) {
+        jdbcPassword = password;
         ClassLoader old = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             dataSource = new HikariDataSource();
-            dataSource.setDriverClassName(driverClass);
+            // driver_class is optional. When absent, let HikariCP resolve the driver from the JDBC URL via
+            // DriverManager rather than passing null to setDriverClassName — a null there NPEs deep inside
+            // HikariCP (loadClass(null) -> ClassLoader lock map -> ConcurrentHashMap null key), which this
+            // method's catch re-wraps into an opaque "Failed to initialize JDBC data source: null" that hides
+            // the real "driver_class not provided" cause.
+            if (driverClass != null && !driverClass.isEmpty()) {
+                dataSource.setDriverClassName(driverClass);
+            }
             dataSource.setJdbcUrl(url);
             dataSource.setUsername(user);
             dataSource.setPassword(password);
@@ -236,33 +252,36 @@ public abstract class JdbcConnectorClient implements Closeable {
             LOG.info("JdbcConnectorClient set PoolMin={}, PoolMax={}, MaxWait={}, MaxLife={}",
                     poolMin, poolMax, maxWait, maxLife);
         } catch (Exception e) {
-            throw new DorisConnectorException("Failed to initialize JDBC data source: " + e.getMessage(), e);
+            throw jdbcException("Failed to initialize JDBC data source", e);
         } finally {
             Thread.currentThread().setContextClassLoader(old);
         }
     }
 
-    private synchronized void initializeClassLoader(String driverUrl) {
+    private void initializeClassLoader(String driverUrl) {
         if (driverUrl == null || driverUrl.isEmpty()) {
             this.classLoader = getClass().getClassLoader();
             return;
         }
         try {
-            URL[] urls = {new URL(resolveDriverUrl(driverUrl))};
-            this.classLoaderUrl = urls[0];
-            RefCountedClassLoader entry = CLASS_LOADER_MAP.compute(urls[0], (key, existing) -> {
-                if (existing != null) {
-                    existing.refCount.incrementAndGet();
-                    return existing;
-                }
-                ClassLoader parent = getClass().getClassLoader();
-                return new RefCountedClassLoader(URLClassLoader.newInstance(urls, parent));
-            });
-            this.classLoader = entry.loader;
+            URL url = new URL(resolveDriverUrl(driverUrl));
+            this.classLoader = getOrCreateDriverClassLoader(url);
         } catch (MalformedURLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to load JDBC driver from path: " + driverUrl, e);
         }
+    }
+
+    /**
+     * Returns the shared driver classloader for {@code url}, creating and caching it on first use.
+     * The classloader is kept for the life of the process and reused by every catalog that references
+     * the same driver URL (see {@link #CLASS_LOADER_MAP} for why it is never evicted).
+     *
+     * <p>Visible for testing.</p>
+     */
+    static ClassLoader getOrCreateDriverClassLoader(URL url) {
+        return CLASS_LOADER_MAP.computeIfAbsent(url, key ->
+                URLClassLoader.newInstance(new URL[]{key}, JdbcConnectorClient.class.getClassLoader()));
     }
 
     private static String resolveDriverUrl(String driverUrl) {
@@ -279,18 +298,9 @@ public abstract class JdbcConnectorClient implements Closeable {
             dataSource.close();
             dataSource = null;
         }
-        releaseClassLoader();
-    }
-
-    private void releaseClassLoader() {
-        if (classLoaderUrl == null) {
-            return;
-        }
-        CLASS_LOADER_MAP.computeIfPresent(classLoaderUrl, (key, entry) -> {
-            int remaining = entry.refCount.decrementAndGet();
-            return remaining <= 0 ? null : entry;
-        });
-        classLoaderUrl = null;
+        // The shared driver classloader is intentionally NOT released here: it stays cached in
+        // CLASS_LOADER_MAP and is reused by the next catalog for the same driver URL. Releasing it
+        // per-close would leak Metaspace rather than free it (see CLASS_LOADER_MAP).
     }
 
     // Visible for testing
@@ -304,15 +314,33 @@ public abstract class JdbcConnectorClient implements Closeable {
 
     // -- connection helpers --
 
+    public boolean isNoBackslashEscapes() {
+        if (dbType != JdbcDbType.MYSQL && dbType != JdbcDbType.OCEANBASE) {
+            return false;
+        }
+        // Use the catalog connection so URL sessionVariables and server SQL mode are respected.
+        try (Connection connection = getConnection();
+                java.sql.Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT @@SESSION.sql_mode")) {
+            if (!result.next()) {
+                throw new DorisConnectorException("MySQL did not return its session SQL mode");
+            }
+            return java.util.Arrays.stream(result.getString(1).split(","))
+                    .anyMatch(mode -> mode.trim().equalsIgnoreCase("NO_BACKSLASH_ESCAPES"));
+        } catch (SQLException e) {
+            throw new DorisConnectorException("Failed to read MySQL session SQL mode", e);
+        }
+    }
+
     public Connection getConnection() {
         ClassLoader old = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             return dataSource.getConnection();
         } catch (Exception e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Catalog '" + catalogName + "' cannot connect to JDBC: "
-                    + getAllExceptionMessages(e), e);
+                    + "connection failed", e);
         } finally {
             Thread.currentThread().setContextClassLoader(old);
         }
@@ -330,7 +358,8 @@ public abstract class JdbcConnectorClient implements Closeable {
                         ((Connection) r).close();
                     }
                 } catch (SQLException e) {
-                    LOG.warn("Failed to close resource: {}", e.getMessage(), e);
+                    String diagnostic = JdbcExceptionUtils.format("Failed to close resource", e, jdbcPassword, jdbcUrl);
+                    LOG.warn("{}", diagnostic);
                 }
             }
         }
@@ -358,7 +387,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from JDBC", e);
+            throw jdbcException("Failed to get database name list from JDBC", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -386,7 +415,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                     names.add(rs.getString("TABLE_NAME"));
                 }
             } catch (SQLException e) {
-                throw new DorisConnectorException(
+                throw jdbcException(
                         "Failed to list tables for remote database: " + remoteDbName, e);
             }
         });
@@ -402,7 +431,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                     exists[0] = true;
                 }
             } catch (SQLException e) {
-                throw new DorisConnectorException(
+                throw jdbcException(
                         "Failed to check table existence: " + remoteDbName + "." + remoteTableName, e);
             }
         });
@@ -422,9 +451,8 @@ public abstract class JdbcConnectorClient implements Closeable {
                 schema.add(new JdbcFieldInfo(rs));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
-                    "Failed to get JDBC columns info for " + remoteDbName + "." + remoteTableName
-                    + ": " + getRootCauseMessage(e), e);
+            throw jdbcException(
+                    "Failed to get JDBC columns info for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
         }
@@ -446,9 +474,8 @@ public abstract class JdbcConnectorClient implements Closeable {
                 primaryKeys.add(rs.getString("COLUMN_NAME"));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
-                    "Failed to get primary keys for " + remoteDbName + "." + remoteTableName
-                    + ": " + getRootCauseMessage(e), e);
+            throw jdbcException(
+                    "Failed to get primary keys for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
         }
@@ -485,7 +512,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                 LOG.debug("Finished executing DML stmt: {}, effected rows: {}", origStmt, effectedRows);
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to execute stmt: " + e.getMessage(), e);
+            throw jdbcException("Failed to execute stmt", e);
         } finally {
             closeResources(stmt, conn);
         }
@@ -510,7 +537,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                 columns.add(new JdbcFieldInfo(metaData, i));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get columns from query: " + query, e);
+            throw jdbcException("Failed to get columns from query: " + query, e);
         } finally {
             closeResources(pstmt, conn);
         }
@@ -526,7 +553,7 @@ public abstract class JdbcConnectorClient implements Closeable {
             conn = getConnection();
             return conn.getMetaData().getDriverVersion();
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get JDBC driver version", e);
+            throw jdbcException("Failed to get JDBC driver version", e);
         } finally {
             closeResources(conn);
         }
@@ -566,7 +593,7 @@ public abstract class JdbcConnectorClient implements Closeable {
                 consumer.accept(customRs);
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(customRs, stmt, standardRs, conn);
         }
@@ -670,26 +697,18 @@ public abstract class JdbcConnectorClient implements Closeable {
         return map;
     }
 
-    private static String getAllExceptionMessages(Throwable throwable) {
-        StringBuilder sb = new StringBuilder();
-        while (throwable != null) {
-            String msg = throwable.getMessage();
-            if (msg != null && !msg.isEmpty()) {
-                if (sb.length() > 0) {
-                    sb.append(" | Caused by: ");
-                }
-                sb.append(msg);
-            }
-            throwable = throwable.getCause();
-        }
-        return sb.toString();
+    /** Shares an existing pool without losing the owner's diagnostic credentials. */
+    protected void shareDataSourceWith(JdbcConnectorClient delegate) {
+        delegate.classLoader = classLoader;
+        delegate.dataSource = dataSource;
+        delegate.jdbcPassword = jdbcPassword;
     }
 
-    private static String getRootCauseMessage(Throwable throwable) {
-        Throwable root = throwable;
-        while (root.getCause() != null) {
-            root = root.getCause();
-        }
-        return root.getMessage();
+    protected String jdbcDiagnosticMessage(Throwable cause) {
+        return JdbcExceptionUtils.format("", cause, jdbcPassword, jdbcUrl);
+    }
+
+    protected DorisConnectorException jdbcException(String context, Throwable cause) {
+        return new JdbcDiagnosticException(context, cause, jdbcPassword, jdbcUrl);
     }
 }

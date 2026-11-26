@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
@@ -47,7 +48,6 @@ import java.util.Date;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.TreeMap;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -101,7 +101,6 @@ public class TimeUtils {
     }
 
     private static final Logger LOG = LogManager.getLogger(TimeUtils.class);
-    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]?\\d{1,2}:\\d{2}$");
 
     static {
         Map<String, String> timeZoneMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -140,6 +139,14 @@ public class TimeUtils {
 
     public static ZoneId getDorisZoneId() {
         return getTimeZone().toZoneId();
+    }
+
+    /** Resolve a Doris time-zone name to the canonical ID understood by execution backends. */
+    public static String getCanonicalTimeZone(String timeZone) {
+        ZoneId zoneId = ZoneId.of(timeZone, timeZoneAliasMap);
+        // Java names a zero offset Z (+00:00) or a bare GMT (GMT+00:00). A backend finds those names only in a
+        // zone directory that ships the optional Zulu or GMT file, and it resolves UTC without one.
+        return zoneId.normalized().equals(ZoneOffset.UTC) ? UTC_TIME_ZONE : zoneId.getId();
     }
 
     public static TimeZone getUTCTimeZone() {
@@ -182,6 +189,20 @@ public class TimeUtils {
         }
         DateTimeFormatter dateFormat = getDatetimeFormatFromTimeZone(timeZone);
         return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), dateFormat.getZone()));
+    }
+
+    /** Same as {@link #longToTimeStringWithTimeZone(Long, String)} but appends
+     *  the timezone offset (e.g. {@code +00:00}, {@code +08:00}) so the
+     *  result is an unambiguous UTC instant string that
+     *  {@link PropertyAnalyzer#TZ_OFFSET_PATTERN} can detect and route to
+     *  {@code TZ_FORMATTER} for instant-aware parsing. */
+    public static String longToTimeStringWithTimeZoneAndOffset(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX")
+                .withZone(getOrSystemTimeZone(timeZone).toZoneId())
+                .format(Instant.ofEpochMilli(timeStamp));
     }
 
     public static String longToTimeStringWithms(Long timeStamp) {
@@ -296,42 +317,18 @@ public class TimeUtils {
 
     // Check if the time zone_value is valid
     public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
-        Function<String, String> standardizeValue = s -> {
-            boolean positive = s.charAt(0) != '-';
-            String[] parts = s.replaceAll("[+-]", "").split(":");
-            return (positive ? "+" : "-") + String.format("%02d:%02d",
-                    Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
-        };
-
         try {
-            if (value == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, "null");
+            String input = value;
+            if (input != null && !input.isEmpty() && Character.isDigit(input.charAt(0))) {
+                input = "+" + input;
             }
-            // match offset type, such as +08:00, -07:00
-            Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
-            // it supports offset and region timezone type, and short zone ids
-            boolean match = matcher.matches();
-            if (!value.contains("/") && !timeZoneAliasMap.containsKey(value) && !match) {
-                if ((value.startsWith("GMT") || value.startsWith("UTC"))
-                        && TIMEZONE_OFFSET_FORMAT_REG.matcher(value.substring(3)).matches()) {
-                    value = value.substring(0, 3) + standardizeValue.apply(value.substring(3));
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+            String normalized = TimeZoneParser.normalize(input, TimeZoneParser.Usage.SESSION);
+            for (String alias : timeZoneAliasMap.keySet()) {
+                if (alias.equalsIgnoreCase(value)) {
+                    return alias;
                 }
             }
-            if (match) {
-                value = standardizeValue.apply(value);
-
-                // timezone offsets around the world extended from -12:00 to +14:00
-                int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));
-                if (value.charAt(0) == '-' && tz > 1200) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
-                } else if (value.charAt(0) == '+' && tz > 1400) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
-                }
-            }
-            ZoneId.of(value, timeZoneAliasMap);
-            return value;
+            return normalized;
         } catch (DateTimeException ex) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
         }
@@ -400,4 +397,3 @@ public class TimeUtils {
         return convertToDateV2(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }
-

@@ -22,6 +22,7 @@
 #include <algorithm>
 
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"

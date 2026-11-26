@@ -23,10 +23,14 @@
 #include <ostream>
 #include <string>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
@@ -71,7 +75,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
 
-    if (tablet->tablet_state() == TABLET_RUNNING) {
+    if (tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         // check base rowset first version must be zero
         // for tablet which state is not TABLET_RUNNING, there may not have base version.
         CHECK((*base_rowset_meta)->start_version() == 0);
@@ -108,7 +112,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
                 << "cumulative compaction size_based policy, calculate cumulative point value = "
                 << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
                 << " tablet = " << tablet->tablet_id();
-    } else if (tablet->tablet_state() == TABLET_NOTREADY) {
+    } else if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
         for (const RowsetMetaSharedPtr& rs : existing_rss) {
@@ -143,7 +147,7 @@ void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_promotion_size(Tablet*
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING) {
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING) {
         // if tablet under alter process, do not update cumulative point
         return;
     }
@@ -213,7 +217,7 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
 
     // If base version does not exist, but its state is RUNNING.
     // It is abnormal, do not select it and set *score = 0
-    if (!base_rowset_exist && tablet->tablet_state() == TABLET_RUNNING) {
+    if (!base_rowset_exist && tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         LOG(WARNING) << "tablet state is running but have no base version";
         return 0;
     }
@@ -269,6 +273,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
+    RowsetSharedPtr last_popped;
 
     // DEFER: trim input_rowsets from back if score > max_compaction_score
     // This ensures we don't return more rowsets than allowed by max_compaction_score,
@@ -278,10 +283,18 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
         while (input_rowsets->size() > 1 &&
                *compaction_score > static_cast<size_t>(max_compaction_score)) {
-            auto& last_rowset = input_rowsets->back();
-            *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
-            total_size -= last_rowset->rowset_meta()->total_disk_size();
+            last_popped = std::move(input_rowsets->back());
+            *compaction_score -= last_popped->rowset_meta()->get_compaction_score();
+            total_size -= last_popped->rowset_meta()->total_disk_size();
             input_rowsets->pop_back();
+        }
+        // A single non-overlapping rowset cannot be compacted by itself. Restore the direct
+        // successor and accept a one-off max-score overshoot to keep the input mergeable.
+        if (input_rowsets->size() == 1 && last_popped != nullptr &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            *compaction_score += last_popped->rowset_meta()->get_compaction_score();
+            total_size += last_popped->rowset_meta()->total_disk_size();
+            input_rowsets->push_back(std::move(last_popped));
         }
     });
 
@@ -301,10 +314,10 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 continue;
             }
         }
-        if (tablet->tablet_state() == TABLET_NOTREADY) {
+        if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
             // If tablet under alter, keep latest 10 version so that base tablet max version
             // not merged in new tablet, and then we can copy data from base tablet
-            if (rowset->version().second < max_version - 10) {
+            if (rowset->version().second > max_version - 10) {
                 continue;
             }
         }
@@ -424,7 +437,32 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
     } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
         return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_CHANGELOG_POLICY) {
+        return std::make_shared<ChangelogCumulativeCompactionPolicy>();
     }
+    LOG_EVERY_N(WARNING, 100) << "unknown compaction policy " << compaction_policy
+                              << ", fall back to " << CUMULATIVE_SIZE_BASED_POLICY;
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+}
+
+std::shared_ptr<CumulativeCompactionPolicy>
+CumulativeCompactionPolicyFactory::get_cumulative_compaction_policy(
+        const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
+                policies,
+        std::string_view compaction_policy, int64_t tablet_id) {
+    auto it = policies.find(compaction_policy);
+    if (it != policies.end()) {
+        return it->second;
+    }
+    // An unknown name must not reach unordered_map::at(): its std::out_of_range is not caught
+    // on the compaction scheduler threads, so the BE would abort, and abort again after every
+    // restart. Example: a tablet meta persisted by a build that used another policy name.
+    LOG_EVERY_N(WARNING, 100) << "unknown compaction policy " << compaction_policy << " of tablet "
+                              << tablet_id << ", fall back to " << CUMULATIVE_SIZE_BASED_POLICY;
+    // Every policy table registers the size-based policy, see
+    // StorageEngine::_update_cumulative_compaction_policy().
+    auto size_based = policies.find(CUMULATIVE_SIZE_BASED_POLICY);
+    DORIS_CHECK(size_based != policies.end());
+    return size_based->second;
 }
 } // namespace doris

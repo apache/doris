@@ -94,7 +94,7 @@ public:
 
     // make data in context into a set
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         int num_args = context->get_num_args();
@@ -112,7 +112,7 @@ public:
             const auto& const_column_ptr = context->get_constant_col(i);
             // Types like struct, array, and map only support constant expressions.
             DCHECK(const_column_ptr != nullptr);
-            const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
+            const auto& col = const_column_ptr->column_ptr();
             if (const auto* null_col = check_and_get_column<ColumnNullable>(col.get())) {
                 if (null_col->has_null()) {
                     state->null_in_set = true;
@@ -136,7 +136,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* in_state = reinterpret_cast<CollectionInState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("function context for function '{}' must have Set;",
                                         get_name());

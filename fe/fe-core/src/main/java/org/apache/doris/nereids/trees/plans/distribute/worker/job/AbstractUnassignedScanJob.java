@@ -157,7 +157,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
             // now we should compute how many instances to process the data,
             // for example: two instances
-            int instanceNum = degreeOfParallelism(scanSourceMaxParallel, useLocalShuffleToAddParallel);
+            int instanceNum = degreeOfParallelism(scanSource, scanSourceMaxParallel, useLocalShuffleToAddParallel);
 
             if (useLocalShuffleToAddParallel) {
                 assignLocalShuffleJobs(scanSource, instanceNum, instances, context, worker);
@@ -263,6 +263,12 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             );
             instances.add(instance);
         }
+    }
+
+    /** Allow scan jobs to refine parallelism using the ranges assigned to this worker. */
+    protected int degreeOfParallelism(ScanSource scanSource, int maxParallel,
+            boolean useLocalShuffleToAddParallel) {
+        return degreeOfParallelism(maxParallel, useLocalShuffleToAddParallel);
     }
 
     /**

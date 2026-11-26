@@ -18,10 +18,8 @@
 suite("test_iceberg_write_merge_truncate_negative",
         "p0,external,iceberg,external_docker,external_docker_iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
-    String crashTestEnabled = context.config.otherConfigs.get("enableIcebergCrashTest")
-    if (enabled == null || !enabled.equalsIgnoreCase("true")
-            || crashTestEnabled == null || !crashTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("disable iceberg crash test")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test")
         return
     }
 
@@ -67,9 +65,9 @@ suite("test_iceberg_write_merge_truncate_negative",
     """
     sql """insert into merge_truncate_negative values (1, 'alpha', 'before')"""
 
-    // WM03-S01: A MERGE source projection is nullable even when every source
-    // value and the Iceberg target column are NOT NULL. The writer must reject
-    // an invalid input as a query error and must never terminate a BE.
+    // WM03-S01: A MERGE source projection is physically nullable even when every source
+    // value and the Iceberg target column are NOT NULL. The writer must accept those
+    // non-NULL values without terminating a BE or changing truncate partition routing.
     sql """
         merge into merge_truncate_negative t
         using (
@@ -92,8 +90,9 @@ suite("test_iceberg_write_merge_truncate_negative",
     """
     // Logical rows cannot prove the MERGE writer used truncate(2) when routing
     // its updated and inserted records.
+    // Iceberg names truncate transform fields with the `_trunc` suffix; the width is not part of the name.
     order_qt_merge_truncate_physical_partitions """
-        select distinct hex(struct_element(`partition`, 'partition_value_trunc_2'))
+        select distinct hex(struct_element(`partition`, 'partition_value_trunc'))
         from merge_truncate_negative\$partitions
         order by 1
     """

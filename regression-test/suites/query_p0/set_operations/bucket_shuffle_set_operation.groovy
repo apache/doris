@@ -38,6 +38,10 @@ suite("bucket_shuffle_set_operation") {
     // backend count / parallelism of the environment running this suite
     sql "set bucket_shuffle_downgrade_ratio=0"
 
+    // Spill rewrites INTERSECT/EXCEPT into joins. Keep the physical set operations
+    // whose bucket distribution is checked by this suite, including in spill-enabled CI.
+    sql "set disable_nereids_rules='REWRITE_INTERSECT_TO_JOIN_WHEN_SPILL,REWRITE_EXCEPT_TO_JOIN_WHEN_SPILL'"
+
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
         quickTest(tag + "_result", sqlStr, true)
@@ -116,6 +120,78 @@ suite("bucket_shuffle_set_operation") {
         intersect
         select id from bucket_shuffle_set_operation2)""")
 
+    // A window function above a bucket-shuffle UNION ALL is a shuffle-for-correctness consumer:
+    // the analytic sink needs every row of a window partition inside one pipeline task. The union
+    // branches are aligned by the basic child's storage bucket function, so the union must require
+    // a bucket-hash local exchange from every branch. Requiring the generic hash instead let the
+    // branch arriving through a bucket-shuffle exchange keep its bucket placement while the branch
+    // scanning its own buckets (serial under a pooling scan, so it claims no distribution) was
+    // re-partitioned by execution hash: one window partition ended up split across two pipeline
+    // tasks and row_number() restarted at 1 in each.
+    // force_to_local_shuffle pins the pooling scan so the shape does not depend on the backend
+    // count of the environment running this suite.
+    // The variants below were not guessed: LocalExchangePlacementAuditTest walks finished plans and
+    // flags any set operation whose branches end up on different hash placements, and these are
+    // every shape it flagged — partition-by with and without ORDER BY, unequal bucket counts,
+    // three branches, and a nested union.
+    sql "set force_to_local_shuffle=true"
+
+    // The ordered golden results prove both the row count and that every window partition
+    // contains each row_number() exactly once. A partition split across pipeline tasks would
+    // produce duplicate row_number values inside one id.
+    order_qt_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u
+        order by id, value, rn"""
+
+    order_qt_union_under_window_no_order_by """
+        select id, value, row_number() over (partition by id) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u
+        order by id, value, rn"""
+
+    // the branches have different bucket counts, so one must be re-shuffled onto the other's
+    // buckets rather than keeping its own
+    order_qt_union_unequal_buckets_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u
+        order by id, value, rn"""
+
+    order_qt_three_way_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u
+        order by id, value, rn"""
+
+    order_qt_nested_union_under_window """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            (select id, value from bucket_shuffle_set_operation2
+             union all
+             select id, value from bucket_shuffle_set_operation3)
+        ) u
+        order by id, value, rn"""
+
+    sql "set force_to_local_shuffle=false"
+
     // when local shuffle is disabled entirely, every pipeline runs a single task per
     // instance so the bucket alignment holds naturally and bucket shuffle is still allowed
     sql "set enable_local_shuffle=false"
@@ -179,32 +255,12 @@ suite("bucket_shuffle_set_operation") {
     order_qt_plain_intersect_when_local_shuffle_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
     sql "set enable_local_shuffle_planner=true"
 
-    // Set operation bucket shuffle is gated on setOperationBucketShuffleAllowed() =
-    // enableLocalShufflePlanner && canUseNereidsDistributePlanner. The enable_local_shuffle_planner
-    // =false cases above only exercise the first conjunct; this block guards the second one. With
-    // local shuffle and the FE local-shuffle planner both enabled but the Nereids distribute planner
-    // disabled, the set operation must still downgrade (no [bucketShuffle]) and keep correct results.
+    // The removed distributed-planner switch is accepted for compatibility and cannot select
+    // the legacy coordinator. Both set-operation paths must still return the same rows.
     sql "set enable_local_shuffle=true"
     sql "set enable_local_shuffle_planner=true"
     sql "set enable_nereids_distribute_planner=false"
-    // plain intersect goes through visitPhysicalSetOperation directly
-    explain {
-        sql "shape plan select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-        check { String e ->
-            assertFalse(e.contains("bucketShuffle"))
-        }
-    }
     order_qt_plain_intersect_when_nereids_distribute_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-    // the parent-hash union path (createHashRequestAccordingToParent) must downgrade too
-    explain {
-        sql "shape plan " + unionParentHashSql
-        check { String e ->
-            def unionIndex = e.indexOf("PhysicalUnion")
-            assertTrue(unionIndex >= 0)
-            assertFalse(e.substring(unionIndex,
-                    Math.min(unionIndex + "PhysicalUnion".length() + 20, e.length())).contains("bucketShuffle"))
-        }
-    }
     order_qt_union_parent_hash_when_nereids_distribute_planner_off unionParentHashSql
     sql "set enable_nereids_distribute_planner=true"
 

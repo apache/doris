@@ -47,6 +47,19 @@ suite("test_hive_tablesample_p0", "p0,external") {
                 sql("select count(*) from student tablesample(10 percent);")
                 contains "count(*)[#7]"
             }
+            // FIX-M1: post-cutover TABLESAMPLE was silently dropped (plugin scan returned the FULL table).
+            // The connector now opts in (HiveScanPlanProvider.supportsTableSample) and PluginDrivenScanNode
+            // samples the splits. A sample never exceeds the full table — assert that invariant on real
+            // results (not just an EXPLAIN substring). NOTE: a STRONG reduction assertion (sampled < full)
+            // needs a multi-file table; on a single-file fixture the sample floor is one file (== full), so
+            // the strict-reduction check is left to live verification against a large table.
+            def fullCount = sql """select count(*) from student"""
+            def sampledRows = sql """select count(*) from student tablesample(10 rows)"""
+            def sampledPercent = sql """select count(*) from student tablesample(10 percent)"""
+            assertTrue(sampledRows[0][0] <= fullCount[0][0],
+                    "TABLESAMPLE(rows) count ${sampledRows[0][0]} must not exceed full table ${fullCount[0][0]}")
+            assertTrue(sampledPercent[0][0] <= fullCount[0][0],
+                    "TABLESAMPLE(percent) count ${sampledPercent[0][0]} must not exceed full table ${fullCount[0][0]}")
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }

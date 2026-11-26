@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <queue>
 #include <utility>
@@ -34,7 +33,6 @@
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
-#include "storage/utils.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -47,7 +45,7 @@ class ColumnIterator;
 class VStatisticsIterator : public RowwiseIterator {
 public:
     // Will generate num_rows rows in total
-    VStatisticsIterator(std::shared_ptr<Segment> segment, const Schema& schema)
+    VStatisticsIterator(std::shared_ptr<Segment> segment, const ReadSchema& schema)
             : _segment(std::move(segment)), _schema(schema) {}
 
     ~VStatisticsIterator() override = default;
@@ -56,17 +54,16 @@ public:
 
     Status next_batch(Block* block) override;
 
-    const Schema& schema() const override { return _schema; }
+    const ReadSchema& schema() const override { return _schema; }
 
 private:
     std::shared_ptr<Segment> _segment;
-    const Schema& _schema;
+    const ReadSchema& _schema;
     size_t _target_rows = 0;
     size_t _output_rows = 0;
     bool _init = false;
     TPushAggOp::type _push_down_agg_type_opt;
-    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators_map;
-    std::vector<ColumnIterator*> _column_iterators;
+    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
 };
@@ -85,16 +82,16 @@ class VMergeIteratorContext {
 public:
     VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
                           bool is_reverse, bool use_insert_order_when_same,
-                          std::vector<uint32_t>* read_orderby_key_columns, SchemaSPtr output_schema,
-                          bool small_seq_first = false)
+                          std::vector<uint32_t>* read_orderby_key_columns,
+                          ReadSchemaSPtr read_schema, bool small_seq_first = false)
             : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
               _use_insert_order_when_same(use_insert_order_when_same),
               _small_seq_first(small_seq_first),
-              _output_schema(std::move(output_schema)),
-              _num_key_columns(cast_set<int>(_output_schema->num_key_columns())),
+              _read_schema(std::move(read_schema)),
+              _num_key_columns(cast_set<int>(_read_schema->num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
@@ -104,22 +101,7 @@ public:
 
     ~VMergeIteratorContext() = default;
 
-    // Reset (or initialize) the internal _block using the output schema.
-    //
-    // The output schema contains only the columns the caller requested (return_columns),
-    // excluding delete predicate columns. For example, if the query reads columns {c1, c2}
-    // but there is a delete predicate on column c3 (e.g., "DELETE FROM t WHERE c3 = 'foo'"):
-    //   - input schema  (iter->schema) = {c1, c2, c3}   (3 columns)
-    //   - output schema                = {c1, c2}       (2 columns)
-    //
-    // It is safe to build the block with only the output schema because SegmentIterator
-    // handles delete predicate columns independently of the block structure:
-    //   - _init_current_block() skips predicate columns (including delete predicates)
-    //     via the _is_pred_column[cid] check, never accessing the block for them.
-    //   - _output_non_pred_columns() checks loc < block->columns() before filling any
-    //     column, so delete predicate columns are simply skipped when the block is smaller.
-    //   - Delete predicate evaluation uses _current_return_columns and
-    //     _evaluate_short_circuit_predicate(), independent of the block.
+    // Reset (or initialize) the internal block with the visible slot prefix.
     Status block_reset(const std::shared_ptr<Block>& block);
 
     // Initialize this context and will prepare data for current_row()
@@ -128,8 +110,7 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const;
 
     // Copy rows from internal _block to the destination block.
-    // Both blocks have _output_schema columns (return_columns only).
-    // Only _output_schema->num_column_ids() columns are copied.
+    // Both blocks have _read_schema->num_block_columns() columns, all of which are copied.
     //
     // `advanced = false` when current block finished
     // when input argument type is block, we do not process same_bit,
@@ -138,11 +119,6 @@ public:
     Status copy_rows(Block* block, bool advanced = true);
     Status copy_rows(BlockWithSameBit* block, bool advanced = true);
     Status copy_rows(BlockView* view, bool advanced = true);
-
-    RowLocation current_row_location() {
-        DCHECK(_record_rowids);
-        return _block_row_locations[_index_in_block];
-    }
 
     // Advance internal row index to next valid row
     // Return error if error happens
@@ -177,13 +153,13 @@ public:
 
     void add_cur_batch() { _cur_batch_num++; }
 
-    void reset_cur_batch() { _cur_batch_num = 0; }
-
     bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
 
 private:
     // Load next block into _block
     Status _load_next_block();
+
+    Status _validate_compare_contract(const StorageReadOptions& opts) const;
 
     RowwiseIteratorUPtr _iter;
 
@@ -193,7 +169,7 @@ private:
     bool _use_insert_order_when_same = false;
     // Tie-break direction on the sequence column when keys are equal:
     // false = larger value sorts first (UNIQUE_KEYS sequence column);
-    // true  = smaller value sorts first (row binlog TSO column).
+    // true  = smaller value sorts first (changelog TSO column).
     bool _small_seq_first = false;
     bool _valid = false;
     mutable bool _skip = false;
@@ -201,18 +177,10 @@ private:
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
-    // The output schema defines which columns are in _block and in the caller's dst block.
-    // It contains only the requested return_columns, excluding delete predicate columns.
-    // For example:
-    //   - _iter->schema() (input)  = {c1, c2, c3}  — c3 for "DELETE WHERE c3='foo'"
-    //   - _output_schema           = {c1, c2}      — only the requested columns
-    // block_reset() uses _output_schema to build _block, and copy_rows() iterates over
-    // _output_schema->num_column_ids() columns to copy from _block to the destination.
-    const SchemaSPtr _output_schema;
+    // ReadSchema whose visible slot prefix is shared by every child block and the caller.
+    const ReadSchemaSPtr _read_schema;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
-    std::vector<RowLocation> _block_row_locations;
-    bool _record_rowids = false;
     size_t _cur_batch_num = 0;
 
     // used to store data load from iterator->next_batch(Block*)
@@ -226,10 +194,10 @@ class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
     VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows, SchemaSPtr output_schema,
+                   bool is_reverse, uint64_t* merged_rows, ReadSchemaSPtr read_schema,
                    bool small_seq_first = false)
             : _origin_iters(std::move(iters)),
-              _output_schema(std::move(output_schema)),
+              _read_schema(std::move(read_schema)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
@@ -246,13 +214,7 @@ public:
     }
     Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
 
-    const Schema& schema() const override { return *_output_schema; }
-
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
-        DCHECK(_record_rowids);
-        *block_row_locations = _block_row_locations;
-        return Status::OK();
-    }
+    const ReadSchema& schema() const override { return *_read_schema; }
 
     void update_profile(RuntimeProfile* profile) override {
         if (!_origin_iters.empty()) {
@@ -269,9 +231,6 @@ private:
 
     template <typename T>
     Status _next_batch(T* block) {
-        if (UNLIKELY(_record_rowids)) {
-            _block_row_locations.resize(_block_row_max);
-        }
         size_t row_idx = 0;
         std::shared_ptr<VMergeIteratorContext> pre_ctx;
         while (_get_size(block) < _block_row_max) {
@@ -291,9 +250,6 @@ private:
                     pre_ctx = ctx;
                 }
                 pre_ctx->set_pre_ctx_same(ctx.get());
-                if (UNLIKELY(_record_rowids)) {
-                    _block_row_locations[row_idx] = ctx->current_row_location();
-                }
                 row_idx++;
                 if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                     // current block finished, ctx not advance
@@ -318,21 +274,14 @@ private:
         if (!_merge_heap.empty()) {
             return Status::OK();
         }
-        // Still last batch needs to be processed
-
-        if (UNLIKELY(_record_rowids)) {
-            _block_row_locations.resize(row_idx);
-        }
-
         return Status::EndOfFile("no more data in segment");
     }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 
-    // The output schema (excludes delete predicate columns). Passed down to each
-    // VMergeIteratorContext to control how many columns copy_rows() copies.
-    const SchemaSPtr _output_schema;
+    // ReadSchema whose visible slot prefix is shared by every input and the output.
+    const ReadSchemaSPtr _read_schema;
 
     struct VMergeContextComparator {
         bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
@@ -354,8 +303,6 @@ private:
     // See VMergeIteratorContext::_small_seq_first; forwarded to every context on init().
     bool _small_seq_first = false;
     uint64_t* _merged_rows = nullptr;
-    bool _record_rowids = false;
-    std::vector<RowLocation> _block_row_locations;
 };
 
 // Create a merge iterator for input iterators. Merge iterator will merge
@@ -366,7 +313,7 @@ private:
 // should delete returned iterator after usage.
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows, SchemaSPtr output_schema,
+                                       uint64_t* merged_rows, ReadSchemaSPtr read_schema,
                                        bool small_seq_first = false);
 
 // Create a union iterator for input iterators. Union iterator will read
@@ -374,14 +321,9 @@ RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
 //
 // Inputs iterators' ownership is taken by created union iterator.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                       SchemaSPtr output_schema);
+                                       ReadSchemaSPtr read_schema);
 
-// Create an auto increment iterator which returns num_rows data in format of schema.
-// This class aims to be used in unit test.
-//
-// Client should delete returned iterator.
-RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows);
-
-RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
+RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment,
+                                          const ReadSchema& schema);
 
 } // namespace doris

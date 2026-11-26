@@ -329,6 +329,8 @@ public:
         rng.seed(123456);
     }
 
+    bool empty() const { return total_values == 0; }
+
     double quantileInterpolated(double level) {
         if (samples.empty()) {
             return std::numeric_limits<double>::quiet_NaN();

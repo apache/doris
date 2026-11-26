@@ -27,6 +27,8 @@ import java.net.URLDecoder
 
 suite("test_http_tvf", "p0") {
     def dataRoot = Paths.get(context.config.dataPath).toAbsolutePath().normalize()
+    // Served under mutable/: files whose content a case replaces between two queries.
+    def mutableRoot = Files.createTempDirectory("test_http_tvf_mutable").toAbsolutePath().normalize()
     HttpServer httpServer = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
 
     def writeResponse = { HttpExchange exchange, int status, byte[] body ->
@@ -77,8 +79,13 @@ suite("test_http_tvf", "p0") {
 
         def requestPath = URLDecoder.decode(exchange.requestURI.path, "UTF-8")
         def relativePath = requestPath.startsWith("/") ? requestPath.substring(1) : requestPath
-        def filePath = dataRoot.resolve(relativePath).normalize()
-        if (!filePath.startsWith(dataRoot)) {
+        def root = dataRoot
+        if (relativePath.startsWith("mutable/")) {
+            root = mutableRoot
+            relativePath = relativePath.substring("mutable/".length())
+        }
+        def filePath = root.resolve(relativePath).normalize()
+        if (!filePath.startsWith(root)) {
             writeResponse(exchange, 403, "Forbidden".getBytes("UTF-8"))
             return
         }
@@ -144,12 +151,17 @@ suite("test_http_tvf", "p0") {
     String httpServerHost = context.config.otherConfigs.get("httpTvfHost")
     if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
         httpServerHost = context.config.otherConfigs.get("externalEnvIp")
-    }
-    if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
-        httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        // A loopback or wildcard externalEnvIp would point a BE on another host at itself.
+        if (httpServerHost == null || httpServerHost.trim().isEmpty()
+                || InetAddress.getByName(httpServerHost).isLoopbackAddress()
+                || InetAddress.getByName(httpServerHost).isAnyLocalAddress()) {
+            httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        }
     }
     String httpBaseUrl = "http://${httpServerHost}:${httpServer.address.port}"
     def httpUrl = { String relativePath -> "${httpBaseUrl}/${relativePath}" }
+    def stableRemoteDataUrl =
+            "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/external_table_p0/tvf/huggingface"
     logger.info("Start local HTTP server for http tvf test: ${httpBaseUrl}, root: ${dataRoot}")
 
     try {
@@ -232,12 +244,14 @@ suite("test_http_tvf", "p0") {
         );
     """
 
-    // parquet/orc
+    // The golden retains the fixture's stored INT96 wall-clock values. Use UTC to avoid
+    // shifting timestamp map keys by eight hours when the session uses Asia/Shanghai.
     qt_sql08 """
         select * from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "UTC"
         ) order by id limit 10;
     """
 
@@ -245,7 +259,8 @@ suite("test_http_tvf", "p0") {
         select arr_map, id from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "UTC"
         ) order by id limit 10;
     """
 
@@ -253,7 +268,8 @@ suite("test_http_tvf", "p0") {
         desc function
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "UTC"
         );
     """
 
@@ -317,38 +333,60 @@ suite("test_http_tvf", "p0") {
         ) order by id;
     """
 
-    // hf
-    def hfCountOneFile = sql """
-        select count(*) from
-        http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/prompts.csv",
-            "format" = "csv"
+    // The same URL serving new content of the same length: an HTTP response has no modification
+    // time for the file cache key, so the second query must not read blocks cached by the first.
+    sql """ set enable_file_cache = true """
+    def mutableCsv = mutableRoot.resolve("replaced.csv")
+    Files.write(mutableCsv, "1,aaaa\n".getBytes("UTF-8"))
+    order_qt_replaced_before """
+        select * from http(
+            "uri" = "${httpUrl("mutable/replaced.csv")}",
+            "format" = "csv",
+            "column_separator" = ","
         );
     """
-    assertTrue(Long.parseLong(hfCountOneFile[0][0].toString()) > 0)
+    Files.write(mutableCsv, "2,bbbb\n".getBytes("UTF-8"))
+    order_qt_replaced_after """
+        select * from http(
+            "uri" = "${httpUrl("mutable/replaced.csv")}",
+            "format" = "csv",
+            "column_separator" = ","
+        );
+    """
 
-    def hfCountWildcard = sql """
+    // Stable mirrors of the HuggingFace fixtures. Keep the regression independent
+    // from public HuggingFace availability and mutable dataset branches.
+    qt_sql15 """
         select count(*) from
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
-            "format" = "csv"
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
-    assertTrue(Long.parseLong(hfCountWildcard[0][0].toString()) > 0)
+
+    qt_sql16 """
+        select count(*) from
+        http(
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
+        );
+    """
     
     qt_sql17 """
         desc function
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
-            "format" = "csv"
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
 
-    // branch
     qt_sql18 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@script/dataset_infos.json",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/script/dataset_infos.json",
             "format" = "json"
         );
     """
@@ -356,16 +394,15 @@ suite("test_http_tvf", "p0") {
     qt_sql19 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/plain_text/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
 
-    // wildcard
     qt_sql20 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -373,7 +410,7 @@ suite("test_http_tvf", "p0") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/*.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/train-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -381,7 +418,7 @@ suite("test_http_tvf", "p0") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/**/test-00000-of-0000[1].parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """

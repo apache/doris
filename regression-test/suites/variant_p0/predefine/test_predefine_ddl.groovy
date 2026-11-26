@@ -107,6 +107,12 @@ suite("test_predefine_ddl", "p0") {
 
     sql """ alter table ${tableName} add column var3 variant<'ab' : string> NULL """
 
+    // A Schema Template cannot declare TIMESTAMPTZ paths.
+    test {
+        sql """ alter table ${tableName} add column var4 variant<'ts' : timestamptz(3)> NULL """
+        exception("VARIANT unsupported sub-type: timestamptz(3)")
+    }
+
     // TODO(lihangyu) : uncomment
     // test {
     //     sql """ alter table ${tableName} modify column var variant<'ab' : string> NULL """
@@ -207,6 +213,30 @@ suite("test_predefine_ddl", "p0") {
         sql """CREATE TABLE ${tableName} (
             `id` bigint NULL,
             `var` variant<
+                MATCH_NAME 'ab' : timestamptz(6)
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        exception("VARIANT unsupported sub-type: timestamptz(6)")
+    }
+
+    test {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                'ab*' : array<timestamptz>
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        exception("VARIANT unsupported sub-type: array<timestamptz")
+    }
+
+    test {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
                 MATCH_NAME 'ab' : double
             > NULL,
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
@@ -280,18 +310,6 @@ suite("test_predefine_ddl", "p0") {
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
         exception("invalid INVERTED index")
-    }
-
-    test {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var` string NULL,
-            INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
-            INDEX idx_ab_2 (var) USING INVERTED
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
-        exception("column: var cannot have multiple inverted indexes with file storage format: V1")
     }
 
     test {

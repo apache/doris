@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -46,11 +47,11 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -96,7 +97,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -123,7 +126,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> backendConnectProperties = Maps.newHashMap();
-    protected StorageProperties storageProperties;
+    protected StorageAdapter storageAdapter;
     // Processed parameters derived from user input; includes normalization and default value filling.
     Map<String, String> processedParams;
     protected String filePath;
@@ -131,6 +134,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Optional<String> resourceName = Optional.empty();
 
     public FileFormatProperties fileFormatProperties;
+    private String hiveParquetTimeZone = "";
     private long tableId;
 
     public abstract TFileType getTFileType();
@@ -156,13 +160,26 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            StorageProperties sp = brokerDesc.getStorageProperties();
-            if (sp instanceof ObjectStorageProperties) {
-                S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
+            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+            // Azure deliberately stays excluded, matching the legacy instanceof check.
+            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+            if (storageAdapter != null
+                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
+                S3Util.validateAndTestEndpoint(
+                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+            }
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
@@ -176,8 +193,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     entries = fs.listFiles(Location.of(path));
                 }
                 for (FileEntry e : entries) {
-                    fileStatuses.add(new TBrokerFileStatus(
-                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    TBrokerFileStatus status = new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory());
+                    // BE keys cached blocks of external files by path and modification time, so a
+                    // file overwritten in place must arrive with its new mtime, not as mtime 0.
+                    status.setModificationTime(e.modificationTime());
+                    fileStatuses.add(status);
                 }
             } catch (IOException e) {
                 throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
@@ -214,15 +235,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
+        fileFormatProperties.enableMappingTimestampTz = true;
 
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
+        try {
+            this.hiveParquetTimeZone = FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
@@ -255,6 +280,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return fileStatuses;
     }
 
+    @Override
+    public String getHiveParquetTimeZone() {
+        return hiveParquetTimeZone;
+    }
+
     public TFileAttributes getFileAttributes() {
         return fileFormatProperties.toTFileAttributes();
     }
@@ -281,7 +311,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return columns;
         }
         // get one BE address
-        columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
             String computeGroupHints = "";
@@ -307,17 +336,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
-            PFetchTableSchemaRequest request = getFetchTableStructureRequest();
+            if (getTFileType() == TFileType.FILE_STREAM) {
+                fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            }
+            Iterator<TBrokerFileStatus> files = fileStatuses.iterator();
+            PFetchTableSchemaRequest request = getFetchTableStructureRequest(files);
             InternalService.PFetchTableSchemaResult result = null;
 
             // `request == null` means we don't need to get schemas from BE,
             // and we fill a dummy col for this table.
-            if (request != null) {
+            while (request != null) {
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                         .fetchTableStructureAsync(address, request);
 
                 result = future.get();
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code == TStatusCode.NOT_FOUND) {
+                    request = getFetchTableStructureRequest(files);
+                    if (request != null) {
+                        continue;
+                    }
+                }
                 String errMsg;
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
@@ -329,7 +368,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     }
                     throw new AnalysisException(errMsg);
                 }
+                break;
             }
+            columns = Lists.newArrayList();
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -401,13 +442,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                String fieldName = structField.getName().toLowerCase();
+                String originalFieldName = structField.getName();
+                String fieldName = originalFieldName.toLowerCase(Locale.ROOT);
                 if (fieldLowerNames.contains(fieldName)) {
                     throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
                 } else {
                     fieldLowerNames.add(fieldName);
-                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
-                            structField.getContainsNull()));
+                    // File readers return the external schema spelling, which must survive CTAS metadata writes;
+                    // only the runtime lookup key and duplicate detection are normalized.
+                    fields.add(new StructField(fieldName, originalFieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull(), !structField.getComment().isEmpty()));
                 }
                 parsedNodes += fieldType.value();
             }
@@ -445,15 +489,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         // add fetched file columns
         Set<String> columnLowerNames = new HashSet<>();
+        boolean preserveColumnCase = fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx).toLowerCase();
+            String originalColName = result.getColumnNames(idx);
+            String colLowerName = originalColName.toLowerCase();
             // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
             // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
             } else {
-                columnLowerNames.add(colName);
+                columnLowerNames.add(colLowerName);
+                String colName = preserveColumnCase ? originalColName : colLowerName;
                 columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
             }
         }
@@ -461,11 +508,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
+            String colLowerName = colName.toLowerCase();
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException(
+                        "Path partition column conflicts with an existing column: " + colName);
+            }
+            columnLowerNames.add(colLowerName);
             columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest(Iterator<TBrokerFileStatus> files)
+            throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
@@ -478,23 +532,29 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (!hiveParquetTimeZone.isEmpty()) {
+            fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
-            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
             fileScanRangeParams.setFileType(getTFileType());
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
-            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
+                    storageAdapter.getBackendConfigProperties());
+            String fsName = storageAdapter.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
+        while (files.hasNext()) {
+            TBrokerFileStatus fileStatus = files.next();
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }

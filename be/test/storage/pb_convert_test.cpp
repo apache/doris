@@ -40,9 +40,6 @@ using namespace google::protobuf;
 // note that reserved fields are not considered
 bool have_same_fields(const google::protobuf::Descriptor* desc1,
                       const google::protobuf::Descriptor* desc2) {
-    if (desc1->field_count() != desc2->field_count()) {
-        return false;
-    }
     std::set<std::string> fields1;
     for (int i = 0; i < desc1->field_count(); ++i) {
         fields1.insert(desc1->field(i)->name());
@@ -189,7 +186,8 @@ auto set_diff = [](auto a, auto b) {
 // be inter-converted
 TEST(PbConvert, ensure_identical_fields) {
     EXPECT_EQ(RowsetMetaPB::GetDescriptor()->field_count(), RowsetMetaCloudPB::GetDescriptor()->field_count());
-    EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(), TabletSchemaCloudPB::GetDescriptor()->field_count());
+    EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(),
+              TabletSchemaCloudPB::GetDescriptor()->field_count());
     EXPECT_EQ(TabletMetaPB::GetDescriptor()->field_count(), TabletMetaCloudPB::GetDescriptor()->field_count());
 
     EXPECT_TRUE(have_same_fields(RowsetMetaPB::GetDescriptor(), RowsetMetaCloudPB::GetDescriptor()));
@@ -288,6 +286,44 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
         << "\n diff=" << print(set_diff(tablet_meta_cloud_set_fields, tablet_meta_out_set_fields));
 }
 
+TEST(PbConvert, row_ttl_policy_defaults) {
+    TabletSchemaPB tablet_schema;
+    TabletSchemaCloudPB tablet_schema_cloud;
+    doris_tablet_schema_to_cloud(&tablet_schema_cloud, tablet_schema);
+    EXPECT_EQ(tablet_schema_cloud.ttl_col_idx(), -1);
+    EXPECT_EQ(tablet_schema_cloud.row_ttl_duration_us(), -1);
+    EXPECT_EQ(tablet_schema_cloud.row_ttl_time_zone_offset_seconds(), 0);
+
+    tablet_schema.set_row_ttl_time_zone_offset_seconds(0);
+    doris_tablet_schema_to_cloud(&tablet_schema_cloud, tablet_schema);
+    EXPECT_EQ(tablet_schema_cloud.ttl_col_idx(), -1);
+    EXPECT_EQ(tablet_schema_cloud.row_ttl_duration_us(), -1);
+    EXPECT_EQ(tablet_schema_cloud.row_ttl_time_zone_offset_seconds(), 0);
+
+    TabletSchemaPB tablet_schema_moved;
+    tablet_schema_moved.set_row_ttl_time_zone_offset_seconds(28'800);
+    TabletSchemaCloudPB tablet_schema_cloud_moved =
+            doris_tablet_schema_to_cloud(std::move(tablet_schema_moved));
+    EXPECT_EQ(tablet_schema_cloud_moved.row_ttl_time_zone_offset_seconds(), 28'800);
+
+    TabletSchemaPB tablet_schema_out;
+    TabletSchemaCloudPB tablet_schema_cloud_in;
+    cloud_tablet_schema_to_doris(&tablet_schema_out, tablet_schema_cloud_in);
+    EXPECT_EQ(tablet_schema_out.ttl_col_idx(), -1);
+    EXPECT_EQ(tablet_schema_out.row_ttl_duration_us(), -1);
+    EXPECT_EQ(tablet_schema_out.row_ttl_time_zone_offset_seconds(), 0);
+
+    tablet_schema_cloud_in.set_row_ttl_time_zone_offset_seconds(-28'800);
+    cloud_tablet_schema_to_doris(&tablet_schema_out, tablet_schema_cloud_in);
+    EXPECT_EQ(tablet_schema_out.row_ttl_time_zone_offset_seconds(), -28'800);
+
+    TabletSchemaCloudPB tablet_schema_cloud_moved_in;
+    tablet_schema_cloud_moved_in.set_row_ttl_time_zone_offset_seconds(0);
+    TabletSchemaPB tablet_schema_moved_out =
+            cloud_tablet_schema_to_doris(std::move(tablet_schema_cloud_moved_in));
+    EXPECT_EQ(tablet_schema_moved_out.row_ttl_time_zone_offset_seconds(), 0);
+}
+
 TEST(PbConvert, test_rvalue_overloads) {
     // rowset meta
     RowsetMetaPB rs;
@@ -372,6 +408,30 @@ TEST(PbConvert, test_rvalue_overloads) {
         << "\n input_fields=" << print(tablet_meta_cloud_set_fields)
         << "\n output_fields=" << print(tablet_meta_out_set_fields)
         << "\n diff=" << print(set_diff(tablet_meta_cloud_set_fields, tablet_meta_out_set_fields));
+}
+
+TEST(PbConvert, test_rowset_segment_group_sizes_conversion) {
+    RowsetMetaPB rs;
+    rs.set_segments_overlap_pb(NONOVERLAPPING_WITHIN_GROUP);
+    rs.add_segment_group_sizes(3);
+    rs.add_segment_group_sizes(2);
+    rs.add_segment_group_sizes(5);
+
+    RowsetMetaCloudPB rs_cloud;
+    doris_rowset_meta_to_cloud(&rs_cloud, rs);
+    ASSERT_EQ(rs_cloud.segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(rs_cloud.segment_group_sizes_size(), 3);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(0), 3);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(1), 2);
+    EXPECT_EQ(rs_cloud.segment_group_sizes(2), 5);
+
+    RowsetMetaPB rs_out;
+    cloud_rowset_meta_to_doris(&rs_out, rs_cloud);
+    ASSERT_EQ(rs_out.segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(rs_out.segment_group_sizes_size(), 3);
+    EXPECT_EQ(rs_out.segment_group_sizes(0), 3);
+    EXPECT_EQ(rs_out.segment_group_sizes(1), 2);
+    EXPECT_EQ(rs_out.segment_group_sizes(2), 5);
 }
 
 TEST(PbConvert, test_return_value_overloads) {

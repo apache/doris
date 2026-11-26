@@ -19,6 +19,9 @@
 
 #include <bthread/bthread.h>
 
+#include <condition_variable>
+#include <mutex>
+
 #include "io/fs/file_system.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_define.h"

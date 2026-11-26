@@ -32,13 +32,13 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -312,13 +312,18 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
      * isSamplingPartition
      */
     public boolean isSamplingPartition() {
-        if (!(table instanceof HMSExternalTable) || partitionNames != null) {
+        // A plain-hive table is a PluginDrivenExternalTable declaring SUPPORTS_SAMPLE_ANALYZE per-table.
+        // iceberg/hudi-on-HMS and native iceberg/paimon do not declare it, so they stay
+        // non-partition-sampled as before.
+        boolean sampleable = table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsSampleAnalyze();
+        if (!sampleable || partitionNames != null) {
             return false;
         }
         int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
-        if (partNum == -1 || partitionNames != null) {
+        if (partNum == -1) {
             return false;
         }
-        return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
+        return table.getPartitionNames().size() > partNum;
     }
 }

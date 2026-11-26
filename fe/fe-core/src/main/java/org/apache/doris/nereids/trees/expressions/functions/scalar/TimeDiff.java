@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
@@ -42,6 +43,8 @@ public class TimeDiff extends ScalarFunction
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TimeV2Type.WILDCARD)
                     .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
+            FunctionSignature.ret(TimeV2Type.MAX)
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.WILDCARD)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(TimeV2Type.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
@@ -80,6 +83,12 @@ public class TimeDiff extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
+        // TIMEV2 stores at most microseconds. A TIMESTAMP_NS operand therefore fixes the result
+        // at TIMEV2(6); do not feed its scale 9 into TimeV2Type.of().
+        if (getArgument(0).getDataType() instanceof TimeStampNsType
+                || getArgument(1).getDataType() instanceof TimeStampNsType) {
+            return signature.withReturnType(TimeV2Type.MAX);
+        }
         boolean useTimev2 = false;
         int scale = 0;
         if (getArgument(0).getDataType() instanceof DateTimeV2Type) {

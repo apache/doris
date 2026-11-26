@@ -24,6 +24,7 @@
 
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_define.h"
 #include "testutil/column_helper.h"
@@ -121,7 +122,7 @@ public:
                 new MockFragmentManager(spill_status, ExecEnv::GetInstance());
 
         auto spill_data_dir =
-                std::make_unique<SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
+                std::make_unique<LocalSpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
         EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
                              << " failed: " << st.to_string();

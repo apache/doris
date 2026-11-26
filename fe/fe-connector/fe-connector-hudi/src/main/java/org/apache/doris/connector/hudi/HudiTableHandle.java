@@ -17,11 +17,13 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Opaque table handle for a Hudi table, carrying database/table coordinates,
@@ -44,10 +46,32 @@ public class HudiTableHandle implements ConnectorTableHandle {
     private final String inputFormat;
     private final String serdeLib;
     private final List<String> partitionKeyNames;
+    private final Set<String> timestampPartitionKeys;
     private final Map<String, String> tableParameters;
 
     // Set after applyFilter for partition pruning
     private final List<String> prunedPartitionPaths;
+
+    // Set after applySnapshot for FOR TIME AS OF time travel: the completed-timeline instant the scan reads
+    // BEFORE-OR-ON (a String like "20240101120000", not a numeric snapshot id). Null = no time travel; the scan
+    // reads the latest completed instant (byte-identical to a plain snapshot read).
+    private final String queryInstant;
+
+    // Set after applySnapshot for an @incr incremental read: the resolved (begin, end] completed-timeline window
+    // (String instants like "20240101120000"; empty timeline / "earliest" collapse to "000") the scan reads.
+    // Both bounds are FULLY resolved by HudiConnectorMetadata.resolveTimeTravel (EARLIEST -> "000", an omitted /
+    // "latest" end -> the latest completed instant), so downstream file selection + the synthetic commit-time
+    // filter consume them directly. A non-null beginInstant is the incremental-read marker; null = not an
+    // incremental read.
+    private final String beginInstant;
+    private final String endInstant;
+
+    // Set after applySnapshot for an @incr incremental read: the RAW @incr option params fe-core threaded via
+    // getIncrementalParams() (e.g. hoodie.datasource.read.incr.path.glob / ...fallback.fulltablescan.enable /
+    // hoodie.read.timeline.holes.resolution.policy). planScan feeds this map straight to the ported
+    // IncrementalRelation constructors as their optParams (and derives HollowCommitHandling from it), so the
+    // relations read the glob / fallback / policy exactly as legacy did. Empty for a non-incremental read.
+    private final Map<String, String> incrementalParams;
 
     private HudiTableHandle(Builder builder) {
         this.dbName = builder.dbName;
@@ -59,10 +83,17 @@ public class HudiTableHandle implements ConnectorTableHandle {
         this.partitionKeyNames = builder.partitionKeyNames != null
                 ? Collections.unmodifiableList(builder.partitionKeyNames)
                 : Collections.emptyList();
+        this.timestampPartitionKeys = Collections.unmodifiableSet(new HashSet<>(builder.timestampPartitionKeys));
         this.tableParameters = builder.tableParameters != null
                 ? Collections.unmodifiableMap(builder.tableParameters)
                 : Collections.emptyMap();
         this.prunedPartitionPaths = builder.prunedPartitionPaths;
+        this.queryInstant = builder.queryInstant;
+        this.beginInstant = builder.beginInstant;
+        this.endInstant = builder.endInstant;
+        this.incrementalParams = builder.incrementalParams != null
+                ? Collections.unmodifiableMap(builder.incrementalParams)
+                : Collections.emptyMap();
     }
 
     /** Legacy constructor for Phase 1 compatibility (metadata-only). */
@@ -98,6 +129,10 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return partitionKeyNames;
     }
 
+    public Set<String> getTimestampPartitionKeys() {
+        return timestampPartitionKeys;
+    }
+
     public Map<String, String> getTableParameters() {
         return tableParameters;
     }
@@ -106,14 +141,45 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return prunedPartitionPaths;
     }
 
+    /** The FOR TIME AS OF instant the scan reads before-or-on, or {@code null} for a latest read. */
+    public String getQueryInstant() {
+        return queryInstant;
+    }
+
+    /**
+     * The resolved incremental-read begin instant (exclusive lower bound of the {@code (begin, end]} window),
+     * or {@code null} for a non-incremental read. A non-null value is the incremental-read marker.
+     */
+    public String getBeginInstant() {
+        return beginInstant;
+    }
+
+    /** The resolved incremental-read end instant (inclusive upper bound), or {@code null} if non-incremental. */
+    public String getEndInstant() {
+        return endInstant;
+    }
+
+    /**
+     * The raw {@code @incr} option params (glob / fallback-full-table-scan / hollow-commit policy), fed verbatim
+     * to the ported incremental relations at scan time. Empty (never null) for a non-incremental read.
+     */
+    public Map<String, String> getIncrementalParams() {
+        return incrementalParams;
+    }
+
     /** Returns a builder pre-populated with this handle's state, for creating modified copies. */
     public Builder toBuilder() {
         Builder b = new Builder(dbName, tableName, basePath, hudiTableType);
         b.inputFormat = this.inputFormat;
         b.serdeLib = this.serdeLib;
         b.partitionKeyNames = this.partitionKeyNames;
+        b.timestampPartitionKeys = this.timestampPartitionKeys;
         b.tableParameters = this.tableParameters;
         b.prunedPartitionPaths = this.prunedPartitionPaths;
+        b.queryInstant = this.queryInstant;
+        b.beginInstant = this.beginInstant;
+        b.endInstant = this.endInstant;
+        b.incrementalParams = this.incrementalParams;
         return b;
     }
 
@@ -134,8 +200,13 @@ public class HudiTableHandle implements ConnectorTableHandle {
         private String inputFormat;
         private String serdeLib;
         private List<String> partitionKeyNames;
+        private Set<String> timestampPartitionKeys = Collections.emptySet();
         private Map<String, String> tableParameters;
         private List<String> prunedPartitionPaths;
+        private String queryInstant;
+        private String beginInstant;
+        private String endInstant;
+        private Map<String, String> incrementalParams;
 
         public Builder(String dbName, String tableName, String basePath, String hudiTableType) {
             this.dbName = dbName;
@@ -159,6 +230,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
             return this;
         }
 
+        public Builder timestampPartitionKeys(Set<String> val) {
+            this.timestampPartitionKeys = val;
+            return this;
+        }
+
         public Builder tableParameters(Map<String, String> val) {
             this.tableParameters = val;
             return this;
@@ -166,6 +242,26 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
         public Builder prunedPartitionPaths(List<String> val) {
             this.prunedPartitionPaths = val;
+            return this;
+        }
+
+        public Builder queryInstant(String val) {
+            this.queryInstant = val;
+            return this;
+        }
+
+        public Builder beginInstant(String val) {
+            this.beginInstant = val;
+            return this;
+        }
+
+        public Builder endInstant(String val) {
+            this.endInstant = val;
+            return this;
+        }
+
+        public Builder incrementalParams(Map<String, String> val) {
+            this.incrementalParams = val;
             return this;
         }
 

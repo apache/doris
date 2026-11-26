@@ -430,6 +430,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                     id, this.state, jobState);
             return false;
         }
+        // RETRY closes the current attempt. The next attempt must enter PENDING before LOADING.
+        if (this.state == JobState.RETRY && jobState == JobState.LOADING) {
+            LOG.info("the load job {} is retrying, should not update state to {}", id, jobState);
+            return false;
+        }
         switch (jobState) {
             case UNKNOWN:
                 executeUnknown();
@@ -852,13 +857,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
-        if (txnOperated) {
-            return;
-        }
         writeLock();
         try {
             isCommitting = false;
-            state = JobState.COMMITTED;
+            if (txnOperated) {
+                state = JobState.COMMITTED;
+            }
         } finally {
             writeUnlock();
         }

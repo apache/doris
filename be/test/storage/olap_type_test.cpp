@@ -33,6 +33,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
+#include "storage/storage_layout_test_util.h"
 
 namespace doris {
 
@@ -216,8 +217,7 @@ TEST_F(OlapTypeTest, deser_double_old) {
     while (std::getline(input_file, line)) {
         Field restored_field;
         auto status = data_type_serde->from_fe_string(line, restored_field);
-        // from_fe_string rejects NaN/Infinity strings, and also rejects
-        // double::max()/lowest() whose string representation parses to Infinity
+        // from_fe_string rejects NaN/Infinity strings.
         if (std::isnan(test_input_values[line_index]) ||
             std::isinf(test_input_values[line_index])) {
             EXPECT_FALSE(status.ok());
@@ -272,6 +272,16 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             {0.123456789F, "0.12345679"},
             {1234567890123456.12345F, "1234568000000000"},
             {12345678901234567.12345F, "1.2345678e+16"}};
+    const std::vector<std::string> expected_e7 = {"1e-07", "2e-07", "3e-07",
+                                                  "4e-07", "5e-07", "6e-07",
+                                                  "7e-07", "8e-07", "9.0000003e-07"};
+    const std::vector<std::string> expected_e9 = {"1e-09",         "2e-09", "2.9999998e-09",
+                                                  "4e-09",         "5e-09", "5.9999996e-09",
+                                                  "6.9999997e-09", "8e-09", "9e-09"};
+    for (int i = 1; i < 10; ++i) {
+        normal_input_values.emplace_back(i * 0.0000001F, expected_e7[i - 1]);
+        normal_input_values.emplace_back(i * 0.000000001F, expected_e9[i - 1]);
+    }
     std::vector<std::pair<float, std::string>> test_input_values;
     for (const auto& [float_value, expected_str] : normal_input_values) {
         test_input_values.emplace_back(float_value, expected_str);
@@ -707,7 +717,7 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
 // ---------------------------------------------------------------------------
 // Float: to_olap_string / from_zonemap_string for normal values.
 //   to_olap_string uses CastToString::from_number which calls _fast_to_buffer.
-//   Format: fmt "{:.7g}" (digits10+1=7 significant digits).
+//   Format: fmt "{:.9g}" (max_digits10=9 significant digits).
 //   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_zonemap_string
 //   (which uses fast_float::from_chars) CANNOT parse them back → returns error.
 //   In ZoneMap, NaN/Inf are tracked via boolean flags, not stored in min/max values.
@@ -1110,8 +1120,7 @@ TEST_F(OlapTypeTest, char_type_with_padding) {
         expected.append(15, '\0');
         std::string expected_serde = expected;
 
-        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
-                StringRef(olap_value.data, olap_value.size));
+        auto field = Field::create_field<TYPE_CHAR>(String(olap_value.data, olap_value.size));
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) 'hello'"
@@ -1127,8 +1136,7 @@ TEST_F(OlapTypeTest, char_type_with_padding) {
         std::string expected(20, 'x');
         std::string expected_serde = expected;
 
-        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
-                StringRef(olap_value.data, olap_value.size));
+        auto field = Field::create_field<TYPE_CHAR>(String(olap_value.data, olap_value.size));
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) filled 'x'";
@@ -1142,8 +1150,7 @@ TEST_F(OlapTypeTest, char_type_with_padding) {
         std::string expected(20, '\0');
         std::string expected_serde = expected;
 
-        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
-                StringRef(olap_value.data, olap_value.size));
+        auto field = Field::create_field<TYPE_CHAR>(String(olap_value.data, olap_value.size));
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) empty"
@@ -1170,8 +1177,7 @@ TEST_F(OlapTypeTest, varchar_type) {
     for (auto& tc : test_cases) {
         Slice olap_value(tc.input.data(), tc.input.size());
 
-        auto field = Field::create_field_from_olap_value<TYPE_VARCHAR>(
-                StringRef(olap_value.data, olap_value.size));
+        auto field = Field::create_field<TYPE_VARCHAR>(String(olap_value.data, olap_value.size));
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1202,7 +1208,7 @@ TEST_F(OlapTypeTest, date_v1_type) {
     for (auto& tc : test_cases) {
         uint24_t olap_value = make_olap_date(tc.year, tc.month, tc.day);
 
-        auto field = Field::create_field_from_olap_value<TYPE_DATE>(olap_value);
+        auto field = field_of_cell<TYPE_DATE>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATE " << tc.expected;
@@ -1226,7 +1232,7 @@ TEST_F(OlapTypeTest, datetime_v1_type) {
     };
 
     for (auto& tc : test_cases) {
-        auto field = Field::create_field_from_olap_value<TYPE_DATETIME>((uint64_t)tc.olap_value);
+        auto field = field_of_cell<TYPE_DATETIME>((uint64_t)tc.olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATETIME " << tc.expected;
@@ -1256,7 +1262,7 @@ TEST_F(OlapTypeTest, datev2_type) {
     for (auto& tc : test_cases) {
         uint32_t olap_value = make_datev2(tc.year, tc.month, tc.day);
 
-        auto field = Field::create_field_from_olap_value<TYPE_DATEV2>(olap_value);
+        auto field = field_of_cell<TYPE_DATEV2>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATEV2 " << tc.expected;
@@ -1298,7 +1304,7 @@ TEST_F(OlapTypeTest, datetimev2_type) {
         auto serde = data_type->get_serde();
 
         for (auto& tc : test_cases) {
-            auto field = Field::create_field_from_olap_value<TYPE_DATETIMEV2>(tc.olap_value);
+            auto field = field_of_cell<TYPE_DATETIMEV2>(tc.olap_value);
             std::string serde_str = serde->to_olap_string(field);
 
             EXPECT_EQ(tc.expected, serde_str)
@@ -1316,7 +1322,7 @@ TEST_F(OlapTypeTest, datetime_v1_vs_v2_precision_difference) {
         int64_t olap_value = 20230615123456L;
         std::string expected = "2023-06-15 12:34:56";
         std::string expected_serde = expected;
-        auto field = Field::create_field_from_olap_value<TYPE_DATETIME>((uint64_t)olap_value);
+        auto field = field_of_cell<TYPE_DATETIME>((uint64_t)olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for DATETIME V1";
@@ -1338,7 +1344,7 @@ TEST_F(OlapTypeTest, datetime_v1_vs_v2_precision_difference) {
         uint64_t olap_value = make_datetimev2(2023, 6, 15, 12, 34, 56, 123456);
         std::string expected = "2023-06-15 12:34:56.123456";
         std::string expected_serde = expected;
-        auto field = Field::create_field_from_olap_value<TYPE_DATETIMEV2>(olap_value);
+        auto field = field_of_cell<TYPE_DATETIMEV2>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for DATETIMEV2";
@@ -1385,7 +1391,7 @@ TEST_F(OlapTypeTest, decimalv2_type) {
         olap_value.integer = tc.integer;
         olap_value.fraction = tc.fraction;
 
-        auto field = Field::create_field_from_olap_value<TYPE_DECIMALV2>(olap_value);
+        auto field = field_of_cell<TYPE_DECIMALV2>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1419,7 +1425,7 @@ TEST_F(OlapTypeTest, decimal32_type) {
         auto serde = data_type->get_serde();
 
         int32_t olap_value = tc.value;
-        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL32>(olap_value);
+        auto field = field_of_cell<TYPE_DECIMAL32>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1451,7 +1457,7 @@ TEST_F(OlapTypeTest, decimal64_type) {
         auto serde = data_type->get_serde();
 
         int64_t olap_value = tc.value;
-        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL64>(olap_value);
+        auto field = field_of_cell<TYPE_DECIMAL64>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1483,7 +1489,7 @@ TEST_F(OlapTypeTest, decimal128i_type) {
         auto serde = data_type->get_serde();
 
         int128_t olap_value = tc.value;
-        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL128I>(olap_value);
+        auto field = field_of_cell<TYPE_DECIMAL128I>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1512,7 +1518,7 @@ TEST_F(OlapTypeTest, decimal256_type) {
         auto serde = data_type->get_serde();
 
         wide::Int256 olap_value = tc.value;
-        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL256>(olap_value);
+        auto field = field_of_cell<TYPE_DECIMAL256>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1850,7 +1856,7 @@ TEST_F(OlapTypeTest, timestamptz_type) {
     };
 
     for (auto& tc : test_cases) {
-        auto field = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(tc.olap_value);
+        auto field = field_of_cell<TYPE_TIMESTAMPTZ>(tc.olap_value);
         std::string serde_str = serde->to_olap_string(field);
 
         EXPECT_EQ(tc.expected_serde, serde_str)
@@ -1858,11 +1864,9 @@ TEST_F(OlapTypeTest, timestamptz_type) {
     }
 }
 
-// from_olap_string for string types (CHAR / VARCHAR / STRING) strnlens the
-// input so any trailing '\0' bytes that came from a fixed-width CHAR write
-// are dropped before the value lands in the Field. VARCHAR / STRING ZoneMap
-// values do not normally carry trailing '\0' (the writers store the natural
-// byte length), so strnlen is a no-op for them.
+// from_olap_string cuts a CHAR value at its first '\0': a CHAR(N) write pads the value
+// with '\0' up to the schema length, and the page read path cuts it the same way.
+// VARCHAR and STRING are stored with their natural byte length, so they keep every byte.
 TEST_F(OlapTypeTest, from_olap_string_strings) {
     struct Case {
         PrimitiveType type;
@@ -1870,14 +1874,12 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
         std::string expected;
     };
     std::vector<Case> cases = {
-            // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
+            // CHAR(N) ZoneMap min/max from the column writer is padded with '\0'
             // — strnlen recovers the logical content.
             {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
             {TYPE_CHAR, std::string(10, '\0'), ""},
             {TYPE_CHAR, "alpha", "alpha"},
-            // VARCHAR / STRING never carry trailing '\0' in their ZoneMap
-            // representation, so the helper is a transparent pass-through
-            // for the typical case.
+            // VARCHAR / STRING are handed back byte for byte.
             {TYPE_VARCHAR, "hello", "hello"},
             {TYPE_STRING, "world\nline2", "world\nline2"},
             {TYPE_STRING, "", ""},
@@ -1894,14 +1896,24 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
     }
 }
 
-// VARCHAR / STRING values containing an embedded '\0' are truncated at the
-// first '\0' — the same strnlen behaviour applies to all string types. This
-// is acceptable in practice because Doris string columns do not store
-// embedded NULs in their ZoneMap representation; the test pins the contract.
-TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null_truncates) {
-    auto data_type = DataTypeFactory::instance().create_data_type(
-            TYPE_VARCHAR, /*is_nullable=*/false, 0, 0, /*length=*/32);
-    expect_from_storage_string_paths(data_type, std::string("ab\0cd", 5), [](const Field& field) {
+// A VARCHAR / STRING value may hold a '\0' in the middle, and every byte has
+// to survive the parse. Cutting at that '\0' used to give a zone map bound the data never
+// held, which then pruned rows that match. CHAR is still cut, because its '\0' is padding
+// and the page read path cuts CHAR values the same way.
+TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null) {
+    const std::string embedded_null("ab\0cd", 5);
+
+    for (auto type : {TYPE_VARCHAR, TYPE_STRING}) {
+        auto data_type = DataTypeFactory::instance().create_data_type(type, /*is_nullable=*/false,
+                                                                      0, 0, /*length=*/32);
+        expect_from_storage_string_paths(data_type, embedded_null, [&](const Field& field) {
+            EXPECT_EQ(field.get<TYPE_STRING>(), embedded_null) << "type=" << static_cast<int>(type);
+        });
+    }
+
+    auto char_type = DataTypeFactory::instance().create_data_type(TYPE_CHAR, /*is_nullable=*/false,
+                                                                  0, 0, /*length=*/5);
+    expect_from_storage_string_paths(char_type, embedded_null, [](const Field& field) {
         EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
     });
 }

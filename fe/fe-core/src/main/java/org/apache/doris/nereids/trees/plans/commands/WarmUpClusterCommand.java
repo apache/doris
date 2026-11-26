@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -33,6 +34,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -139,6 +142,14 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         handleWarmUp(ctx, executor);
     }
 
+    private void checkComputeGroupUsage(ConnectContext ctx, String computeGroup) throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ctx.getCurrentUserIdentity(),
+                computeGroup, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new AnalysisException("USAGE denied to user '" + ctx.getQualifiedUser() + "'@'"
+                    + ctx.getRemoteIP() + "' for compute group '" + computeGroup + "'");
+        }
+    }
+
     private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
         if (!Strings.isNullOrEmpty(srcCluster)) {
             CloudComputeGroupMeta srcCg = cloudSys.getComputeGroupByName(srcCluster);
@@ -180,6 +191,24 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
             throw new UserException("The sql is just support in cloud mode");
         }
 
+        boolean hasOnTablesRules = onTablesRules != null && !onTablesRules.isEmpty();
+
+        // check auth. warming up moves data between compute groups, so require USAGE on both ends
+        // instead of global ADMIN. Keep it aligned with UseCloudClusterCommand.
+        checkComputeGroupUsage(connectContext, dstCluster);
+        if (!Strings.isNullOrEmpty(srcCluster)) {
+            checkComputeGroupUsage(connectContext, srcCluster);
+        }
+        if (hasOnTablesRules) {
+            // An ON TABLES job selects tables by pattern over the whole internal catalog and keeps
+            // re-matching in the background (CacheHotspotManager.refreshAllTableFilters), so there is
+            // no fixed table set to authorize here and no identity to re-authorize later matches with.
+            // Require global ADMIN until the job carries its submitter.
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
+        }
+
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         if (!cloudSys.containClusterName(dstCluster)) {
             throw new AnalysisException("The dstClusterName " + dstCluster + " doesn't exist");
@@ -204,7 +233,6 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 + " is same with srcClusterName: " + srcCluster);
         }
 
-        boolean hasOnTablesRules = onTablesRules != null && !onTablesRules.isEmpty();
         if (hasOnTablesRules && isWarmUpWithTable) {
             throw new AnalysisException("ON TABLES clause cannot be used with WITH TABLE warmup");
         }
@@ -217,6 +245,18 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 String dbName = tableNameInfo.getDb();
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR, dbName);
+                }
+                // Warm up only ever resolves and warms the internal catalog (see the lookup below and
+                // the (db, table, partition) triple stored for the job), so authorize the internal
+                // name rather than the catalog written in the SQL. Otherwise SELECT on
+                // 'ext_ctl.db.tbl' would authorize warming up 'internal.db.tbl'.
+                // Checked before the lookup so a denied user learns nothing about what exists.
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(connectContext,
+                        InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableNameInfo.getTbl(),
+                        PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                            connectContext.getQualifiedUser(), connectContext.getRemoteIP(),
+                            dbName + ": " + tableNameInfo.getTbl());
                 }
                 Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
                 if (db == null) {

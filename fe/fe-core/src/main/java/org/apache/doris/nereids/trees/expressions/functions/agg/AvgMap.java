@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -34,7 +35,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** AggregateFunction 'avg_map'. */
-public class AvgMap extends MapAggregateFunction {
+public class AvgMap extends MapAggregateFunction implements NeedSessionVarGuard {
 
     public AvgMap(Expression arg) {
         this(false, arg);

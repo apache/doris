@@ -43,6 +43,10 @@ under the License.
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>
         <disallow pkg="lombok"/>
+        <disallow pkg="org.apache.iceberg"/>
+    </subpackage>
+    <subpackage name="planner">
+        <disallow pkg="org.apache.iceberg"/>
     </subpackage>
 </import-control>
 

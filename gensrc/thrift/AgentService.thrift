@@ -53,9 +53,12 @@ struct TTabletSchema {
     24: optional i64 storage_dict_page_size = 262144
     25: optional list<Types.TColumnGroup> seq_map
     26: optional i32 commit_tso_col_idx = -1
-    27: optional i32 binlog_tso_idx = -1
-    28: optional i32 binlog_lsn_idx = -1
-    29: optional i32 binlog_op_idx = -1
+    27: optional i32 row_lsn_col_idx = -1
+    31: optional i32 ttl_col_idx = -1
+    32: optional i64 row_ttl_duration_us = -1
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC, direct expiration and non-TTL schemas use 0.
+    33: optional i32 row_ttl_time_zone_offset_seconds = 0
 }
 
 // this enum stands for different storage format in src_backends
@@ -75,17 +78,15 @@ enum TEncryptionAlgorithm {
     SM4 = 2
 }
 
-// Bit flags used by clone/snapshot to describe which tablet files must be copied.
-// Request fields use i32 bitmasks of TTabletCopyType values.
-enum TTabletCopyType {
-    DATA = 1,
-    ROW_BINLOG = 2,
-    CCR_BINLOG = 4
-}
-
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
+}
+
+enum TTabletRole {
+    TABLET_ROLE_DATA = 0,
+    // ATTN(changelog-rename): formerly "TABLET_ROLE_ROW_BINLOG"
+    TABLET_ROLE_CHANGELOG = 1
 }
 
 enum TObjStorageType {
@@ -108,8 +109,25 @@ enum TCredProviderType {
     ENV = 3,  // EnvironmentAWSCredentialsProvider
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
-    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    CONTAINER = 6,  // GeneralHTTPCredentialsProvider, for ECS task roles and EKS Pod Identity
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
+}
+
+enum TGcpCredentialProviderType {
+    DEFAULT = 0,
+    COMPUTE_ENGINE = 1
+}
+
+struct TGcpCredential {
+    1: optional TGcpCredentialProviderType credential_provider_type
+    2: optional string impersonation_service_account
+}
+
+// Keep this struct aligned with ObjectStoreCredentialPB. Append new fields with
+// new IDs; validation rejects multiple provider credentials and ensures the
+// selected credential matches TS3StorageParam.provider.
+struct TCredential {
+    1: optional TGcpCredential gcp_credential
 }
 
 struct TS3StorageParam {
@@ -129,6 +147,7 @@ struct TS3StorageParam {
     13: optional TCredProviderType cred_provider_type
     14: optional string role_arn  // aws assumed role's arn
     15: optional string external_id  // aws assumed role's external_id if configure
+    16: optional TCredential credential
 }
 
 struct TStoragePolicy {
@@ -205,7 +224,8 @@ enum TInvertedIndexStorageFormat {
 
 enum TBinlogFormat {
     STATEMENT_AND_SNAPSHOT = 0,
-    ROW = 1
+    // ATTN(changelog-rename): formerly "ROW"
+    CHANGELOG = 1
 }
 
 struct TBinlogConfig {
@@ -215,6 +235,13 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
+    // Monotonic FE-journaled generation; reject delayed changelog retention updates.
+    7: optional i64 config_version;
+}
+
+struct TRowTtlConfig {
+    1: optional i64 duration_us = -1
+    2: optional i64 config_version = 0
 }
 
 struct TCreateTabletReq {
@@ -254,7 +281,8 @@ struct TCreateTabletReq {
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
     31: optional i32 vertical_compaction_num_columns_per_group = 5
-    32: optional TTabletSchema row_binlog_schema
+    32: optional TTabletRole tablet_role = TTabletRole.TABLET_ROLE_DATA
+    33: optional TRowTtlConfig row_ttl_config
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -387,7 +415,6 @@ struct TCloneReq {
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
     13: optional i64 table_id = -1
-    14: optional i32 copy_type = 5 // bitmask of TTabletCopyType, DATA | CCR_BINLOG by default
 }
 
 struct TCompactionReq {
@@ -467,7 +494,6 @@ struct TSnapshotRequest {
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
     14: optional Types.TTabletId ref_tablet_id
-    15: optional i32 copy_type = 1 // bitmask of TTabletCopyType, DATA by default
 }
 
 struct TReleaseSnapshotRequest {
@@ -573,6 +599,7 @@ struct TTabletMetaInfo {
     17: optional i64 time_series_compaction_empty_rowsets_threshold
     18: optional i64 time_series_compaction_level_threshold
     19: optional i32 vertical_compaction_num_columns_per_group
+    20: optional TRowTtlConfig row_ttl_config
 }
 
 struct TUpdateTabletMetaInfoReq {

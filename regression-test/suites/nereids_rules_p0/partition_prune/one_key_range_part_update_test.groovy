@@ -76,11 +76,11 @@ suite("one_key_range_part_update_test") {
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part_update WHERE date_trunc('month', dt) = '2023-08-01 00:00:00';")
-        contains "2/11 (p_202306,p_202308)"
+        contains "1/11 (p_202308)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part_update WHERE date_trunc('month', dt) BETWEEN '2023-06-01 00:00:00' AND '2023-08-01 00:00:00';")
-        contains "3/11 (p_202305,p_202306,p_202308)"
+        contains "2/11 (p_202306,p_202308)"
     }
     explain {
         sql("SELECT a, dt, c FROM key_1_special_fixed_range_date_part_update WHERE date_add(dt, INTERVAL 1 MONTH) = '2023-09-15 10:00:00';")

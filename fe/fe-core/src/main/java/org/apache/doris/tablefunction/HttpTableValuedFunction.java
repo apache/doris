@@ -19,12 +19,15 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.property.storage.HttpProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -36,22 +39,23 @@ import java.util.Map;
 public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "http";
 
-    private HttpProperties httpProperties;
+    private static final String FS_HTTP_SUPPORT = "fs.http.support";
+    private static final String HTTP_HEADER_PREFIX = "http.header.";
+
     private String uri;
 
     public HttpTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         Map<String, String> props = super.parseCommonProperties(properties);
-        props.put(StorageProperties.FS_HTTP_SUPPORT, "true");
+        props.put(FS_HTTP_SUPPORT, "true");
         try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            if (!(storageProperties instanceof HttpProperties)) {
+            this.storageAdapter = StorageAdapter.of(props);
+            if (storageAdapter.getType() != StorageTypeId.HTTP) {
                 throw new AnalysisException("HttpTableValuedFunction only support http storage properties");
             }
 
-            this.httpProperties = (HttpProperties) storageProperties;
-            this.uri = this.httpProperties.validateAndGetUri(props);
+            this.uri = storageAdapter.validateAndGetUri(props);
 
-            this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
+            this.backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
             generateFileStatus();
         } catch (Exception e) {
             throw new AnalysisException("Failed check http storage props, " + e.getMessage(), e);
@@ -61,8 +65,7 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     private void generateFileStatus() throws Exception {
         this.fileStatuses.clear();
         if (this.uri.startsWith("http://") || this.uri.startsWith("https://")) {
-            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false,
-                    HttpUtils.getHttpFileSize(this.uri, this.httpProperties.getHeaders()), true));
+            this.fileStatuses.add(getHttpFileStatus(this.uri));
         } else if (this.uri.startsWith("hf://")) {
             List<String> fileUrls = HFUtils.expandGlob(this.uri);
             if (LOG.isDebugEnabled()) {
@@ -71,12 +74,32 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
                 }
             }
             for (String fileUrl : fileUrls) {
-                this.fileStatuses.add(new TBrokerFileStatus(fileUrl, false,
-                        HttpUtils.getHttpFileSize(fileUrl, this.httpProperties.getHeaders()), true));
+                this.fileStatuses.add(getHttpFileStatus(fileUrl));
             }
         } else {
             throw new AnalysisException("HttpTableValuedFunction uri is invalid: " + this.uri);
         }
+    }
+
+    private TBrokerFileStatus getHttpFileStatus(String fileUrl) throws Exception {
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(fileUrl);
+            return new TBrokerFileStatus(fileUrl, false,
+                    HttpUtils.getHttpFileSize(fileUrl, getHeaders()), true);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
+    /** Legacy HttpProperties.getHeaders(): {@code http.header.}-prefixed keys, prefix stripped. */
+    private Map<String, String> getHeaders() {
+        Map<String, String> headers = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : storageAdapter.getOrigProps().entrySet()) {
+            if (entry.getKey().toLowerCase().startsWith(HTTP_HEADER_PREFIX)) {
+                headers.put(entry.getKey().substring(HTTP_HEADER_PREFIX.length()), entry.getValue());
+            }
+        }
+        return headers;
     }
 
     @Override

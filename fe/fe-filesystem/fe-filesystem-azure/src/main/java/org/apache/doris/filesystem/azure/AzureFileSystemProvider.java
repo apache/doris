@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.AzureBlobEndpointSignals;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -86,6 +87,32 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     @Override
     public FileSystem create(AzureFileSystemProperties properties) throws IOException {
         return new AzureFileSystem(new AzureObjStorage(properties));
+    }
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault("fs.azure.support", "false"));
+    }
+
+    /**
+     * Probe-context key carrying fe-core's {@code Config.azure_blob_host_suffixes} into the
+     * routing guess (the plugin cannot see fe-core Config; fe-core's bind registry injects the
+     * live, admin-extensible list into a probe view of the properties). Comma-separated.
+     * Referenced by fe-core; the value is owned by the shared predicate.
+     */
+    public static final String HOST_SUFFIXES_PROBE_KEY = AzureBlobEndpointSignals.HOST_SUFFIXES_PROBE_KEY;
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Verbatim port of fe-core AzureProperties.guessIsMe: provider=azure, or an endpoint
+        // alias whose HOST carries a recognised Azure Blob/DFS suffix. The suffix predicate
+        // (endpoint alias list, host extraction, dot-anchored endsWith, probe-injected live
+        // suffix list) is shared with the S3-compatible fallback providers via
+        // AzureBlobEndpointSignals so their mutual exclusion can never drift from this claim.
+        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))) {
+            return true;
+        }
+        return AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(properties);
     }
 
     @Override

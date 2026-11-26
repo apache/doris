@@ -32,7 +32,7 @@ import java.util.List;
 
 /** Base class for aggregate functions that aggregate Map values by key. */
 public abstract class MapAggregateFunction extends NotNullableAggregateFunction
-        implements UnaryExpression, CustomSignature {
+        implements UnaryExpression, CustomSignature, NullIgnoringAggregateFunction {
 
     protected MapAggregateFunction(String name, Expression arg) {
         this(name, false, arg);

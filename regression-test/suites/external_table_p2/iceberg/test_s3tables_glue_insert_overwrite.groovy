@@ -18,6 +18,10 @@
 import java.util.concurrent.ThreadLocalRandom
 
 suite("test_s3tables_glue_insert_overwrite", "p2,external") {
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->

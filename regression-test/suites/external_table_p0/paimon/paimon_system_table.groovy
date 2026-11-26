@@ -151,18 +151,79 @@ suite("paimon_system_table", "p0,external") {
                         desc ${tableName}\$snapshots
                         """
 
-        // 2.6 system table does not support time travel
+        // 2.6 only system tables whose complete reader path observes a selected snapshot support OPTIONS.
+        String multiSnapshotTable = "test_paimon_incr_read_db.paimon_incr"
+        List<List<Object>> snapshotRows = sql """
+                select snapshot_id from ${multiSnapshotTable}\$snapshots order by snapshot_id
+                """
+        assertTrue(snapshotRows.size() > 1, "The regression table should contain multiple snapshots")
+        String firstSnapshotId = String.valueOf(snapshotRows.first()[0])
+        String latestSnapshotId = String.valueOf(snapshotRows.last()[0])
+        order_qt_files_without_options """
+                select count(*) from ${multiSnapshotTable}\$files
+                """
+
+        for (String systemTable : ["files", "buckets"]) {
+            test {
+                sql """
+                    select count(*) from ${multiSnapshotTable}\$${systemTable}
+                    @options('scan.snapshot-id'='${firstSnapshotId}')
+                """
+                exception "does not support OPTIONS"
+            }
+        }
+
+        // The fixture has no deletion vectors, but both reads must reach Paimon's index table
+        // instead of being rejected by Doris' OPTIONS capability gate.
+        assertNotNull(sql("""
+                select count(*) from ${multiSnapshotTable}\$table_indexes
+                @options('scan.snapshot-id'='${firstSnapshotId}')
+                """))
+        assertNotNull(sql("""
+                select count(*) from ${multiSnapshotTable}\$table_indexes
+                @options('scan.snapshot-id'='${latestSnapshotId}')
+                """))
+
+        test {
+            sql """
+                    select count(*) from ${multiSnapshotTable}\$files
+                    @incr('startSnapshotId'='${firstSnapshotId}',
+                          'endSnapshotId'='${latestSnapshotId}')
+                    """
+            exception "does not support INCR"
+        }
+
+        List<List<Object>> incrementalPartitions = sql """
+                select sum(record_count) from ${multiSnapshotTable}\$partitions
+                @incr('startSnapshotId'='${firstSnapshotId}',
+                      'endSnapshotId'='${latestSnapshotId}')
+                """
+        assertEquals(2L, ((Number) incrementalPartitions[0][0]).longValue())
+
+        List<Long> incrementalRoIds = sql("""
+                select id from ${multiSnapshotTable}\$ro
+                @incr('startSnapshotId'='${firstSnapshotId}',
+                      'endSnapshotId'='${latestSnapshotId}')
+                order by id
+                """).collect { row -> ((Number) row[0]).longValue() }
+        assertEquals([2L, 3L], incrementalRoIds)
+
+        test {
+            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            exception "does not support INCR"
+        }
+        test {
+            sql """select * from ${tableName}\$snapshots@options('scan.snapshot-id'='1')"""
+            exception "does not support OPTIONS"
+        }
+
         test {
             sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""
-            exception "Paimon system tables do not support time travel"
+            exception "system tables do not support time travel"
         }
         test {
             sql """select * from ${tableName}\$snapshots FOR TIME AS OF "2024-07-11 16:01:57.425" """
-            exception "Paimon system tables do not support time travel"
-        }
-        test {
-            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
-            exception "Paimon system tables do not support scan params"
+            exception "system tables do not support time travel"
         }
 
     } catch (Exception e) {

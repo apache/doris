@@ -26,6 +26,7 @@
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exprs/function/cast_type_to_either.h"

@@ -16,6 +16,9 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+
+import java.util.concurrent.TimeUnit
 
 suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
     def tableName = "test_cumulative_compaction_with_format_v2"
@@ -180,9 +183,9 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             backend_id = tablet.BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            be_show_tablet_status(ip, port, tablet_id)
             (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(0, code, "Failed to show tablet status: stdout=${out}, stderr=${err}")
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-2]"))
             assertTrue(out.contains("[3-3]"))
@@ -193,24 +196,42 @@ suite("test_cumulative_compaction_with_format_v2", "inverted_index_format_v2") {
             assertTrue(out.contains("[8-8]"))
             assertTrue(out.contains("[9-9]"))
             logger.info("run compaction:" + tablet_id)
-            (code, out, err) = be_run_cumulative_compaction(ip, port, tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            boolean running = true
-            do {
-                Thread.sleep(100)
-                (code, out, err) = be_get_compaction_status(ip, port, tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-            (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
-            logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+            // FE can expose a newly committed version before the BE has refreshed its
+            // partition visible version. Retry only that transient no-input response.
+            long lastReportTime = 0
+            Awaitility.await().atMost(120, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+                (code, out, err) = be_run_cumulative_compaction(ip, port, tablet_id)
+                assertEquals(0, code, "Failed to trigger compaction: stdout=${out}, stderr=${err}")
+                def triggerResult = parseJson(out.trim())
+                String triggerStatus = triggerResult.status.toString()
+                if (triggerStatus.equalsIgnoreCase("success")) {
+                    return true
+                }
+                assertEquals("E-2000", triggerStatus,
+                        "Unexpected compaction response: stdout=${out}, stderr=${err}")
+
+                long now = System.currentTimeMillis()
+                if (now - lastReportTime >= 5000) {
+                    be_report_tablet(ip, port.toInteger())
+                    lastReportTime = now
+                }
+                return false
+            }
+
+            // run_status can be false before an asynchronous compaction starts. Wait for
+            // the observable rowset reduction instead of treating that as completion.
+            def rowsets = []
+            Awaitility.await().atMost(60, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+                (code, out, err) = be_show_tablet_status(ip, port, tablet_id)
+                logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(0, code)
+                def tabletJson = parseJson(out.trim())
+                assertTrue(tabletJson.rowsets instanceof List)
+                rowsets = tabletJson.rowsets
+                return rowsets.size() < 9
+            }
             assertTrue(out.contains("[0-1]"))
             // Parse the tablet status to get rowset count after compaction
-            def tabletJson = parseJson(out.trim())
-            def rowsets = tabletJson.rowsets
             int activeRowsetCount = rowsets.size()
             // After compaction, we should have fewer rowsets than before (originally 9 rowsets: [0-1], [2-2], ..., [9-9])
             // The exact number depends on compaction strategy, but should be less than 9

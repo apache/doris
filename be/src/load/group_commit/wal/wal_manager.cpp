@@ -32,9 +32,10 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_dirs_info.h"
-#include "load/group_commit/wal/wal_reader.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "storage/options.h"
 #include "util/parse_util.h"
 
 namespace doris {

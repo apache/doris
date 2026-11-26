@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Array type in Nereids.
@@ -63,7 +67,10 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
         if (target instanceof ArrayType) {
             return itemType.isInjectiveCastTo(((ArrayType) target).itemType);
         }
-        return target instanceof CharacterType;
+        // BE's DataTypeArraySerDe::to_string writes element text separated by ", " without
+        // escaping delimiter-like content. Therefore different arrays can have the same text,
+        // for example ARRAY('a", "b') and ARRAY('a', 'b'), so ARRAY -> STRING is not injective.
+        return false;
     }
 
     @Override
@@ -105,5 +112,10 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
     @Override
     public String toSql() {
         return "ARRAY<" + itemType.toSql() + ">";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new ArrayLiteral(Collections.<Literal>emptyList(), this));
     }
 }

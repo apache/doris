@@ -17,6 +17,7 @@
 
 #include "core/column/column_varbinary.h"
 
+#include <crc32c/crc32c.h>
 #include <glog/logging.h>
 
 #include <cstddef>
@@ -29,8 +30,29 @@
 #include "core/column/columns_common.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/sort/sort_block.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
+
+void ColumnVarbinary::insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                                         size_t num) {
+    reserve(size() + num);
+    for (size_t row = 0; row < num; ++row) {
+        insert_data(data + offsets[row], offsets[row + 1] - offsets[row]);
+    }
+}
+
+void ColumnVarbinary::insert_many_dict_data(const int32_t* data_array, size_t start_index,
+                                            const StringRef* dict, size_t data_num,
+                                            uint32_t dict_num) {
+    reserve(size() + data_num);
+    // Decoder pages can be released after the call; copy long dictionary entries into our arena.
+    for (size_t row = start_index; row < start_index + data_num; ++row) {
+        const auto& value = dict[data_array[row]];
+        insert_data(value.data, value.size);
+    }
+}
+
 MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
     auto res = create();
     if (size > 0) {
@@ -170,6 +192,74 @@ size_t ColumnVarbinary::get_max_row_byte_size() const {
         max_size = std::max(max_size, _data[i].size());
     }
     return max_size + sizeof(uint32_t);
+}
+
+void ColumnVarbinary::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType /*type*/,
+                                             uint32_t rows, uint32_t /*offset*/,
+                                             const uint8_t* __restrict null_data) const {
+    DCHECK(rows == size());
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < rows; ++i) {
+            hashes[i] = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hashes[i]);
+        }
+    } else {
+        for (size_t i = 0; i < rows; ++i) {
+            if (null_data[i] == 0) {
+                hashes[i] = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hashes[i]);
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; ++i) {
+            hash = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hash);
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                hash = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hash);
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    const size_t rows = size();
+    if (null_map == nullptr) {
+        for (size_t i = 0; i < rows; ++i) {
+            hashes[i] = crc32c_extend(hashes[i], reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                      _data[i].size());
+        }
+    } else {
+        for (size_t i = 0; i < rows; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] =
+                        crc32c_extend(hashes[i], reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                      _data[i].size());
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    if (null_map == nullptr) {
+        for (size_t i = start; i < end; ++i) {
+            hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                 _data[i].size());
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                     _data[i].size());
+            }
+        }
+    }
 }
 
 void ColumnVarbinary::serialize(StringRef* keys, size_t num_rows) const {

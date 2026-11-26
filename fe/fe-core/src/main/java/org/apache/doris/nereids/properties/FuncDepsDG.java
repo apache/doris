@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -94,6 +96,58 @@ public class FuncDepsDG {
      */
     public boolean isEmpty() {
         return dgItems.isEmpty();
+    }
+
+    /**
+     * Checks whether the determinant closure contains every dependency slot.
+     *
+     * <p>Nodes are indexed by each slot that they are still waiting for. When a dependency edge adds a slot to
+     * the closure, only nodes waiting for that slot are revisited. Each node and edge is expanded at most once,
+     * avoiding construction of the graph's full transitive FD relation.</p>
+     */
+    public boolean isDependent(Set<Slot> determinants, Set<Slot> dependencies) {
+        Set<Slot> closure = new HashSet<>(determinants);
+        if (closure.containsAll(dependencies)) {
+            return true;
+        }
+
+        int[] missingSlotCounts = new int[dgItems.size()];
+        Map<Slot, List<Integer>> waitingNodes = new HashMap<>();
+        ArrayDeque<Integer> readyNodes = new ArrayDeque<>();
+        for (DGItem item : dgItems) {
+            for (Slot slot : item.slots) {
+                if (!closure.contains(slot)) {
+                    missingSlotCounts[item.index]++;
+                    waitingNodes.computeIfAbsent(slot, key -> new ArrayList<>()).add(item.index);
+                }
+            }
+            if (missingSlotCounts[item.index] == 0) {
+                readyNodes.add(item.index);
+            }
+        }
+
+        while (!readyNodes.isEmpty()) {
+            DGItem item = dgItems.get(readyNodes.remove());
+            for (int childIndex : item.children) {
+                for (Slot slot : dgItems.get(childIndex).slots) {
+                    if (closure.add(slot)) {
+                        List<Integer> nodes = waitingNodes.get(slot);
+                        if (nodes != null) {
+                            for (int nodeIndex : nodes) {
+                                missingSlotCounts[nodeIndex]--;
+                                if (missingSlotCounts[nodeIndex] == 0) {
+                                    readyNodes.add(nodeIndex);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (closure.containsAll(dependencies)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -215,6 +269,43 @@ public class FuncDepsDG {
             for (DGItem dgItem : funcDepsDG.dgItems) {
                 for (int childIdx : dgItem.children) {
                     addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
+                }
+            }
+        }
+
+        /**
+         * Add FD edges from the nullable side of an outer join. Only keep edges whose
+         * determinant slots are all NOT NULL in the immediate child's current output:
+         * matched rows always carry a non-null determinant, while unmatched rows contribute
+         * (NULL, NULL), so they cannot collide. Edges with a nullable determinant are dropped
+         * because a matched row with determinant=NULL could conflict with an unmatched (NULL, NULL).
+         * The determinant slots stored in the graph may carry a stale nullable flag (slot
+         * equality/hash use only ExprId and getOrCreateNode never replaces the stored object),
+         * so each determinant is canonicalized against the child's current output before the
+         * nullability check.
+         */
+        public void addDepsForOuterJoinNullableSide(FuncDepsDG funcDepsDG, List<Slot> childOutput) {
+            Map<ExprId, Slot> outputSlotMap = new HashMap<>();
+            for (Slot slot : childOutput) {
+                outputSlotMap.put(slot.getExprId(), slot);
+            }
+            for (DGItem dgItem : funcDepsDG.dgItems) {
+                Set<Slot> canonicalSlots = new HashSet<>();
+                boolean allNotNull = true;
+                for (Slot slot : dgItem.slots) {
+                    Slot outputSlot = outputSlotMap.get(slot.getExprId());
+                    // a determinant not in the child's output cannot be trusted; drop the edge
+                    if (outputSlot == null || outputSlot.nullable()) {
+                        allNotNull = false;
+                        break;
+                    }
+                    canonicalSlots.add(outputSlot);
+                }
+                if (!allNotNull) {
+                    continue;
+                }
+                for (int childIdx : dgItem.children) {
+                    addDeps(canonicalSlots, funcDepsDG.dgItems.get(childIdx).slots);
                 }
             }
         }

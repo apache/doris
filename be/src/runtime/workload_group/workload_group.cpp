@@ -29,6 +29,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/scan/scanner_scheduler.h"
@@ -155,10 +156,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
         return;
     }
     std::lock_guard<std::shared_mutex> wl {_mutex};
-    // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
-    // is not changed. So that we should update workload group's config ignore version.
-    if (wg_info.version > _version ||
-        (wg_info.version == _version && _memory_limit != wg_info.memory_limit)) {
+    if (wg_info.version > _version) {
         _name = wg_info.name;
         _version = wg_info.version;
         _min_cpu_percent = wg_info.min_cpu_percent;
@@ -184,6 +182,38 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
 
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
+    {
+        // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
+        // is not changed. So that we should update workload group's config ignore version.
+        std::lock_guard<std::shared_mutex> wl {_mutex};
+        const int max_memory_percent = _max_memory_percent.load(std::memory_order_relaxed);
+        const std::string mem_limit_str = fmt::format("{}%", max_memory_percent);
+        bool is_percent = true;
+        const int64_t new_memory_limit =
+                ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
+        DCHECK(is_percent) << "mem_limit_str: " << mem_limit_str;
+        if (new_memory_limit != _memory_limit.load(std::memory_order_relaxed)) {
+            LOG(INFO) << fmt::format(
+                    "Workload group id:{}, name:{}, "
+                    "memory_limit changed from {} to {}",
+                    _id, _name,
+                    PrettyPrinter::print(_memory_limit.load(std::memory_order_relaxed),
+                                         TUnit::BYTES),
+                    PrettyPrinter::print(new_memory_limit, TUnit::BYTES));
+
+            _memory_limit.store(new_memory_limit, std::memory_order_relaxed);
+            if (max_memory_percent == 0) {
+                _min_memory_limit.store(0, std::memory_order_relaxed);
+            } else {
+                const int min_memory_percent = _min_memory_percent.load(std::memory_order_relaxed);
+                const int64_t new_min_memory_limit =
+                        static_cast<int64_t>(static_cast<double>(new_memory_limit) *
+                                             min_memory_percent / max_memory_percent);
+                _min_memory_limit.store(new_min_memory_limit, std::memory_order_relaxed);
+            }
+        }
+    }
+
     int64_t fragment_used_memory = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
@@ -539,10 +569,15 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                 std::make_unique<HybridTaskScheduler>(pipeline_exec_thread_num,
                                                       blocking_exec_thread_num, "p_" + wg_name,
                                                       cg_cpu_ctl_ptr);
-        Status ret = pipeline_task_scheduler->start();
+        Status ret = SYNC_POINT_HOOK_RETURN_VALUE(
+                pipeline_task_scheduler->start(),
+                "WorkloadGroup::upsert_thread_pool_no_lock::task_scheduler_start");
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
         } else {
+            // A failed start may leave only some schedulers running. Stop all of
+            // them before destruction, which requires both schedulers to be shut down.
+            pipeline_task_scheduler->stop();
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] task scheduler start failed, gid= " << wg_id;
         }
@@ -605,17 +640,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
                       << ", max thread num=" << max_flush_thread_num
                       << ", min thread num=" << min_flush_thread_num;
-            // Register the new pool with adaptive thread controller
-            if (config::enable_adaptive_flush_threads) {
-                auto* controller =
-                        ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
-                auto* flush_pool = _memtable_flush_pool.get();
-                controller->add("flush_wg_" + std::to_string(_id), {flush_pool},
-                                AdaptiveThreadPoolController::make_flush_adjust_func(controller,
-                                                                                     flush_pool),
-                                config::max_flush_thread_num_per_cpu,
-                                config::min_flush_thread_num_per_cpu);
-            }
+            register_adaptive_flush_no_lock();
         } else {
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid=" << wg_id;
@@ -749,21 +774,36 @@ void WorkloadGroup::stop_schedulers_no_lock() {
         _remote_scan_task_sched->stop();
     }
     if (_memtable_flush_pool) {
-        // Unregister from adaptive controller before destroying the pool to avoid UAF:
-        // the adjustment loop holds raw ThreadPool* pointers and must not access them
-        // after the pool is gone.
-        if (config::enable_adaptive_flush_threads) {
-            auto* controller =
-                    ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
-            controller->cancel("flush_wg_" + std::to_string(_id));
-        }
+        cancel_adaptive_flush_no_lock();
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
 }
 
+void WorkloadGroup::register_adaptive_flush_no_lock() {
+    if (config::enable_adaptive_flush_threads) {
+        auto* controller = ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+        auto* flush_pool = _memtable_flush_pool.get();
+        _adaptive_flush_key = fmt::format("flush_wg_{}_{}", _id, fmt::ptr(flush_pool));
+        controller->add(
+                _adaptive_flush_key, {flush_pool},
+                AdaptiveThreadPoolController::make_flush_adjust_func(controller, flush_pool),
+                config::max_flush_thread_num_per_cpu, config::min_flush_thread_num_per_cpu);
+    }
+}
+
+void WorkloadGroup::cancel_adaptive_flush_no_lock() {
+    if (!_adaptive_flush_key.empty()) {
+        auto* controller = ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+        // A runtime config change must not skip cancellation of an existing registration.
+        controller->cancel(_adaptive_flush_key);
+        _adaptive_flush_key.clear();
+    }
+}
+
 void WorkloadGroup::destroy_schedulers() {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    cancel_adaptive_flush_no_lock();
     _task_sched.reset();
     _scan_task_sched.reset();
     _remote_scan_task_sched.reset();

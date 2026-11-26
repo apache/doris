@@ -67,10 +67,11 @@
 namespace doris {
 
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
-        TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,       TYPE_BIGINT,
-        TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,    TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,    TYPE_DATE,
-        TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2, TYPE_TIMESTAMPTZ};
+        TYPE_BOOLEAN,     TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,       TYPE_BIGINT,
+        TYPE_LARGEINT,    TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,    TYPE_CHAR,
+        TYPE_VARCHAR,     TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,    TYPE_DATE,
+        TYPE_DATETIME,    TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2, TYPE_TIMESTAMPTZ,
+        TYPE_TIMESTAMP_NS};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -265,6 +266,11 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const DataTypeP
         result = CastToString::from_datetimev2(value, type->get_scale());
         break;
     }
+    case TYPE_TIMESTAMP_NS: {
+        const auto value = TimeStampNsValue(*reinterpret_cast<int64_t*>(src));
+        result = value.to_string();
+        break;
+    }
     case TYPE_TIMESTAMPTZ: {
         auto value = binary_cast<uint64_t, TimestampTzValue>(*(int64_t*)src);
         result = CastToString::from_timestamptz(value, type->get_scale(), options.timezone);
@@ -285,7 +291,8 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const DataTypeP
     case TYPE_VARIANT:
     case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
-    case TYPE_IPV6: {
+    case TYPE_IPV6:
+    case TYPE_UUID: {
         result = column_type->to_string(*column_ptr, 0, options);
         break;
     }

@@ -35,24 +35,30 @@ suite("inpredicate_with_list") {
 
         sql """ set enable_nereids_planner = true;"""
         sql """ set enable_fallback_to_original_planner=false;"""
-        order_qt_in_predicate_17 """
-            SELECT * FROM ${tableName} where c_array in ([1,2], [1,3]);
-        """
-        order_qt_in_predicate_18 """
-            SELECT * FROM ${tableName} where c_array in (null, [1,3]);
-        """
-        order_qt_in_predicate_19 """
-            SELECT * FROM ${tableName} where c_array in ([1,2], [1,3], [4,5,6]);
-        """
-        order_qt_in_predicate_20 """
-            SELECT * FROM ${tableName} where c_array in ([1,2], null, [4,5,6]);
-        """
-        order_qt_in_predicate_21 """
-            SELECT * FROM ${tableName} where c_array in ([1,2], null, [4,5,3]);
-        """
-        order_qt_in_predicate_22 """
-            SELECT * FROM ${tableName} where c_array in ([1,2], [6,5,4], [4,5,3]);
-        """
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in ([1,2], [1,3]); """
+            exception "in predicate could not contains complex type"
+        }
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in (null, [1,3]); """
+            exception "in predicate could not contains complex type"
+        }
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in ([1,2], [1,3], [4,5,6]); """
+            exception "in predicate could not contains complex type"
+        }
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in ([1,2], null, [4,5,6]); """
+            exception "in predicate could not contains complex type"
+        }
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in ([1,2], null, [4,5,3]); """
+            exception "in predicate could not contains complex type"
+        }
+        test {
+            sql """ SELECT * FROM ${tableName} where c_array in ([1,2], [6,5,4], [4,5,3]); """
+            exception "in predicate could not contains complex type"
+        }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

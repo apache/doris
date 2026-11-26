@@ -19,25 +19,15 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Rule for pushdown project through inner/outer join
@@ -66,7 +56,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                         .whenNot(j -> j.left().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
-                            Plan newLeft = pushdownProject(project);
+                            Plan newLeft = ProjectJoinReorderHelper.normalize(project).orElse(null);
                             if (newLeft == null) {
                                 return null;
                             }
@@ -82,7 +72,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                         .whenNot(j -> j.right().child().hasDistributeHint())
                         .then(topJoin -> {
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
-                            Plan newRight = pushdownProject(project);
+                            Plan newRight = ProjectJoinReorderHelper.normalize(project).orElse(null);
                             if (newRight == null) {
                                 return null;
                             }
@@ -90,84 +80,4 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                         }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN_RIGHT)
         );
     }
-
-    private Plan pushdownProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-        Set<ExprId> aOutputExprIdSet = join.left().getOutputExprIdSet();
-        Set<ExprId> bOutputExprIdSet = join.right().getOutputExprIdSet();
-
-        // reject hyper edge in Project.
-        if (!project.getProjects().stream().allMatch(expr -> {
-            Set<ExprId> inputSlotExprIds = expr.getInputSlotExprIds();
-            return aOutputExprIdSet.containsAll(inputSlotExprIds)
-                    || bOutputExprIdSet.containsAll(inputSlotExprIds);
-        })) {
-            return null;
-        }
-
-        List<NamedExpression> aProjects = new ArrayList<>();
-        List<NamedExpression> bProjects = new ArrayList<>();
-        List<NamedExpression> projects;
-        if (join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin()) {
-            projects = project.getProjects();
-        } else {
-            Map<Slot, Slot> childrenSlots = new HashMap<>();
-            join.left().getOutputSet().forEach(slot -> childrenSlots.put(slot, slot));
-            join.right().getOutputSet().forEach(slot -> childrenSlots.put(slot, slot));
-            join.getOutputSet().forEach(slot -> {
-                if (childrenSlots.containsKey(slot)) {
-                    childrenSlots.put(slot, childrenSlots.get(slot));
-                }
-            });
-
-            projects = project.getProjects().stream().map(expr -> expr.rewriteUp(e ->
-                    e instanceof Slot ? childrenSlots.get((Slot) e) : e
-            )).map(e -> (NamedExpression) e).collect(Collectors.toList());
-        }
-        for (NamedExpression namedExpression : projects) {
-            Set<ExprId> usedExprIds = namedExpression.getInputSlotExprIds();
-            if (aOutputExprIdSet.containsAll(usedExprIds)) {
-                aProjects.add(namedExpression);
-            } else {
-                bProjects.add(namedExpression);
-            }
-        }
-
-        boolean leftContains = aProjects.stream().anyMatch(e -> !(e instanceof Slot));
-        boolean rightContains = bProjects.stream().anyMatch(e -> !(e instanceof Slot));
-        // due to JoinCommute, we don't need to consider just right contains.
-        if (!leftContains) {
-            return null;
-        }
-        // we could not push nullable side project
-        if (((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isAsofLeftOuterJoin()
-                || join.getJoinType().isFullOuterJoin()) && rightContains)
-                || ((join.getJoinType().isRightOuterJoin() || join.getJoinType().isAsofRightOuterJoin()
-                || join.getJoinType().isFullOuterJoin()) && leftContains)) {
-            return null;
-        }
-
-        Builder<NamedExpression> newAProject = ImmutableList.<NamedExpression>builder().addAll(aProjects);
-        Set<Slot> aConditionSlots = CBOUtils.joinChildConditionSlots(join, true);
-        Set<Slot> aProjectSlots = aProjects.stream().map(NamedExpression::toSlot)
-                .collect(Collectors.toSet());
-        aConditionSlots.stream().filter(slot -> !aProjectSlots.contains(slot)).forEach(newAProject::add);
-        Plan newLeft = new LogicalProject<>(newAProject.build(), join.left());
-
-        if (!rightContains) {
-            Plan newJoin = join.withChildren(newLeft, join.right());
-            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
-        }
-
-        Builder<NamedExpression> newBProject = ImmutableList.<NamedExpression>builder().addAll(bProjects);
-        Set<Slot> bConditionSlots = CBOUtils.joinChildConditionSlots(join, false);
-        Set<Slot> bProjectSlots = bProjects.stream().map(NamedExpression::toSlot)
-                .collect(Collectors.toSet());
-        bConditionSlots.stream().filter(slot -> !bProjectSlots.contains(slot)).forEach(newBProject::add);
-        Plan newRight = new LogicalProject<>(newBProject.build(), join.right());
-
-        Plan newJoin = join.withChildren(newLeft, newRight);
-        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
-    }
-
 }

@@ -1,0 +1,76 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.qe;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * Connector-agnostic registry of callbacks to run when a query finishes.
+ *
+ * <p>fe-core owns the query lifecycle: when a query is unregistered (see
+ * {@link QeProcessorImpl#unregisterQuery}), all callbacks registered for that
+ * query id are run exactly once and then removed. This lets any connector hook
+ * query completion (for example committing a hive read transaction or releasing
+ * a metastore lock) without fe-core naming the connector in its generic
+ * query-cleanup path, aligning with the engine-driven query/transaction
+ * lifecycle used by systems such as Trino.
+ *
+ * <p>Callbacks are best-effort: a failure in one callback is logged and does
+ * not prevent the remaining callbacks (or the rest of query cleanup) from
+ * running.
+ */
+public class QueryFinishCallbackRegistry {
+    private static final Logger LOG = LogManager.getLogger(QueryFinishCallbackRegistry.class);
+
+    private final Map<String, List<Runnable>> callbacks = new ConcurrentHashMap<>();
+
+    /**
+     * Register a callback to run when the query with the given id finishes.
+     * Multiple callbacks may be registered for one query; they run in
+     * registration order.
+     */
+    public void register(String queryId, Runnable callback) {
+        callbacks.computeIfAbsent(queryId, k -> new CopyOnWriteArrayList<>()).add(callback);
+    }
+
+    /**
+     * Run and remove all callbacks registered for the given query. Idempotent:
+     * a second call, or a call for a query with no callbacks, is a no-op.
+     * Exceptions thrown by an individual callback are isolated so that one
+     * connector's failing cleanup cannot block another's.
+     */
+    public void runAndClear(String queryId) {
+        List<Runnable> queryCallbacks = callbacks.remove(queryId);
+        if (queryCallbacks == null) {
+            return;
+        }
+        for (Runnable callback : queryCallbacks) {
+            try {
+                callback.run();
+            } catch (Exception e) {
+                LOG.warn("query finish callback failed for query {}", queryId, e);
+            }
+        }
+    }
+}

@@ -80,9 +80,16 @@ void StreamLoadRecorderManager::_load_last_fetch_key() {
 }
 
 void StreamLoadRecorderManager::stop() {
-    _stop = true;
+    {
+        std::lock_guard<std::mutex> lock(_stop_mutex);
+        _stop = true;
+    }
+    // Wakes the worker from its idle wait, and aborts the audit stream load it may
+    // currently be blocked on, see the abort callback in _send_stream_load().
+    _stop_cv.notify_all();
     if (_worker_thread.joinable()) {
         _worker_thread.join();
+        LOG(INFO) << "StreamLoadRecorderManager is stopped";
     }
 }
 
@@ -90,9 +97,19 @@ void StreamLoadRecorderManager::_worker_thread_func() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     while (!_stop) {
         _fetch_and_buffer_records();
+        // Do not start a new audit stream load once shutdown has begun. The load is served
+        // by this BE's own http service, which is about to go away.
+        if (_stop) {
+            break;
+        }
         _load_if_necessary();
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        _wait_for_stop(1000);
     }
+}
+
+void StreamLoadRecorderManager::_wait_for_stop(int64_t wait_ms) {
+    std::unique_lock<std::mutex> lock(_stop_mutex);
+    _stop_cv.wait_for(lock, std::chrono::milliseconds(wait_ms), [this]() { return _stop.load(); });
 }
 
 void StreamLoadRecorderManager::_fetch_and_buffer_records() {
@@ -262,6 +279,10 @@ Status StreamLoadRecorderManager::_send_stream_load(const std::string& data) {
     if (!st.ok()) {
         return Status::InternalError("Failed to init http client: {}", st.to_string());
     }
+    // This load is served by this BE's own http service. Once shutdown starts that service
+    // stops answering, and without an abort hook the request would sit here for the full
+    // DEFAULT_STREAM_LOAD_TIMEOUT_SEC, blocking the join() in stop().
+    client.set_abort_callback([this]() { return _stop.load(); });
     client.set_authorization("Basic YWRtaW46");
     client.set_header("Expect", "100-continue");
     client.set_content_type("text/plain; charset=UTF-8");

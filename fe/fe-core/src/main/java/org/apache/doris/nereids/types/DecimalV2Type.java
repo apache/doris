@@ -21,7 +21,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 import com.google.common.base.Preconditions;
@@ -30,6 +31,7 @@ import com.google.common.collect.ImmutableMap;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Decimal v2 type in Nereids.
@@ -38,6 +40,11 @@ public class DecimalV2Type extends FractionalType {
 
     public static int MAX_PRECISION = 27;
     public static int MAX_SCALE = 9;
+    // BE stores every DECIMALV2 as DECIMAL(27, 9) while evaluating expressions. The declared
+    // precision and scale are retained only as original schema metadata, primarily for formatting.
+    public static final int EXECUTION_PRECISION = 27;
+    public static final int EXECUTION_SCALE = 9;
+    public static final int EXECUTION_RANGE = EXECUTION_PRECISION - EXECUTION_SCALE;
     public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE, true);
     public static final DecimalV2Type SYSTEM_DEFAULT_NOT_CONVERSION =
             new DecimalV2Type(MAX_PRECISION, MAX_SCALE, false);
@@ -162,15 +169,13 @@ public class DecimalV2Type extends FractionalType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        if (target instanceof DecimalV2Type) {
-            DecimalV2Type decimalV2Type = (DecimalV2Type) target;
-            return decimalV2Type.getRange() >= this.getRange() && decimalV2Type.getScale() >= this.getScale();
-        }
-        if (target instanceof DecimalV3Type) {
-            DecimalV3Type decimalV3Type = (DecimalV3Type) target;
-            return decimalV3Type.getRange() >= this.getRange() && decimalV3Type.getScale() >= this.getScale();
-        }
-        return target instanceof CharacterType;
+        // DECIMALV2 is a deprecated legacy type. Its declared precision and scale do not always
+        // match BE's execution domain, and casts between DECIMALV2 and newer decimal types are not
+        // supported consistently. Conservatively keep every cast with a DECIMALV2 source out of
+        // injective-only rewrites, including apparent identity or widening casts. This prevents an
+        // optimizer rewrite from removing or reordering a legacy cast whose execution can fail or
+        // merge values.
+        return false;
     }
 
     @Override
@@ -247,4 +252,10 @@ public class DecimalV2Type extends FractionalType {
         return WIDTH;
     }
 
+    @Override
+    public Optional<Expression> zeroValue() {
+        // The literal validates precision and scale before it rescales, so zero has to carry
+        // the type's scale already; a scale-0 zero overflows DECIMAL(p, p).
+        return Optional.of(new DecimalLiteral(this, BigDecimal.ZERO.setScale(getScale())));
+    }
 }

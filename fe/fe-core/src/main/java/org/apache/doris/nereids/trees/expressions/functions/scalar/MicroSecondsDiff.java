@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
@@ -43,6 +44,8 @@ public class MicroSecondsDiff extends ScalarFunction implements BinaryExpression
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD)
             );

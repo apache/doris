@@ -43,7 +43,10 @@ public:
         return Status::OK();
     }
 
-    const RowDescriptor& row_desc() const override { return *_mock_row_desc; }
+    void set_mock_row_desc(std::unique_ptr<MockRowDescriptor> row_desc) {
+        _mock_row_desc = std::move(row_desc);
+        _row_descriptor = *_mock_row_desc;
+    }
 
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
@@ -155,9 +158,9 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
     source = std::make_unique<CacheSourceOperatorX>(
             &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
             std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     create_local_state();
 
     std::cout << query_cache->get_element_count() << std::endl;
@@ -190,9 +193,9 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
 TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -232,9 +235,9 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
 TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -295,9 +298,9 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
 TEST_F(QueryCacheOperatorTest, test_stale_full_recompute) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -352,9 +355,9 @@ TEST_F(QueryCacheOperatorTest, test_stale_full_recompute) {
 TEST_F(QueryCacheOperatorTest, test_incremental_merge) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -450,9 +453,9 @@ TEST_F(QueryCacheOperatorTest, test_incremental_merge) {
 TEST_F(QueryCacheOperatorTest, test_incremental_over_entry_limit) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -531,9 +534,9 @@ TEST_F(QueryCacheOperatorTest, test_incremental_over_entry_limit) {
 TEST_F(QueryCacheOperatorTest, test_incremental_write_back_infeasible) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -611,9 +614,9 @@ TEST_F(QueryCacheOperatorTest, test_incremental_write_back_infeasible) {
 TEST_F(QueryCacheOperatorTest, test_incremental_fallback_reason_in_profile) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     // Use a tablet id that exists nowhere so fetching the tablet fails even if
     // another suite left a storage engine registered in this test process.
     constexpr int64_t kMissingTabletId = 424242424242;
@@ -663,9 +666,9 @@ TEST_F(QueryCacheOperatorTest, test_incremental_fallback_reason_in_profile) {
 TEST_F(QueryCacheOperatorTest, test_missing_runtime_fails_init) {
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -706,10 +709,10 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache_multi_block_reordered_slots) {
     // silently misplaced data for same-typed ones.
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
-    EXPECT_TRUE(source->set_child(child_op));
     auto* row_desc = new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()}, &pool};
-    child_op->_mock_row_desc.reset(row_desc);
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(row_desc));
+    EXPECT_TRUE(source->set_child(child_op));
     // The mock descriptor leaves every slot id at its default; give the two
     // output slots distinct ids so the slot-order mapping is meaningful.
     auto& slots = static_cast<MockTupleDescriptor*>(row_desc->tuple_desc_map.front())->Slots;
@@ -745,14 +748,9 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache_multi_block_reordered_slots) {
 
     source->_cache_param = cache_param;
     source->_query_cache_runtime = std::make_shared<QueryCacheRuntime>(cache_param, query_cache);
-    // In production this operator is also built without a plan node, so its
-    // _row_descriptor reports zero materialized slots and clear_column_data()
-    // wipes the block every pull -- the schema-carrying reused-block shape is
-    // accidentally unreachable today. Report a real slot count here to pin
-    // the permute-before-merge invariant against the natural cleanups (a real
-    // row descriptor, or removing the redundant per-operator wipe) that would
-    // make that shape live.
-    source->_row_descriptor._num_materialized_slots = 2;
+    // Give the source the real output layout so clear_column_data() preserves
+    // the schema-carrying reused block between pulls.
+    source->_row_descriptor = *row_desc;
     create_local_state();
 
     EXPECT_EQ(source_local_state->_slot_orders, (std::vector<int> {10, 11}));
@@ -797,10 +795,10 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
     // whole, so a later exact hit through it permutes correctly again.
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
-    EXPECT_TRUE(source->set_child(child_op));
     auto* row_desc = new MockRowDescriptor {
             {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()}, &pool};
-    child_op->_mock_row_desc.reset(row_desc);
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(row_desc));
+    EXPECT_TRUE(source->set_child(child_op));
     auto& slots = static_cast<MockTupleDescriptor*>(row_desc->tuple_desc_map.front())->Slots;
     slots[0]->_id = 100;
     slots[1]->_id = 101;
@@ -846,7 +844,7 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
     }
     // Pin the schema-carrying reused-block shape; see the rationale in
     // test_hit_cache_multi_block_reordered_slots.
-    source->_row_descriptor._num_materialized_slots = 2;
+    source->_row_descriptor = *row_desc;
     create_local_state();
 
     EXPECT_TRUE(source_local_state->_is_incremental);
@@ -938,9 +936,9 @@ TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) 
     // malformed two-column final block makes the merge fail determinately.
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
+    auto* row_desc = new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool};
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(row_desc));
     EXPECT_TRUE(source->set_child(child_op));
-    child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.digest = "test_digest";
@@ -979,7 +977,7 @@ TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) 
     // descriptor the reused block is wiped every pull and re-cloned from the
     // incoming block, so the malformed final block would merge into a clone
     // of itself and SUCCEED, unbinding this test from the bug it guards.
-    source->_row_descriptor._num_materialized_slots = 1;
+    source->_row_descriptor = *row_desc;
     create_local_state();
     EXPECT_TRUE(source_local_state->_need_insert_cache);
 

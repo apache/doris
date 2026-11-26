@@ -19,7 +19,6 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.OssHdfsProperties;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -39,7 +38,7 @@ import java.util.Set;
  * The framework selects providers first-match-wins over an unordered list, so the two providers'
  * {@code supports()} predicates must not overlap.</p>
  */
-public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class OssHdfsFileSystemProvider implements FileSystemProvider<OssHdfsProperties> {
 
     private static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
@@ -81,10 +80,33 @@ public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemP
     }
 
     @Override
-    public FileSystem create(Map<String, String> properties) throws IOException {
+    public OssHdfsProperties bind(Map<String, String> properties) {
         OssHdfsProperties ossHdfsProperties = new OssHdfsProperties(properties);
         ossHdfsProperties.initNormalizeAndCheckProps();
-        return new DFSFileSystem(ossHdfsProperties.getBackendConfigProperties());
+        return ossHdfsProperties;
+    }
+
+    @Override
+    public FileSystem create(OssHdfsProperties properties) throws IOException {
+        return new DFSFileSystem(properties.getBackendConfigProperties());
+    }
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return isFlagTrue(properties, FS_OSS_HDFS_SUPPORT)
+                || isFlagTrue(properties, DEPRECATED_OSS_HDFS_SUPPORT);
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Same heuristic fe-core uses to pick OSSHdfsProperties (oss.hdfs. flag prefix or an
+        // *.oss-dls.aliyuncs.com endpoint) — already raw-props based.
+        return OssHdfsProperties.guessIsMe(properties);
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties) throws IOException {
+        return create(bind(properties));
     }
 
     @Override

@@ -125,6 +125,7 @@ class MySqlVersionSmokeITCase {
                 assertThat(byId.get(3).get(Constants.DORIS_DELETE_SIGN).asInt()).isZero();
                 assertThat(byId.get(1).get("age").asInt()).isEqualTo(31);
                 assertThat(byId.get(2).get(Constants.DORIS_DELETE_SIGN).asInt()).isEqualTo(1);
+                assertThat(harness.sourceLogLagBytes()).isGreaterThanOrEqualTo(0);
             } finally {
                 Env.getCurrentEnv().close(jobId);
             }

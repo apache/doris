@@ -17,7 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.common.DdlException;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.dictionary.Dictionary;
@@ -42,9 +43,10 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
     /**
      * constructor
      */
-    public DictionaryInsertExecutor(ConnectContext ctx, Dictionary dictionary, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
-        super(ctx, dictionary, labelName, planner, insertCtx, emptyInsert, jobId);
+    public DictionaryInsertExecutor(ConnectContext ctx, DatabaseIf<?> database, Dictionary dictionary,
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
+            long jobId) {
+        super(ctx, database, dictionary, labelName, planner, insertCtx, emptyInsert, jobId, false);
     }
 
     @Override
@@ -73,11 +75,9 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onFail(Throwable t) {
-        // must from AbstractInsertExecutor so got DdlException
-        DdlException ddlException = (DdlException) t;
-        errMsg = t.getMessage() == null ? "unknown reason" : ddlException.getMessage();
+        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
-        LOG.warn("dictionary insert [{}] with query id {} failed", labelName, queryId, ddlException);
+        LOG.warn("dictionary insert [{}] with query id {} failed", labelName, queryId, t);
 
         String finalErrorMsg = InsertUtils.getFinalErrorMsg(
                 errMsg,
@@ -85,7 +85,9 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
                 coordinator.getTrackingUrl()
         );
         // we should set the context to make the caller know the command failed
-        ctx.getState().setError(ddlException.getMysqlErrorCode(), finalErrorMsg);
+        ErrorCode errorCode = t instanceof UserException
+                ? ((UserException) t).getMysqlErrorCode() : ErrorCode.ERR_UNKNOWN_ERROR;
+        ctx.getState().setError(errorCode, finalErrorMsg);
     }
 
     @Override

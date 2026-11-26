@@ -19,10 +19,10 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +38,7 @@ import java.util.Set;
  * {@code hdfs}/{@code viewfs} are claimed here; the {@code _STORAGE_TYPE_} "HDFS" marker is only a
  * fallback when there is no uri scheme.</p>
  */
-public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class HdfsFileSystemProvider implements FileSystemProvider<HdfsProperties> {
 
     public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs");
 
@@ -72,13 +72,72 @@ public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProp
     }
 
     @Override
-    public FileSystem create(Map<String, String> properties) throws IOException {
+    public HdfsProperties bind(Map<String, String> properties) {
         // Resolve raw user properties through the migrated HdfsProperties so that typed auth
         // params (hdfs.authentication.*) are translated to Hadoop keys, xml resources are
         // loaded, and defaults are injected — instead of passing raw keys straight through.
         HdfsProperties hdfsProperties = new HdfsProperties(properties);
         hdfsProperties.initNormalizeAndCheckProps();
-        return new DFSFileSystem(hdfsProperties.getBackendConfigProperties());
+        return hdfsProperties;
+    }
+
+    @Override
+    public FileSystem create(HdfsProperties properties) throws IOException {
+        return new DFSFileSystem(properties.getBackendConfigProperties());
+    }
+
+    private static final Set<String> GUESS_HINT_KEYS = Set.of("hdfs.authentication.type",
+            "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
+            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal",
+            "dfs.nameservices", "hdfs.config.resources");
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault("fs.hdfs.support", "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Verbatim port of fe-core HdfsProperties.guessIsMe/HdfsPropertiesUtils
+        // .validateUriIsHdfsUri, minus jfs:// which the dedicated JFS plugin claims (the bind
+        // registry orders JFS ahead of HDFS). Two legacy quirks preserved deliberately:
+        // a present-but-scheme-less uri THROWS (legacy ran the HDFS guess first, so this error
+        // pre-empted every other provider's guess and failed the whole routing); an unparsable
+        // uri (e.g. s3 glob syntax with '{') is swallowed and treated as not-HDFS.
+        String uriStr = rawUserUri(properties);
+        if (uriStr != null && !uriStr.trim().isEmpty()) {
+            URI uri = null;
+            try {
+                uri = URI.create(uriStr);
+            } catch (Exception ex) {
+                // legacy warned and fell through to the hint keys
+            }
+            if (uri != null) {
+                String scheme = uri.getScheme();
+                if (scheme == null || scheme.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Invalid uri: " + uriStr + ", extract schema is null");
+                }
+                if (SUPPORTED_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        return GUESS_HINT_KEYS.stream().anyMatch(properties::containsKey);
+    }
+
+    private static String rawUserUri(Map<String, String> properties) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if ("uri".equalsIgnoreCase(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties) throws IOException {
+        return create(bind(properties));
     }
 
     @Override

@@ -23,7 +23,10 @@
 
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
+#include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -41,6 +44,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace doris::format::parquet {
+class ParquetFileCrypto;
+}
+
 namespace doris::io {
 struct IOContext;
 } // namespace doris::io
@@ -49,6 +56,31 @@ namespace doris::format::parquet::native {
 using ::doris::ColumnString;
 using segment_v2::RowRange;
 using segment_v2::RowRanges;
+
+struct ColumnReaderOptions {
+    size_t max_buf_size = 0;
+    const cctz::time_zone* timezone = nullptr;
+    std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt;
+    bool enable_page_cache = false;
+    std::string page_cache_file_key;
+    ParquetReaderCompat compat {};
+    bool enable_strict_mode = false;
+};
+
+// Shared by one recursive construction only. Referenced metadata/ranges must outlive the readers;
+// for example, row_ranges belongs to NativeColumnReader, never to this temporary context.
+struct ColumnReaderCreateContext {
+    io::FileReaderSPtr file;
+    const tparquet::RowGroup& row_group;
+    const RowRanges& row_ranges;
+    const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets;
+    const std::set<uint64_t>& column_ids;
+    const std::set<uint64_t>& filter_column_ids;
+    int row_group_ordinal;
+    io::IOContext* io_ctx = nullptr;
+    ColumnReaderOptions options {};
+    const ParquetFileCrypto* file_crypto = nullptr;
+};
 
 #ifdef BE_TEST
 Status init_decode_context_for_test(const NativeFieldSchema& field, const cctz::time_zone* ctz,
@@ -190,27 +222,32 @@ public:
     // is a non-consuming fallback for nested and synthetic readers.
     virtual Status read_fixed_width_filter(const VExprSPtrs&, int, FilterMap&, size_t, IColumn*,
                                            IColumn::Filter* row_filter, size_t* read_rows,
-                                           bool* eof, bool* used_filter) {
+                                           bool* eof, bool* used_filter,
+                                           DirectPredicateExecutionKind* execution_kind) {
         DORIS_CHECK(row_filter != nullptr);
         DORIS_CHECK(read_rows != nullptr);
         DORIS_CHECK(eof != nullptr);
         DORIS_CHECK(used_filter != nullptr);
+        DORIS_CHECK(execution_kind != nullptr);
         row_filter->clear();
         *read_rows = 0;
         *used_filter = false;
+        *execution_kind = DirectPredicateExecutionKind::NONE;
         return Status::OK();
     }
 
     virtual Status read_dictionary_filter(const IColumn::Filter&, FilterMap&, size_t,
                                           const IColumn*, IColumn*, ColumnInt32*,
-                                          IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-                                          bool* projected_directly, bool* used_filter) {
+                                          IColumn::Filter* row_filter, size_t* survivor_count,
+                                          size_t* read_rows, bool* eof, bool* projected_directly,
+                                          bool* used_filter) {
         DORIS_CHECK(row_filter != nullptr);
+        DORIS_CHECK(survivor_count != nullptr);
         DORIS_CHECK(read_rows != nullptr);
         DORIS_CHECK(eof != nullptr);
         DORIS_CHECK(projected_directly != nullptr);
         DORIS_CHECK(used_filter != nullptr);
-        row_filter->clear();
+        *survivor_count = 0;
         *read_rows = 0;
         *projected_directly = false;
         *used_filter = false;
@@ -238,16 +275,8 @@ public:
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
     }
 
-    static Status create(io::FileReaderSPtr file, NativeFieldSchema* field,
-                         const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
-                         const cctz::time_zone* ctz, io::IOContext* io_ctx,
-                         std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
-                         const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                         RuntimeState* state, bool in_collection = false,
-                         const std::set<uint64_t>& column_ids = {},
-                         const std::set<uint64_t>& filter_column_ids = {},
-                         const std::string& page_cache_file_key = {},
-                         const ParquetReaderCompat& compat = {}, bool enable_strict_mode = false);
+    static Status create(const ColumnReaderCreateContext& context, NativeFieldSchema* field,
+                         bool in_collection, std::unique_ptr<ColumnReader>& reader);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -262,6 +291,20 @@ public:
 
     NativeFieldSchema* get_field_schema() const { return _field_schema; }
     void set_column_in_nested() { _in_nested = true; }
+
+private:
+    static Status _create_array_reader(const ColumnReaderCreateContext& context,
+                                       NativeFieldSchema* field,
+                                       std::unique_ptr<ColumnReader>& reader);
+    static Status _create_map_reader(const ColumnReaderCreateContext& context,
+                                     NativeFieldSchema* field,
+                                     std::unique_ptr<ColumnReader>& reader);
+    static Status _create_struct_reader(const ColumnReaderCreateContext& context,
+                                        NativeFieldSchema* field, bool in_collection,
+                                        std::unique_ptr<ColumnReader>& reader);
+    static Status _create_scalar_reader(const ColumnReaderCreateContext& context,
+                                        NativeFieldSchema* field, bool in_collection,
+                                        std::unique_ptr<ColumnReader>& reader);
 
 protected:
     void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
@@ -294,9 +337,9 @@ public:
               _chunk_meta(chunk_meta),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
-    Status init(io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size,
-                RuntimeState* state, const std::string& page_cache_file_key,
-                const ParquetReaderCompat& compat, bool enable_strict_mode);
+    Status init(io::FileReaderSPtr file, NativeFieldSchema* field,
+                const ColumnReaderOptions& options,
+                std::shared_ptr<ParquetColumnCrypto> crypto = nullptr);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
@@ -304,12 +347,14 @@ public:
     Status read_fixed_width_filter(const VExprSPtrs& conjuncts, int column_id,
                                    FilterMap& filter_map, size_t batch_size,
                                    IColumn* projected_column, IColumn::Filter* row_filter,
-                                   size_t* read_rows, bool* eof, bool* used_filter) override;
+                                   size_t* read_rows, bool* eof, bool* used_filter,
+                                   DirectPredicateExecutionKind* execution_kind) override;
     Status read_dictionary_filter(const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
                                   size_t batch_size, const IColumn* typed_dictionary,
                                   IColumn* projected_values, ColumnInt32* matched_dictionary_ids,
-                                  IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-                                  bool* projected_directly, bool* used_filter) override;
+                                  IColumn::Filter* row_filter, size_t* survivor_count,
+                                  size_t* read_rows, bool* eof, bool* projected_directly,
+                                  bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
@@ -330,6 +375,7 @@ public:
 
 #ifdef BE_TEST
     void reserve_batch_scratch_for_test(size_t elements);
+    void reserve_level_scratch_for_test(size_t elements);
     size_t retained_batch_scratch_bytes_for_test() const;
     size_t dictionary_materialization_count_for_test() const {
         return _dictionary_materialization_count;
@@ -424,8 +470,10 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
+    NullMap _fused_nullable_selection_nulls;
     NullMap _fixed_width_predicate_nulls;
     IColumn::Filter _fixed_width_predicate_matches;
+    IColumn::Filter _fixed_width_predicate_conversion_nulls;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
     uint8_t _oversized_scratch_idle_batches = 0;
@@ -438,13 +486,15 @@ private:
                         FilterMap& filter_map, bool is_dict_filter);
     Status _read_fixed_width_filter_values(size_t num_values, const VExprSPtrs& conjuncts,
                                            int column_id, FilterMap& filter_map,
-                                           IColumn* projected_column, IColumn::Filter* row_filter);
+                                           IColumn* projected_column, IColumn::Filter* row_filter,
+                                           DirectPredicateExecutionKind* execution_kind);
     Status _read_dictionary_filter_values(size_t num_values,
                                           const IColumn::Filter& dictionary_filter,
                                           FilterMap& filter_map, const IColumn* typed_dictionary,
                                           IColumn* projected_values,
                                           ColumnInt32* matched_dictionary_ids,
-                                          IColumn::Filter* row_filter, bool* projected_directly);
+                                          IColumn::Filter* row_filter, size_t* survivor_count,
+                                          bool* projected_directly);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);
@@ -696,5 +746,11 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
+
+/// Instantiated once in column_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ScalarColumnReader<true, true>;
+extern template class ScalarColumnReader<true, false>;
+extern template class ScalarColumnReader<false, true>;
+extern template class ScalarColumnReader<false, false>;
 
 } // namespace doris::format::parquet::native

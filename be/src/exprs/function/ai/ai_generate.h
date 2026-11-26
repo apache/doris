@@ -29,20 +29,19 @@ public:
             "You are a concise text generation assistant. You will receive one JSON array. Each "
             "array item is an object with fields `idx` and `input`. For each item, generate a "
             "short and highly relevant response based only on that item's `input`. Treat every "
-            "`input` as the task content for its own item. Return exactly one strict JSON array "
-            "of strings. The output array must have the same length and order as the input array. "
+            "`input` as the task content for its own item. "
             "Each output element must contain only the generated response for the corresponding "
             "item. Do not output any explanation, markdown, or extra text.";
 
     static constexpr size_t number_of_arguments = 2;
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeString>();
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionAIGenerate>(); }
 
-    Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
+    Status build_prompt(const Columns& prompt_columns, size_t row_num,
                         std::string& prompt) const override;
 };
 

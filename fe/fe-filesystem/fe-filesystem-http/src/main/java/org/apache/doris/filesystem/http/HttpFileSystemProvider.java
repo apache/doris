@@ -45,6 +45,18 @@ public class HttpFileSystemProvider implements FileSystemProvider<HttpFileSystem
     }
 
     @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault("fs.http.support", "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // fe-core quirk preserved: HttpProperties.guessIsMe only checks that the
+        // fs.http.support KEY exists (any value), so http is effectively explicit-only.
+        return properties.containsKey("fs.http.support");
+    }
+
+    @Override
     public HttpFileSystemProperties bind(Map<String, String> properties) {
         return HttpFileSystemProperties.of(properties);
     }

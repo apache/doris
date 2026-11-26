@@ -479,4 +479,73 @@ suite("correlated_scalar_subquery") {
             ) a
         ) AS result
     """
+
+    sql """
+        drop table if exists correlated_scalar_mark_join;
+    """
+    sql """
+        create table correlated_scalar_mark_join
+                (k bigint, g bigint, x bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(k, g, x)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_join values (1,10,7),(2,20,9);
+    """
+
+    sql """
+        drop table if exists correlated_scalar_mark_in;
+    """
+    sql """
+        create table correlated_scalar_mark_in
+                (k bigint, g bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(k, g)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_in values (1,10);
+    """
+
+    sql """
+        drop table if exists correlated_scalar_mark_src;
+    """
+    sql """
+        create table correlated_scalar_mark_src
+                (g bigint, x bigint)
+                ENGINE=OLAP
+        DUPLICATE KEY(g, x)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(g) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into correlated_scalar_mark_src values (10,7),(20,9),(20,10);
+    """
+
+    // A preceding mark join (ifnull(o.k in (...), false)) must not be eliminated into a
+    // left semi join when a later correlated scalar subquery will synthesize the runtime
+    // assert_true(count(*) <= 1): the elimination prunes the rows that reach the generated
+    // assertion. outer row (k=2,g=20,x=9) has no IN match (so a semi join drops it) but its
+    // scalar group g=20 has two rows, so the retained mark join sends it to the assertion and
+    // raises the error while the eliminated plan silently suppresses it.
+    test {
+        sql """
+            select k from correlated_scalar_mark_join o
+            where ifnull(o.k in (select i.k from correlated_scalar_mark_in i where i.g = o.g), false)
+              and o.x = (select u.x from correlated_scalar_mark_src u where u.g = o.g);
+        """
+        exception "correlate scalar subquery must return only 1 row"
+    }
 }

@@ -146,11 +146,16 @@ static inline bool may_conflict_by_type(TabletCompactionJobPB::CompactionType a,
     return is_rowset_compaction_family(a) && is_rowset_compaction_family(b);
 }
 
+static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
+                                             const std::string& instance_id, int64_t table_id,
+                                             int64_t tablet_id, int64_t lock_id,
+                                             int64_t lock_initiator, std::string use_version);
+
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                           std::unique_ptr<Transaction>& txn, const StartTabletJobRequest* request,
                           StartTabletJobResponse* response, std::string& instance_id,
-                          bool& need_commit, bool is_versioned_read,
-                          ResourceManager* resource_mgr) {
+                          bool& need_commit, bool is_versioned_read, ResourceManager* resource_mgr,
+                          const std::string& use_version) {
     auto& compaction = request->job().compaction(0);
     if (!compaction.has_id() || compaction.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -274,12 +279,12 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }), compactions.end());
         // clang-format on
         // Check conflict job
-        if (std::ranges::any_of(compactions, [](const auto& c) {
-                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
-            })) {
-            auto it = std::ranges::find_if(compactions, [](const auto& c) {
-                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
-            });
+        auto is_stop_token = [](const auto& c) {
+            return c.type() == TabletCompactionJobPB::STOP_TOKEN;
+        };
+        if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN &&
+            std::ranges::any_of(compactions, is_stop_token)) {
+            auto it = std::ranges::find_if(compactions, is_stop_token);
             msg = fmt::format(
                     "compactions are not allowed on tablet_id={} currently, blocked by schema "
                     "change job delete_bitmap_initiator={}",
@@ -293,6 +298,25 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             // compaction operations and canceling other types of compaction.
             compactions.Clear();
         } else if (compaction.type() == TabletCompactionJobPB::STOP_TOKEN) {
+            // A STOP_TOKEN outlives the schema change run that registered it when its BE dies
+            // before unregistering it: nothing renews or removes the token until its lease
+            // expires (lease_compaction_interval_seconds * 4). FE guarantees at most one schema
+            // change job per tablet and every run uses a fresh delete_bitmap_lock_initiator, so
+            // an incoming STOP_TOKEN always belongs to the live run. Replace the stale token and
+            // release the schema change delete bitmap lock its dead owner still holds; otherwise
+            // the re-sent ALTER task is rejected here and FE cancels the whole job.
+            for (const auto& c : compactions) {
+                if (!is_stop_token(c) || !c.has_delete_bitmap_lock_initiator() ||
+                    c.delete_bitmap_lock_initiator() == compaction.delete_bitmap_lock_initiator()) {
+                    continue;
+                }
+                INSTANCE_LOG(INFO)
+                        << "replace stale STOP_TOKEN, tablet_id=" << tablet_id
+                        << " new_job_id=" << compaction.id() << " stale_job=" << proto_to_json(c);
+                remove_delete_bitmap_update_lock(txn, instance_id, table_id, tablet_id,
+                                                 SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID,
+                                                 c.delete_bitmap_lock_initiator(), use_version);
+            }
             // fail all existing compactions
             compactions.Clear();
         } else if ((!compaction.has_check_input_versions_range() &&
@@ -604,8 +628,10 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     };
 
     if (!request->job().compaction().empty()) {
+        std::string use_version =
+                delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit,
-                             is_versioned_read, resource_mgr_.get());
+                             is_versioned_read, resource_mgr_.get(), use_version);
         return;
     }
 
@@ -807,20 +833,96 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
 }
 
+static bool should_accept_cumulative_point(const std::string& instance_id, int64_t tablet_id,
+                                           const TabletCompactionJobPB& compaction,
+                                           const TabletCompactionJobPB& recorded_compaction,
+                                           const TabletStatsPB& stats) {
+    if (compaction.type() != TabletCompactionJobPB::CUMULATIVE &&
+        compaction.type() != TabletCompactionJobPB::EMPTY_CUMULATIVE) {
+        return true;
+    }
+    // Safe because tablet stats keep max(current, proposal).
+    if (compaction.output_cumulative_point() <= stats.cumulative_point()) {
+        return true;
+    }
+    // The committed output covers [current point, proposal - 1].
+    if (compaction.type() == TabletCompactionJobPB::CUMULATIVE &&
+        compaction.input_versions_size() == 2 &&
+        compaction.input_versions(0) == stats.cumulative_point() &&
+        compaction.output_cumulative_point() == compaction.input_versions(1) + 1) {
+        return true;
+    }
+
+    // For legacy BEs:
+    // 1. The snapshot comes from START.
+    // 2. Parallel jobs may share it, so it cannot prove that a FINISH proposal is current.
+    const bool finish_has_counters = compaction.has_base_compaction_cnt();
+    const auto& snapshot = finish_has_counters ? compaction : recorded_compaction;
+    const int64_t snapshot_base_cnt = snapshot.base_compaction_cnt();
+    const int64_t snapshot_cumu_cnt = snapshot.cumulative_compaction_cnt();
+    // FULL also increments base_compaction_cnt
+    bool accept = snapshot_base_cnt == stats.base_compaction_cnt() &&
+                  snapshot_cumu_cnt == stats.cumulative_compaction_cnt();
+    if (!finish_has_counters) {
+        if (compaction.type() == TabletCompactionJobPB::CUMULATIVE) {
+            // An advancing legacy CUMULATIVE proposal is safe only when:
+            // With point=2, accept [2-4] -> 5 but reject [5-7] -> 8.
+            // 1. The BASE/FULL layout is unchanged.
+            // 2. The current point is inside its input range.
+            // 3. The proposal is exactly input_end + 1.
+            accept = compaction.input_versions_size() == 2 &&
+                     recorded_compaction.base_compaction_cnt() == stats.base_compaction_cnt() &&
+                     compaction.input_versions(0) <= stats.cumulative_point() &&
+                     stats.cumulative_point() <= compaction.input_versions(1) &&
+                     compaction.output_cumulative_point() == compaction.input_versions(1) + 1;
+        }
+        // Legacy EMPTY has no output range, so its START snapshot must match current stats.
+    }
+    if (accept) {
+        return true;
+    }
+
+    INSTANCE_LOG(INFO) << "ignore stale cumulative point=" << compaction.output_cumulative_point()
+                       << ", tablet_id=" << tablet_id << ", job_id=" << compaction.id()
+                       << ", base_cnt=" << recorded_compaction.base_compaction_cnt() << "(start),"
+                       << snapshot_base_cnt << "(finish)," << stats.base_compaction_cnt()
+                       << "(stats); cumu_cnt=" << recorded_compaction.cumulative_compaction_cnt()
+                       << "(start)," << snapshot_cumu_cnt << "(finish),"
+                       << stats.cumulative_compaction_cnt()
+                       << "(stats); full_cnt=" << stats.full_compaction_cnt()
+                       << "; finish_has_counters=" << finish_has_counters;
+    return false;
+}
+
 int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, TabletStatsPB* stats,
-                                   MetaServiceCode& code, std::string& msg, int64_t now) {
+                                   bool accept_cumulative_point_proposal, MetaServiceCode& code,
+                                   std::string& msg, int64_t now) {
     if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
-        stats->set_cumulative_point(compaction.output_cumulative_point());
+        if (accept_cumulative_point_proposal) {
+            stats->set_cumulative_point(
+                    std::max(stats->cumulative_point(), compaction.output_cumulative_point()));
+        }
         stats->set_last_cumu_compaction_time_ms(now * 1000);
     } else if (compaction.type() == TabletCompactionJobPB::CUMULATIVE) {
         // clang-format off
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
-        if (compaction.output_cumulative_point() > stats->cumulative_point()) {
-            // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
-            // new cumu point has been set, MUST NOT set cumu point back to old value
-            stats->set_cumulative_point(compaction.output_cumulative_point());
+        int64_t output_cumulative_point = stats->cumulative_point();
+        if (accept_cumulative_point_proposal) {
+            output_cumulative_point =
+                    std::max(compaction.output_cumulative_point(), output_cumulative_point);
         }
+        if (compaction.input_versions_size() == 2 &&
+            output_cumulative_point > compaction.input_versions(0) &&
+            output_cumulative_point <= compaction.input_versions(1)) {
+            LOG_WARNING("cumulative point falls inside cumulative compaction input range")
+                    .tag("job_id", compaction.id())
+                    .tag("cumulative_point", output_cumulative_point)
+                    .tag("input_start_version", compaction.input_versions(0))
+                    .tag("input_end_version", compaction.input_versions(1));
+            output_cumulative_point = compaction.input_versions(1) + 1;
+        }
+        stats->set_cumulative_point(output_cumulative_point);
         stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
         stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
@@ -832,6 +934,16 @@ int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, Tabl
     } else if (compaction.type() == TabletCompactionJobPB::BASE) {
         // clang-format off
         stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
+        if (compaction.input_versions_size() == 2 &&
+            stats->cumulative_point() > compaction.input_versions(0) &&
+            stats->cumulative_point() <= compaction.input_versions(1)) {
+            LOG_WARNING("cumulative point falls inside base compaction input range")
+                    .tag("job_id", compaction.id())
+                    .tag("cumulative_point", stats->cumulative_point())
+                    .tag("input_start_version", compaction.input_versions(0))
+                    .tag("input_end_version", compaction.input_versions(1));
+            stats->set_cumulative_point(compaction.input_versions(1) + 1);
+        }
         stats->set_num_rows(stats->num_rows() + (compaction.num_output_rows() - compaction.num_input_rows()));
         stats->set_data_size(stats->data_size() + (compaction.size_output_rowsets() - compaction.size_input_rowsets()));
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
@@ -946,7 +1058,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now) {
+    if (request->action() != FinishTabletJobRequest::ABORT &&
+        recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now) {
         code = MetaServiceCode::JOB_EXPIRED;
         SS << "expired compaction job, tablet_id=" << tablet_id
            << " job=" << proto_to_json(*recorded_compaction);
@@ -1024,11 +1137,49 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     // 4. remove compaction job
     //
     //==========================================================================
+    if ((compaction.type() == TabletCompactionJobPB::CUMULATIVE ||
+         compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) &&
+        compaction.has_base_compaction_cnt() != compaction.has_cumulative_compaction_cnt()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "incomplete compaction counters for cumulative point proposal";
+        return;
+    }
+
     //                          Update tablet stats
     //==========================================================================
     auto stats = response->mutable_stats();
 
     CloneChainReader meta_reader(instance_id, resource_mgr);
+    if (compaction.has_changelog_ttl_seconds()) {
+        doris::TabletMetaCloudPB tablet_meta;
+        TxnErrorCode err;
+        if (is_versioned_read) {
+            err = meta_reader.get_tablet_meta(txn.get(), tablet_id, &tablet_meta, nullptr);
+        } else {
+            std::string value;
+            err = txn->get(
+                    meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}),
+                    &value);
+            if (err == TxnErrorCode::TXN_OK && !tablet_meta.ParseFromString(value)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse tablet metadata for changelog TTL";
+                return;
+            }
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = "failed to read tablet metadata for changelog TTL";
+            return;
+        }
+        const auto& config = tablet_meta.binlog_config();
+        const int64_t ttl = config.ttl_seconds();
+        if (!config.enable() || config.binlog_format() != doris::BinlogFormatPB::CHANGELOG ||
+            ttl <= 0 || ttl != compaction.changelog_ttl_seconds()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "changelog TTL changed during compaction; retry with current configuration";
+            return;
+        }
+    }
     TabletStats detached_stats;
     if (is_versioned_read) {
         // The compact stats = tablet stats, the load stats = detached stats
@@ -1068,7 +1219,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     }
 
-    if (compaction_update_tablet_stats(compaction, stats, code, msg, now) == -1) {
+    const bool accept_cumulative_point_proposal = should_accept_cumulative_point(
+            instance_id, tablet_id, compaction, *recorded_compaction, *stats);
+    if (compaction_update_tablet_stats(compaction, stats, accept_cumulative_point_proposal, code,
+                                       msg, now) == -1) {
         return;
     }
 
@@ -1544,7 +1698,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     auto& recorded_schema_change = recorded_job.schema_change();
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (recorded_schema_change.expiration() > 0 && recorded_schema_change.expiration() < now) {
+    if (request->action() != FinishTabletJobRequest::ABORT &&
+        recorded_schema_change.expiration() > 0 && recorded_schema_change.expiration() < now) {
         code = MetaServiceCode::JOB_EXPIRED;
         SS << "expired schema_change job, tablet_id=" << tablet_id
            << " job=" << proto_to_json(recorded_schema_change);

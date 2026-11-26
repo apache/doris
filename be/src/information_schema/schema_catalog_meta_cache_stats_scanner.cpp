@@ -17,6 +17,9 @@
 
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 
+#include <algorithm>
+#include <array>
+
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
@@ -53,7 +56,21 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tb
         {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_ERROR", TYPE_STRING, sizeof(StringRef), true},
+        {"MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"WEIGHT_REJECT_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LAST_WEIGHT_REJECT_REASON", TYPE_STRING, sizeof(StringRef), true},
+        {"WEIGHT_BOUNDED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"EVICTION_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
 };
+
+// The leading columns that older FE versions know, newest first: the first weight columns came before the
+// budget hierarchy columns, and the base columns before any weight column.
+static constexpr std::array<size_t, 2> kOlderFeMetaCacheStatsColumnCounts = {28, 24};
 
 SchemaCatalogMetaCacheStatsScanner::SchemaCatalogMetaCacheStatsScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS) {}
@@ -67,9 +84,12 @@ Status SchemaCatalogMetaCacheStatsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
+Status SchemaCatalogMetaCacheStatsScanner::_fetch_from_fe(size_t column_count,
+                                                          TFetchSchemaTableDataResult* result,
+                                                          bool* fe_rejected) {
+    *fe_rejected = false;
     TSchemaTableRequestParams schema_table_request_params;
-    for (int i = 0; i < _s_tbls_columns.size(); i++) {
+    for (size_t i = 0; i < column_count; i++) {
         schema_table_request_params.__isset.columns_name = true;
         schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
@@ -79,20 +99,41 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     request.__set_schema_table_name(TSchemaTableName::CATALOG_META_CACHE_STATS);
     request.__set_schema_table_params(schema_table_request_params);
 
-    TFetchSchemaTableDataResult result;
-
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             _fe_addr.hostname, _fe_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->fetchSchemaTableData(result, request);
+            [&request, result](FrontendServiceConnection& client) {
+                client->fetchSchemaTableData(*result, request);
             },
             _rpc_timeout));
 
-    Status status(Status::create(result.status));
+    Status fe_status = Status::create(result->status);
+    *fe_rejected = !fe_status.ok();
+    return fe_status;
+}
+
+Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
+    TFetchSchemaTableDataResult result;
+    bool fe_rejected = false;
+    Status status = _fetch_from_fe(_s_tbls_columns.size(), &result, &fe_rejected);
     if (!status.ok()) {
-        LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
-                     << ") failed, errmsg=" << status;
-        return status;
+        if (!fe_rejected) {
+            LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
+                         << ") failed, errmsg=" << status;
+            return status;
+        }
+        Status first_status = status;
+        for (size_t column_count : kOlderFeMetaCacheStatsColumnCounts) {
+            result = TFetchSchemaTableDataResult();
+            status = _fetch_from_fe(column_count, &result, &fe_rejected);
+            if (status.ok() || !fe_rejected) {
+                break;
+            }
+        }
+        if (!status.ok()) {
+            LOG(WARNING) << "fetch catalog meta cache stats from FE(" << _fe_addr.hostname
+                         << ") failed, errmsg=" << first_status;
+            return first_status;
+        }
     }
     std::vector<TRow> result_data = result.data_batch;
 
@@ -106,19 +147,31 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
 
     _block->reserve(_block_rows_limit);
 
-    if (result_data.size() > 0) {
-        auto col_size = result_data[0].column_value.size();
-        if (col_size != _s_tbls_columns.size()) {
+    size_t col_size = _s_tbls_columns.size();
+    if (!result_data.empty()) {
+        col_size = result_data[0].column_value.size();
+        if (col_size != _s_tbls_columns.size() &&
+            std::find(kOlderFeMetaCacheStatsColumnCounts.begin(),
+                      kOlderFeMetaCacheStatsColumnCounts.end(),
+                      col_size) == kOlderFeMetaCacheStatsColumnCounts.end()) {
             return Status::InternalError<false>(
                     "catalog meta cache stats schema is not match for FE and BE");
         }
     }
 
+    int available_columns = static_cast<int>(col_size);
+    int total_columns = static_cast<int>(_s_tbls_columns.size());
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
-        for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _block.get(),
-                                                _s_tbls_columns[j].type));
+        for (int j = 0; j < total_columns; j++) {
+            if (j < available_columns) {
+                RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _block.get(),
+                                                    _s_tbls_columns[j].type));
+            } else {
+                auto column_guard = _block->mutate_column_scoped(j);
+                column_guard.mutable_column()->insert_default();
+                column_guard.restore();
+            }
         }
     }
     return Status::OK();

@@ -49,6 +49,13 @@ suite("test_tvf_topn_lazy_mat", "p0,external") {
             qt_3 """ select score, value, active,name  from ${table} order by value limit 4; """
             qt_4 """ select value,name,id from ${table} order by name,score limit 2; """
 
+            // Duplicate projected columns: the TVF path shares read_batch_external_row() with the
+            // catalog path, so the same physical column projected twice must be fetched once and
+            // copied into both result columns.
+            qt_dup_col_twice """ select name a, name b from ${table} order by id limit 3; """
+            qt_dup_col_nullable """ select score x, score y from ${table} order by id limit 5; """
+            qt_dup_col_mixed """ select id, name a, score, name b, score c from ${table} order by id limit 4; """
+
             for (int limit : limitValues) {
                 // Basic query
                 qt_test_basic """ 

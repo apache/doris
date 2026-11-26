@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -44,8 +44,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoField;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -77,7 +77,10 @@ public class TrinoPredicateConverter {
         }
         try {
             return doConvert(expr);
-        } catch (Exception e) {
+        } catch (UnsupportedOperationException e) {
+            LOG.debug("Expression is not eligible for Trino predicate pushdown: {}", e.getMessage());
+            return TupleDomain.all();
+        } catch (RuntimeException e) {
             LOG.warn("Failed to convert expression to Trino TupleDomain: {}", e.getMessage());
             return TupleDomain.all();
         }
@@ -104,17 +107,36 @@ public class TrinoPredicateConverter {
         for (ConnectorExpression child : and.getConjuncts()) {
             try {
                 result = result.intersect(doConvert(child));
-            } catch (Exception e) {
+            } catch (UnsupportedOperationException e) {
+                LOG.debug("AND child is not eligible for Trino predicate pushdown: {}", e.getMessage());
+            } catch (RuntimeException e) {
                 LOG.warn("Failed to convert AND child: {}", e.getMessage());
             }
         }
         return result;
     }
 
+    /**
+     * Folds EVERY disjunct: {@link ConnectorOr} carries a flattened N-ary list, so reading only the
+     * first two arms would silently narrow {@code a=1 OR a=2 OR a=3} down to {@code a IN (1, 2)} and
+     * lose rows the source never returns (BE re-evaluation can only remove rows, never add them back).
+     *
+     * <p>Unlike {@link #convertAnd}, a failing arm is deliberately NOT caught here: skipping an AND
+     * conjunct only widens the pushed predicate, while dropping an OR arm narrows it. Letting the
+     * failure propagate makes {@link #convert} degrade to {@code TupleDomain.all()} - no pushdown at
+     * all - which is the only safe outcome. OR is all-or-nothing, matching IcebergPredicateConverter.
+     */
     private TupleDomain<ColumnHandle> convertOr(ConnectorOr or) {
-        TupleDomain<ColumnHandle> left = doConvert(or.getDisjuncts().get(0));
-        TupleDomain<ColumnHandle> right = doConvert(or.getDisjuncts().get(1));
-        return TupleDomain.columnWiseUnion(left, right);
+        List<TupleDomain<ColumnHandle>> parts = Lists.newArrayList();
+        for (ConnectorExpression child : or.getDisjuncts()) {
+            parts.add(doConvert(child));
+        }
+        if (parts.isEmpty()) {
+            // Unreachable once ConnectorOr enforces two-or-more disjuncts, but columnWiseUnion(List)
+            // rejects an empty list, so keep the fail-safe.
+            return TupleDomain.all();
+        }
+        return TupleDomain.columnWiseUnion(parts);
     }
 
     private TupleDomain<ColumnHandle> convertComparison(ConnectorComparison cmp) {
@@ -260,21 +282,48 @@ public class TrinoPredicateConverter {
             case "CharType":
             case "VarbinaryType":
             case "VarcharType":
-                return Slices.utf8Slice(String.valueOf(value));
+                return convertStringLiteralValue(literal);
             case "DateType": {
                 if (value instanceof LocalDate) {
                     return ((LocalDate) value).toEpochDay();
                 }
                 return Long.parseLong(String.valueOf(value));
             }
-            case "ShortTimestampType": {
-                if (value instanceof LocalDateTime) {
-                    LocalDateTime ldt = (LocalDateTime) value;
-                    long epochSecond = ldt.toEpochSecond(ZoneOffset.UTC);
-                    long micros = ldt.get(ChronoField.MICRO_OF_SECOND);
-                    return epochSecond * 1_000_000L + micros;
+            case "ShortTimestampType":
+            case "LongTimestampType": {
+                // Doris retains microseconds; an exact remote bound would discard finer values
+                // that decode to the same Doris timestamp.
+                if (((io.trino.spi.type.TimestampType) type).getPrecision() > 6) {
+                    throw new UnsupportedOperationException("Timestamp precision exceeds Doris precision");
                 }
-                return Long.parseLong(String.valueOf(value));
+                LocalDateTime dateTime = (LocalDateTime) value;
+                long micros = dateTime.toEpochSecond(ZoneOffset.UTC) * 1_000_000L
+                        + dateTime.getNano() / 1000;
+                return typeName.equals("ShortTimestampType") ? micros
+                        : new io.trino.spi.type.LongTimestamp(micros, 0);
+            }
+            case "ShortTimestampWithTimeZoneType":
+            case "LongTimestampWithTimeZoneType": {
+                if (((io.trino.spi.type.TimestampWithTimeZoneType) type).getPrecision() > 6) {
+                    throw new UnsupportedOperationException("Timestamp precision exceeds Doris precision");
+                }
+                // The engine normalizes TIMESTAMPTZ literals to UTC before crossing the SPI.
+                if (!"TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName())) {
+                    throw new UnsupportedOperationException("Zoned pushdown requires an instant literal");
+                }
+                java.time.Instant instant = ((LocalDateTime) value).toInstant(ZoneOffset.UTC);
+                long millis = instant.toEpochMilli();
+                int picosOfMilli = (instant.getNano() % 1_000_000) * 1000;
+                if (typeName.equals("ShortTimestampWithTimeZoneType")) {
+                    // Truncating a range bound could exclude matching rows at the source.
+                    if (picosOfMilli != 0) {
+                        throw new UnsupportedOperationException("Sub-millisecond bound in a millisecond domain");
+                    }
+                    return io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone(
+                            millis, io.trino.spi.type.TimeZoneKey.UTC_KEY);
+                }
+                return io.trino.spi.type.LongTimestampWithTimeZone.fromEpochMillisAndFraction(
+                        millis, picosOfMilli, io.trino.spi.type.TimeZoneKey.UTC_KEY);
             }
             default:
                 throw new UnsupportedOperationException(
@@ -287,5 +336,21 @@ public class TrinoPredicateConverter {
             return (BigDecimal) value;
         }
         return new BigDecimal(String.valueOf(value));
+    }
+
+    private Object convertStringLiteralValue(ConnectorLiteral literal) {
+        if (literal.isNull()) {
+            return null;
+        }
+        String literalType = literal.getType().getTypeName().toUpperCase(Locale.ROOT);
+        switch (literalType) {
+            case "CHAR":
+            case "VARCHAR":
+            case "STRING":
+                return Slices.utf8Slice((String) literal.getValue());
+            default:
+                throw new UnsupportedOperationException(
+                        "Cannot convert Doris literal type " + literalType + " to a Trino string type");
+        }
     }
 }

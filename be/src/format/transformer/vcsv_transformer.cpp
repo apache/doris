@@ -31,7 +31,6 @@
 #include "core/string_buffer.hpp"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/csv/csv_reader.h"
 #include "io/fs/file_writer.h"
 #include "util/faststring.h"
 

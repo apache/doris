@@ -32,6 +32,7 @@
 #include "service/http/http_handler.h"
 #include "service/http/http_headers.h"
 #include "util/stack_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -41,7 +42,35 @@ static std::string s_empty = "";
 static bool is_sensitive_header(const std::string& header_name) {
     return iequal(header_name, HttpHeaders::AUTHORIZATION) ||
            iequal(header_name, HttpHeaders::PROXY_AUTHORIZATION) || iequal(header_name, "token") ||
-           iequal(header_name, HttpHeaders::AUTH_TOKEN);
+           iequal(header_name, HttpHeaders::AUTH_TOKEN) || iequal(header_name, "auth_code");
+}
+
+// Renders a sensitive header for logging. For HTTP Basic credentials the user name is kept,
+// so that logs still answer "who issued this request", and only the password is masked,
+// yielding "<user>:***MASKED***". Any other sensitive header, and any credential we fail to
+// parse, is masked as a whole. The result is a rendering, not the header value: the real one
+// is base64 encoded.
+static std::string mask_sensitive_header(const std::string& name, const std::string& value) {
+    static const std::string kMasked = "***MASKED***";
+    if (!iequal(name, HttpHeaders::AUTHORIZATION)) {
+        return kMasked;
+    }
+
+    // Expected form: "Basic <base64(user:password)>"
+    auto pos = value.find(' ');
+    if (pos == std::string::npos || !iequal(value.substr(0, pos), "Basic")) {
+        return kMasked;
+    }
+    std::string decoded;
+    if (!base64_decode(value.substr(pos + 1), &decoded)) {
+        return kMasked;
+    }
+    // Note that the password may contain a colon, so split on the first one only.
+    auto colon = decoded.find(':');
+    if (colon == std::string::npos) {
+        return kMasked;
+    }
+    return decoded.substr(0, colon) + ":" + kMasked;
 }
 
 HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
@@ -76,7 +105,7 @@ int HttpRequest::init_from_evhttp() {
     struct evkeyvalq params;
     auto res = evhttp_parse_query_str(query, &params);
     if (res < 0) {
-        LOG(WARNING) << "parse query str failed, query=" << query;
+        LOG(WARNING) << "parse query str failed";
         return res;
     }
     for (auto param = params.tqh_first; param != nullptr; param = param->next.tqe_next) {
@@ -91,20 +120,18 @@ std::string HttpRequest::debug_string() const {
     std::stringstream ss;
     ss << "HttpRequest: \n"
        << "method:" << _method << "\n"
-       << "uri:" << _uri << "\n"
+       << "uri:" << _raw_path << "\n"
        << "raw_path:" << _raw_path << "\n"
        << "headers: \n";
     for (auto& iter : _headers) {
         if (is_sensitive_header(iter.first)) {
-            ss << "key=" << iter.first << ", value=***MASKED***\n";
+            ss << "key=" << iter.first
+               << ", value=" << mask_sensitive_header(iter.first, iter.second) << "\n";
         } else {
             ss << "key=" << iter.first << ", value=" << iter.second << "\n";
         }
     }
-    ss << "params: \n";
-    for (auto& iter : _params) {
-        ss << "key=" << iter.first << ", value=" << iter.second << "\n";
-    }
+    ss << "params_count:" << _params.size() << "\n";
 
     return ss.str();
 }

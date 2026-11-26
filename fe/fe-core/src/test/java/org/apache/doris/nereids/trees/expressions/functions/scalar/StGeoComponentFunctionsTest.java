@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
@@ -31,7 +32,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * Unit tests for ST_NumGeometries, ST_NumPoints, and ST_Geometries scalar functions.
+ * Unit tests for ST_NumGeometries, ST_NumPoints, ST_Geometries, and ST_IsClosed scalar functions.
  */
 public class StGeoComponentFunctionsTest {
 
@@ -131,6 +132,34 @@ public class StGeoComponentFunctionsTest {
         Assertions.assertTrue(sig.returnType instanceof ArrayType);
         ArrayType arrayType = (ArrayType) sig.returnType;
         Assertions.assertTrue(arrayType.getItemType() instanceof VarcharType);
+    }
+
+    @Test
+    public void testStIsClosedBasicProperties() {
+        Expression arg = new VarcharLiteral("test");
+        StIsClosed func = new StIsClosed(arg);
+
+        Assertions.assertEquals("st_isclosed", func.getName());
+        Assertions.assertEquals(1, func.arity());
+        Assertions.assertTrue(func.nullable());
+
+        List<FunctionSignature> signatures = func.getSignatures();
+        Assertions.assertEquals(1, signatures.size());
+        Assertions.assertEquals(BooleanType.INSTANCE, signatures.get(0).returnType);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, signatures.get(0).getArgType(0));
+    }
+
+    @Test
+    public void testStIsClosedWithChildren() {
+        Expression arg = new VarcharLiteral("test");
+        StIsClosed func = new StIsClosed(arg);
+
+        Expression newArg = new VarcharLiteral("new_test");
+        StIsClosed newFunc = func.withChildren(ImmutableList.of(newArg));
+
+        Assertions.assertNotSame(func, newFunc);
+        Assertions.assertEquals("st_isclosed", newFunc.getName());
+        Assertions.assertEquals(1, newFunc.arity());
     }
 
 }

@@ -31,11 +31,11 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(
     if (arg_is_nullable) {
         return std::make_shared<
                 AggregateFunctionQuantileStateOp<true, AggregateFunctionQuantileStateUnionOp>>(
-                argument_types);
+                argument_types, attr.is_window_function);
     } else {
         return std::make_shared<
                 AggregateFunctionQuantileStateOp<false, AggregateFunctionQuantileStateUnionOp>>(
-                argument_types);
+                argument_types, attr.is_window_function);
     }
 }
 

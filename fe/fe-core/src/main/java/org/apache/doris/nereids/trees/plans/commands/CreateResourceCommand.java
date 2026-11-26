@@ -44,7 +44,7 @@ public class CreateResourceCommand extends Command implements ForwardWithSync, N
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         info.validate();
-        Env.getCurrentEnv().getResourceMgr().createResource(this);
+        Env.getCurrentEnv().getResourceMgr().createResource(this, ctx.getCurrentUserIdentity());
     }
 
     @Override

@@ -17,8 +17,7 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -69,11 +68,6 @@ public class EsScanRange implements ConnectorScanRange {
                 ? Collections.unmodifiableList(new ArrayList<>(esHosts))
                 : Collections.emptyList();
         this.plainHostnames = extractHostnames(this.esHosts);
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

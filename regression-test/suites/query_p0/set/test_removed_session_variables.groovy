@@ -36,7 +36,8 @@ suite("test_removed_session_variables") {
             "enable_eliminate_sort_node",
             "drop_table_if_ctas_failed",
             "trace_nereids",
-            "enable_sync_mv_cost_based_rewrite"]
+            "enable_sync_mv_cost_based_rewrite",
+            "enable_variant_schema_auto_cast"]
 
     // Test 1: SET on removed variables silently no-ops (no exception), across SET syntaxes.
     for (String var : removedVars) {

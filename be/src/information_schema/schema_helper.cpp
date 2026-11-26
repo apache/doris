@@ -162,11 +162,13 @@ Status SchemaHelper::fetch_load_job(const std::string& ip, const int32_t port,
 
 Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_t port,
                                              const TFetchSchemaTableDataRequest& request,
-                                             TFetchSchemaTableDataResult* result) {
+                                             TFetchSchemaTableDataResult* result, int timeout_ms) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(*result, request);
-            });
+            },
+            timeout_ms);
 }
 
 Status SchemaHelper::get_master_keys(const std::string& ip, const int32_t port,

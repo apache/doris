@@ -22,9 +22,11 @@ import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -69,6 +71,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
     private String lastTableSchemas;
     private Map<String, String> lastBinlogOffset;
     private boolean rebuildReaderOnNextWrite;
+    private boolean tolerateSchemaChange;
 
     private CdcClientWriteHarness(
             String jobId,
@@ -306,6 +309,12 @@ final class CdcClientWriteHarness implements AutoCloseable {
         rebuildReaderOnNextWrite = true;
     }
 
+    /** Mirror manual RESUME after an unsupported-schema failure. */
+    void acceptUnsupportedSchemaChanges() {
+        tolerateSchemaChange = true;
+        rebuildReaderOnNextWrite = true;
+    }
+
     /**
      * Enter the binlog phase straight from the configured non-snapshot startup mode
      * (latest/earliest/specific-offset/timestamp) with no preceding snapshot. The reader resolves
@@ -361,6 +370,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         openReader();
         coordinator.writeRecords(buildRequest(meta));
         capture();
+        tolerateSchemaChange = false;
     }
 
     /** Capture tableSchemas and the binlog offset from the last commit, to replay next round. */
@@ -447,9 +457,11 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setTaskId(String.valueOf(taskSeq.incrementAndGet()));
         req.setTargetDb(targetDb);
         req.setToken("test-token");
+        req.setDorisUser("cdc_job_user");
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
         req.setRebuildReader(rebuildReaderOnNextWrite);
+        req.setTolerateSchemaChange(tolerateSchemaChange);
         req.setReuseReader(
                 BinlogSplit.BINLOG_SPLIT_ID.equals(String.valueOf(meta.get("splitId"))));
         rebuildReaderOnNextWrite = false;
@@ -471,6 +483,15 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     String committedTableSchemas() {
         return lastTableSchemas;
+    }
+
+    long sourceLogLagBytes() throws Exception {
+        Map<String, String> referenceOffset = committedBinlogOffset();
+        FetchEndOffsetRequest request =
+                new FetchEndOffsetRequest(jobId, dataSource, config, null, referenceOffset);
+        SourceReader reader = openReader();
+        FetchEndOffsetResult result = reader.fetchEndOffset(request);
+        return result.getLagBytes();
     }
 
     @Override

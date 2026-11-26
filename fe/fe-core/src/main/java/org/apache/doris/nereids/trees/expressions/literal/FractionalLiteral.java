@@ -89,7 +89,7 @@ public abstract class FractionalLiteral extends NumericLiteral {
         } else if (targetType.isBooleanType()) {
             Object value = getValue();
             if (value instanceof Float || value instanceof Double) {
-                if (((Number) value).floatValue() == 0) {
+                if (((Number) value).doubleValue() == 0) {
                     return BooleanLiteral.FALSE;
                 } else {
                     return BooleanLiteral.TRUE;
@@ -111,8 +111,9 @@ public abstract class FractionalLiteral extends NumericLiteral {
         if (object instanceof BigDecimal) {
             return getStringValue();
         }
-        double value = object instanceof Double ? (Double) object : new Double(String.valueOf(object));
-        return FractionalFormat.getFormatStringValue(value, this instanceof DoubleLiteral ? 16 : 7,
-                this instanceof DoubleLiteral ? "%.15E" : "%.6E");
+        if (object instanceof Float) {
+            return FractionalFormat.getFormatStringValue((Float) object);
+        }
+        return FractionalFormat.getFormatStringValue((Double) object);
     }
 }

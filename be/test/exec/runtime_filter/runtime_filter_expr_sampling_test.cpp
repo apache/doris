@@ -93,9 +93,9 @@ TEST_F(RuntimeFilterExprSamplingTest, open_propagates_sampling_frequency) {
 
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context.get()).ok());
-    ASSERT_TRUE(
-            wrapper->open(_runtime_states[0].get(), context.get(), FunctionContext::FRAGMENT_LOCAL)
-                    .ok());
+    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context.get(),
+                              FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
 
     // After open(), sampling_frequency should be propagated from RuntimeFilterExpr
     // to VExprContext. Verify by accumulating low-selectivity data and checking
@@ -125,9 +125,9 @@ TEST_F(RuntimeFilterExprSamplingTest, default_sampling_frequency_disables_optimi
     auto context = std::make_shared<VExprContext>(wrapper);
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context.get()).ok());
-    ASSERT_TRUE(
-            wrapper->open(_runtime_states[0].get(), context.get(), FunctionContext::FRAGMENT_LOCAL)
-                    .ok());
+    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context.get(),
+                              FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
 
     // Even with low-selectivity data, always_true should NOT be detected
     // because sampling is disabled
@@ -158,9 +158,9 @@ TEST_F(RuntimeFilterExprSamplingTest, sampling_frequency_survives_context_recrea
     auto context1 = std::make_shared<VExprContext>(wrapper);
     RowDescriptor row_desc;
     ASSERT_TRUE(wrapper->prepare(_runtime_states[0].get(), row_desc, context1.get()).ok());
-    ASSERT_TRUE(
-            wrapper->open(_runtime_states[0].get(), context1.get(), FunctionContext::FRAGMENT_LOCAL)
-                    .ok());
+    ASSERT_TRUE(wrapper->open(_runtime_states[0].get(), context1.get(),
+                              FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
 
     // Create a brand new non-clone VExprContext with the same RuntimeFilterExpr,
     // matching the production path in _append_rf_into_conjuncts which calls

@@ -1,1 +1,1 @@
-select cast('{"a":"b"}' as variant)['a'];
+select parse_to_variant('{"a":"b"}')['a'];

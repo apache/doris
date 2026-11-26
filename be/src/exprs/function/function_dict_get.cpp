@@ -27,6 +27,7 @@
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -57,7 +58,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<DictGetState> state = std::make_shared<DictGetState>();
@@ -71,7 +72,7 @@ public:
                                                                 dict_fn->version_id);
         if (!dict) {
             std::string dict_name =
-                    context->get_constant_col(0)->column_ptr->get_data_at(0).to_string();
+                    context->get_constant_col(0)->column().get_data_at(0).to_string();
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "can not find dict name : {} , dict_id : {} , version_id : {}  ",
                                    dict_name, dict_fn->dictionary_id, dict_fn->version_id);
@@ -83,7 +84,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* dict_state = reinterpret_cast<DictGetState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!dict_state) {
             return Status::RuntimeError("funciton context for function '{}' must have dict_state;",
                                         get_name());

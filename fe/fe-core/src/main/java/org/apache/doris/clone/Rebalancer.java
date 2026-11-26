@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -64,6 +65,9 @@ public abstract class Rebalancer {
     protected Map<Long, PathSlot> backendsWorkingSlots;
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
+    // Owned by TabletScheduler, which injects itself via setSchedulerStat() after construction.
+    // Defaults to a standalone instance so that unit tests can build a Rebalancer on its own.
+    protected TabletSchedulerStat schedulerStat = new TabletSchedulerStat();
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
@@ -123,11 +127,15 @@ public abstract class Rebalancer {
         if (!FeConstants.runningUnitTest) {
             recycleBin = Env.getCurrentRecycleBin();
         }
+        // The metadata flag rejects the companion without a catalog lookup. The dynamic check below
+        // is still required to reject its paired base tablet.
         return tabletMeta != null
+                && !tabletMeta.isChangelog()
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()))
+                && ChangelogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
@@ -163,6 +171,10 @@ public abstract class Rebalancer {
         this.statisticMap = statisticMap;
     }
 
+    public void setSchedulerStat(TabletSchedulerStat schedulerStat) {
+        this.schedulerStat = schedulerStat;
+    }
+
     public void updateAlterTableIds(Set<Long> alterTableIds) {
         this.alterTableIds = alterTableIds;
     }
@@ -170,7 +182,7 @@ public abstract class Rebalancer {
     public void addPrioBackends(List<Backend> backends, long timeoutS) {
         long currentTimeMillis = System.currentTimeMillis();
         for (Backend backend : backends) {
-            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS);
+            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS * 1000L);
         }
     }
 

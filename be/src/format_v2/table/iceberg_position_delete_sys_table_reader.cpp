@@ -35,6 +35,8 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -147,6 +149,8 @@ protected:
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
+        // Position-delete row projection must reject a physically absent required field exactly like data scans.
+        options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
         // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
         // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
         options->allow_idless_complex_wrapper_projection =
@@ -320,6 +324,15 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
         // readers share the scanner profile and initialize concurrently, so lookup and creation
         // must also be atomic to preserve the unique child-name invariant.
         _position_reader_profile = _scanner_profile->get_or_create_child(kPositionReaderProfile);
+        if (_parquet_profile_cache != nullptr) {
+            _position_profile_cache =
+                    _parquet_profile_cache->get_child_cache(_position_reader_profile);
+        } else {
+            // Standalone callers have no scan-owned cache. Keep one across this reader's splits.
+            _standalone_position_profile_cache =
+                    std::make_unique<parquet::ParquetProfileCache>(_position_reader_profile);
+            _position_profile_cache = _standalone_position_profile_cache.get();
+        }
     }
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
@@ -330,6 +343,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _position_reader_profile,
+            .parquet_profile_cache = _position_profile_cache,
             .file_slot_descs = nullptr,
             .push_down_agg_type = TPushAggOp::type::NONE,
             .condition_cache_digest = 0,
@@ -533,8 +547,8 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_partition_column(MutableCo
     }
 
     if (!_partition_value) {
-        auto partition_value = slot.get_data_type_ptr()->create_column();
-        auto serde = slot.get_data_type_ptr()->get_serde();
+        auto partition_value = slot.type()->create_column();
+        auto serde = slot.type()->get_serde();
         StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
                                  _iceberg_file_desc->partition_data_json.size());
         DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
@@ -567,7 +581,7 @@ void IcebergPositionDeleteSysTableV2Reader::_init_read_columns(bool read_row) {
     if (read_row) {
         for (const auto* slot : *_file_slot_descs) {
             if (slot->col_name() == kRowColumn) {
-                _read_columns.push_back({kRowColumn, slot->get_data_type_ptr()});
+                _read_columns.push_back({kRowColumn, slot->type()});
                 break;
             }
         }
@@ -591,6 +605,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_build_delete_file_projected_colum
             columns->push_back(*it);
             columns->back().type = column.type;
             set_iceberg_delete_field_id(&columns->back());
+            // The copied row tree bypasses IcebergTableReader::annotate_projected_column, so prepare its
+            // typed nested defaults before the generic inner reader builds the column mapper.
+            RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&columns->back()));
             continue;
         }
         auto field = build_delete_file_column(column.name, column.type);

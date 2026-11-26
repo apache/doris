@@ -16,7 +16,7 @@
 // under the License.
 
 // Comprehensive regression for general table-stream queries. Modeled after
-// test_binlog_changes_syntax but targeting the named STREAM object (with its
+// test_changelog_changes_syntax but targeting the named STREAM object (with its
 // persistent per-partition offset) instead of the timestamp-based @incr TVF.
 //
 // Dimensions covered:
@@ -103,8 +103,7 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW"
+                "changelog.enable" = "true"
             )
         """
         sql """
@@ -172,6 +171,23 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
         assertEquals(0, sql("SELECT id, v FROM dup_ao_stream").size())
         order_qt_dup_ao_target "SELECT id, v FROM dup_ao_target ORDER BY id"
 
+        // A.5 incremental DUP stream exposes positive and unique per-row LSNs.
+        sql "INSERT INTO dup_ao_base VALUES (6, 'f'), (7, 'g')"
+        sql "INSERT INTO dup_ao_base VALUES (8, 'h'), (9, 'i')"
+        sql "INSERT INTO dup_ao_base VALUES (10, 'j'), (11, 'k')"
+        sql "sync"
+        sleep(1200)
+        def streamLsnRows = sql """
+            SELECT __DORIS_STREAM_SEQUENCE_COL__, __DORIS_STREAM_LSN_COL__
+            FROM dup_ao_stream
+            ORDER BY __DORIS_STREAM_SEQUENCE_COL__, __DORIS_STREAM_LSN_COL__
+        """
+        assertEquals(6, streamLsnRows.size())
+        def streamLsns = streamLsnRows.collect { it[1] as long }
+        streamLsns.each { lsn -> assertTrue(lsn > 0, "stream lsn should be positive but got ${lsn}") }
+        assertEquals(streamLsns.size(), streamLsns.toSet().size())
+        assertEquals([2, 2, 2], streamLsnRows.groupBy { it[0] }.values().collect { it.size() }.sort())
+
         // ============================================================
         // Section B. DUP, non-partitioned, append_only, initial=true.
         //   Focus: historical seed rows are returned first (APPEND), then
@@ -186,8 +202,7 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW"
+                "changelog.enable" = "true"
             )
         """
         sql """
@@ -248,7 +263,7 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
         // Section C. DUP, non-partitioned, type=min_delta requested but
         //   forcibly degraded to APPEND_ONLY for duplicate tables.
         //   Focus: a DUP table never folds; re-inserted same key and a
-        //   DELETE statement (which produces no binlog op for DUP) leave
+        //   DELETE statement (which produces no changelog op for DUP) leave
         //   only plain APPEND rows.
         // ============================================================
         sql """
@@ -260,8 +275,7 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW"
+                "changelog.enable" = "true"
             )
         """
         sql """
@@ -318,9 +332,8 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -429,9 +442,8 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -513,9 +525,8 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO mow_ao_base VALUES (1, 10)"
@@ -573,9 +584,8 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -669,8 +679,7 @@ suite("test_table_stream_query_comprehensive", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW"
+                "changelog.enable" = "true"
             )
         """
         sql """

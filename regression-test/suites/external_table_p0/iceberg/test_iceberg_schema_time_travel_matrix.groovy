@@ -443,13 +443,22 @@ suite("test_iceberg_schema_time_travel_matrix",
                     from ${dorisNestedTable}@tag(doris_nested_cp0)
                     order by id
                 """))
-        // Negative contract: an old branch currently leaks the latest BIGINT nested types.
+        // A branch read uses the table's current schema, so an old branch reads the promoted BIGINT
+        // nested types.
         assertEquals([[1, 10L, 100L, 1000L]],
                 sql("""
                     select id, info.metric, events[1].score, attrs['k'].code
                     from ${dorisNestedTable}@branch(doris_nested_cp0_branch)
                     order by id
                 """))
+        // Named branches keep their head rows but expose renamed fields from the current schema.
+        qt_doris_nested_branch_current_schema """
+            select id, info.metric, info.renamed,
+                   events[1].score, events[1].renamed,
+                   attrs['k'].code, attrs['k'].renamed
+            from ${dorisNestedTable}@branch(doris_nested_cp0_branch)
+            order by id
+        """
         assertUnknownColumn("""
             select info.renamed
             from ${dorisNestedTable} for version as of ${dorisNestedCp0}
@@ -457,7 +466,7 @@ suite("test_iceberg_schema_time_travel_matrix",
 
         // Scenario TC02/T03/T04: complex-field time travel uses the pre-change nested schema.
         List<List<Object>> dorisNestedCp0Time = sql("""
-            select date_format(date_add(committed_at, interval 1 second), '%Y-%m-%d %H:%i:%s'),
+            select date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'),
                    cast(unix_timestamp(committed_at) * 1000 + 999 as bigint)
             from ${dorisNestedTable}\$snapshots
             where snapshot_id = ${dorisNestedCp0}
@@ -469,16 +478,15 @@ suite("test_iceberg_schema_time_travel_matrix",
                     for time as of "${dorisNestedCp0Time[0][0]}"
                     order by id
                 """))
-        // Scenario TC03-negative: Iceberg accepts time strings, not Paimon-style epoch millis.
-        test {
-            sql """
-                select id, info.metric
-                from ${dorisNestedTable}
-                for time as of ${dorisNestedCp0Time[0][1]}
-                order by id
-            """
-            exception "can't parse time"
-        }
+        // Scenario TC03: Iceberg FOR TIME AS OF also accepts a numeric epoch-millis literal
+        // (Paimon-style superset), resolving to the same snapshot as the datetime-string form.
+        assertEquals([[1, 10]],
+                sql("""
+                    select id, info.metric
+                    from ${dorisNestedTable}
+                    for time as of ${dorisNestedCp0Time[0][1]}
+                    order by id
+                """))
 
         // Scenario TC02: nested add/rename/drop-readd checkpoints verify projection and predicates.
         assertEquals([[1, null, null, null], [2, "info-added", 201, 2001]],
@@ -547,7 +555,8 @@ suite("test_iceberg_schema_time_travel_matrix",
             from ${topTable}@tag(top_cp0)
             order by id
         """))
-        // Negative contract: an old branch is currently analyzed with the latest rename schema.
+        // A branch read uses the table's current schema, so the old name is unknown on an old branch
+        // and the current names read the branch head rows.
         test {
             sql """
                 select id, old_name, victim, metric
@@ -556,13 +565,18 @@ suite("test_iceberg_schema_time_travel_matrix",
             """
             exception "Unknown column 'old_name'"
         }
+        qt_top_branch_current_schema """
+            select id, MixedName, victim, metric
+            from ${topTable}@branch(top_cp0_branch)
+            order by id
+        """
         assertUnknownColumn("""
             select MixedName from ${topTable} for version as of ${topCp0}
         """, "MixedName")
 
-        // Scenario T03/T04: validate string time travel and reject unsupported epoch millis.
+        // Scenario T03/T04: string and numeric epoch-millis time travel both resolve the snapshot.
         List<List<Object>> cp0TimeRows = sql("""
-            select date_format(date_add(committed_at, interval 1 second), '%Y-%m-%d %H:%i:%s'),
+            select date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'),
                    cast(unix_timestamp(committed_at) * 1000 + 999 as bigint)
             from ${topTable}\$snapshots
             where snapshot_id = ${topCp0}
@@ -573,14 +587,11 @@ suite("test_iceberg_schema_time_travel_matrix",
             from ${topTable} for time as of "${cp0TimeRows[0][0]}"
             order by id
         """))
-        test {
-            sql """
-                select id, old_name, victim, metric
-                from ${topTable} for time as of ${cp0TimeRows[0][1]}
-                order by id
-            """
-            exception "can't parse time"
-        }
+        assertEquals(topCp0Rows, sql("""
+            select id, old_name, victim, metric
+            from ${topTable} for time as of ${cp0TimeRows[0][1]}
+            order by id
+        """))
 
         // Scenario S01-S05: every checkpoint verifies projection, predicate and aggregation.
         assertEquals([[1, "alpha", null], [2, "beta", "added-v2"]],
@@ -718,11 +729,11 @@ suite("test_iceberg_schema_time_travel_matrix",
         // Scenario T11: an unknown snapshot/tag must fail instead of silently reading latest.
         test {
             sql """select * from ${topTable} for version as of 9223372036854775807"""
-            exception "does not have snapshotId 9223372036854775807"
+            exception "can't find snapshot by id: 9223372036854775807"
         }
         test {
             sql """select * from ${topTable} for version as of 'missing_schema_tag'"""
-            exception "does not have tag or branch named missing_schema_tag"
+            exception "can't find snapshot by tag: missing_schema_tag"
         }
     } finally {
         sql """set enable_file_scanner_v2=false"""

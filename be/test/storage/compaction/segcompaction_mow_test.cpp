@@ -19,6 +19,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -36,10 +37,13 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
+#include "storage/segment/segment_loader.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -240,12 +244,18 @@ protected:
                                             int expect_total_rows, int rows_mark_deleted,
                                             bool skip_value_check = false) {
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_QUERY;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        reader_context.return_columns = &return_columns;
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_changelog_columns=*/false)
+                            .ok());
         reader_context.stats = &_stats;
         reader_context.delete_bitmap = delete_bitmap;
 
@@ -259,8 +269,7 @@ protected:
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};
@@ -342,7 +351,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -448,7 +457,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         uint32_t rows_per_segment = 4096;
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -476,7 +485,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -504,7 +513,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -532,7 +541,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -561,7 +570,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 4096;
         std::map<uint32_t, uint32_t> unique_keys;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 // generate some duplicate rows, segment compaction will merge them
@@ -600,7 +609,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -678,7 +687,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         uint32_t rows_per_segment = 6400;
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -706,7 +715,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -734,7 +743,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -762,7 +771,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -790,7 +799,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
@@ -863,7 +872,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_storage_block();
             auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -908,6 +917,89 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
     EXPECT_TRUE(check_data_read_with_delete_bitmap(tablet_schema, delete_bitmap, rowset,
                                                    num_segments * rows_per_segment,
                                                    rows_mark_deleted));
+}
+
+// Control the race by completing T1's segment compaction, then publishing T2's live key,
+// then calculating T1's publish bitmap. No sleeps or scheduler timing determine the order.
+TEST_F(SegCompactionMoWTest, ExpiredKeysSurviveUntilPublishConflictResolution) {
+    const auto old_batch_size = config::segcompaction_batch_size;
+    config::segcompaction_batch_size = 3;
+    Defer restore_batch_size([&] { config::segcompaction_batch_size = old_batch_size; });
+    auto schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(schema);
+    TabletSchemaPB pb;
+    schema->to_schema_pb(&pb);
+    auto* ttl = pb.add_column();
+    ttl->set_unique_id(5);
+    ttl->set_name(TTL_COL);
+    ttl->set_type("BIGINT");
+    ttl->set_length(8);
+    ttl->set_is_key(false);
+    ttl->set_is_nullable(true);
+    ttl->set_aggregation("NONE");
+    ttl->set_default_value("NULL");
+    pb.set_ttl_col_idx(4);
+    pb.set_next_column_unique_id(6);
+    schema->init_from_pb(pb);
+
+    RowsetWriterContext first_context;
+    create_rowset_writer_context(20060, schema, &first_context);
+    first_context.enable_unique_key_merge_on_write = true;
+    auto bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
+    // T1's captured snapshot contains no T2 rowset.
+    first_context.mow_context =
+            std::make_shared<MowContext>(1, 1, std::make_shared<RowsetIdUnorderedSet>(),
+                                         std::vector<RowsetSharedPtr> {}, bitmap);
+    auto first_result = RowsetFactory::create_rowset_writer(*s_engine, first_context, false);
+    ASSERT_TRUE(first_result.has_value()) << first_result.error();
+    auto first_writer = std::move(first_result).value();
+    auto* beta_writer = static_cast<BetaRowsetWriter*>(first_writer.get());
+    auto append = [&](RowsetWriter* writer, int32_t key, int64_t expiration) {
+        auto block = schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        const int32_t value = 10;
+        const int32_t sequence = 1;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        columns[1]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+        columns[2]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        columns[3]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
+        columns[4]->insert_data(reinterpret_cast<const char*>(&expiration), sizeof(expiration));
+        RETURN_IF_ERROR(add_block_with_columns(writer, &block, &columns));
+        return writer->flush();
+    };
+    for (int32_t key = 0; key < 4; ++key) {
+        ASSERT_EQ(Status::OK(), append(first_writer.get(), key, 0));
+        ASSERT_EQ(Status::OK(), beta_writer->_wait_flying_segcompaction());
+    }
+    RowsetSharedPtr first;
+    ASSERT_EQ(Status::OK(), first_writer->build(first));
+    ASSERT_TRUE(beta_writer->is_segcompacted());
+    ASSERT_EQ(4, first->num_rows());
+
+    // T2 becomes visible first, with the same key and sequence but a live TTL.
+    RowsetWriterContext second_context;
+    create_rowset_writer_context(20061, schema, &second_context);
+    second_context.tablet = first_context.tablet;
+    second_context.enable_unique_key_merge_on_write = true;
+    second_context.enable_segcompaction = false;
+    second_context.version = {2, 2};
+    auto second_result = RowsetFactory::create_rowset_writer(*s_engine, second_context, false);
+    ASSERT_TRUE(second_result.has_value()) << second_result.error();
+    auto second_writer = std::move(second_result).value();
+    ASSERT_EQ(Status::OK(), append(second_writer.get(), 0, std::numeric_limits<int64_t>::max()));
+    RowsetSharedPtr second;
+    ASSERT_EQ(Status::OK(), second_writer->build(second));
+    ASSERT_EQ(Status::OK(),
+              std::static_pointer_cast<Tablet>(first_context.tablet)->add_rowset(second));
+
+    // Publishing T1 must delete T2 even though T1's final value is already expired.
+    SegmentCacheHandle segments;
+    ASSERT_EQ(Status::OK(), SegmentLoader::instance()->load_segments(
+                                    std::static_pointer_cast<BetaRowset>(first), &segments, false));
+    ASSERT_EQ(Status::OK(),
+              BaseTablet::calc_delete_bitmap(first_context.tablet, first, segments.get_segments(),
+                                             {second}, bitmap, 2, nullptr, nullptr));
+    EXPECT_TRUE(bitmap->contains({second->rowset_id(), 0, DeleteBitmap::TEMP_VERSION_COMMON}, 0));
 }
 
 INSTANTIATE_TEST_SUITE_P(Params, SegCompactionMoWTest,

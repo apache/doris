@@ -158,7 +158,8 @@ suite("azure_non_catalog_all_test", "p2,external") {
     assert res.size() == 1
     s3Load(outfile_url,export_db_name, export_table_name, abfsContainer, abfs_azure_config_props)
     s3Load(outfile_url, export_db_name,export_table_name, abfsContainer, old_abfs_azure_config_props)
-    def blob_path = outfile_url.substring(location_prefix.length())
+    // The slash after the container is a URI separator, not part of the Azure blob key.
+    def blob_path = outfile_url.substring(location_prefix.length() + 1)
     def s3_tvf_abfs_uri = "abfs://${abfsContainer}@${abfsAzureAccountName}.dfs.core.windows.net/"+blob_path;
     res = sql """
             SELECT * FROM S3 (

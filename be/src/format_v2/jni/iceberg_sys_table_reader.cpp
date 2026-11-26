@@ -46,8 +46,8 @@ Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range
     return Status::OK();
 }
 
-std::string IcebergSysTableJniReader::connector_class() const {
-    return "org/apache/doris/iceberg/IcebergSysTableJniScanner";
+Jni::PluginRef IcebergSysTableJniReader::plugin_ref() const {
+    return Jni::plugin::ICEBERG_SYS_TABLE_SCANNER;
 }
 
 Status IcebergSysTableJniReader::build_scanner_params(

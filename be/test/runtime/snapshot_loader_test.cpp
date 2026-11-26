@@ -45,6 +45,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -228,7 +229,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok()) << res;
 
     TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);

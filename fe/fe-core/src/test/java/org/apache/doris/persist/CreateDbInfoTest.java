@@ -22,8 +22,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -56,14 +56,14 @@ public class CreateDbInfoTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
         CreateDbInfo rInfo1 = CreateDbInfo.read(dis);
-        Assert.assertEquals(info1.getCtlName(), rInfo1.getCtlName());
-        Assert.assertEquals(info1.getDbName(), rInfo1.getDbName());
-        Assert.assertEquals(info1.getInternalDb().getId(), rInfo1.getInternalDb().getId());
+        Assertions.assertEquals(info1.getCtlName(), rInfo1.getCtlName());
+        Assertions.assertEquals(info1.getDbName(), rInfo1.getDbName());
+        Assertions.assertEquals(info1.getInternalDb().getId(), rInfo1.getInternalDb().getId());
 
         CreateDbInfo rInfo2 = CreateDbInfo.read(dis);
-        Assert.assertEquals(info2.getCtlName(), rInfo2.getCtlName());
-        Assert.assertEquals(info2.getDbName(), rInfo2.getDbName());
-        Assert.assertNull(rInfo2.getInternalDb());
+        Assertions.assertEquals(info2.getCtlName(), rInfo2.getCtlName());
+        Assertions.assertEquals(info2.getDbName(), rInfo2.getDbName());
+        Assertions.assertNull(rInfo2.getInternalDb());
 
         // 3. delete files
         dis.close();

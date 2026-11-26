@@ -25,7 +25,10 @@
 #include <chrono>
 #include <thread>
 
+#include "agent/agent_server.h"
+#include "cloud/cloud_storage_engine.h"
 #include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 
@@ -179,6 +182,21 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     worker.notify(); // Ignore
     std::this_thread::sleep_for(100ms);
     EXPECT_EQ(count.load(), 3);
+}
+
+TEST(AgentServerTest, CloudRegistersCleanUdfCacheWorker) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
+    auto* cloud_engine = engine.get();
+    exec_env->set_storage_engine(std::move(engine));
+    Defer defer {[exec_env] { exec_env->set_storage_engine(nullptr); }};
+
+    ClusterInfo cluster_info;
+    AgentServer agent_server(exec_env, &cluster_info);
+
+    agent_server.cloud_start_workers(*cloud_engine, exec_env);
+
+    EXPECT_TRUE(agent_server._workers.contains(TTaskType::CLEAN_UDF_CACHE));
 }
 
 } // namespace doris

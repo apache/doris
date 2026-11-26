@@ -18,13 +18,12 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -90,10 +89,13 @@ public class StmtExecutionAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
+        // Authenticate only. Deliberately no privilege pre-gate here: executeQuery hands the
+        // statement to StatementSubmitter, which opens a JDBC connection to this FE's MySQL port
+        // as the caller (authInfo.fullUserName / authInfo.password), so the statement runs through
+        // the ordinary protocol path with full per-statement RBAC and, in cloud mode, the
+        // overdue-warehouse fence. A database-ADMIN pre-gate would add nothing to that and would
+        // lock out every least-privilege account whose SQL privileges are already sufficient.
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
-        if (Config.enable_all_http_auth) {
-            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, PrivPredicate.ADMIN);
-        }
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ns = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -109,8 +111,7 @@ public class StmtExecutionAction extends RestBaseController {
         LOG.info("stmt: {}, isSync:{}, limit: {}", stmtRequestBody.stmt, stmtRequestBody.is_sync,
                 stmtRequestBody.limit);
 
-        ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(dbName);
+        setDefaultNamespace(ns, dbName);
 
         String streamHeader = request.getHeader("X-Doris-Stream");
         boolean isStream = !("false".equalsIgnoreCase(streamHeader));
@@ -144,8 +145,7 @@ public class StmtExecutionAction extends RestBaseController {
             sql = sql.replaceAll(NEW_LINE_PATTERN, NEW_LINE_REPLACEMENT);
         }
         LOG.info("sql: {}", sql);
-        ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(dbName);
+        setDefaultNamespace(ns, dbName);
         return getSchema(sql);
     }
 
@@ -209,6 +209,12 @@ public class StmtExecutionAction extends RestBaseController {
                 ConnectContext.get().setStatementContext(originalContext);
             }
         }
+    }
+
+    private void setDefaultNamespace(String catalog, String database) {
+        // The URL supplies a default for name resolution, not a dependency of every SQL statement.
+        // Resolve metadata only when the statement uses it, so an outage cannot block catalog repair.
+        ConnectContext.get().restoreNameSpaceContext(new NameSpaceContext(catalog, database, -1));
     }
 
     private static class StmtRequestBody {

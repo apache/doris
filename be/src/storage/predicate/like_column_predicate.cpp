@@ -29,7 +29,7 @@ LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, std:
                                          doris::FunctionContext* fn_ctx, doris::StringRef val)
         : ColumnPredicate(column_id, col_name, TYPE_STRING, opposite), pattern(val) {
     _state = reinterpret_cast<StateType*>(
-            fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
+            fn_ctx->get_function_state(doris::FunctionContext::FunctionStateScope::THREAD_LOCAL));
     THROW_IF_ERROR(_state->search_state.clone(_like_state));
 }
 

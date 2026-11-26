@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+        <artifactId>fe</artifactId>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>fe-authorization</artifactId>
+    <packaging>pom</packaging>
+    <name>Doris FE Authorization</name>
+
+    <properties>
+        <!--
+          The AUTHORIZATION plugin API version, declared exactly once. Filtered into
+          fe-authorization-spi's META-INF/doris/authorization-plugin-api-version.properties, which is what
+          the FE kernel expects of a plugin.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the authorization plugin
+          API surface - additions included, and the surface is everything AuthorizationPluginSurfaceTest
+          freezes: the SPI interfaces AND the fe-authorization-api vocabulary a plugin decides with. One more
+          AccessAction or ResourceKind constant turns every deployed plugin's "kind I do not recognise"
+          branch into a refusal, which is a behaviour change for a plugin nobody rebuilt. A change to
+          fe-extension-spi means bumping all five families.
+        -->
+        <authorization.plugin.api.version>1.0</authorization.plugin.api.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <!--
+              Stamps the declared AUTHORIZATION plugin API version into every jar built here.
+
+              The attribute is read on the way in: the release installs both Ranger plugins under
+              plugins/authorization/ (see build.sh), and DirectoryPluginRuntimeManager refuses a plugin
+              directory whose jar does not declare a compatible one. Deleting this block therefore does not
+              merely leave a stale version in the manifest - it makes the two Ranger sources shipped with the
+              release fail the gate and disappear. The block is also mandatory for a second, less obvious
+              reason:
+              maven-build-cache-extension (enabled in fe/.mvn) hashes a module from its src/** files, its
+              dependencies and its <build><plugins>, and NOT from <properties>. The filtered resource's
+              source text is the literal ${...} placeholder, whose hash never moves. Without the value
+              appearing somewhere inside <build><plugins>, bumping the property alone leaves the module
+              checksum unchanged, so `mvn clean package` restores the cached jar and ships the OLD version in
+              META-INF/doris/authorization-plugin-api-version.properties - the FE would then serve a contract
+              nobody declared. See fe/fe-authentication/pom.xml, where this was reproduced.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Authorization-Plugin-Api-Version>${authorization.plugin.api.version}</Doris-Authorization-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <modules>
+        <module>fe-authorization-api</module>
+        <module>fe-authorization-spi</module>
+        <module>fe-authorization-plugins</module>
+    </modules>
+</project>

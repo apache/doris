@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
 #include <fstream>
@@ -52,11 +53,172 @@
 #include "runtime/thread_context.h"
 #include "storage/id_manager.h"
 #include "storage/storage_engine.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
+
+segment_v2::CompressionTypePB RuntimeState::fragement_transmission_compression_type() const {
+    if (_query_options.__isset.fragment_transmission_compression_codec) {
+        if (_query_options.fragment_transmission_compression_codec == "lz4") {
+            return segment_v2::CompressionTypePB::LZ4;
+        } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+            return segment_v2::CompressionTypePB::SNAPPY;
+        } else {
+            return segment_v2::CompressionTypePB::NO_COMPRESSION;
+        }
+    }
+    return segment_v2::CompressionTypePB::NO_COMPRESSION;
+}
+
+ExternalFileReportReservation::~ExternalFileReportReservation() {
+    if (_state != nullptr) {
+        _state->release_external_file_report_reservation(_reserved_bytes);
+    }
+}
+
 using namespace ErrorCode;
+
+Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data) {
+    ThriftSerializer serializer(false, 256);
+    uint32_t serialized_size = 0;
+    uint8_t* buffer = nullptr;
+    RETURN_IF_ERROR(serializer.serialize(&iceberg_commit_data, &serialized_size, &buffer));
+
+    // This is an early per-vector guard only; the assembled RPC is measured again before send.
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    // Parallel task states share this budget because FE receives their vectors in one fragment report.
+    if (_external_file_report_state->serialized_commit_bytes + serialized_size + sizeof(uint32_t) >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
+    _external_file_report_state->serialized_commit_bytes += serialized_size + sizeof(uint32_t);
+    _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
+    return Status::OK();
+}
+
+Status RuntimeState::reserve_paimon_commit_messages(
+        const std::vector<TPaimonCommitMessage>& commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == nullptr);
+    size_t serialized_bytes = 0;
+    ThriftSerializer serializer(false, 256);
+    for (const auto& commit_message : commit_messages) {
+        uint32_t serialized_size = 0;
+        uint8_t* buffer = nullptr;
+        RETURN_IF_ERROR(serializer.serialize(&commit_message, &serialized_size, &buffer));
+        serialized_bytes += serialized_size + sizeof(uint32_t);
+    }
+
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    if (_external_file_report_state->serialized_commit_bytes + serialized_bytes >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Paimon commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    _external_file_report_state->serialized_commit_bytes += serialized_bytes;
+    reservation->_state = this;
+    reservation->_reserved_bytes = serialized_bytes;
+    return Status::OK();
+}
+
+void RuntimeState::publish_reserved_paimon_commit_messages(
+        std::vector<TPaimonCommitMessage> commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == this);
+    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
+    for (auto& commit_message : commit_messages) {
+        _paimon_commit_messages.emplace_back(std::move(commit_message));
+    }
+    reservation->_state = nullptr;
+    reservation->_reserved_bytes = 0;
+}
+
+void RuntimeState::release_external_file_report_reservation(size_t reserved_bytes) {
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    DORIS_CHECK_GE(_external_file_report_state->serialized_commit_bytes, reserved_bytes);
+    _external_file_report_state->serialized_commit_bytes -= reserved_bytes;
+}
+
+size_t RuntimeState::coordinator_thrift_message_limit() const {
+    int32_t effective_thrift_limit = std::max(config::thrift_max_message_size, 0);
+    if (_query_options.__isset.coordinator_thrift_max_message_size &&
+        _query_options.coordinator_thrift_max_message_size > 0) {
+        // An older FE omits this field; otherwise the receiver's smaller limit is authoritative.
+        effective_thrift_limit = std::min(effective_thrift_limit,
+                                          _query_options.coordinator_thrift_max_message_size);
+    }
+    return static_cast<size_t>(effective_thrift_limit);
+}
+
+void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* params,
+                                                    bool final_report) const {
+    if (!final_report) {
+        // Ownership-bearing commit vectors must only appear in the final report that transfers them.
+        return;
+    }
+    if (auto updates = hive_partition_updates(); !updates.empty()) {
+        params->__isset.hive_partition_updates = true;
+        params->hive_partition_updates.insert(params->hive_partition_updates.end(), updates.begin(),
+                                              updates.end());
+    }
+    append_iceberg_commit_datas(&params->iceberg_commit_datas);
+    if (!params->iceberg_commit_datas.empty()) {
+        params->__isset.iceberg_commit_datas = true;
+    }
+    if (auto commit_datas = mc_commit_datas(); !commit_datas.empty()) {
+        params->__isset.mc_commit_datas = true;
+        params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
+                                       commit_datas.end());
+    }
+    append_paimon_commit_messages(&params->paimon_commit_messages);
+    if (!params->paimon_commit_messages.empty()) {
+        params->__isset.paimon_commit_messages = true;
+    }
+}
+
+void RuntimeState::add_rejected_external_file_report_cleanup(std::function<void()> cleanup) {
+    std::lock_guard lock(_external_file_report_state->mutex);
+    _external_file_report_state->rejected_report_cleanups.emplace_back(std::move(cleanup));
+}
+
+void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome) {
+    std::vector<std::function<void()>> cleanups;
+    {
+        std::lock_guard lock(_external_file_report_state->mutex);
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            _external_file_report_state->rejected_report_cleanups.clear();
+            return;
+        }
+        if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
+            // Once an ACK can have been lost, a later rejection cannot prove FE never accepted the files.
+            _external_file_report_state->ownership_may_have_transferred = true;
+            return;
+        }
+        if (_external_file_report_state->ownership_may_have_transferred) {
+            return;
+        }
+        cleanups.swap(_external_file_report_state->rejected_report_cleanups);
+    }
+    for (auto& cleanup : cleanups) {
+        cleanup();
+    }
+}
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
@@ -77,7 +239,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _query_ctx(ctx) {
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = query_mem_tracker;
     DCHECK(_query_mem_tracker != nullptr);
 }
@@ -100,8 +262,8 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
           _query_ctx(ctx) {
-    [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    Status status = init(instance_id, query_options, query_globals, exec_env);
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = ctx->query_mem_tracker();
 }
 
@@ -125,7 +287,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _query_ctx(ctx) {
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = ctx->query_mem_tracker();
 }
 
@@ -148,7 +310,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_bytes_load_total(0),
           _num_finished_scan_range(0) {
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = query_mem_tracker;
     DCHECK(_query_mem_tracker != nullptr);
 }
@@ -162,7 +324,7 @@ RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGloba
     Status status = init(TUniqueId(), query_options, query_globals, nullptr);
     _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
 }
 
 RuntimeState::RuntimeState()
@@ -176,7 +338,7 @@ RuntimeState::RuntimeState()
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;
-    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj));
     _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
 }
@@ -187,6 +349,11 @@ RuntimeState::~RuntimeState() {
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
     }
+    // Local states use profiles and other objects allocated in _obj_pool, also in their
+    // destructors (e.g. a spill writer closing its last part): release them first, in the order
+    // the members would be destroyed.
+    _sink_local_state.reset();
+    _op_id_to_local_state.clear();
     _obj_pool->clear();
 }
 
@@ -229,7 +396,9 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _timestamp_ms = 0;
         _nano_seconds = 0;
     }
-    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+        return Status::InvalidArgument("Invalid timezone: {}", _timezone);
+    }
 
     if (query_globals.__isset.load_zero_tolerance) {
         _load_zero_tolerance = query_globals.load_zero_tolerance;
@@ -349,6 +518,21 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
+
+    const auto error_limit_status = [this]() -> Status {
+        if (_load_zero_tolerance) {
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
+        }
+        return Status::OK();
+    };
+    if (_num_print_error_rows.load(std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        return error_limit_status();
+    }
+
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
     // If file haven't been opened, open it here
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
@@ -365,14 +549,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
     // If num of printed error row exceeds the limit, don't add error messages to error log file any more
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
-        // if _load_zero_tolerance, return Error to stop the load process immediately.
-        if (_load_zero_tolerance) {
-            return Status::DataQualityError(
-                    "Encountered unqualified data, stop processing. Please check if the source "
-                    "data matches the schema, and consider disabling strict mode or increasing "
-                    "max_filter_ratio.");
-        }
-        return Status::OK();
+        return error_limit_status();
     }
 
     fmt::memory_buffer out;
@@ -394,33 +571,57 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     return Status::OK();
 }
 
+std::string RuntimeState::get_first_error_msg() const {
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
+    return _first_error_msg;
+}
+
 std::string RuntimeState::get_error_log_file_path() {
-    DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
-        if (!_error_log_file_path.empty()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    });
-    std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
-    if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
-        // close error log file
-        _error_log_file->close();
-        std::string error_log_absolute_path =
-                _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
-        // upload error log file to s3
-        Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-        if (!st.ok()) {
-            // upload failed and return local error log file path
-            LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
-                         << _error_log_file_path << ", error=" << st;
+    std::lock_guard<std::mutex> s3_lock(_s3_error_log_file_lock);
+    std::shared_ptr<io::S3FileSystem> s3_error_fs;
+    std::string local_error_log_file_path;
+    std::string remote_error_log_file_path;
+    {
+        std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
+        DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
+            if (!_error_log_file_path.empty()) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        });
+        if (!_s3_error_fs || !_error_log_file || !_error_log_file->is_open()) {
             return _error_log_file_path;
         }
-        // expiration must be less than a week (in seconds) for presigned url
-        static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
-        // Use public or private endpoint based on configuration
-        _error_log_file_path =
-                _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
-                                                     config::use_public_endpoint_for_error_log);
+
+        // close error log file
+        _error_log_file->close();
+        s3_error_fs = _s3_error_fs;
+        local_error_log_file_path = _error_log_file_path;
+        remote_error_log_file_path = _s3_error_log_file_path;
     }
+
+    std::string error_log_absolute_path =
+            _exec_env->load_path_mgr()->get_load_error_absolute_path(local_error_log_file_path);
+    // upload error log file to s3
+    Status st = s3_error_fs->upload(error_log_absolute_path, remote_error_log_file_path);
+    if (!st.ok()) {
+        // upload failed and return local error log file path
+        LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                     << local_error_log_file_path << ", error=" << st;
+        return local_error_log_file_path;
+    }
+    // expiration must be less than a week (in seconds) for presigned url
+    static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
+    // Use public or private endpoint based on configuration
+    auto presigned_url =
+            s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
+                                                config::use_public_endpoint_for_error_log);
+    if (presigned_url.empty()) {
+        LOG(WARNING) << "Fail to generate presigned URL for S3 error log; retain local path "
+                     << local_error_log_file_path;
+        return local_error_log_file_path;
+    }
+    std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
+    _error_log_file_path = std::move(presigned_url);
     return _error_log_file_path;
 }
 

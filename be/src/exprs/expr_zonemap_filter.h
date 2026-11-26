@@ -18,12 +18,14 @@
 #pragma once
 
 #include <compare>
+#include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/check.h"
-#include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
@@ -34,6 +36,7 @@
 
 namespace doris {
 class HybridSetBase;
+struct HybridSetMinMax;
 class RuntimeState;
 class TExprNode;
 
@@ -44,12 +47,7 @@ class BloomFilter;
 
 namespace doris::expr_zonemap {
 
-struct InZonemapMaterializedSet {
-    bool contains_null = false;
-    std::vector<Field> values;
-    Field min_value;
-    Field max_value;
-};
+using InZonemapMinMax = HybridSetMinMax;
 
 // Dictionary pruning evaluates file-level dictionary values, not row-level data. A kNoMatch result
 // means no non-null dictionary entry can satisfy the expression, so the whole row group can be
@@ -99,13 +97,77 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
+// A comparison whose both operands are plain slot references, e.g. `WHERE a != b`. Unlike
+// SlotLiteral there is no flag to flip the operator: with two slots the argument order already is
+// the expression order, so evaluators use the comparison operator as written.
+struct SlotSlot {
+    // Slot ordinals of the left and right operand. Both are keys used to look up the corresponding
+    // reader-schema type and zone map from ZoneMapEvalContext, same as SlotLiteral::slot_index.
+    int left_slot_index;
+    // Type carried by the left slot expression. Kept separately for the same reason as
+    // SlotLiteral::slot_type: evaluation first has to verify the expression binding is compatible
+    // with the reader-schema type held by the context.
+    DataTypePtr left_type;
+    int right_slot_index;
+    DataTypePtr right_type;
+};
+
+enum class MetadataPathKind {
+    STRUCT_FIELD,
+    LIST_ELEMENT,
+};
+
+struct MetadataPathElement {
+    MetadataPathKind kind;
+    std::string field_name;
+    int32_t field_ordinal = -1;
+
+    bool operator==(const MetadataPathElement&) const = default;
+};
+
+struct MetadataProbe {
+    int slot_index;
+    DataTypePtr value_type;
+    std::vector<MetadataPathElement> path;
+
+    bool operator==(const MetadataProbe&) const = default;
+};
+
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+// Both operands must be bare VSlotRef. A cast around a slot is deliberately rejected: the zone map
+// holds raw stored values, so comparing across a cast would need the cast applied to the bounds.
+std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args);
+
+// True if the expression tree contains a slot-vs-slot comparison leaf (two VSlotRef operands),
+// at the root or nested under AND/OR, including two references to the same column (`a < a`). The v1
+// Parquet reader uses this to exclude slot-vs-slot pruning entirely: counting distinct columns is
+// not enough because a same-column pair still has one column id.
+bool contains_slot_slot_comparison(const VExprSPtr& expr);
+
+std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args);
+
+ZoneMapFilterResult evaluate_array_contains_zonemap(const ZoneMapEvalContext& ctx,
+                                                    const VExprSPtrs& args);
+
+bool can_evaluate_array_contains_zonemap(const VExprSPtrs& args);
+
+std::optional<MetadataProbe> extract_metadata_probe(const VExprSPtr& expr);
+
+std::optional<MetadataProbe> extract_bloom_filter_predicate_probe(const VExprSPtr& expr);
+
+std::optional<MetadataProbe> extract_zonemap_filter_predicate_probe(const VExprSPtr& expr);
+
+std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtrs& args);
+
+bool can_evaluate_bloom_filter_equality(const VExprSPtrs& args);
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale);
 
-Status materialize_hybrid_set_for_zonemap_filter(HybridSetBase& set, const DataTypePtr& data_type,
-                                                 InZonemapMaterializedSet* result);
+void get_hybrid_set_min_max_for_zonemap_filter(const std::shared_ptr<HybridSetBase>& set,
+                                               const DataTypePtr& data_type,
+                                               InZonemapMinMax& result);
 
 inline bool field_types_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs || (is_string_type(lhs) && is_string_type(rhs));
@@ -142,21 +204,21 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
                                       bool is_null);
 
 ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSPtr& slot_expr,
-                                    bool is_not_in, const std::vector<Field>& values,
-                                    const Field& min_value, const Field& max_value);
+                                    bool is_not_in, const InZonemapMinMax& values,
+                                    const HybridSetBase& set);
 
 ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
                                        const SlotLiteral& slot_literal);
 
 ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const VExprSPtr& slot_expr,
-                                       bool is_not_in, const std::vector<Field>& values);
+                                       bool is_not_in, const HybridSetBase& values);
 
 ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const SlotLiteral& slot_literal);
 
 ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
                                          const VExprSPtr& slot_expr, bool is_not_in,
-                                         const std::vector<Field>& values);
+                                         const HybridSetBase& values);
 
 // Return the only slot ordinal referenced by a zonemap-evaluable expression in its current
 // binding. Expressions that are unsupported by zonemap pruning, reference multiple slots, or use an

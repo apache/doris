@@ -101,6 +101,8 @@ suite("test_streaming_job_max_retry", "nonConcurrent") {
                 "ErrorMsg should contain CANNOT_RESUME_ERR code, got: " + errorMsgJson
         assert errorMsgJson.contains("Auto resume failed after"),
                 "ErrorMsg should contain the burn-out message, got: " + errorMsgJson
+        assert errorMsgJson.contains("RESUME JOB"),
+                "ErrorMsg should explain the manual recovery action, got: " + errorMsgJson
 
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs('StreamingJob.scheduleTask.exception')

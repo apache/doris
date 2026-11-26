@@ -37,7 +37,9 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
+#include "format/table/index_disk_usage_reader.h"
 #include "format/table/parquet_metadata_reader.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -66,6 +68,11 @@ Status MetaScanner::_open_impl(RuntimeState* state) {
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PARQUET) {
         auto reader = ParquetMetadataReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                            _scan_range.meta_scan_range);
+        RETURN_IF_ERROR(reader->init_reader());
+        _reader = std::move(reader);
+    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::INDEX_DISK_USAGE) {
+        auto reader = IndexDiskUsageReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                          _scan_range.meta_scan_range);
         RETURN_IF_ERROR(reader->init_reader());
         _reader = std::move(reader);
     } else {
@@ -124,8 +131,7 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
             int column_index = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[column_index++]),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+                                                    slot_desc->type(), slot_desc->col_name()));
             }
         } else {
             block->set_columns(std::move(columns));
@@ -232,9 +238,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
-    case TMetadataType::HUDI:
-        RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
@@ -294,26 +297,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status MetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                 TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "MetaScanner::_build_hudi_metadata_request";
-    if (!meta_scan_range.__isset.hudi_params) {
-        return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
-    }
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::HUDI);
-    metadata_table_params.__set_hudi_metadata_params(meta_scan_range.hudi_params);
-
-    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 

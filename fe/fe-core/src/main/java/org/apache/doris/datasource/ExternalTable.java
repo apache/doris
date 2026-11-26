@@ -21,13 +21,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -36,9 +41,9 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
@@ -58,6 +63,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -87,6 +93,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     // record the table update time, like insert/alter/delete
     protected volatile long updateTime = 0;
+    // Fences missing-table responses across the full metadata refresh interval.
+    private transient volatile long metadataRefreshGeneration;
+    // Guarded by catalog. Refreshes may overlap without holding the monitor across provider IO.
+    private transient int activeMetadataRefreshes;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -174,7 +184,19 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
+        // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
+        // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
+        // Collapsing the two would strip the ambient resolution from every statement-global caller.
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    /**
+     * The full schema AS OF {@code snapshot}. See {@link #getSchemaCacheValue(Optional)} for why the plan
+     * path must pass the reference's pin rather than relying on the ambient lookup.
+     */
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue(snapshot);
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -223,11 +245,20 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return getType().toEngineName();
     }
 
-    /**
-     * Returns the effective meta cache engine for this table.
-     */
-    public String getMetaCacheEngine() {
-        return "default";
+    public String getHiveParquetTimeZone() throws UserException {
+        if (catalog == null || !("hms".equalsIgnoreCase(catalog.getType())
+                || "hudi".equalsIgnoreCase(catalog.getType()))) {
+            return "";
+        }
+        return getConfiguredHiveParquetTimeZone();
+    }
+
+    public String getConfiguredHiveParquetTimeZone() throws UserException {
+        if (catalog == null) {
+            return "";
+        }
+        String value = catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE);
+        return value == null ? "" : FileFormatUtils.parseHiveParquetTimeZone(value);
     }
 
     @Override
@@ -310,6 +341,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     public void setUpdateTime(long updateTime) {
         this.updateTime = updateTime;
+    }
+
+    public long getMetadataRefreshGeneration() {
+        return metadataRefreshGeneration;
+    }
+
+    /** Only an idle metadata generation can authorize later missing-table cleanup. */
+    public OptionalLong observeMetadataRefreshGeneration() {
+        synchronized (catalog) {
+            return activeMetadataRefreshes == 0
+                    ? OptionalLong.of(metadataRefreshGeneration) : OptionalLong.empty();
+        }
+    }
+
+    /** Ordered with guarded cleanup; the caller releases this fence in its outermost finally. */
+    public void beginMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes++;
+            metadataRefreshGeneration++;
+        }
+    }
+
+    public void endMetadataRefresh() {
+        synchronized (catalog) {
+            activeMetadataRefreshes--;
+            metadataRefreshGeneration++;
+        }
     }
 
     @Override
@@ -421,8 +479,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
+        SchemaCacheKey key = new SchemaCacheKey(getOrBuildNameMapping());
+        if (catalog.shouldBypassSchemaCache(SessionContext.current())) {
+            // session=user + delegated credential: the remote loadTable returns PER-USER schema and authorizes
+            // per user, so the shared name-keyed schema cache must be bypassed (mirror the db/table-name-cache
+            // bypass) — read schema live under the current session's credential. This is exactly what the cache
+            // miss-loader would do (initSchemaAndUpdateTime); calling it directly just skips the shared cache so
+            // one user's schema is never served to another who could list but not load the table.
+            return initSchemaAndUpdateTime(key);
+        }
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCacheValue(this, key);
+    }
+
+    /**
+     * The schema AS OF {@code snapshot}, for a caller that knows WHICH table reference it is resolving for
+     * (the reference's {@code @branch}/{@code @tag}/FOR-TIME selector already resolved to a pin). A table
+     * whose schema cannot vary by version ignores {@code snapshot} — only an MVCC table overrides this.
+     *
+     * <p>Prefer this over the no-arg {@link #getSchemaCacheValue()} in the PLAN path: the no-arg form
+     * resolves the pin from the ambient {@code ConnectContext} WITHOUT knowing the reference, so a statement
+     * pinning one table at two versions cannot be disambiguated there and degrades to the LATEST schema —
+     * a schema no reference asked for. The no-arg form remains correct for statement-global callers (MTMV
+     * refresh, preload, the write sink) that have no per-reference version to pass.
+     *
+     * @param snapshot the pin resolved for THIS reference, or empty for a caller with no reference
+     */
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return getSchemaCacheValue();
     }
 
     @Override
@@ -480,15 +563,31 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Get sorted partition ranges for binary search filtering.
-     * Subclasses can override this method to provide sorted partition ranges
-     * for efficient partition pruning.
+     * Whether this snapshot's partition values can be pruned using source-column predicates.
+     * Enumeration may still be needed for partition counts when this returns false.
+     */
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        return supportInternalPartitionPruned();
+    }
+
+    /**
+     * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
+     * pruning. The default implementation delegates tables implementing
+     * {@link SupportBinarySearchFilteringPartitions} to {@link NereidsSortedPartitionsCacheManager}.
+     * Plugin MVCC tables override this to return the index owned by their pinned partition view;
+     * other tables return empty (the caller falls back to building ranges fresh).
      *
      * @param scan the catalog relation
      * @return sorted partition ranges, or empty if not supported
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
-        return Optional.empty();
+        if (!(this instanceof SupportBinarySearchFilteringPartitions)) {
+            return Optional.empty();
+        }
+        Optional<SortedPartitionRanges<?>> cached = Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                .get((SupportBinarySearchFilteringPartitions) this, scan);
+        return (Optional) cached;
     }
 
     @Override

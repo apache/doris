@@ -114,6 +114,33 @@ suite("test_streaming_mysql_job_server_id", "p0,external,mysql,external_docker,e
             '"offset" = "initial", "server_id" = "99500", "snapshot_parallelism" = "2"',
             "snapshot_parallelism")
 
+    // ALTER must validate the new parallelism against server_id retained from CREATE.
+    def alterJobName = "test_serverid_reject_alter_parallelism"
+    sql "DROP JOB IF EXISTS where jobname = '${alterJobName}'"
+    sql "DROP TABLE IF EXISTS ${currentDb}.${srcTable} FORCE"
+    try {
+        sql buildCreateJob(alterJobName,
+                '"offset" = "initial", "server_id" = "99200-99201", "snapshot_parallelism" = "2"')
+        sql "PAUSE JOB where jobname = '${alterJobName}'"
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def status = sql """
+                select status from jobs("type"="insert") where Name='${alterJobName}'
+            """
+            status.size() == 1 && status.get(0).get(0) == "PAUSED"
+        })
+        test {
+            sql """ALTER JOB ${alterJobName}
+                    FROM MYSQL (
+                        "snapshot_parallelism" = "3"
+                    )
+                    TO DATABASE ${currentDb}
+                """
+            exception "server_id range size 2 must be >= snapshot_parallelism 3"
+        }
+    } finally {
+        sql "DROP JOB IF EXISTS where jobname = '${alterJobName}'"
+    }
+
     // ─── Section 2: happy path — job runs, data syncs ────────────────────────
     // single value + binlog increment covers BinlogSplitReader binding startServerId.
     runHappyPath("test_serverid_single", '"server_id" = "99001"') {

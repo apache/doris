@@ -20,6 +20,7 @@
 
 #include "core/block/block.h"
 
+#include <concurrentqueue.h>
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
@@ -128,7 +129,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
-        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
+        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->type(),
                                      slot_desc->col_name()));
     }
 }
@@ -150,6 +151,7 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
     const char* buf = nullptr;
+    const char* buf_end = nullptr;
     std::string compression_scratch;
     if (pblock.compressed()) {
         // Decompress
@@ -166,20 +168,29 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
             Slice decompressed_slice(compression_scratch);
             RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
                                               &decompressed_slice));
-            DCHECK(uncompressed_size == decompressed_slice.size);
+            if (decompressed_slice.size != uncompressed_size) {
+                return Status::Corruption("Decompressed block size mismatch: expected {}, got {}",
+                                          uncompressed_size, decompressed_slice.size);
+            }
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
                                                          &uncompressed_size);
-            DCHECK(success) << "snappy::GetUncompressedLength failed";
+            if (!success) {
+                return Status::Corruption("snappy::GetUncompressedLength failed");
+            }
             compression_scratch.resize(uncompressed_size);
             success = snappy::RawUncompress(compressed_data, compressed_size,
                                             compression_scratch.data());
-            DCHECK(success) << "snappy::RawUncompress failed";
+            if (!success) {
+                return Status::Corruption("snappy::RawUncompress failed");
+            }
         }
         *uncompressed_bytes = uncompressed_size;
         buf = compression_scratch.data();
+        buf_end = buf + compression_scratch.size();
     } else {
         buf = pblock.column_values().data();
+        buf_end = buf + pblock.column_values().size();
     }
 
     for (const auto& pcol_meta : pblock.column_metas()) {
@@ -187,7 +198,10 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
+                buf = type->deserialize(buf, buf_end, &data_column, pblock.be_exec_version()));
+        if (buf == nullptr || buf > buf_end) {
+            return Status::Corruption("Column deserializer advanced beyond the input buffer");
+        }
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
 
@@ -828,6 +842,7 @@ void Block::clear() {
     data.clear();
 }
 
+// Both clear paths must preserve shared children even when a composite column is top-level exclusive.
 void Block::clear_column_data(int64_t column_size) {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
@@ -839,7 +854,7 @@ void Block::clear_column_data(int64_t column_size) {
     }
     for (auto& d : data) {
         if (d.column) {
-            if (d.column->is_exclusive()) {
+            if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
@@ -854,7 +869,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         DCHECK_LT(col, data.size());
         auto& column = data[col].column;
         if (column) {
-            if (column->is_exclusive()) {
+            if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();

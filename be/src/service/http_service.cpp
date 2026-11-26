@@ -55,6 +55,7 @@
 #include "service/http/action/health_action.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/action/jeprofile_actions.h"
+#include "service/http/action/jni_plugin_status_action.h"
 #include "service/http/action/load_channel_action.h"
 #include "service/http/action/load_stream_action.h"
 #include "service/http/action/meta_action.h"
@@ -244,6 +245,12 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/dictionary_status",
                                       dict_status_action);
 
+    // register Java plugin status action
+    JniPluginStatusAction* jni_plugin_status_action = _pool.add(
+            new JniPluginStatusAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/jni_plugin_status",
+                                      jni_plugin_status_action);
+
     // register metrics
     {
         auto* action =
@@ -343,15 +350,6 @@ void HttpService::register_local_handler(StorageEngine& engine) {
                                       batch_download_action);
     _ev_http_server->register_handler(HttpMethod::POST, "/api/_tablet/_batch_download",
                                       batch_download_action);
-
-    if (config::enable_single_replica_load) {
-        DownloadAction* single_replica_download_action = _pool.add(new DownloadAction(
-                _env, nullptr, allow_paths, config::single_replica_load_download_num_workers));
-        _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_single_replica/_download",
-                                          single_replica_download_action);
-        _ev_http_server->register_handler(HttpMethod::GET, "/api/_single_replica/_download",
-                                          single_replica_download_action);
-    }
 
     DownloadBinlogAction* download_binlog_action =
             _pool.add(new DownloadBinlogAction(_env, engine, _rate_limit_group));

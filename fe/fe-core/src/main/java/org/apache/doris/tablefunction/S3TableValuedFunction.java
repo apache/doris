@@ -20,10 +20,11 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -41,23 +42,22 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        this(properties, null);
+    }
+
+    public S3TableValuedFunction(Map<String, String> properties, List<TBrokerFileStatus> files)
+            throws AnalysisException {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
-        try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-            String uri = storageProperties.validateAndGetUri(props);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
-            this.backendConnectProperties.put(URI_KEY, filePath);
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
-        if (FeConstants.runningUnitTest) {
-            // Just check
-            // Fixme wait to be done  #50320
-            // FileSystemFactory.get(storageProperties);
-        } else {
-            parseFile();
+        this.storageAdapter = StorageAdapter.of(props);
+        this.backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
+        String uri = storageAdapter.validateAndGetUri(props);
+        filePath = storageAdapter.validateAndNormalizeUri(uri);
+        this.backendConnectProperties.put(URI_KEY, filePath);
+        if (!FeConstants.runningUnitTest) {
+            parseFile(files);
+        } else if (files != null) {
+            this.fileStatuses.addAll(files);
         }
     }
 

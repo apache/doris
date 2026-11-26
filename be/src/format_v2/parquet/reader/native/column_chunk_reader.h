@@ -35,6 +35,7 @@
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/native_schema_desc.h"
+#include "format_v2/parquet/reader/direct_predicate.h"
 #include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
@@ -62,6 +63,8 @@ struct ColumnChunkRange {
 struct ParquetReaderCompat {
     bool parquet_816_padding = false;
     bool data_page_v2_always_compressed = false;
+    // Legacy parquet-mr and Arrow writers can under-report null_count.
+    bool null_count_trusted = true;
 };
 
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by);
@@ -176,24 +179,50 @@ public:
                               ParquetDecodeContext& context, ParquetMaterializationState& state,
                               ColumnSelectVector& select_vector);
 
+    bool supports_fused_nullable_selection(IColumn& column) const;
+
+    Status materialize_fused_nullable_values(MutableColumnPtr& doris_column,
+                                             const DataTypeSerDe& serde,
+                                             ParquetDecodeContext& context,
+                                             ParquetMaterializationState& state, size_t num_values,
+                                             size_t num_nulls, const NullMap& selected_nulls);
+
     static bool supports_raw_fixed_filter_encoding(tparquet::Encoding::type encoding,
                                                    tparquet::Type::type physical_type) {
         switch (encoding) {
         case tparquet::Encoding::PLAIN:
-            return physical_type == tparquet::Type::INT32 ||
+            return physical_type == tparquet::Type::BOOLEAN ||
+                   physical_type == tparquet::Type::INT32 ||
                    physical_type == tparquet::Type::INT64 ||
+                   physical_type == tparquet::Type::INT96 ||
                    physical_type == tparquet::Type::FLOAT ||
-                   physical_type == tparquet::Type::DOUBLE;
+                   physical_type == tparquet::Type::DOUBLE ||
+                   physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
+        case tparquet::Encoding::RLE:
+            return physical_type == tparquet::Type::BOOLEAN;
         case tparquet::Encoding::BYTE_STREAM_SPLIT:
             return physical_type == tparquet::Type::INT32 ||
                    physical_type == tparquet::Type::INT64 ||
                    physical_type == tparquet::Type::FLOAT ||
-                   physical_type == tparquet::Type::DOUBLE;
+                   physical_type == tparquet::Type::DOUBLE ||
+                   physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
         case tparquet::Encoding::DELTA_BINARY_PACKED:
             return physical_type == tparquet::Type::INT32 || physical_type == tparquet::Type::INT64;
         default:
             return false;
         }
+    }
+
+    static bool supports_raw_binary_filter_encoding(tparquet::Encoding::type encoding,
+                                                    tparquet::Type::type physical_type) {
+        if (physical_type == tparquet::Type::BYTE_ARRAY) {
+            return encoding == tparquet::Encoding::PLAIN ||
+                   encoding == tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY ||
+                   encoding == tparquet::Encoding::DELTA_BYTE_ARRAY;
+        }
+        return physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+               (encoding == tparquet::Encoding::PLAIN ||
+                encoding == tparquet::Encoding::BYTE_STREAM_SPLIT);
     }
 
     // Evaluate selected fixed-width values and return one keep byte per selected logical row.
@@ -202,15 +231,21 @@ public:
     Status filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
                                      ColumnSelectVector& select_vector, NullMap* selected_nulls,
                                      IColumn::Filter* physical_matches, IColumn* projected_column,
-                                     IColumn::Filter* row_filter, bool* used_filter);
-    bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id) const;
+                                     IColumn::Filter* conversion_nulls, IColumn::Filter* row_filter,
+                                     const DataTypeSerDe& serde,
+                                     const ParquetDecodeContext& decode_context,
+                                     bool enable_strict_mode, bool* used_filter,
+                                     DirectPredicateExecutionKind* execution_kind);
+    bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
+                                       const DataTypeSerDe* serde,
+                                       const ParquetDecodeContext* decode_context) const;
 
     Status filter_dictionary_indices(const IColumn::Filter& dictionary_filter,
                                      ColumnSelectVector& select_vector,
                                      const IColumn* typed_dictionary, IColumn* projected_values,
                                      ColumnInt32* matched_dictionary_ids,
-                                     IColumn::Filter* row_filter, bool* projected_directly,
-                                     bool* used_filter);
+                                     IColumn::Filter* row_filter, size_t* survivor_count,
+                                     bool* projected_directly, bool* used_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
@@ -226,6 +261,7 @@ public:
     Decoder* get_page_decoder() { return _page_decoder; }
 
     void release_decoder_scratch(size_t max_retained_bytes) {
+        _page_reader->release_scratch(max_retained_bytes);
         for (auto& [encoding, decoder] : _decoders) {
             decoder->release_scratch(max_retained_bytes);
         }
@@ -234,6 +270,12 @@ public:
         _def_level_decoder.release_scratch(max_retained_bytes);
         if (_selected_dictionary_indices.capacity() * sizeof(uint32_t) > max_retained_bytes) {
             std::vector<uint32_t>().swap(_selected_dictionary_indices);
+        }
+        if (_binary_predicate_refs.capacity() * sizeof(StringRef) > max_retained_bytes) {
+            std::vector<StringRef>().swap(_binary_predicate_refs);
+        }
+        if (_binary_projected_refs.capacity() * sizeof(StringRef) > max_retained_bytes) {
+            std::vector<StringRef>().swap(_binary_projected_refs);
         }
         if (_decompress_buf_size > max_retained_bytes) {
             if (_page_uses_decompress_buf) {
@@ -253,21 +295,26 @@ public:
 
     size_t retained_decoder_scratch_bytes() const {
         size_t bytes = _decompress_buf_size + _rep_level_decoder.retained_scratch_bytes() +
-                       _def_level_decoder.retained_scratch_bytes();
+                       _def_level_decoder.retained_scratch_bytes() +
+                       _page_reader->retained_scratch_bytes();
         for (const auto& [encoding, decoder] : _decoders) {
             bytes += decoder->retained_scratch_bytes();
         }
-        return bytes + _selected_dictionary_indices.capacity() * sizeof(uint32_t);
+        return bytes + _selected_dictionary_indices.capacity() * sizeof(uint32_t) +
+               _binary_predicate_refs.capacity() * sizeof(StringRef) +
+               _binary_projected_refs.capacity() * sizeof(StringRef);
     }
 
     size_t active_decoder_scratch_bytes() const {
         // Only the current encoding is active. Old decoder instances retain reusable capacity but
         // must not make the high-water policy treat their last batch as current working memory.
-        return _active_decompress_bytes +
+        return _active_decompress_bytes + _page_reader->active_scratch_bytes() +
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
                _def_level_decoder.active_scratch_bytes() +
-               _selected_dictionary_indices.size() * sizeof(uint32_t);
+               _selected_dictionary_indices.size() * sizeof(uint32_t) +
+               _binary_predicate_refs.size() * sizeof(StringRef) +
+               _binary_projected_refs.size() * sizeof(StringRef);
     }
 
     tparquet::Encoding::type current_encoding() const { return _current_encoding; }
@@ -422,9 +469,17 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     NullMap _nullable_selection_nulls;
     std::vector<uint32_t> _selected_dictionary_indices;
+    std::vector<StringRef> _binary_predicate_refs;
+    std::vector<StringRef> _binary_projected_refs;
     ColumnChunkReaderStatistics _chunk_statistics;
 };
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
+
+/// Instantiated once in column_chunk_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnChunkReader<true, true>;
+extern template class ColumnChunkReader<true, false>;
+extern template class ColumnChunkReader<false, true>;
+extern template class ColumnChunkReader<false, false>;
 
 } // namespace doris::format::parquet::native

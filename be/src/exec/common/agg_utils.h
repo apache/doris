@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -27,6 +28,18 @@
 #include "exec/common/hash_table/string_hash_map.h"
 
 namespace doris {
+
+template <typename PostCreate, typename Rollback>
+void commit_aggregate_state(AggregateDataPtr& mapped, AggregateDataPtr new_state,
+                            PostCreate&& post_create, Rollback&& rollback) {
+    try {
+        std::forward<PostCreate>(post_create)();
+    } catch (...) {
+        std::forward<Rollback>(rollback)(new_state);
+        throw;
+    }
+    mapped = new_state;
+}
 
 template <typename T>
 using AggData = PHHashMap<T, AggregateDataPtr, HashCRC32<T>>;

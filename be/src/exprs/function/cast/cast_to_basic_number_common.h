@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
@@ -369,15 +370,15 @@ struct CastToFloat {
 };
 
 template <typename FromDataType, typename ToDataType>
-Status static_cast_no_overflow(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-    const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
-            block.get_by_position(arguments[0]).column.get());
+Status static_cast_no_overflow(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                               ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                               const NullMap::value_type* parent_null_map = nullptr) {
+    const auto* col_from =
+            check_and_get_column<typename FromDataType::ColumnType>(source_column.column.get());
     if (!col_from) {
-        return Status::InternalError(fmt::format(
-                "Column type mismatch: expected {}, got {}", type_to_string(FromDataType::PType),
-                block.get_by_position(arguments[0]).column->get_name()));
+        return Status::InternalError(fmt::format("Column type mismatch: expected {}, got {}",
+                                                 type_to_string(FromDataType::PType),
+                                                 source_column.column->get_name()));
     }
     auto col_to = ToDataType::ColumnType::create(input_rows_count);
     const auto& vec_from = col_from->get_data();
@@ -385,6 +386,9 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
 
     CastParameters params;
     for (size_t i = 0; i < input_rows_count; ++i) {
+        if (parent_null_map != nullptr && parent_null_map[i] != 0) {
+            continue;
+        }
         if constexpr (IsDataTypeInt<ToDataType>) {
             if constexpr (IsDataTypeBool<FromDataType>) {
                 CastToInt::from_bool(vec_from[i], vec_to[i], params);
@@ -393,6 +397,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToInt::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                          vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
+                CastToInt::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToInt::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
@@ -418,6 +424,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                            vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
+                CastToFloat::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToFloat::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
@@ -440,26 +448,28 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
         }
     }
 
-    block.get_by_position(result).column = std::move(col_to);
+    target_column.column = std::move(col_to);
     return Status::OK();
 }
 
 template <typename T>
 constexpr static bool type_allow_cast_to_basic_number =
         std::is_same_v<T, DataTypeString> || IsDataTypeNumber<T> || IsDataTypeDecimal<T> ||
-        IsDatelikeV1Types<T> || IsDatelikeV2Types<T> || std::is_same_v<T, DataTypeTimeV2>;
+        IsDatelikeV1Types<T> || IsDatelikeV2Types<T> || std::is_same_v<T, DataTypeTimeStampNs> ||
+        std::is_same_v<T, DataTypeTimeV2>;
 
 // common implementation for casting string to basic number types,
 // including integer, float and double
 template <CastModeType Mode, typename ToDataType>
     requires(IsDataTypeNumber<ToDataType>)
 class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
-        auto to_type = block.get_by_position(result).type;
+public:
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
+        auto to_type = target_column.type;
         auto nested_to_type = remove_nullable(to_type);
         auto serde = nested_to_type->get_serde();
 
@@ -470,13 +480,13 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, format_options));
-            block.get_by_position(result).column = std::move(nullable_col_to);
+            target_column.column = std::move(nullable_col_to);
         } else if constexpr (Mode == CastModeType::StrictMode) {
             MutableColumnPtr column_to = nested_to_type->create_column();
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
             RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to,
-                                                                 format_options, null_map));
-            block.get_by_position(result).column = std::move(column_to);
+                                                                 format_options, parent_null_map));
+            target_column.column = std::move(column_to);
         } else {
             return Status::InternalError("Unsupported cast mode");
         }

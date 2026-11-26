@@ -1,0 +1,46 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands;
+
+import org.apache.doris.connector.spi.handle.WriteOperation;
+
+/**
+ * The kind of row-level DML driven by the generic {@link RowLevelDmlCommand} shell.
+ *
+ * <p>Selects the per-operation behavior of a {@link RowLevelDmlTransform}: mode check, plan synthesis,
+ * required physical sink, executor factory, label prefix and the (op-specific) finalize step.</p>
+ */
+public enum RowLevelDmlOp {
+    DELETE,
+    UPDATE,
+    MERGE;
+
+    /** Returns the connector SPI operation corresponding to this command. */
+    public WriteOperation toWriteOperation() {
+        switch (this) {
+            case DELETE:
+                return WriteOperation.DELETE;
+            case UPDATE:
+                return WriteOperation.UPDATE;
+            case MERGE:
+                return WriteOperation.MERGE;
+            default:
+                throw new IllegalStateException("Unsupported row-level DML operation: " + this);
+        }
+    }
+}

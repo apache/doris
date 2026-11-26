@@ -17,9 +17,8 @@
 
 package org.apache.doris.trinoconnector;
 
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheKey;
 import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheValue;
 
@@ -164,7 +163,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         initConnector();
         this.pageSourceProvider = getConnectorPageSourceProvider();
         // mock ObjectMapperProvider
@@ -178,7 +177,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         for (long appendDataTimeN : appendDataTimeNs) {
             appendDataTime += appendDataTimeN;
         }
@@ -238,13 +237,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
-    }
-
-    @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> mp = new HashMap<>();
         for (int i = 0; i < appendDataTimeNs.length; ++i) {
             mp.put("timer:AppendDataTime[" + i + "]",  String.valueOf(appendDataTimeNs[i]));

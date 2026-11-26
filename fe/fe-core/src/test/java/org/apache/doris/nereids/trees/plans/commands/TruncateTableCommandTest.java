@@ -166,11 +166,15 @@ public class TruncateTableCommandTest extends TestWithFeService {
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
+        OlapTable table = Env.getCurrentInternalCatalog().getDbNullable("testcommand")
+                .getOlapTableOrDdlException("tblcommand");
+        long visibleVersion = table.getVisibleVersion();
         String truncateStr = "truncate table internal.testcommand.tblcommand;";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
+        Assertions.assertEquals(visibleVersion + 1, table.getVisibleVersion());
 
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
@@ -181,6 +185,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
+        Assertions.assertEquals(visibleVersion + 2, table.getVisibleVersion());
 
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
@@ -211,15 +216,15 @@ public class TruncateTableCommandTest extends TestWithFeService {
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
         checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
-        String createTableStr = "create table internal.testcommand.tbl_row_binlog(d1 date, k1 int)"
+        String createTableStr = "create table internal.testcommand.tbl_changelog(d1 date, k1 int)"
                 + "duplicate key(d1, k1) "
                 + "PARTITION BY RANGE(d1)"
                 + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
                 + "distributed by hash(k1) buckets 1 "
-                + "properties('replication_num' = '1', 'binlog.enable'='true', 'binlog.format'='ROW');";
-        createTable(createTableStr);
+                + "properties('replication_num' = '1', 'changelog.enable'='true');";
+        createTableWithChangelog(createTableStr);
 
-        truncateStr = "truncate table internal.testcommand.tbl_row_binlog;";
+        truncateStr = "truncate table internal.testcommand.tbl_changelog;";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);

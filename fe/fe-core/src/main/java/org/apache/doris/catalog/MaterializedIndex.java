@@ -43,6 +43,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         public boolean isVisible() {
             return this == IndexState.NORMAL;
         }
+
+        public boolean isShadow() {
+            return this == IndexState.SHADOW;
+        }
     }
 
     public enum IndexExtState {
@@ -57,6 +61,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     private IndexState state;
     @SerializedName(value = "rowCount")
     private long rowCount;
+    // ATTN(changelog-rename): formerly "isRowBinlog"; the SerializedName keeps the old name on purpose
+    @SerializedName(value = "isRowBinlog")
+    private boolean isChangelog = false;
 
     // Published as a volatile immutable snapshot in lockstep with `tablets`.
     // Writers (synchronized) build a fresh HashMap and assign the field; readers
@@ -98,6 +105,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;
+    }
+
+    public boolean isChangelog() {
+        return isChangelog;
+    }
+
+    public void setIsChangelog(boolean isChangelog) {
+        this.isChangelog = isChangelog;
     }
 
     public List<Tablet> getTablets() {
@@ -222,12 +237,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return remoteDataSize;
     }
 
-    public long getBinlogSize() {
-        long binlogDataSize = 0;
-        for (Tablet tablet : getTablets()) {
-            binlogDataSize += tablet.getBinlogDataSize();
-        }
-        return binlogDataSize;
+    public long getChangelogSize() {
+        return isChangelog() ? getDataSize(false, false) : 0;
     }
 
     public long getReplicaCount() {
@@ -313,6 +324,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
                 && idToTablets.size() == other.idToTablets.size()
                 && idToTablets.equals(other.idToTablets)
                 && (state.equals(other.state))
+                && (isChangelog == other.isChangelog)
                 && (rowCount == other.rowCount);
     }
 
@@ -322,6 +334,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         StringBuilder buffer = new StringBuilder();
         buffer.append("index id: ").append(id).append("; ");
         buffer.append("index state: ").append(state.name()).append("; ");
+        buffer.append("is changelog: ").append(isChangelog).append("; ");
 
         buffer.append("row count: ").append(rowCount).append("; ");
         buffer.append("tablets size: ").append(snapshot.size()).append("; ");

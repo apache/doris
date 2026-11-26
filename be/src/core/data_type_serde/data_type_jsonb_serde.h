@@ -37,6 +37,12 @@ public:
 
     std::string get_name() const override { return "JSONB"; }
 
+    // JSON null is a value, so a nested SQL NULL needs a distinct spelling.
+    StringRef get_nested_null_format() const override { return {"NULL", 4}; }
+
+    Status from_string_as_nested(StringRef& str, IColumn& column, const FormatOptions& options,
+                                 bool is_strict_mode) const override;
+
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
@@ -75,7 +81,8 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;

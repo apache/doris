@@ -54,7 +54,8 @@ suite('test_lru_persist', 'docker') {
     options.beConfigs += ['enable_file_cache=true', 'enable_java_support=false', 'file_cache_enter_disk_resource_limit_mode_percent=99',
                           'file_cache_background_lru_dump_interval_ms=2000', 'file_cache_background_lru_log_replay_interval_ms=500',
                           'disable_auto_compaction=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
-                          'file_cache_background_lru_dump_update_cnt_threshold=0'
+                          'file_cache_background_lru_dump_update_cnt_threshold=0',
+                          'file_cache_background_lru_dump_tail_record_num=5000000'
                         ]
 
     // run another docker

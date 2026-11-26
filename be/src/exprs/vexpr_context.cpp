@@ -145,7 +145,8 @@ Status VExprContext::open(RuntimeState* state) {
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
-            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::FunctionStateScope::THREAD_LOCAL
+                      : FunctionContext::FunctionStateScope::FRAGMENT_LOCAL;
     Status st;
     RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
     return st;
@@ -157,7 +158,8 @@ void VExprContext::close() {
         return;
     }
     FunctionContext::FunctionStateScope scope =
-            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::FunctionStateScope::THREAD_LOCAL
+                      : FunctionContext::FunctionStateScope::FRAGMENT_LOCAL;
     _root->close(this, scope);
 }
 
@@ -178,7 +180,7 @@ Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     // The object of segment_v2::AnnRangeSearchRuntime is not shared by threads.
     new_ctx->_ann_range_search_runtime = this->_ann_range_search_runtime;
 
-    return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
+    return _root->open(state, new_ctx.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
 }
 
 void VExprContext::clone_fn_contexts(VExprContext* other) {
@@ -717,8 +719,7 @@ void VExprContext::prepare_ann_range_search(const doris::VectorSearchUserParams&
 }
 
 Status VExprContext::evaluate_ann_range_search(
-        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
@@ -734,8 +735,8 @@ Status VExprContext::evaluate_ann_range_search(
 
     AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
-            _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            rows_of_segment, row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
+            _ann_range_search_runtime, index_iterators, column_iterators, rows_of_segment,
+            row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
 
     if (!evaluation_result.executed) {
         return Status::OK();
@@ -755,7 +756,7 @@ Status VExprContext::evaluate_ann_range_search(
         return Status::OK();
     }
 
-    DCHECK_LT(_ann_range_search_runtime.src_col_idx, idx_to_cid.size());
+    DCHECK_LT(_ann_range_search_runtime.src_col_idx, index_iterators.size());
     const auto src_col_idx = cast_set<int>(_ann_range_search_runtime.src_col_idx);
     const auto src_col_key = cast_set<ColumnId>(_ann_range_search_runtime.src_col_idx);
     auto slot_ref_map_it = common_expr_to_slotref_map.find(this);
@@ -771,10 +772,8 @@ Status VExprContext::evaluate_ann_range_search(
     _index_context->set_true_for_index_status(slot_ref_expr_addr, src_col_idx);
 
     VLOG_DEBUG << fmt::format(
-            "Evaluate ann range search for expr {}, src_col_idx {}, cid {}, row_bitmap "
-            "cardinality {}",
-            _root->debug_string(), src_col_idx, idx_to_cid[_ann_range_search_runtime.src_col_idx],
-            row_bitmap.cardinality());
+            "Evaluate ann range search for expr {}, src_col_idx {}, row_bitmap cardinality {}",
+            _root->debug_string(), src_col_idx, row_bitmap.cardinality());
     return Status::OK();
 }
 

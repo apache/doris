@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,12 +44,12 @@ public class ReplaceTableOperationLogTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         ReplaceTableOperationLog readLog = ReplaceTableOperationLog.read(dis);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
-        Assert.assertTrue(readLog.getNewTblId() == log.getNewTblId());
-        Assert.assertTrue(readLog.getOrigTblId() == log.getOrigTblId());
-        Assert.assertTrue(readLog.isSwapTable() == log.isSwapTable());
-        Assert.assertTrue(readLog.getOrigTblName().equals(log.getOrigTblName()));
-        Assert.assertTrue(readLog.getNewTblName().equals(log.getNewTblName()));
+        Assertions.assertTrue(readLog.getDbId() == log.getDbId());
+        Assertions.assertTrue(readLog.getNewTblId() == log.getNewTblId());
+        Assertions.assertTrue(readLog.getOrigTblId() == log.getOrigTblId());
+        Assertions.assertTrue(readLog.isSwapTable() == log.isSwapTable());
+        Assertions.assertTrue(readLog.getOrigTblName().equals(log.getOrigTblName()));
+        Assertions.assertTrue(readLog.getNewTblName().equals(log.getNewTblName()));
 
         // 3. delete files
         dis.close();

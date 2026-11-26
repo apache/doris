@@ -72,7 +72,13 @@ struct AggregateFunctionDistinctSingleNumericData {
     void merge(const Self& rhs, Arena&) {
         DCHECK(!stable);
         if constexpr (!stable) {
-            data.merge(Container(rhs.data));
+            // Only an empty destination has a known final size; other sets may overlap.
+            if (data.empty() && !rhs.data.empty()) {
+                data.reserve(rhs.data.size());
+            }
+            for (const auto& elem : rhs.data) {
+                data.insert(elem);
+            }
         }
     }
 
@@ -91,12 +97,21 @@ struct AggregateFunctionDistinctSingleNumericData {
         if constexpr (!stable) {
             uint64_t new_size = 0;
             buf.read_var_uint(new_size);
+            // Avoid reserving an upper bound when merging into a nonempty set.
+            if (data.empty() && new_size != 0) {
+                data.reserve(new_size);
+            }
             typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
                 buf.read_binary(x);
                 data.insert(x);
             }
         }
+    }
+
+    void deserialize_and_merge(Self& /*rhs*/, BufferReadable& buf, Arena& arena) {
+        // Numeric keys can be inserted directly without building a temporary hash set.
+        deserialize(buf, arena);
     }
 
     MutableColumns get_arguments(const DataTypes& argument_types) const {
@@ -151,6 +166,12 @@ struct AggregateFunctionDistinctGenericData {
                 buf.write_binary(elem);
             }
         }
+    }
+
+    void deserialize_and_merge(Self& rhs, BufferReadable& buf, Arena& arena) {
+        // deserialize() borrows StringRefs from buf; merge() copies them into the arena.
+        rhs.deserialize(buf, arena);
+        merge(rhs, arena);
     }
 
     void deserialize(BufferReadable& buf, Arena& arena) {
@@ -306,6 +327,11 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena& arena) const override {
         this->data(place).deserialize(buf, arena);
+    }
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena& arena) const override {
+        this->data(place).deserialize_and_merge(this->data(rhs), buf, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {

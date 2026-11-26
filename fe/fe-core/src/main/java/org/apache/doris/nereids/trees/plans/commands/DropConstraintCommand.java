@@ -22,8 +22,11 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -75,15 +78,37 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     + "falling back to name-based lookup: {}", name, e.getMessage());
             tableNameInfo = extractTableNameFromPlan(ctx);
         }
+        // must be checked on both paths above: table resolution failing (which includes an
+        // authorization failure) falls back to a name-only lookup that binds nothing.
+        checkAlterPriv(ctx, tableNameInfo);
         Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
         if (constraint == null) {
             throw new AnalysisException(
                     String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
         }
+        // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
+        // deletes the foreign key constraints of every referencing table, so those tables have to be
+        // authorized too. Checked before dropConstraint() because the cascade is atomic. The snapshot
+        // is taken under the manager lock; a foreign key added after it still needs ALTER on its own
+        // table to be created, so it cannot be used to bypass this.
+        for (TableNameInfo fkTableInfo
+                : Env.getCurrentEnv().getConstraintManager().getCascadeDropTables(constraint)) {
+            checkAlterPriv(ctx, fkTableInfo);
+        }
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
+            throws org.apache.doris.common.AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableNameInfo.getCtl(),
+                tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
+        }
     }
 
     private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {

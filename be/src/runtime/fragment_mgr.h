@@ -48,12 +48,11 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-extern bvar::Adder<uint64_t> g_fragment_executing_count;
-extern bvar::Status<uint64_t> g_fragment_last_active_time;
-
 class PipelineFragmentContext;
 class QueryContext;
+class DescriptorTbl;
 class ExecEnv;
+struct FrontendInfo;
 class ThreadPool;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
@@ -218,6 +217,10 @@ private:
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
 
+    static Status _build_external_scan_selected_columns(
+            const TPlanFragment& plan_fragment, const DescriptorTbl& desc_tbl,
+            std::vector<TScanColumnDesc>* selected_columns);
+
     // This is input params
     ExecEnv* _exec_env = nullptr;
 
@@ -228,8 +231,10 @@ private:
 
     // Saved params and callback for rerunnable (recursive CTE) fragments.
     // Only populated when need_notify_close == true during exec_plan_fragment.
-    // Lifecycle: created in exec_plan_fragment(), used in rerun_fragment(rebuild)
-    // to recreate PFC with fresh state, cleaned up in remove_query_context().
+    // Lifecycle: created in exec_plan_fragment(), retained across wait/rebuild/submit rounds,
+    // and removed after a successful final_close. remove_query_context() and stop() provide
+    // fallback cleanup. Entries are detached under _rerunnable_params_lock and destroyed afterward;
+    // releasing their last QueryContext reference can call FragmentMgr::remove_query_context().
     struct RerunableFragmentInfo {
         // Runtime filter IDs registered by the old PFC, collected during wait_for_destroy.
         // These are deregistered from the RuntimeFilterMgr before the new PFC is created.
@@ -263,4 +268,6 @@ private:
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
+void increment_fragment_executing_count();
+void decrement_fragment_executing_count();
 } // namespace doris

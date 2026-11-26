@@ -29,6 +29,9 @@ public class CastExpr extends Expr {
     @SerializedName("ii")
     protected boolean isImplicit;
 
+    @SerializedName("isc")
+    protected boolean isStrict;
+
     // True if this cast does not change the type.
     @SerializedName("noOp")
     protected boolean noOp = false;
@@ -50,8 +53,9 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
-            // as the targetType have struct field name, if use the default name will be
-            // like col1,col2, col3... in struct, and the filed name is import in BE.
+            // matchExactType already requires the same struct field names, so the target type only
+            // contributes the field metadata (originalName/comment) here. A cast that renames the
+            // fields is not a no-op: BE has to relabel the value with the target field names.
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
@@ -62,6 +66,7 @@ public class CastExpr extends Expr {
     protected CastExpr(CastExpr other) {
         super(other);
         isImplicit = other.isImplicit;
+        isStrict = other.isStrict;
         noOp = other.noOp;
     }
 
@@ -83,6 +88,14 @@ public class CastExpr extends Expr {
         isImplicit = implicit;
     }
 
+    public boolean isStrict() {
+        return isStrict;
+    }
+
+    public void setStrict(boolean strict) {
+        isStrict = strict;
+    }
+
     public boolean isNoOp() {
         return noOp;
     }
@@ -101,7 +114,8 @@ public class CastExpr extends Expr {
         if (type.isFixedPointType() && getChild(0).getType().isFixedPointType()) {
             return true;
         }
-        if (type.isDateType() && getChild(0).getType().isDateType()) {
+        if (type.isDateType() && getChild(0).getType().isDateType()
+                && !type.isTimeStampNs() && !getChild(0).getType().isTimeStampNs()) {
             return true;
         }
         return false;

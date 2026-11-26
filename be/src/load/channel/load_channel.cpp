@@ -23,11 +23,13 @@
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/tablets_channel.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/storage_engine.h"
 #include "util/debug_points.h"
@@ -40,6 +42,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                          std::string sender_ip, int64_t backend_id, bool enable_profile,
                          int64_t wg_id)
         : _load_id(load_id),
+          _cancel_status(std::make_shared<AtomicStatus>()),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(std::move(sender_ip)),
@@ -78,6 +81,15 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 }
 
 LoadChannel::~LoadChannel() {
+    // Pending EOS RPCs do not own the channel. Complete them before destroying
+    // writers, which can wait for running flush and delete-bitmap tasks.
+    const auto reason =
+            is_cancelled()
+                    ? cancel_status()
+                    : Status::Cancelled("Load channel destroyed before all EOS senders arrived");
+    for (const auto& [id, channel] : _tablets_channels) {
+        channel->eos_completion()->complete(reason);
+    }
     g_loadchannel_cnt << -1;
     std::stringstream rows_str;
     for (const auto& entry : _tablets_channels_rows) {
@@ -138,6 +150,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 channel = std::make_shared<TabletsChannel>(engine.to_local(), key, _load_id,
                                                            _is_high_priority, _self_profile);
             }
+            channel->set_load_cancel_status(_cancel_status);
             {
                 std::lock_guard<std::mutex> lt(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -178,7 +191,9 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 }
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
-                              PTabletWriterAddBlockResult* response) {
+                              PTabletWriterAddBlockResult* response,
+                              std::shared_ptr<EosCompletion>* eos_completion) {
+    RETURN_IF_ERROR(cancel_status());
     DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
                     { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
@@ -204,8 +219,12 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
-    // if channel is incremental, maybe hang on close until all close request arrived.
+    // Keep the RPC pending without occupying a heavy worker while senders arrive.
     if (request.has_eos() && request.eos()) {
+        if (request.hang_wait()) {
+            DCHECK(!channel->is_incremental_channel());
+            *eos_completion = channel->eos_completion();
+        }
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
         if (!st.ok()) {
@@ -227,25 +246,11 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     bool finished = false;
     auto index_id = request.index_id();
 
+    // close() publishes sender arrival before flushing. Final flush/commit
+    // errors belong to this RPC and cannot revoke earlier EOS responses.
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
 
-    // for init node, we close waiting(hang on) all close request and let them return together.
-    if (request.has_hang_wait() && request.hang_wait()) {
-        DCHECK(!channel->is_incremental_channel());
-        VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
-                                  request.index_id(), request.sender_id());
-        int count = 0;
-        while (!channel->is_finished()) {
-            bthread_usleep(1000);
-            count++;
-        }
-        // now maybe finished or cancelled.
-        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
-        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
-            return Status::InternalError("Tablets channel didn't wait all close");
-        }
-    }
-
+    RETURN_IF_ERROR(cancel_status());
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
@@ -303,13 +308,18 @@ bool LoadChannel::is_finished() {
     return _tablets_channels.empty();
 }
 
-Status LoadChannel::cancel() {
-    _cancelled.store(true);
-    std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) {
-        static_cast<void>(it.second->cancel());
-    }
+Status LoadChannel::cancel(const Status& reason) {
+    DCHECK(!reason.ok());
+    _cancel_status->update(reason);
     return Status::OK();
+}
+
+Status LoadChannel::cancel_status() const {
+    return _cancel_status->ok() ? Status::OK() : _cancel_status->status();
+}
+
+bool LoadChannel::is_cancelled() const {
+    return !_cancel_status->ok();
 }
 
 } // namespace doris

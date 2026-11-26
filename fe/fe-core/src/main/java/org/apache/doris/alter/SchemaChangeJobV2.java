@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,6 +38,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -70,6 +69,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
@@ -273,7 +273,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         tbl.readLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-            BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            TabletBinlogConfig binlogConfig = tbl.getTabletBinlogConfig();
             Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
@@ -308,11 +308,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
 
-                            MaterializedIndexMeta rowBinlogIndexMeta = null;
-                            if (tbl.needRowBinlog() && originIndexId == tbl.getBaseIndexId()) {
-                                rowBinlogIndexMeta = tbl.getRowBinlogMeta();
-                            }
-
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
@@ -342,7 +337,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.storageDictPageSize(),
                                     columnSeqMapping,
                                     tbl.getVerticalCompactionNumColumnsPerGroup(),
-                                    rowBinlogIndexMeta);
+                                    tbl.getRowTtlConfig(),
+                                    tbl.getRowTtlTimeZoneOffsetSeconds());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -734,16 +730,37 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
             this.showJobState = JobState.FINISHED;
             pruneMeta();
+            // The record is removed with the journal entry of FINISHED, i.e. still under the table write lock:
+            // a load which becomes visible in between updates (or recreates) the record, and this removal would
+            // follow it on the master, while a follower replays FINISHED (removing the record) before VISIBLE
+            // (recreating it with the rows of that load). The master would then have no record while its
+            // followers kept one, and the row count of the table would differ between them.
+            if (!FeConstants.runningUnitTest) {
+                removeTableStatsOnFinished(tbl);
+            }
         } finally {
             tbl.writeUnlock();
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
         if (!FeConstants.runningUnitTest) {
-            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-            manager.removeTableStats(tbl.getId());
-            manager.dropStats(tbl, null);
+            Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
         }
+    }
+
+    /**
+     * Remove the statistics record of the table when the schema change finished.
+     *
+     * <p>It must be called with the table write lock held, in the same critical section which journals FINISHED,
+     * so that a load cannot become visible in between: such a load updates or recreates the record, and a
+     * follower replays the journal order "FINISHED (remove the record), then VISIBLE (recreate it)", so the
+     * master and its followers would disagree about the row count of the table.
+     */
+    @VisibleForTesting
+    void removeTableStatsOnFinished(OlapTable tbl) {
+        Preconditions.checkState(tbl.isWriteLockHeldByCurrentThread(),
+                "the statistics of table %s must be removed under its write lock", tbl.getName());
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(tbl.getId());
     }
 
     private void onFinished(OlapTable tbl) {
@@ -839,6 +856,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             tbl.setStorageFormat(storageFormat);
         }
         tbl.setColumnSeqMapping(columnSeqMapping);
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /*
@@ -909,8 +927,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         if (Config.enable_abort_txn_by_checking_conflict_txn) {
             List<TransactionState> failedTxns = GlobalTransactionMgr.checkFailedTxns(unFinishedTxns);
             for (TransactionState txn : failedTxns) {
-                Env.getCurrentGlobalTransactionMgr()
-                        .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                try {
+                    Env.getCurrentGlobalTransactionMgr()
+                            .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                } catch (UserException e) {
+                    LOG.warn("failed to abort previous load txn {}, wait next round. schema change job: {}",
+                            txn.getTransactionId(), jobId, e);
+                    return false;
+                }
             }
         }
         return unFinishedTxns.isEmpty();
@@ -935,8 +959,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
+                    // Full schema-change jobs cannot originate from a changelog table.
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
+                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium,
+                            false /* isChangelog */);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);

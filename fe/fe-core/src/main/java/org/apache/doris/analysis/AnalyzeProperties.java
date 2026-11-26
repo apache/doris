@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.foundation.util.BasicPrintableMap;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;

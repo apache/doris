@@ -20,9 +20,17 @@
 
 #include "core/data_type/data_type_timestamptz.h"
 
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
+
 #include "exprs/function/cast/cast_to_timestamptz.h"
 
 namespace doris {
+void DataTypeTimeStampTz::to_pb_column_meta(PColumnMeta* col_meta) const {
+    DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_scale(_scale);
+}
+
 Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     TimestampTzValue res;
     CastParameters params {.status = Status::OK(), .is_strict = true};
@@ -36,6 +44,11 @@ Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     } else {
         return Field::create_field<TYPE_TIMESTAMPTZ>(res);
     }
+}
+
+void DataTypeTimeStampTz::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                      PScalarType* scalar_type) const {
+    scalar_type->set_scale(_scale);
 }
 
 } // namespace doris

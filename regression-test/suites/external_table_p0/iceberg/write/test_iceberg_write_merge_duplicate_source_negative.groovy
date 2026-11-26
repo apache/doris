@@ -15,24 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.ListObjectsV2Request
+
 suite("test_iceberg_write_merge_duplicate_source_negative",
-        "p0,external,iceberg,external_docker,external_docker_iceberg") {
+        "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test")
         return
     }
-    String knownBugEnabled = context.config.otherConfigs.get("enableIcebergKnownBugTest")
-    if (knownBugEnabled == null || !knownBugEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Iceberg known-bug test")
-        return
-    }
-
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_iceberg_write_merge_duplicate_source_negative"
     String dbName = "iceberg_write_merge_duplicate_source_negative_db"
+
+    // MinIO only publishes its API on the host, while its container sits on the isolated
+    // `doris--iceberg` compose network. Listing objects from this JVM reuses the very endpoint the
+    // catalog is configured with. Shelling out to a throwaway `minio/mc` container instead puts the
+    // client on the default bridge, so every call has to hairpin back to the published port, which
+    // intermittently times out while the agent starts and stops other containers.
+    def minioClient = AmazonS3ClientBuilder.standard()
+            .withEndpointConfiguration(
+                    new EndpointConfiguration("http://${externalEnvIp}:${minioPort}", "us-east-1"))
+            .withPathStyleAccessEnabled(true)
+            .withCredentials(new AWSStaticCredentialsProvider(
+                    new BasicAWSCredentials("admin", "password")))
+            .build()
+
+    def countDataObjects = { String bucket, String prefix ->
+        long objectCount = 0
+        String continuationToken = null
+        while (true) {
+            def listing = minioClient.listObjectsV2(new ListObjectsV2Request()
+                    .withBucketName(bucket)
+                    .withPrefix(prefix)
+                    .withContinuationToken(continuationToken))
+            // Directory placeholder keys are not data objects, mirroring `mc find --type f`.
+            objectCount += listing.getObjectSummaries().count { !it.getKey().endsWith("/") }
+            if (!listing.isTruncated()) {
+                break
+            }
+            continuationToken = listing.getNextContinuationToken()
+        }
+        return objectCount
+    }
 
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -68,35 +99,102 @@ suite("test_iceberg_write_merge_duplicate_source_negative",
     """
     sql """insert into duplicate_source_target values (1, 'A', 'committed')"""
 
+    String committedFile = (sql """
+        select file_path from duplicate_source_target\$files order by file_path limit 1
+    """)[0][0].toString()
+    // file_path is `s3://<bucket>/<key>`; split it into the bucket and the table's data prefix.
+    int schemeEnd = committedFile.indexOf("://")
+    assertTrue(schemeEnd > 0, "Unexpected Iceberg data path: ${committedFile}")
+    String bucketAndKey = committedFile.substring(schemeEnd + "://".length())
+    int bucketEnd = bucketAndKey.indexOf('/')
+    assertTrue(bucketEnd > 0, "Unexpected Iceberg data path: ${committedFile}")
+    String dataBucket = bucketAndKey.substring(0, bucketEnd)
+    String objectKey = bucketAndKey.substring(bucketEnd + 1)
+    int dataDirectoryEnd = objectKey.indexOf('/data/')
+    assertTrue(dataDirectoryEnd > 0, "Unexpected Iceberg data path: ${committedFile}")
+    String dataObjectPrefix = objectKey.substring(0, dataDirectoryEnd + '/data/'.length())
+    long objectsBefore = countDataObjects(dataBucket, dataObjectPrefix)
+
     long snapshotsBefore =
             (sql """select count(*) from duplicate_source_target\$snapshots""")[0][0] as long
     long filesBefore =
             (sql """select count(*) from duplicate_source_target\$files""")[0][0] as long
 
     // Negative scenario: Iceberg MERGE cardinality permits only one source row
-    // to update a target row. The entire statement must fail before publishing.
+    // to update a target row. Tiny blocks and files force a valid row to roll before
+    // the late duplicate, and the entire statement must still leave no data object behind.
+    sql """set batch_size = 1"""
+    // A single pipeline instance preserves the ordered source sequence needed to prove late cleanup.
+    sql """set parallel_pipeline_task_num = 1"""
+    sql """set iceberg_write_target_file_size_bytes = 1"""
     test {
         sql """
             merge into duplicate_source_target t
             using (
-                select 1 as id, 'B' as region, 'first-update' as payload
-                union all
-                select 1, 'C', 'second-update'
+                select id, region, payload
+                from (
+                    select 1 as seq, 2 as id, 'B' as region, 'valid-insert' as payload
+                    union all
+                    select 2, 1, 'B', 'first-update'
+                    union all
+                    select 3, 1, 'C', 'second-update'
+                ) ordered_source
+                order by seq
             ) s
             on t.id = s.id
             when matched then update set
                 region = s.region,
                 payload = s.payload
+            when not matched then insert (id, region, payload)
+                values (s.id, s.region, s.payload)
         """
-        exception "more than one"
+        exception "multiple source rows matched the same target row"
     }
     assertEquals(snapshotsBefore,
             (sql """select count(*) from duplicate_source_target\$snapshots""")[0][0] as long)
     assertEquals(filesBefore,
             (sql """select count(*) from duplicate_source_target\$files""")[0][0] as long)
+    assertEquals(objectsBefore, countDataObjects(dataBucket, dataObjectPrefix))
     order_qt_duplicate_source_atomic_state """
         select id, region, payload
         from duplicate_source_target
         order by id
     """
+
+    // A sibling delete close can fail only after the data side has closed successfully. The outer
+    // MERGE still owns and must remove those unpublished data objects.
+    long siblingFailureObjectsBefore = countDataObjects(dataBucket, dataObjectPrefix)
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("VIcebergDeleteSink.close.inject_failure")
+        test {
+            sql """
+                merge into duplicate_source_target t
+                using (
+                    select 1 as id, 'B' as region, 'updated' as payload
+                    union all
+                    select 3, 'C', 'inserted'
+                ) s
+                on t.id = s.id
+                when matched then update set
+                    region = s.region,
+                    payload = s.payload
+                when not matched then insert (id, region, payload)
+                    values (s.id, s.region, s.payload)
+            """
+            exception "injected Iceberg delete close failure"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("VIcebergDeleteSink.close.inject_failure")
+    }
+    assertEquals(snapshotsBefore,
+            (sql """select count(*) from duplicate_source_target\$snapshots""")[0][0] as long)
+    assertEquals(filesBefore,
+            (sql """select count(*) from duplicate_source_target\$files""")[0][0] as long)
+    assertEquals(siblingFailureObjectsBefore, countDataObjects(dataBucket, dataObjectPrefix))
+    order_qt_sibling_close_atomic_state """
+        select id, region, payload
+        from duplicate_source_target
+        order by id
+    """
+    minioClient.shutdown()
 }

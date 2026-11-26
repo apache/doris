@@ -75,7 +75,7 @@ RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
 }
 
 // PFilterType -> RuntimeFilterType
-RuntimeFilterType get_type(int filter_type) {
+RuntimeFilterType get_type(PFilterType filter_type) {
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         return RuntimeFilterType::IN_FILTER;

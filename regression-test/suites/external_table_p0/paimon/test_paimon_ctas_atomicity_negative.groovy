@@ -23,14 +23,6 @@ suite("test_paimon_ctas_atomicity_negative",
         return
     }
 
-    // CTAS currently creates Paimon metadata before discovering that no Paimon data sink exists.
-    // Keep this opt-in until the product rejects or rolls back the statement atomically.
-    String knownBugEnabled = context.config.otherConfigs.get("enablePaimonKnownBugTest")
-    if (knownBugEnabled == null || !knownBugEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Paimon known-bug regression")
-        return
-    }
-
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_paimon_ctas_atomicity_negative"
@@ -58,15 +50,46 @@ suite("test_paimon_ctas_atomicity_negative",
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
 
-        // A failed CTAS must not leave metadata that makes a retry fail with TABLE ALREADY EXISTS.
+        // Paimon writes make CTAS a supported create-and-insert operation. Verify both the
+        // metadata and inserted row before resetting the target for the existing-table cases.
+        sql """
+            create table ctas_target engine=paimon
+            as select cast(1 as int) as id, cast('candidate' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        def ctasRows = sql """select * from ctas_target order by id"""
+        assertEquals(1, ctasRows.size())
+        assertEquals("1", ctasRows[0][0].toString())
+        assertEquals("candidate", ctasRows[0][1].toString())
+        sql """drop table ctas_target"""
+
+        spark_paimon """
+            create table paimon.${dbName}.ctas_target (id int, payload string)
+            using paimon
+        """
+        assertEquals(0, (spark_paimon """select * from paimon.${dbName}.ctas_target""").size())
+        // Spark's recreation does not invalidate Doris's independent table-name cache.
+        // Establish the empty target before CTAS so refreshing cannot hide CTAS side effects.
+        sql """refresh database ${catalogName}.${dbName}"""
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals(0, (sql """select * from ctas_target""").size())
+        // IF NOT EXISTS remains a no-op and must not insert into the pre-existing target.
+        sql """
+            create table if not exists ctas_target engine=paimon
+            as select cast(1 as int) as id, cast('candidate' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals(0, (sql """select * from ctas_target""").size())
+
+        // An existing non-idempotent target must keep catalog error precedence.
         test {
             sql """
                 create table ctas_target engine=paimon
-                as select cast(1 as int) as id, cast('candidate' as string) as payload
+                as select cast(2 as int) as id, cast('replacement' as string) as payload
             """
-            exception "PaimonExternalCatalog"
+            exception "already exists"
         }
-        assertEquals(0, (sql """show tables like 'ctas_target'""").size())
+        assertEquals(0, (sql """select * from ctas_target""").size())
     } finally {
         spark_paimon """drop table if exists paimon.${dbName}.ctas_target"""
         sql """drop catalog if exists ${catalogName}"""

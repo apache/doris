@@ -58,6 +58,15 @@ under the License.
             <artifactId>fe-foundation</artifactId>
             <version>${revision}</version>
         </dependency>
+
+        <!-- Shared Kerberos/Simple HadoopAuthenticator (single source of truth; P3b consolidation).
+             DFSFileSystem lives here in hdfs-base and routes through the fe-kerberos authenticators. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

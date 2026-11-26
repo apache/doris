@@ -17,6 +17,32 @@
 
 suite("test_agg_state_avg") {
     sql "set global enable_agg_state=true"
+    sql "drop table if exists avg_combine_mv_base"
+    sql """
+        create table avg_combine_mv_base (
+            k1 int,
+            v int
+        )
+        duplicate key(k1)
+        distributed by hash(k1) buckets 1
+        properties("replication_num" = "1")
+    """
+    test {
+        sql """
+            create materialized view mv_avg_combine as
+            select k1, avg_combine(v) from avg_combine_mv_base group by k1
+        """
+        exception "Synchronous materialized view does not support aggregate combine function: avg_combine"
+    }
+    test {
+        sql """
+            create materialized view mv_orthogonal_bitmap_union_count as
+            select k1, orthogonal_bitmap_union_count(bitmap_hash(v))
+            from avg_combine_mv_base group by k1
+        """
+        exception "Aggregate function does not support AggState: orthogonal_bitmap_union_count"
+    }
+
     sql """ DROP TABLE IF EXISTS a_table; """
     sql """
             create table a_table(
@@ -38,6 +64,52 @@ suite("test_agg_state_avg") {
              """
     qt_select """ select avg_merge(tmp) from (select k1,avg_union(k2) tmp from a_table group by k1)t;
              """
+    qt_avg_combine """
+            select avg_merge(tmp) from (
+                select e1 / 1000 k1, avg_combine(e1) tmp
+                from (select 1 k1) t lateral view explode_numbers(8000) tmp1 as e1
+                group by e1 / 1000
+            ) t;
+            """
+    qt_avg_combine_nullable """
+            select avg_merge(tmp) from (
+                select e1 / 1000 k1, avg_combine(if(e1 % 2 = 0, e1, null)) tmp
+                from (select 1 k1) t lateral view explode_numbers(8000) tmp1 as e1
+                group by e1 / 1000
+            ) t;
+            """
+    qt_avg_combine_all_null """
+            select avg_merge(tmp) from (
+                select avg_combine(cast(null as int)) tmp
+            ) t;
+            """
+    qt_avg_combine_state_compatibility """
+            select avg_merge(tmp) from (
+                select avg_combine(e1) tmp
+                from (select 1 k1) t lateral view explode_numbers(4000) tmp1 as e1
+                union all
+                select avg_union(avg_state(non_nullable(cast(e1 + 4000 as int)))) tmp
+                from (select 1 k1) t lateral view explode_numbers(4000) tmp1 as e1
+            ) t;
+            """
+    test {
+        sql """
+            select cast(avg_combine(cast(1 as int))
+                as agg_state<avg(bigint not null)>)
+        """
+        exception "Aggregate combine state requires an exact AggState type match"
+    }
+    test {
+        sql """
+            insert into a_table
+            select 100, avg_combine(cast(1 as bigint))
+        """
+        exception "Aggregate combine state requires an exact AggState type match"
+    }
+    sql """
+        insert into a_table
+        select 100, avg_combine(cast(1 as int))
+    """
     test {
         sql "select * from a_table;"
     }

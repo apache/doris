@@ -7,3 +7,11 @@ B1	2
 B1	20
 C1	3
 
+-- !excluded_ddl --
+B1	20
+C1	3
+D1	4
+E1	5
+
+-- !excluded_ddl_status --
+RUNNING

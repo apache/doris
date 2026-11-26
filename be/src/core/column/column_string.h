@@ -81,7 +81,6 @@ private:
     static constexpr size_t MAX_STRING_SIZE = 4294967295;
 
     friend class COWHelper<IColumn, ColumnStr<T>>;
-    friend class OlapBlockDataConvertor;
 
     /// Maps i'th position to offset to i+1'th element. Last offset maps to the end of all chars (is the size of all chars).
     PaddedPODArray<T> offsets;
@@ -656,4 +655,9 @@ public:
 
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
+
+/// Instantiated once in column_string.cpp; suppresses per-TU implicit instantiation.
+extern template class ColumnStr<UInt32>;
+extern template class ColumnStr<UInt64>;
+
 } // namespace doris

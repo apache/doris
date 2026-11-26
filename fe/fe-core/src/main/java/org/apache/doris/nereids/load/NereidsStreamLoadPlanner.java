@@ -42,6 +42,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -65,7 +66,6 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -161,9 +161,10 @@ public class NereidsStreamLoadPlanner {
                 }
                 existInExpr = NereidsLoadUtils.hasImportColumn(taskInfo.getColumnExprDescs().descs, col);
                 if (existInExpr) {
-                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())
+                            && !(col.isTtlColumn() && destTable.isDirectRowTtl())) {
                         throw new UserException("Partial update should not include invisible column except"
-                                + " delete sign column: " + col.getName());
+                                + " delete sign or direct TTL column: " + col.getName());
                     }
                     partialUpdateInputColumns.add(col.getName());
                     if (destTable.hasSequenceCol()
@@ -177,7 +178,8 @@ public class NereidsStreamLoadPlanner {
                         throw new UserException("Partial update should include all key columns, missing: "
                                 + col.getName());
                     }
-                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                    if (!(col.isKey() && col.isAutoInc())
+                            && (col.isVisible() || (col.isTtlColumn() && destTable.isDirectRowTtl()))) {
                         hasMissingColExceptAutoIncKey = true;
                     }
                 }
@@ -303,6 +305,8 @@ public class NereidsStreamLoadPlanner {
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
+        // Retain the deprecated wire option for older backends; loads always use V2.
+        queryOptions.setEnableFileScannerV2(true);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);
@@ -326,19 +330,17 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setNewVersionBitmapOpCount(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        CoordinatorContext.setQueryGlobalsCurrentTime(queryGlobals);
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(taskInfo.getTimezone()));
         if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
             queryGlobals.setLoadZeroTolerance(false);
         } else {
             queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
         }
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
-
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
+        params.setEnableTso(destTable.enableTso());
         return params;
     }
 }

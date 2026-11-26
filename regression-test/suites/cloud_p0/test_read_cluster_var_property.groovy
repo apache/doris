@@ -42,6 +42,8 @@ suite('test_read_cluster_var_property') {
     }
 
     connect(userName, "${pwd}", context.config.jdbcUrl) {
+        // Each metric assertion must execute a scan on the BE rather than reuse a cached SQL result.
+        sql "set enable_sql_cache=false;"
         // test non-mow table
         try {
             def tableName = "test_read_cluster_var_property"

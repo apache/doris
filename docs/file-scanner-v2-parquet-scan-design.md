@@ -68,9 +68,9 @@ writes directly into Doris columns. This follows the same broad separation used 
 planning is distinct from a persistent per-column reader, and page/encoding decoders expose narrow
 cursor-based contracts rather than an Arrow array as an intermediate result.
 
-V1 remains the differential baseline, but v2 owns an independent reader implementation. Its page
-and encoding algorithms started from proven Doris behavior and are maintained under the v2 tree;
-the production v2 path never instantiates the v1 `ParquetColumnReader`:
+The retired V1 implementation remains a historical differential baseline. V2 owns its reader
+implementation. Its page and encoding algorithms started from proven Doris behavior and are
+maintained under the v2 tree; the production path uses only the V2 `ParquetColumnReader`:
 
 | Stage | State and boundary |
 | --- | --- |
@@ -86,9 +86,9 @@ builders. V2 parses and owns the Thrift footer, schema parser, field-ID assignme
 statistics, dictionary metadata, bloom filters, and page indexes. Production planning never builds
 an Arrow metadata tree; Arrow is limited to fixture writers and differential test oracles.
 
-All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
-and performance control. Compatibility is demonstrated through differential tests and the explicit
-type/encoding matrix, not through a runtime dependency on v1 code.
+All integration remains in `be/src/format_v2/parquet/`. Historical V1 results and external readers
+provide correctness and performance controls. Compatibility is demonstrated through differential
+tests and the explicit type/encoding matrix; the V1 scan implementation has been removed.
 
 ### 2.2 Native Interface Ownership
 
@@ -197,9 +197,9 @@ flowchart LR
    does not repeatedly interpret table-schema evolution.
 3. **Capability checks:** ZoneMap, Dictionary, and Bloom use only expressions they can interpret
    safely. All others remain row-level residual predicates.
-4. **Prefer safe single-column predicates:** Single-column predicates can drive indexes and staged
-   filtering. Multi-column, stateful, or error-sensitive expressions retain whole-expression
-   evaluation.
+4. **Prefer safe single-column row filters:** Single-column predicates can drive staged dictionary
+   or raw filtering. Multi-column AND/OR trees may still combine conservative Row Group and Page
+   Index candidate ranges, but the complete expression remains in whole-expression row evaluation.
 5. **Runtime Filters can refresh:** ScannerScheduler refreshes late Runtime Filters before reading.
    TableReader handles partition-range pruning during Split preparation, and passes file-pushable
    parts as localized conjuncts.
@@ -285,9 +285,11 @@ sequenceDiagram
 ### How the plan drives physical skips
 
 ColumnIndex provides min/max/null semantics for each page. OffsetIndex maps pages to Row Group row
-numbers and file offsets. Candidate ranges from multiple predicate columns are intersected into
-`selected_ranges`; a `page_skip_plan` is then built for each leaf so its column reader can skip pages
-that do not overlap surviving rows.
+numbers and file offsets. Candidate ranges follow the predicate tree: AND nodes intersect child
+ranges and OR nodes union them into `selected_ranges`. A missing or unusable AND child contributes
+no pruning, while a missing or unusable OR branch retains the complete Row Group range. A
+`page_skip_plan` is then built for each leaf so its column reader can skip pages that do not overlap
+surviving rows.
 
 > `selected_ranges` represents logical row ranges, while `page_skip_plan` represents physical page
 > reads. Keeping them separate allows the scheduler to advance by row batch while each column skips
@@ -679,7 +681,7 @@ metadata payload type, and cache-key suffix entirely under `format_v2`. A v2 cac
 shared by v2 readers but can never be cast as a v1 metadata object. Mutable Row Group, selection,
 decoder, and scratch state remains per reader. Path-only keys are insufficient. Parse failures,
 short files, unsupported metadata, and schema-affecting option changes cannot populate or reuse a
-successful entry. No change to the v1 parser or metadata cache behavior is required.
+successful entry. The cache is independent of the retired V1 parser and metadata objects.
 
 On a v2 cold miss, the parser deserializes the footer once into the V2-owned Thrift object and builds
 the native schema tree directly from `SchemaElement` into V2's `NativeFieldDescriptor`. Row-group statistics,
@@ -693,7 +695,7 @@ Before the footer lookup, v2 wraps bounded HTTP Parquet objects in an in-memory 
 loads from byte zero on its first physical access, whether that access is a cold footer read or a
 warm data-page read after a footer-cache hit. This preserves identical cold/warm behavior for HTTP
 servers that advertise Range support but answer an overlong near-EOF range with HTTP 200, and keeps
-the compatibility policy out of the v1 reader.
+the compatibility policy within the V2 reader.
 
 ### Page Cache Parity with V1
 
@@ -826,7 +828,8 @@ split safely, or read anomalies must never change query semantics.
 | Bloom missing, disabled, or unreadable | Skip Bloom pruning and continue with later scan stages |
 | Incomplete dictionary page, mixed non-dictionary encoding, complex/repeated column | Disable dictionary pruning and Dictionary-ID Filter; use actual values |
 | Missing or inconsistent ColumnIndex/OffsetIndex | Disable fine-grained page pruning and read the full candidate range |
-| Multi-column, OR, stateful, or error-order-sensitive expression | Preserve whole-expression evaluation to avoid changing SQL short-circuit or error semantics |
+| Multi-column AND/OR expression | Combine only conservative metadata candidate ranges; preserve whole-expression row evaluation |
+| Stateful or error-order-sensitive expression | Preserve whole-expression evaluation without metadata decomposition |
 | No stable file-version identity for Page Cache | Disable Parquet Page Cache to prevent stale-byte reads |
 | Incomplete Condition Cache coverage | Retain and recompute uncovered ranges |
 

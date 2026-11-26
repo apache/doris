@@ -1,0 +1,64 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# What each flavor drops. Format:
+#
+#   <flavor>   <path relative to /artifacts>
+#
+#   always   removed from both tags
+#   base     removed from the base tag only, kept in -full
+#
+# Paths that do not exist are skipped silently, so a directory that a future
+# 4.1.x drops needs no change here. Run smoke-test.sh after editing.
+
+# ---- offline tooling and CDC: no tag needs these ----
+always   be/lib/meta_tool
+always   be/lib/cdc_client
+always   fe/arthas
+
+# ---- format-specific JNI scanners kept only in the -full tag ----
+# Each maps to exactly one class name BE can construct, see the table in
+# README.md. Dropping one disables that format and nothing else.
+base     be/lib/java_extensions/hadoop-hudi-scanner
+base     be/lib/java_extensions/trino-connector-scanner
+base     be/lib/java_extensions/max-compute-connector
+
+# ---- NEVER add these: they are the JNI baseline, not "external table extras"
+#
+#   be/lib/java_extensions/preload-extensions
+#       Zero Java sources -- a pure dependency bundle (parquet-hadoop-bundle,
+#       hadoop-common, hadoop-cos, libthrift, arrow, AWS SDK incl.
+#       s3-tables-catalog-for-iceberg). Every external-table read goes through
+#       it. Preloaded by bin/start_be.sh, and DORIS_PRELOAD_JAR must stay first
+#       on the classpath.
+#
+#   be/lib/java_extensions/java-udf
+#       Preloaded alongside it by bin/start_be.sh.
+#
+#   be/lib/hadoop_hdfs
+#       The JVM side of libhdfs (157 jars). libhdfs itself is linked statically
+#       into doris_be in 4.1 -- hence the empty native/ directory -- but it is
+#       still a JNI wrapper and cannot open an HDFS file without these.
+#
+#   be/lib/java_extensions/{paimon-scanner,iceberg-metadata-scanner,
+#                           jdbc-scanner,java-writer}
+#       Deliberately in the base tag: 172M total buys Paimon, Iceberg system
+#       tables, JDBC catalogs and external-table writeback.
+#
+#   fe/lib
+#       branch-4.1 has no FE plugin split; all 634 jars are on the startup
+#       classpath. Pruning by jar name is fragile and saves little.

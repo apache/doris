@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -36,10 +37,11 @@
 #include "exec/common/memory.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "io/cache/block_file_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
@@ -47,14 +49,18 @@
 namespace doris {
 
 namespace io {
+class FileRangeReadContext;
+class FileRangeReadScheduler;
 class RemoteScanCacheWriteLimiter;
 } // namespace io
 
+class AIExecutionStatistics;
 class PipelineFragmentContext;
 class PipelineTask;
 class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
+class SpillDataDir;
 
 struct ReportStatusRequest {
     const Status status;
@@ -134,11 +140,12 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<PipelineFragmentContext> pip_ctx);
-    void cancel(Status new_status, int fragment_id = -1);
+    // The sole entry point for query cancellation. Only the first error is accepted; it is then
+    // propagated to every PipelineFragmentContext for fragment-local cleanup.
+    void cancel(Status new_status);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -203,6 +210,10 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    // Record a spill data directory before opening the first spill part so teardown only visits
+    // touched roots.
+    void record_spill_data_dir(SpillDataDir* data_dir);
+
     // Expose task-level query progress counters for runtime statistics reporting.
     void add_total_task_num(int delta);
     void inc_finished_task_num();
@@ -254,6 +265,11 @@ public:
         return _remote_scan_cache_write_limiter.get();
     }
 
+    /// Return the query-wide read-ahead context, creating it from `scheduler` on first use. Query
+    /// cancellation propagates to every range registered through the returned context.
+    std::shared_ptr<io::FileRangeReadContext> get_or_create_file_range_read_context(
+            io::FileRangeReadScheduler* scheduler);
+
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
@@ -275,6 +291,10 @@ public:
         _ai_resources =
                 std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
+
+    // Shared by every AI evaluator in a fragment; profile collection must not create it.
+    std::shared_ptr<AIExecutionStatistics> get_ai_statistics(int fragment_id);
+    std::shared_ptr<AIExecutionStatistics> find_ai_statistics(int fragment_id) const;
 
     const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
         return _ai_resources;
@@ -329,13 +349,15 @@ private:
     MonotonicStopWatch _query_watcher;
     bool _is_nereids = false;
 
+    std::mutex _spill_data_dirs_mutex;
+    std::unordered_set<SpillDataDir*> _spill_data_dirs;
+
     std::shared_ptr<ResourceContext> _resource_ctx;
 
     void _init_resource_context();
     void _init_query_mem_tracker();
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
-
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -388,6 +410,8 @@ private:
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+    mutable std::mutex _ai_statistics_mutex;
+    std::unordered_map<int, std::shared_ptr<AIExecutionStatistics>> _ai_statistics;
 
     void _report_query_profile();
 
@@ -407,6 +431,9 @@ private:
     std::mutex _cte_scan_lock;
     std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
     std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
+    std::mutex _file_range_read_context_mutex;
+    io::FileRangeReadScheduler* _file_range_read_scheduler = nullptr;
+    std::shared_ptr<io::FileRangeReadContext> _file_range_read_context;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

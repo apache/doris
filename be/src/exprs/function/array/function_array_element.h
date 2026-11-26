@@ -49,6 +49,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
@@ -105,6 +106,12 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        // A bare NULL container (element_at(NULL, x)) reaches the BE as a null-literal type when
+        // the FE skips constant folding. It carries no array/map type, so resolve it the way the
+        // default null implementation does (Nullable(Nothing)) instead of reading it as BOOL.
+        if (arguments[0]->is_null_literal()) {
+            return make_nullable(std::make_shared<DataTypeNothing>());
+        }
         DataTypePtr arg_0 = remove_nullable(arguments[0]);
         DCHECK(arg_0->get_primitive_type() == TYPE_ARRAY || arg_0->get_primitive_type() == TYPE_MAP)
                 << "first argument for function: " << name
@@ -128,6 +135,12 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if (block.get_by_position(arguments[0]).type->is_null_literal()) {
+            // Null-literal container: every row is NULL, matching the Nullable(Nothing) return type.
+            auto& res = block.get_by_position(result);
+            res.column = res.type->create_column_const_with_default_value(input_rows_count);
+            return Status::OK();
+        }
         if (remove_nullable(block.get_by_position(arguments[0]).type)->get_primitive_type() ==
             TYPE_STRUCT) {
             return _execute_struct(block, arguments, result, input_rows_count);
@@ -183,6 +196,11 @@ public:
     }
 
 private:
+    static bool valid_negative_array_index(Int64 index, size_t length) {
+        // Compare abs(index) - 1 so INT64_MIN stays representable and remains an out-of-range NULL.
+        return index < 0 && std::cmp_less(static_cast<UInt64>(-(index + 1)), length);
+    }
+
     //=========================== struct element===========================//
     // Resolve the 0-based field offset selected by a constant int/string index. Mirrors the logic
     // of the former struct_element function, which element_at now subsumes.
@@ -323,7 +341,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;
@@ -366,7 +384,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;
@@ -436,7 +454,7 @@ private:
             bool null_flag = bool(arr_null_map && arr_null_map[arr_row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
-            } else if (!null_flag && index < 0 && -index <= len) {
+            } else if (!null_flag && valid_negative_array_index(index, len)) {
                 index += off + len;
             } else {
                 null_flag = true;

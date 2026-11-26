@@ -44,6 +44,8 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        // Cache normalization must not fail because concurrent CI work exhausts the planner timeout.
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
         // Create database `db1`.
         createDatabase("db1");
 
@@ -138,8 +140,31 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1')";
 
+        String timestampNsPart = "create table db1.timestamp_ns_part("
+                + "  ts timestamp_ns,\n"
+                + "  v1 int)\n"
+                + "DUPLICATE KEY(ts)\n"
+                + "PARTITION BY RANGE(ts)\n"
+                + "(\n"
+                + "  PARTITION p_all VALUES LESS THAN MAXVALUE\n"
+                + ")\n"
+                + "distributed by hash(ts) buckets 3\n"
+                + "properties('replication_num' = '1')";
+
+        String rowTtlTable = "create table db1.row_ttl("
+                + "  k1 int,\n"
+                + "  event_time datetimev2(6),\n"
+                + "  v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1',\n"
+                + "  'function_column.enable_row_ttl' = 'true',\n"
+                + "  'function_column.ttl_col' = 'event_time',\n"
+                + "  'function_column.ttl' = '1 day',\n"
+                + "  'function_column.ttl_time_zone' = '+08:00')";
+
         createTables(nonPart, part1, part2, multiLeveParts, variantTable, uniqueMowTable,
-                uniqueMorTable, aggTable);
+                uniqueMorTable, aggTable, timestampNsPart, rowTtlTable);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -163,6 +188,32 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         String digest5 = getDigest("select k1 as k, sum(v1) as v from db1.non_part where v1 >= 1 and v1 < 11 group by 1");
         Assertions.assertNotEquals(digest3, digest5);
         Assertions.assertEquals(64, digest5.length());
+    }
+
+    @Test
+    public void testTimestampNsBoundaryNormalization() throws Exception {
+        String minimum = "cast('1677-09-21 00:12:43.145224192' as timestamp_ns)";
+        String maximum = "cast('2262-04-11 23:47:16.854775807' as timestamp_ns)";
+
+        TQueryCacheParam openMinimum = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts > " + minimum);
+        TQueryCacheParam closedMinimum = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts >= " + minimum);
+        Assertions.assertEquals(openMinimum.digest, closedMinimum.digest);
+        Assertions.assertFalse(openMinimum.tablet_to_range.isEmpty());
+        Assertions.assertFalse(closedMinimum.tablet_to_range.isEmpty());
+        Assertions.assertNotEquals(openMinimum.tablet_to_range, closedMinimum.tablet_to_range);
+        Assertions.assertTrue(openMinimum.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("1677-09-21 00:12:43.145224193")));
+        Assertions.assertTrue(closedMinimum.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("1677-09-21 00:12:43.145224192")));
+
+        TQueryCacheParam maximumInclusive = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts <= " + maximum);
+        Assertions.assertEquals(64, Hex.encodeHexString(maximumInclusive.digest).length());
+        Assertions.assertFalse(maximumInclusive.tablet_to_range.isEmpty());
+        Assertions.assertTrue(maximumInclusive.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("MAXVALUE")));
     }
 
     @Test
@@ -468,6 +519,11 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().setEnableQueryCacheIncremental(false);
         }
+    }
+
+    @Test
+    public void testRowTtlDisablesQueryCache() throws Exception {
+        Assertions.assertTrue(normalize("select count(*) from db1.row_ttl").isEmpty());
     }
 
     private String getDigest(String sql) throws Exception {

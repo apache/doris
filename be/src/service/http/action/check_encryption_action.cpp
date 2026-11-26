@@ -32,10 +32,12 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_status.h"
@@ -44,8 +46,13 @@
 
 namespace doris {
 
-const std::string TABLET_ID = "tablet_id";
 const std::string GET_FOOTER = "get_footer";
+
+// An encrypted file ends with a fixed-size footer region laid out as
+// [1 byte][uint64 encryption info length][encryption info][padding][8 byte magic code].
+constexpr size_t ENCRYPTION_FOOTER_SIZE = 256;
+constexpr size_t MAX_ENCRYPTION_INFO_SIZE =
+        ENCRYPTION_FOOTER_SIZE - sizeof(uint8_t) - sizeof(uint64_t);
 
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
@@ -58,7 +65,12 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
     }
     Status st;
     bool is_encrypted = true;
-    tablet->traverse_rowsets([&st, &tablet, &is_encrypted](const RowsetSharedPtr& rs) {
+    // The files are read without holding the tablet's meta lock: `_meta_lock` is writer-preferring,
+    // so taking it again for the schema while a writer is pending would deadlock, and holding it
+    // across remote reads would stall every other user of this tablet.
+    const auto tablet_schema = tablet->tablet_schema();
+    auto check_rowset = [&st, &tablet, &tablet_schema, &is_encrypted](const RowsetSharedPtr& rs) {
+        TEST_SYNC_POINT_CALLBACK("is_tablet_encrypted::check_rowset");
         if (!st) {
             return;
         }
@@ -68,36 +80,47 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             rs_meta->end_version() == 1) {
             return;
         }
-        auto fs = rs_meta->physical_fs();
+        // Must be checked before resolving the fs: an empty rowset has no file to check, and a
+        // version hole rowset may carry a resource id that resolves to no storage resource.
+        if (rs->num_segments() == 0) {
+            return;
+        }
+        // Must not be `physical_fs()`: packed rowsets keep their segments as slices inside a
+        // shared object, and only the `PackedFileSystem` wrapper can resolve a segment path to
+        // that slice. `fs()` is not an option either, since it decrypts and would hide the
+        // encryption footer this check is looking for.
+        auto fs = rs_meta->packed_physical_fs();
         if (fs == nullptr) {
             st = Status::InternalError("failed to get fs for rowset: tablet={}, rs={}",
                                        tablet->tablet_id(), rs->rowset_id().to_string());
             return;
         }
 
-        if (rs->num_segments() == 0) {
-            return;
-        }
-        auto maybe_seg_path = rs->segment_path(0);
+        auto maybe_seg_path = rs->segment(0).path();
         if (!maybe_seg_path) {
             st = std::move(maybe_seg_path.error());
             return;
         }
 
-        std::vector<std::string_view> file_paths;
+        // Owning strings: the V2 index path is built here and must outlive the loop below.
+        std::vector<std::string> file_paths;
         const auto& first_seg_path = maybe_seg_path.value();
         file_paths.emplace_back(first_seg_path);
-        if (tablet->tablet_schema()->has_inverted_index() &&
-            tablet->tablet_schema()->get_inverted_index_storage_format() == V2) {
-            std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
-                    InvertedIndexDescriptor::get_index_file_path_prefix(first_seg_path));
-            file_paths.emplace_back(inverted_index_file_path);
+        if (tablet_schema->has_inverted_index() &&
+            tablet_schema->get_inverted_index_storage_format() == V2) {
+            file_paths.emplace_back(InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(first_seg_path)));
         }
 
-        for (const auto path : file_paths) {
+        for (const auto& path : file_paths) {
             io::FileReaderSPtr reader;
             st = fs->open_file(path, &reader);
             if (!st) {
+                return;
+            }
+            if (reader->size() < sizeof(uint64_t)) {
+                st = Status::Corruption("file is too small to hold a magic code: path={}, size={}",
+                                        path, reader->size());
                 return;
             }
             std::vector<uint8_t> magic_code_buf;
@@ -108,6 +131,12 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             if (!st) {
                 return;
             }
+            if (bytes_read != magic_code.size) {
+                st = Status::Corruption(
+                        "short read of the magic code: path={}, expected={}, got={}", path,
+                        magic_code.size, bytes_read);
+                return;
+            }
 
             std::vector<uint8_t> answer = {'A', 'B', 'C', 'D', 'E', 'A', 'B', 'C'};
             is_encrypted &= Slice::mem_equal(answer.data(), magic_code.data, magic_code.size);
@@ -115,12 +144,17 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
                 LOG(INFO) << "found not encrypted segment, path=" << first_seg_path;
             }
         }
-    });
+    };
+    for (const auto& rs : tablet->get_snapshot_rowset()) {
+        check_rowset(rs);
+    }
 
     if (st) {
         return is_encrypted;
     }
-    return st;
+    // Must be wrapped: `Status` converts to `bool`, so a bare `return st;` would report the
+    // error as "not encrypted".
+    return ResultError(std::move(st));
 }
 
 Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
@@ -129,7 +163,7 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     if (rs->num_segments() == 0) {
         return "{}";
     }
-    auto maybe_seg_path = rs->segment_path(0);
+    auto maybe_seg_path = rs->segment(0).path();
     if (!maybe_seg_path) {
         return ResultError(maybe_seg_path.error());
     }
@@ -137,23 +171,58 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     if (config::is_cloud_mode() && rs_meta->start_version() == 0 && rs_meta->end_version() == 1) {
         return "{}";
     }
-    auto fs = rs_meta->physical_fs();
+    // See the comment in `is_tablet_encrypted()` for why this is neither `physical_fs()`
+    // nor `fs()`.
+    auto fs = rs_meta->packed_physical_fs();
+    if (fs == nullptr) {
+        return ResultError(Status::InternalError("failed to get fs for rowset: tablet={}, rs={}",
+                                                 tablet->tablet_id(), rs->rowset_id().to_string()));
+    }
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR_RESULT(fs->open_file(maybe_seg_path.value(), &reader));
 
+    // Every offset below is relative to the end of the file, so a file shorter than the footer
+    // region makes them underflow. On a packed slice such an underflow does not fail the read:
+    // it wraps into a neighbouring slice, whose bytes would then be decoded as this segment's
+    // footer.
+    if (reader->size() < ENCRYPTION_FOOTER_SIZE) {
+        return ResultError(Status::Corruption(
+                "file is too small to hold an encryption footer: path={}, size={}",
+                maybe_seg_path.value(), reader->size()));
+    }
+    const size_t footer_offset = reader->size() - ENCRYPTION_FOOTER_SIZE;
+
     std::vector<uint8_t> pb_len_buf;
-    pb_len_buf.reserve(sizeof(uint64_t));
+    pb_len_buf.resize(sizeof(uint64_t));
     Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
     size_t bytes_read;
     RETURN_IF_ERROR_RESULT(
-            reader->read_at(reader->size() - 256 + sizeof(uint8_t), pb_len_slice, &bytes_read));
+            reader->read_at(footer_offset + sizeof(uint8_t), pb_len_slice, &bytes_read));
+    if (bytes_read != pb_len_slice.size) {
+        return ResultError(Status::Corruption(
+                "short read of the encryption info length: path={}, expected={}, got={}",
+                maybe_seg_path.value(), pb_len_slice.size, bytes_read));
+    }
     auto info_pb_size = decode_fixed64_le(pb_len_buf.data());
+
+    // `get_footer=true` reaches this parser even when the scan above found unencrypted files, so
+    // the decoded length may well be arbitrary bytes. It can never exceed what the footer holds.
+    if (info_pb_size > MAX_ENCRYPTION_INFO_SIZE) {
+        return ResultError(Status::Corruption(
+                "encryption info length {} exceeds the {} bytes available in the footer: path={}",
+                info_pb_size, MAX_ENCRYPTION_INFO_SIZE, maybe_seg_path.value()));
+    }
 
     std::vector<uint8_t> info_pb_buf;
     info_pb_buf.resize(info_pb_size);
     Slice pb_slice(info_pb_buf.data(), info_pb_size);
-    RETURN_IF_ERROR_RESULT(reader->read_at(
-            reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
+    RETURN_IF_ERROR_RESULT(reader->read_at(footer_offset + sizeof(uint8_t) + sizeof(uint64_t),
+                                           pb_slice, &bytes_read));
+    if (bytes_read != pb_slice.size) {
+        return ResultError(Status::Corruption(
+                "short read of the encryption info: path={}, expected={}, got={}",
+                maybe_seg_path.value(), pb_slice.size, bytes_read));
+    }
 
     FileEncryptionInfoPB info_pb;
     if (!info_pb.ParseFromArray(info_pb_buf.data(), static_cast<int>(info_pb_buf.size()))) {

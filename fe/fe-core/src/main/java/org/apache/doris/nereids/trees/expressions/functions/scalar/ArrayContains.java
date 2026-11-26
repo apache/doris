@@ -69,6 +69,11 @@ public class ArrayContains extends ScalarFunction
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkArrayScalarEqualityArguments(this);
+    }
+
+    @Override
     public boolean nullable() {
         return child(0).nullable();
     }

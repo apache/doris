@@ -932,23 +932,31 @@ public class CloudWarmUpJob implements Writable {
             return;
         }
 
-        // Todo: nothing to prepare yet
-        this.setJobDone = false;
-        this.lastBatchId = -1;
-        this.startTimeMs = System.currentTimeMillis();
-        // reset clients to ensure we have the latest BE info
-        this.beToThriftAddress = null;
-        this.beToClient = null;
-        this.beToAddr = null;
-        MetricRepo.updateClusterWarmUpJobLatestStartTime(String.valueOf(jobId), srcClusterName,
-                dstClusterName, startTimeMs);
-        this.fetchBeToTabletIdBatches();
-        long totalTablets = beToTabletIdBatches.values().stream()
-                .flatMap(List::stream)
-                .mapToLong(List::size)
-                .sum();
-        MetricRepo.increaseClusterWarmUpJobRequestedTablets(dstClusterName, totalTablets);
-        MetricRepo.increaseClusterWarmUpJobExecCount(dstClusterName);
+        long totalTablets;
+        try {
+            this.setJobDone = false;
+            this.lastBatchId = -1;
+            this.startTimeMs = System.currentTimeMillis();
+            // reset clients to ensure we have the latest BE info
+            this.beToThriftAddress = null;
+            this.beToClient = null;
+            this.beToAddr = null;
+            MetricRepo.updateClusterWarmUpJobLatestStartTime(String.valueOf(jobId), srcClusterName,
+                    dstClusterName, startTimeMs);
+            this.fetchBeToTabletIdBatches();
+            totalTablets = beToTabletIdBatches.values().stream()
+                    .flatMap(List::stream)
+                    .mapToLong(List::size)
+                    .sum();
+            MetricRepo.increaseClusterWarmUpJobRequestedTablets(dstClusterName, totalTablets);
+            MetricRepo.increaseClusterWarmUpJobExecCount(dstClusterName);
+        } catch (Exception e) {
+            LOG.warn("failed to initialize cloud warm up job {}", jobId, e);
+            // No BE job has started. Reuse cancellation to release the destination registration
+            // and preserve periodic jobs for their next scheduled attempt.
+            cancel("Failed to initialize warm up job: " + e.getMessage(), false);
+            return;
+        }
         this.jobState = JobState.RUNNING;
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
         LOG.info("warmup-lock state-transition jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "

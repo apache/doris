@@ -16,11 +16,6 @@
 // under the License.
 
 suite("select_with_tablets") {
-    if (isCloudMode()) {
-        return
-    }
-
-
     def table_name1 = "test_table"
     sql """ DROP TABLE IF EXISTS ${table_name1} """
     sql """

@@ -19,7 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -207,14 +207,14 @@ public class FileSystemCache {
     public static class FileSystemCacheKey {
         // eg: hdfs://nameservices1
         private final String fsIdent;
-        private final StorageProperties properties;
+        private final StorageAdapter properties;
 
-        public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
+        public FileSystemCacheKey(String fsIdent, StorageAdapter properties) {
             this.fsIdent = fsIdent;
             this.properties = properties;
         }
 
-        public StorageProperties getProperties() {
+        public StorageAdapter getProperties() {
             return properties;
         }
 

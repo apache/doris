@@ -24,12 +24,14 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exec/sink/writer/iceberg/viceberg_delete_file_writer.h"
 #include "exprs/vexpr_fwd.h"
 #include "roaring/roaring64map.hh"
@@ -77,6 +79,10 @@ public:
 
     Status close(Status) override;
 
+    void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
+
+    void finish_deferred_file_cleanup(Status outer_status);
+
 private:
     /**
      * Extract $row_id column from block and group by file_path.
@@ -110,12 +116,9 @@ private:
 
     std::string _build_puffin_footer_json(const std::vector<DeletionVectorBlob>& blobs);
 
-    std::string _generate_puffin_file_path();
-
-    /**
-     * Generate unique delete file path
-     */
-    std::string _generate_delete_file_path(const std::string& referenced_data_file = "");
+    // Unique file names, relative to the data location (_output_location).
+    std::string _puffin_file_name() const;
+    std::string _delete_file_name(const std::string& referenced_data_file) const;
 
     /**
      * Get $row_id column index from block
@@ -129,6 +132,8 @@ private:
                                         const std::vector<int64_t>& positions, Block& output_block);
     Status _init_position_delete_output_exprs();
     std::string _get_file_extension() const;
+    void _cleanup_created_files();
+    void _transfer_created_files_to_report_cleanup();
 
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
@@ -141,6 +146,9 @@ private:
 
     // Collected commit data from all writers
     std::vector<TIcebergCommitData> _commit_data_list;
+    // MERGE owns both data and delete objects until both inner sinks close successfully.
+    std::vector<std::pair<std::shared_ptr<io::FileSystem>, std::string>> _created_files;
+    bool _defer_file_cleanup_until_outer_close = false;
     // TODO: All deletions are held in memory until close(). Consider flushing
     //  per-file when the upstream guarantees file_path ordering, or flushing
     //  when estimated memory exceeds a threshold, to reduce peak memory usage.
@@ -154,9 +162,8 @@ private:
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_PARQUET;
     TFileCompressType::type _compress_type = TFileCompressType::SNAPPYBLOCK;
 
-    // Output directory for delete files
-    std::string _output_path;
-    std::string _table_location;
+    // The data location delete files are written to and committed under, set by init_properties().
+    std::optional<IcebergOutputLocation> _output_location;
 
     TFileType::type _file_type = TFileType::FILE_HDFS;
     std::vector<TNetworkAddress> _broker_addresses;

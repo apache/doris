@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -33,24 +32,17 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
-import org.apache.doris.utframe.MockedFrontend.FeStartException;
-import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.List;
-import java.util.UUID;
 
 /*
  * This demo is mainly used to confirm that
  * repeatedly starting FE and BE in 2 UnitTest will not cause conflict
  */
-public class AnotherDemoTest {
+public class AnotherDemoTest extends TestWithFeService {
 
     private static int fe_http_port;
     private static int fe_rpc_port;
@@ -64,21 +56,9 @@ public class AnotherDemoTest {
     private static int be_http_port;
     private static int be_arrow_flight_sql_port;
 
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/AnotherDemoTest/" + UUID.randomUUID().toString() + "/";
-
-    @BeforeClass
-    public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        UtFrameUtils.createDorisCluster(runningDir, 1);
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     // generate all port from valid ports
@@ -122,10 +102,10 @@ public class AnotherDemoTest {
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
-            Assert.assertNotNull(tbl);
+            Assertions.assertNotNull(tbl);
             System.out.println(tbl.getName());
-            Assert.assertEquals("Doris", tbl.getEngine());
-            Assert.assertEquals(1, tbl.getBaseSchema().size());
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(1, tbl.getBaseSchema().size());
         } finally {
             tbl.readUnlock();
         }
@@ -137,10 +117,10 @@ public class AnotherDemoTest {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
-        Assert.assertEquals(1, fragments.size());
+        Assertions.assertEquals(1, fragments.size());
         PlanFragment fragment = fragments.get(0);
-        Assert.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
-        Assert.assertEquals(0, fragment.getChildren().size());
+        Assertions.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
+        Assertions.assertEquals(0, fragment.getChildren().size());
 
         queryStr = "explain select /*+ SET_VAR(disable_nereids_rules=PRUNE_EMPTY_PARTITION, "
                 + "enable_parallel_result_sink=false) */ * from db1.tbl1";
@@ -148,9 +128,9 @@ public class AnotherDemoTest {
         stmtExecutor.execute();
         planner = stmtExecutor.planner();
         fragments = planner.getFragments();
-        Assert.assertEquals(2, fragments.size());
+        Assertions.assertEquals(2, fragments.size());
         fragment = fragments.get(0);
-        Assert.assertTrue(fragment.getPlanRoot() instanceof ExchangeNode);
-        Assert.assertEquals(1, fragment.getChildren().size());
+        Assertions.assertTrue(fragment.getPlanRoot() instanceof ExchangeNode);
+        Assertions.assertEquals(1, fragment.getChildren().size());
     }
 }

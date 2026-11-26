@@ -23,7 +23,6 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -37,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -95,10 +93,6 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(fileScan, context);
     }
 
-    default R visitLogicalHudiScan(LogicalHudiScan fileScan, C context) {
-        return visitLogicalFileScan(fileScan, context);
-    }
-
     default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
         return visitLogicalCatalogRelation(odbcScan, context);
     }
@@ -141,10 +135,6 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
         return visitPhysicalCatalogRelation(fileScan, context);
-    }
-
-    default R visitPhysicalHudiScan(PhysicalHudiScan hudiScan, C context) {
-        return visitPhysicalFileScan(hudiScan, context);
     }
 
     default R visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, C context) {

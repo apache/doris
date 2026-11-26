@@ -17,23 +17,35 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
+import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DateType;
 import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.DoubleType;
+import org.apache.paimon.types.FloatType;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -87,6 +99,9 @@ public final class PaimonTypeMapping {
                 return toTimestampType(dataType);
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 return toTimestampTzType(dataType, options);
+            case VARIANT:
+                // Preserve the execution-only carrier consumed by the native Paimon reader.
+                return ConnectorType.of("VARIANT_COMPUTE_V2");
             case ARRAY:
                 return toArrayType((ArrayType) dataType, options);
             case MAP:
@@ -102,7 +117,11 @@ public final class PaimonTypeMapping {
 
     private static ConnectorType toVarcharType(VarCharType type) {
         int len = type.getLength();
-        if (len <= 0 || len >= 65533) {
+        // 65533 == ScalarType.MAX_VARCHAR_LENGTH is the legal exact-fit max VARCHAR, not the STRING
+        // wildcard; only a length strictly greater than it overflows to STRING. Use `> 65533` to
+        // match legacy PaimonUtil.paimonPrimitiveTypeToDorisType byte-for-byte (the `len <= 0` guard
+        // is unreachable for real paimon — VarCharType min length is 1 — kept defensively).
+        if (len <= 0 || len > 65533) {
             return ConnectorType.of("STRING");
         }
         return ConnectorType.of("VARCHAR", len, 0);
@@ -137,6 +156,10 @@ public final class PaimonTypeMapping {
     private static ConnectorType toTimestampType(DataType dataType) {
         int scale = DEFAULT_TIMESTAMP_SCALE;
         if (dataType instanceof TimestampType) {
+            // Keep all source fractional digits instead of truncating high-precision wall-clock values.
+            if (((TimestampType) dataType).getPrecision() > MAX_TIMESTAMP_SCALE) {
+                return ConnectorType.of("TIMESTAMP_NS");
+            }
             scale = Math.min(((TimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
         } else if (dataType instanceof LocalZonedTimestampType) {
             scale = Math.min(((LocalZonedTimestampType) dataType).getPrecision(), MAX_TIMESTAMP_SCALE);
@@ -174,7 +197,120 @@ public final class PaimonTypeMapping {
         List<ConnectorType> types = fields.stream()
                 .map(f -> toConnectorType(f.type(), options))
                 .collect(Collectors.toCollection(ArrayList::new));
-        return ConnectorType.structOf(names, types);
+        // Carry the nested field nullability and comment (parity with the write path and with the
+        // iceberg read path) so DESCRIBE / SHOW CREATE TABLE report the struct field's NOT NULL
+        // constraint and COMMENT rather than defaulting every nested field to nullable / no comment.
+        List<Boolean> nullable = fields.stream()
+                .map(f -> f.type().isNullable())
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<String> comments = fields.stream()
+                .map(DataField::description)
+                .collect(Collectors.toCollection(ArrayList::new));
+        return ConnectorType.structOf(names, types, nullable, comments);
+    }
+
+    /**
+     * Convert a Doris {@link ConnectorType} (as produced by the CREATE TABLE request path)
+     * to a Paimon {@link DataType}.
+     *
+     * <p>This is the connector-SPI equivalent of the former fe-core
+     * {@code DorisToPaimonTypeVisitor}. It preserves declared CHAR/VARCHAR bounds and timestamp
+     * precision because Paimon uses them when applying casts and interpreting numeric timestamp
+     * values. The MAP key remains non-null, matching Paimon's type contract.</p>
+     *
+     * <p>The returned type carries Paimon's default (nullable) flag; column-level nullability is
+     * applied by the caller via {@code .copy(nullable)} (mirroring legacy
+     * {@code PaimonMetadataOps.toPaimonSchema}). The map-key {@code .copy(false)} below is part of
+     * the type structure (not column nullability) and is kept.</p>
+     *
+     * @throws DorisConnectorException if the type cannot be represented in Paimon
+     */
+    public static DataType toPaimonType(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        switch (name) {
+            case "BOOLEAN":
+                return new BooleanType();
+            case "TINYINT":
+                return new TinyIntType();
+            case "SMALLINT":
+                return new SmallIntType();
+            case "INT":
+            case "INTEGER":
+                return new IntType();
+            case "BIGINT":
+                return new BigIntType();
+            case "FLOAT":
+                return new FloatType();
+            case "DOUBLE":
+                return new DoubleType();
+            case "CHAR":
+                // DDL must retain bounds: widening to STRING changes historical narrowing casts.
+                return new CharType(type.getPrecision());
+            case "VARCHAR":
+                return new VarCharType(type.getPrecision());
+            case "STRING":
+                return new VarCharType(VarCharType.MAX_LENGTH);
+            case "DATE":
+            case "DATEV2":
+                return new DateType();
+            case "DECIMALV2":
+            case "DECIMALV3":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
+            case "DECIMAL256":
+                return new DecimalType(type.getPrecision(), type.getScale());
+            case "DATETIME":
+            case "DATETIMEV2":
+                // Paimon interprets numeric timestamp strings in units derived from this precision.
+                return new TimestampType("DATETIMEV2".equals(name) ? type.getPrecision() : 0);
+            case "TIMESTAMP_NS":
+                return new TimestampType(9);
+            case "TIMESTAMPTZ":
+                // Preserve the instant contract when deriving an external schema.
+                return new LocalZonedTimestampType(type.getPrecision());
+            case "VARBINARY":
+                return new VarBinaryType(VarBinaryType.MAX_LENGTH);
+            case "VARIANT":
+                return new VariantType();
+            case "ARRAY":
+                // FIX-L13: preserve the declared element nullability (legacy DorisToPaimonTypeVisitor
+                // array = elementResult.copy(array.getContainsNull())).
+                return new ArrayType(
+                        toPaimonType(type.getChildren().get(0)).copy(type.isChildNullable(0)));
+            case "MAP":
+                // Legacy forces the map key non-null via .copy(false); the value preserves the declared
+                // nullability (FIX-L13: legacy map = valueResult.copy(map.getIsValueContainsNull())).
+                return new MapType(
+                        toPaimonType(type.getChildren().get(0)).copy(false),
+                        toPaimonType(type.getChildren().get(1)).copy(type.isChildNullable(1)));
+            case "STRUCT":
+            case "ROW":
+                return toPaimonRowType(type);
+            default:
+                throw new DorisConnectorException(
+                        "Unsupported type for Paimon: " + type.getTypeName());
+        }
+    }
+
+    private static DataType toPaimonRowType(ConnectorType type) {
+        List<ConnectorType> children = type.getChildren();
+        List<String> names = type.getFieldNames();
+        List<DataField> fields = new ArrayList<>(children.size());
+        // Legacy uses new AtomicInteger(-1).incrementAndGet() -> sequential ids 0,1,2,...
+        AtomicInteger fieldId = new AtomicInteger(-1);
+        for (int i = 0; i < children.size(); i++) {
+            String fieldName = i < names.size() && names.get(i) != null ? names.get(i) : "col" + i;
+            // FIX-L13: preserve the declared field nullability (legacy struct =
+            // fieldResults.get(i).copy(field.getContainsNull())). Also carry the field comment via the
+            // 4-arg DataField (parity with top-level columns in PaimonSchemaBuilder); getChildComment
+            // returns null when unset, which is byte-identical to the 3-arg form. The field id stays
+            // sequential (legacy parity).
+            fields.add(new DataField(fieldId.incrementAndGet(), fieldName,
+                    toPaimonType(children.get(i)).copy(type.isChildNullable(i)),
+                    type.getChildComment(i)));
+        }
+        return new RowType(fields);
     }
 
     /**
@@ -188,8 +324,9 @@ public final class PaimonTypeMapping {
         private final boolean mapTimestampTz;
 
         public Options(boolean mapBinaryToVarbinary, boolean mapTimestampTz) {
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // The flags are retained for callers, but external logical mappings are mandatory.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public boolean isMapBinaryToVarbinary() {

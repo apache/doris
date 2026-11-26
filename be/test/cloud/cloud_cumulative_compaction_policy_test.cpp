@@ -23,8 +23,12 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <climits>
+
+#include "cloud/cloud_cumulative_compaction_changelog_policy.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "json2pb/json_to_pb.h"
@@ -32,6 +36,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -145,6 +150,53 @@ static int64_t total_disk_size(const std::vector<RowsetSharedPtr>& rowsets) {
     return total_size;
 }
 
+static std::vector<RowsetSharedPtr> create_max_score_trim_candidates(bool include_stranded_head) {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    if (include_stranded_head) {
+        candidate_rowsets.push_back(create_rowset(Version(13, 56), 0, false, 0));
+    }
+    candidate_rowsets.push_back(create_rowset(Version(57, 57), 192, true, 256 * 1024 * 1024));
+    candidate_rowsets.push_back(create_rowset(Version(58, 58), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(59, 59), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(60, 60), 150, true, 256 * 1024 * 1024));
+    for (int64_t version = 61; version <= 67; ++version) {
+        candidate_rowsets.push_back(
+                create_rowset(Version(version, version), 1, false, 1024 * 1024));
+    }
+    return candidate_rowsets;
+}
+
+class TestCloudChangelogCumulativeCompactionPolicy : public testing::Test {
+public:
+    TestCloudChangelogCumulativeCompactionPolicy()
+            : _engine(CloudStorageEngine(EngineOptions {})) {}
+
+    void SetUp() override {
+        config::changelog_compaction_file_count_threshold = 3;
+        config::changelog_compaction_time_threshold_seconds = INT32_MAX;
+
+        _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                          UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                          TCompressionType::LZ4F));
+        _tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+        _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_CHANGELOG_POLICY));
+    }
+
+    RowsetSharedPtr create_changelog_rowset(Version version, int num_segments, bool overlapping,
+                                            int data_size, int8_t compaction_level) {
+        auto rowset = create_rowset(version, num_segments, overlapping, data_size);
+        rowset->rowset_meta()->set_data_disk_size(data_size);
+        rowset->rowset_meta()->set_compaction_level(compaction_level);
+        rowset->rowset_meta()->set_newest_write_timestamp(UnixSeconds());
+        rowset->rowset_meta()->mark_changelog();
+        return rowset;
+    }
+
+protected:
+    CloudStorageEngine _engine;
+    TabletMetaSharedPtr _tablet_meta;
+};
+
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -160,6 +212,72 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     RowsetSharedPtr output_rowset = create_rowset(Version(3, 5), 5, false, 100 * 1024 * 1024);
     Version version(1, 1);
     EXPECT_EQ(policy.new_cumulative_point(&_tablet, output_rowset, version, 2), 6);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       new_cumulative_point_does_not_promote_small_mow_rowset_with_default_version_limit) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    tablet._base_size = kGiB;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    RowsetSharedPtr output_rowset = create_rowset(Version(2, 1003), 1, false, kMiB);
+    Version last_delete_version {-1, -1};
+
+    EXPECT_EQ(2, policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, 2));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_notready_keeps_latest_versions) {
+    auto base_rowset = create_rowset(Version(0, 1), 1, false, kGiB);
+    ASSERT_NE(nullptr, base_rowset);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(base_rowset->rowset_meta()).ok());
+
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    for (int64_t version = 2; version <= 20; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, true, kMiB);
+        ASSERT_NE(nullptr, rowset);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset->rowset_meta()).ok());
+        candidate_rowsets.push_back(rowset);
+    }
+
+    CloudTablet tablet(_engine, _tablet_meta);
+    ASSERT_TRUE(tablet.set_tablet_state(TABLET_NOTREADY).ok());
+    tablet._base_size = kGiB;
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    auto picked_size = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                                                 &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(9, picked_size);
+    ASSERT_EQ(9, input_rowsets.size());
+    EXPECT_EQ(9, compaction_score);
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(10, input_rowsets.back()->end_version());
+    EXPECT_EQ(Version(-1, -1), last_delete_version);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       overlapping_output_uses_policy_to_advance_cumulative_point) {
+    _tablet_meta->set_tablet_state(TABLET_RUNNING);
+    _tablet_meta->set_time_series_compaction_level_threshold(1);
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+
+    auto output_rowset = create_rowset(Version(3, 3), 5, true, 256 * kMiB);
+    Version last_delete_version {-1, -1};
+
+    CloudSizeBasedCumulativeCompactionPolicy size_based_policy;
+    EXPECT_EQ(4, size_based_policy.new_cumulative_point(&tablet, output_rowset, last_delete_version,
+                                                        2));
+
+    CloudTimeSeriesCumulativeCompactionPolicy time_series_policy;
+    EXPECT_EQ(4, time_series_policy.new_cumulative_point(&tablet, output_rowset,
+                                                         last_delete_version, 2));
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
@@ -265,6 +383,206 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
 
     EXPECT_TRUE(input_rowsets.empty());
     EXPECT_EQ(0, compaction_score);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_restores_successor_for_non_overlapping_singleton) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    auto candidate_rowsets = create_max_score_trim_candidates(true);
+    ASSERT_EQ(12, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(Version(13, 56), input_rowsets[0]->version());
+    EXPECT_EQ(Version(57, 57), input_rowsets[1]->version());
+    EXPECT_EQ(193, compaction_score);
+
+    auto output_rowset = create_rowset(Version(13, 57), 1, false, 256 * 1024 * 1024);
+    ASSERT_NE(nullptr, output_rowset);
+    EXPECT_EQ(58, policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, 13));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_keeps_single_overlapping_rowset_after_trim) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    auto candidate_rowsets = create_max_score_trim_candidates(false);
+    ASSERT_EQ(11, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    // The tail was trimmed, but the overlapping head remains mergeable by itself.
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_GT(candidate_rowsets.size(), input_rowsets.size());
+    EXPECT_EQ(Version(57, 57), input_rowsets.front()->version());
+    EXPECT_EQ(192, compaction_score);
+}
+
+TEST_F(TestCloudChangelogCumulativeCompactionPolicy, pick_level_from_candidate_rowsets) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet.set_last_cumu_compaction_success_time(UnixMillis());
+
+    std::vector<RowsetSharedPtr> candidate_rowsets {
+            create_changelog_rowset(Version(2, 2), 1, false, 1, 0),
+            create_changelog_rowset(Version(3, 3), 1, false, 1, 0),
+            create_changelog_rowset(Version(4, 4), 4, true, 1, 1),
+            create_changelog_rowset(Version(5, 5), 1, false, 1, 1)};
+
+    CloudChangelogCumulativeCompactionPolicy policy;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    int picked = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 1, &input_rowsets,
+                                           &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(2, picked);
+    EXPECT_EQ(5, compaction_score);
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(4, input_rowsets.front()->start_version());
+    EXPECT_EQ(5, input_rowsets.back()->end_version());
+
+    tablet.set_cumulative_layer_point(2);
+    input_rowsets.clear();
+    compaction_score = 0;
+    int8_t max_level = ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1;
+    candidate_rowsets = {create_changelog_rowset(Version(0, 0), 1, false, 1, max_level),
+                         create_changelog_rowset(Version(1, 1), 1, false, 1, max_level),
+                         create_changelog_rowset(Version(2, 2), 2, true, 1, max_level),
+                         create_changelog_rowset(Version(3, 3), 1, false, 1, max_level)};
+    picked = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 1, &input_rowsets,
+                                       &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(2, picked);
+    EXPECT_EQ(3, compaction_score);
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(3, input_rowsets.back()->end_version());
+}
+
+TEST_F(TestCloudChangelogCumulativeCompactionPolicy, filter_new_visible_rowsets) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet.set_last_cumu_compaction_success_time(UnixMillis());
+    config::changelog_compaction_wait_timesec_after_visible = 600;
+
+    int8_t level = 0;
+    std::vector<RowsetSharedPtr> candidate_rowsets {
+            create_changelog_rowset(Version(2, 2), 1, false, 1, level),
+            create_changelog_rowset(Version(3, 3), 2, true, 1, level),
+            create_changelog_rowset(Version(4, 4), 1, false, 1, level)};
+    candidate_rowsets[0]->rowset_meta()->set_newest_write_timestamp(
+            UnixSeconds() - config::changelog_compaction_wait_timesec_after_visible - 1);
+    candidate_rowsets[1]->rowset_meta()->set_newest_write_timestamp(UnixSeconds());
+    candidate_rowsets[2]->rowset_meta()->set_newest_write_timestamp(UnixSeconds());
+
+    CloudChangelogCumulativeCompactionPolicy policy;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    int picked = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 1, &input_rowsets,
+                                           &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(0, picked);
+    EXPECT_EQ(0, compaction_score);
+    EXPECT_TRUE(input_rowsets.empty());
+
+    candidate_rowsets[1]->rowset_meta()->set_newest_write_timestamp(
+            UnixSeconds() - config::changelog_compaction_wait_timesec_after_visible - 1);
+    picked = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 1, &input_rowsets,
+                                       &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(2, picked);
+    EXPECT_EQ(3, compaction_score);
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(3, input_rowsets.back()->end_version());
+
+    candidate_rowsets.emplace_back(create_changelog_rowset(Version(5, 5), 1, false, 1, level));
+    input_rowsets.clear();
+    compaction_score = 0;
+    picked = policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 1, &input_rowsets,
+                                       &last_delete_version, &compaction_score, true);
+
+    EXPECT_EQ(4, picked);
+    EXPECT_EQ(5, compaction_score);
+    ASSERT_EQ(4, input_rowsets.size());
+    EXPECT_EQ(5, input_rowsets.back()->end_version());
+}
+
+TEST_F(TestCloudChangelogCumulativeCompactionPolicy, ttl_empty_output_accepts_mixed_levels) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    CloudChangelogCumulativeCompactionPolicy policy;
+    auto empty = create_changelog_rowset(Version(0, 1), 0, false, 0, 1);
+    auto expired = create_changelog_rowset(Version(2, 2), 1, false, 1024, 0);
+    expired->rowset_meta()->set_num_rows(10);
+    auto output = create_changelog_rowset(Version(0, 2), 0, false, 0, 0);
+    EXPECT_EQ(0, policy.get_compaction_level(&tablet, {empty, expired}, output));
+
+    // Non-empty compaction still promotes inputs from the same level.
+    output->rowset_meta()->set_num_segments(1);
+    output->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_compaction_level(1);
+    EXPECT_EQ(2, policy.get_compaction_level(&tablet, {empty, expired}, output));
+}
+
+TEST_F(TestCloudChangelogCumulativeCompactionPolicy, new_cumulative_point) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    CloudChangelogCumulativeCompactionPolicy policy;
+    Version last_delete_version(1, 1);
+    int8_t max_level = ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1;
+    int64_t goal_size = config::changelog_compaction_goal_size_mbytes * 1024 * 1024;
+
+    auto output_rowset = create_changelog_rowset(Version(3, 5), 1, false, goal_size, max_level);
+    EXPECT_EQ(policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, -1), 6);
+
+    auto small_output_rowset = create_changelog_rowset(Version(6, 7), 1, false, 1, max_level);
+    EXPECT_EQ(policy.new_cumulative_point(&tablet, small_output_rowset, last_delete_version, 6), 6);
+
+    auto empty_output_rowset =
+            create_changelog_rowset(Version(8, 9), 0, false, goal_size, max_level);
+    EXPECT_EQ(policy.new_cumulative_point(&tablet, empty_output_rowset, last_delete_version, 6), 6);
+}
+
+// A changelog tablet runs the changelog policy because of its role, whatever policy string its
+// meta carries, and a policy name the engine does not know falls back to the size-based policy.
+// Example: a meta persisted by a build that named the policy differently. Looked up by that
+// name, a changelog tablet would lose its level and quick-merge rules.
+TEST_F(TestCloudChangelogCumulativeCompactionPolicy, policy_is_selected_by_tablet_role) {
+    // The tablet meta as the meta service stores it, then loaded the way CloudMetaMgr does.
+    TabletMetaPB tablet_meta_pb;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, false);
+    tablet_meta_pb.set_compaction_policy("unknown_policy");
+    auto cloud_tablet_meta_pb = cloud::doris_tablet_meta_to_cloud(tablet_meta_pb);
+    TabletMeta changelog_meta;
+    changelog_meta.init_from_pb(cloud::cloud_tablet_meta_to_doris(cloud_tablet_meta_pb));
+    ASSERT_TRUE(changelog_meta.is_changelog_tablet());
+    EXPECT_EQ(CUMULATIVE_CHANGELOG_POLICY,
+              _engine.cumu_compaction_policy(changelog_meta.compaction_policy(),
+                                             changelog_meta.tablet_id())
+                      ->name());
+
+    cloud_tablet_meta_pb.set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
+    TabletMeta data_meta;
+    data_meta.init_from_pb(cloud::cloud_tablet_meta_to_doris(cloud_tablet_meta_pb));
+    EXPECT_EQ("unknown_policy", data_meta.compaction_policy());
+    EXPECT_EQ(CUMULATIVE_SIZE_BASED_POLICY,
+              _engine.cumu_compaction_policy(data_meta.compaction_policy(), data_meta.tablet_id())
+                      ->name());
+    EXPECT_EQ(CUMULATIVE_CHANGELOG_POLICY,
+              _engine.cumu_compaction_policy(CUMULATIVE_CHANGELOG_POLICY, data_meta.tablet_id())
+                      ->name());
 }
 
 // Test case: Empty rowset compaction with skip_trim

@@ -92,7 +92,7 @@ public:
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
-                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                auto const_data = const_column_ptr->column().get_data_at(0);
                 if (const_data.data != nullptr) {
                     sz++;
                 }
@@ -102,8 +102,12 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
+        }
+        // Binary IO must not route IN through the shared string/storage predicate implementation.
+        if (context->get_arg_type(0)->get_primitive_type() == TYPE_VARBINARY) {
+            return Status::NotSupported("VARBINARY IN/NOT IN is not supported");
         }
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
@@ -123,7 +127,7 @@ public:
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
-                auto const_data = const_column_ptr->column_ptr->get_data_at(0);
+                auto const_data = const_column_ptr->column().get_data_at(0);
                 state->hybrid_set->insert((void*)const_data.data, const_data.size);
             } else {
                 state->use_set = false;
@@ -196,7 +200,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* in_state = reinterpret_cast<InState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("funciton context for function '{}' must have Set;",
                                         get_name());

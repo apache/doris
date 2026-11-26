@@ -36,10 +36,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
+import org.apache.doris.httpv2.rest.response.SchemaTypeDesc;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,12 +68,22 @@ import java.util.stream.Collectors;
 public class TableSchemaAction extends RestBaseController {
 
     /**
+     * The columns {@code /_schema} reports: the display view, so its {@code is_nullable} agrees with DESC /
+     * SHOW COLUMNS. Split out so the choice of view is pinned by a unit test.
+     */
+    @VisibleForTesting
+    static List<Column> schemaColumns(TableIf table) {
+        return table.getBaseSchemaForDisplay();
+    }
+
+    /**
      * Build column information map for a given column
      * @param column the column to build info for
      * @return map containing column information
      */
-    private Map<String, String> buildColumnInfo(Column column) {
-        Map<String, String> columnInfo = new HashMap<>(2);
+    @VisibleForTesting
+    static Map<String, Object> buildColumnInfo(Column column) {
+        Map<String, Object> columnInfo = new HashMap<>();
         Type colType = column.getOriginType();
         PrimitiveType primitiveType = colType.getPrimitiveType();
 
@@ -83,6 +95,11 @@ public class TableSchemaAction extends RestBaseController {
 
         columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
         columnInfo.put("type", primitiveType.toString());
+        SchemaTypeDesc typeDesc = SchemaTypeDesc.fromType(colType);
+        if (typeDesc.getSql() != null) {
+            columnInfo.put("type_sql", typeDesc.getSql());
+        }
+        columnInfo.put("type_desc", typeDesc);
         columnInfo.put("comment", column.getComment());
         columnInfo.put("name", column.getDisplayName());
 
@@ -103,6 +120,10 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
+        return getSchema(catalogName, dbName, tblName, PrivPredicate.SELECT);
+    }
+
+    Object getSchema(String catalogName, String dbName, String tblName, PrivPredicate privilege) {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
@@ -111,9 +132,8 @@ public class TableSchemaAction extends RestBaseController {
         }
 
         try {
-            // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, dbName, tblName,
-                    PrivPredicate.SELECT);
+                    privilege);
             TableIf table;
             try {
                 CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()
@@ -126,10 +146,13 @@ public class TableSchemaAction extends RestBaseController {
             table.readLock();
             try {
                 try {
-                    List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
+                    // The public schema REST response is a metadata view: report the nullability the source
+                    // declares (same as DESC / SHOW COLUMNS), not the nullability the engine reads with.
+                    // Internal tables keep read == display (TableIf's default implementation).
+                    List<Column> columns = schemaColumns(table);
+                    List<Map<String, Object>> propList = new ArrayList<>(columns.size());
                     for (Column column : columns) {
-                        Map<String, String> baseInfo = buildColumnInfo(column);
+                        Map<String, Object> baseInfo = buildColumnInfo(column);
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
@@ -156,10 +179,10 @@ public class TableSchemaAction extends RestBaseController {
 
                             // Get schema columns for this materialized index
                             List<Column> indexColumns = indexMeta.getSchema();
-                            List<Map<String, String>> indexColumnList = new ArrayList<>();
+                            List<Map<String, Object>> indexColumnList = new ArrayList<>();
 
                             for (Column column : indexColumns) {
-                                Map<String, String> columnInfo = buildColumnInfo(column);
+                                Map<String, Object> columnInfo = buildColumnInfo(column);
                                 indexColumnList.add(columnInfo);
                             }
 

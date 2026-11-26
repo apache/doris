@@ -97,9 +97,8 @@ Status DeleteBitmapFileWriter::close() {
 
     // Check if file was written to packed file
     if (_enable_packed_file) {
-        auto* packed_writer = static_cast<io::PackedFileWriter*>(_file_writer.get());
         io::PackedSliceLocation loc;
-        st = packed_writer->get_packed_slice_location(&loc);
+        st = _file_writer->get_packed_slice_location(&loc);
         if (!st.ok()) {
             LOG(WARNING) << "failed to get packed slice location for delete bitmap file=" << _path
                          << ", st=" << st.to_string();

@@ -21,8 +21,10 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.FloatType;
@@ -35,6 +37,34 @@ import java.util.List;
  * Executable functions for array operations.
  */
 public class ArrayArithmetic {
+
+    /** Return the number of elements in an array. */
+    @ExecFunction(name = "cardinality")
+    public static Expression cardinality(ArrayLiteral array) {
+        return new BigIntLiteral(array.getValue().size());
+    }
+
+    /** Return the number of entries in a map. */
+    @ExecFunction(name = "cardinality")
+    public static Expression cardinality(MapLiteral map) {
+        return new BigIntLiteral(map.getValue().size());
+    }
+
+    /** Remove a number of elements from the end of an array. */
+    @ExecFunction(name = "trim_array")
+    public static Expression trimArray(ArrayLiteral array, BigIntLiteral size) {
+        long trimSize = size.getValue();
+        int cardinality = array.getValue().size();
+        if (trimSize < 0) {
+            throw new AnalysisException("size must not be negative: " + trimSize);
+        }
+        if (trimSize > cardinality) {
+            throw new AnalysisException("size must not exceed array cardinality "
+                    + cardinality + ": " + trimSize);
+        }
+        return new ArrayLiteral(array.getValue().subList(0, cardinality - (int) trimSize),
+                array.getDataType());
+    }
 
     /**
      * Compute the cross product between two 3D float arrays.

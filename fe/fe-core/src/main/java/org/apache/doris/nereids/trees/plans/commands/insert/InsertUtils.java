@@ -29,19 +29,20 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -58,17 +59,22 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlExpiration;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.ConnectorWriteSchemaUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -99,7 +105,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -286,11 +294,11 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hiveTable = (HMSExternalTable) table;
-            if (hiveTable.isView()) {
-                throw new AnalysisException("View is not support in hive external table.");
-            }
+        // Plugin-driven (flipped) external views: the legacy engine sinks rejected writes to a view (e.g.
+        // IcebergTableSink threw on isView()); on the neutral write path that guard must live here, since a
+        // flipped catalog reaches a connector sink, not the engine-specific sink.
+        if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+            throw new AnalysisException("Write data to view is not supported");
         }
         // Re-read partial update settings from session variable to handle multi-statement
         // batches where SET and INSERT are parsed together before execution.
@@ -343,7 +351,8 @@ public class InsertUtils {
                                             + " all ordinary columns referenced"
                                             + " by generated columns, missing: " + col.getName());
                                 }
-                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
+                                if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent()
+                                        && (col.isVisible() || (col.isTtlColumn() && olapTable.isDirectRowTtl()))) {
                                     hasMissingColExceptAutoIncKey = true;
                                 }
                                 if (col.isAutoInc() && col.isKey() && !insertCol.isPresent()) {
@@ -366,25 +375,38 @@ public class InsertUtils {
         }
         Plan query = unboundLogicalSink.child();
         checkGeneratedColumnForInsertIntoSelect(table, unboundLogicalSink, insertCtx);
+        Optional<List<Column>> writeOnlyDefaultColumns = writeOnlyDefaultColumns(table);
         if (!(query instanceof UnboundInlineTable)) {
+            if (writeOnlyDefaultColumns.isPresent()) {
+                return plan.withChildren(resolveSelectDefaultReferences(
+                        query, writeOnlyDefaultColumns, table, unboundLogicalSink.getNameParts()));
+            }
             return plan;
         }
 
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = connectorWriteSchema(table, false);
         Map<String, Expression> staticPartitions = null;
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
-            staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
-        } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
-            staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
+            staticPartitions = ((UnboundConnectorTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
-            Set<String> staticPartitionColNames = staticPartitions.keySet();
+            // Static partition columns get their values from the PARTITION clause instead of the
+            // inline VALUES list, so they must be excluded from the implicit target schema before
+            // the column-count check below. Otherwise e.g. Hive table (v, dt) with
+            // PARTITION(dt='x') VALUES (1) would be checked against 2 columns and fail with
+            // "Column count doesn't match value count".
+            // Match case-insensitively via Locale.ROOT because partition column names are
+            // case-insensitive (Hive stores them lowercase in HMS), avoiding locale-dependent
+            // folding (e.g. the Turkish 'I').
+            Set<String> staticPartitionColNames = staticPartitions.keySet().stream()
+                    .map(name -> name.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
             columns = columns.stream()
-                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .filter(column -> !staticPartitionColNames.contains(column.getName().toLowerCase(Locale.ROOT)))
                     .collect(ImmutableList.toImmutableList());
         }
 
@@ -420,17 +442,8 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
-                        Column sameNameColumn = null;
-                        for (Column column : table.getBaseSchema(true)) {
-                            if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
-                                sameNameColumn = column;
-                                break;
-                            }
-                        }
-                        if (sameNameColumn == null) {
-                            throw new AnalysisException("Unknown column '"
-                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
-                        }
+                        Column sameNameColumn = resolveExplicitConnectorWriteColumn(
+                                table, unboundLogicalSink.getColNames().get(i));
                         if (sameNameColumn.getGeneratedColumnInfo() != null
                                 && !(values.get(i) instanceof DefaultValueSlot)) {
                             throw new AnalysisException("The value specified for generated column '"
@@ -443,8 +456,15 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
-                                    targetType, rewriteContext, strictCast);
+                            NamedExpression value = resolveDefaultReferences(values.get(i),
+                                    writeOnlyDefaultColumns, table, unboundLogicalSink.getNameParts());
+                            if (sameNameColumn.isTtlColumn() && targetType.isBigIntType()) {
+                                value = new UnboundAlias(new RowTtlExpiration(
+                                        value instanceof Alias || value instanceof UnboundAlias
+                                                ? value.child(0) : value));
+                            }
+                            addColumnValue(analyzer, optimizedRowConstructor, value,
+                                    targetType, rewriteContext, strictCast, sameNameColumn);
                         }
                     }
                 } else {
@@ -464,8 +484,10 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
-                                    rewriteContext, strictCast);
+                            NamedExpression value = resolveDefaultReferences(values.get(i),
+                                    writeOnlyDefaultColumns, table, unboundLogicalSink.getNameParts());
+                            addColumnValue(analyzer, optimizedRowConstructor, value, targetType,
+                                    rewriteContext, strictCast, columns.get(i));
                         }
                     }
                 }
@@ -473,6 +495,171 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    static List<Column> connectorWriteSchema(TableIf table, boolean full) {
+        return pinnedConnectorWriteSchema(table).orElseGet(() -> table.getBaseSchema(full));
+    }
+
+    private static Optional<List<Column>> pinnedConnectorWriteSchema(TableIf table) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || context.getStatementContext() == null) {
+            return Optional.empty();
+        }
+        return context.getStatementContext().getConnectorWriteSchema(table.getId());
+    }
+
+    /**
+     * The pinned writer schema of a target whose column defaults apply to writes only. The read schema of such a
+     * table carries no defaults, so DEFAULT(column) in an INSERT into it must resolve against this schema.
+     */
+    private static Optional<List<Column>> writeOnlyDefaultColumns(TableIf table) {
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).hasWriteOnlyDefaults()) {
+            return Optional.empty();
+        }
+        return pinnedConnectorWriteSchema(table);
+    }
+
+    /** Resolve DEFAULT(column) in one inserted value by name against the target's pinned writer schema. */
+    private static NamedExpression resolveDefaultReferences(NamedExpression value,
+            Optional<List<Column>> writeOnlyDefaultColumns, TableIf table, List<String> targetNameParts) {
+        if (!writeOnlyDefaultColumns.isPresent()) {
+            return value;
+        }
+        if (value instanceof UnboundStar) {
+            // SELECT * REPLACE(expr AS c) keeps its replacements in the star, not as expression children, so
+            // resolving the star's expression tree would leave a DEFAULT(c) there to bind against the source.
+            UnboundStar star = (UnboundStar) value;
+            return new UnboundStar(star.getQualifier(), star.getExceptedSlots(), star.getReplacedAlias().stream()
+                    .map(replace -> resolveDefaultReferences(replace, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()), star.getIndexInSqlString());
+        }
+        return (NamedExpression) ConnectorWriteSchemaUtils.resolveDefaultReferences(value,
+                writeOnlyDefaultColumns.get(), (ExternalTable) table, ConnectContext.get(), targetNameParts, null);
+    }
+
+    /**
+     * Resolve DEFAULT(column) in the select lists of an INSERT ... SELECT, including the replacements of
+     * SELECT * REPLACE, by name against the target's pinned writer schema, before the source relations are
+     * bound, so it names a target column whatever the source is.
+     * A derived table in FROM is a query of its own: DEFAULT(column) in it names a column of its own FROM clause,
+     * as without this resolution, so it is left alone.
+     */
+    private static Plan resolveSelectDefaultReferences(Plan query, Optional<List<Column>> writeOnlyDefaultColumns,
+            TableIf table, List<String> targetNameParts) {
+        if (query instanceof LogicalSubQueryAlias) {
+            return query;
+        }
+        Plan plan = query.withChildren(child -> resolveSelectDefaultReferences(
+                child, writeOnlyDefaultColumns, table, targetNameParts));
+        if (plan instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            return project.withProjects(project.getProjects().stream()
+                    .map(projection -> resolveDefaultReferences(
+                            projection, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        if (plan instanceof UnboundOneRowRelation) {
+            UnboundOneRowRelation relation = (UnboundOneRowRelation) plan;
+            return new UnboundOneRowRelation(relation.getRelationId(), relation.getProjects().stream()
+                    .map(projection -> resolveDefaultReferences(
+                            projection, writeOnlyDefaultColumns, table, targetNameParts))
+                    .collect(ImmutableList.toImmutableList()));
+        }
+        return plan;
+    }
+
+    static void pinConnectorWriteSchema(StatementContext statementContext, TableIf targetTableIf,
+            LogicalPlan logicalQuery, Optional<String> branchName) {
+        if (!(targetTableIf instanceof PluginDrivenExternalTable)
+                || !(logicalQuery instanceof UnboundConnectorTableSink)
+                || ((UnboundConnectorTableSink<?>) logicalQuery).isRewrite()
+                || statementContext.getConnectorWriteSchema(targetTableIf.getId()).isPresent()) {
+            return;
+        }
+        PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) targetTableIf;
+        targetTable.resolveWriteColumns(branchName)
+                .ifPresent(columns -> statementContext.setConnectorWriteSchema(
+                        targetTableIf.getId(), columns));
+    }
+
+    /**
+     * Records on the context of an INSERT OVERWRITE's inner insert the writer generation the plan of the overwrite
+     * was normalized against.
+     */
+    static void recordNormalizedWriteGeneration(StatementContext statementContext, TableIf targetTableIf,
+            PluginDrivenInsertCommandContext insertCtx) {
+        statementContext.getConnectorWriteSchema(targetTableIf.getId())
+                .ifPresent(writeSchema -> insertCtx.setNormalizedWriteGeneration(writeSchema,
+                        statementContext.getConnectorWriteMetadataIdentity(targetTableIf.getId())));
+    }
+
+    /**
+     * INSERT OVERWRITE normalizes its plan against the writer schema it pinned, expanding DEFAULT and bare rows by
+     * position and casting values to the column types, and then runs an inner insert that pins the writer schema
+     * again. Without a column list that insert binds the normalized values by position, so values normalized for
+     * one generation would be written into other columns of another. Fail the statement instead, as the commit
+     * fences do for a schema that changes later.
+     */
+    static void checkNormalizedWriteGeneration(StatementContext statementContext, TableIf targetTableIf,
+            Optional<InsertCommandContext> insertCtx) {
+        if (!insertCtx.isPresent() || !(insertCtx.get() instanceof PluginDrivenInsertCommandContext)) {
+            return;
+        }
+        PluginDrivenInsertCommandContext pluginCtx = (PluginDrivenInsertCommandContext) insertCtx.get();
+        if (!pluginCtx.getNormalizedWriteSchema().isPresent()) {
+            return;
+        }
+        Optional<List<Column>> writeSchema = statementContext.getConnectorWriteSchema(targetTableIf.getId());
+        if (!writeSchema.isPresent()
+                || !sameWriteGeneration(pluginCtx.getNormalizedWriteSchema().get(), writeSchema.get())
+                || !pluginCtx.getNormalizedWriteMetadataIdentity().equals(
+                        statementContext.getConnectorWriteMetadataIdentity(targetTableIf.getId()))) {
+            throw new AnalysisException("Table " + targetTableIf.getName()
+                    + " changed while INSERT OVERWRITE was planning its write; retry the statement");
+        }
+    }
+
+    private static boolean sameWriteGeneration(List<Column> normalized, List<Column> pinned) {
+        if (normalized.size() != pinned.size()) {
+            return false;
+        }
+        for (int i = 0; i < normalized.size(); i++) {
+            Column expected = normalized.get(i);
+            Column actual = pinned.get(i);
+            if (!expected.getName().equals(actual.getName()) || expected.getUniqueId() != actual.getUniqueId()
+                    || !expected.getType().equals(actual.getType()) || expected.isAllowNull() != actual.isAllowNull()
+                    || !Objects.equals(expected.getDefaultValueSql(), actual.getDefaultValueSql())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static Column resolveExplicitConnectorWriteColumn(TableIf table, String name) {
+        Column column = connectorWriteSchema(table, true).stream()
+                .filter(candidate -> candidate.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+        if (column == null && table instanceof PluginDrivenExternalTable) {
+            // A connector's pinned writer schema contains data columns only. Consult the latest full target
+            // schema solely for engine-managed invisible columns so an explicit row-lineage column retains
+            // the established rejection instead of being misreported as an unknown data column.
+            column = ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty()).stream()
+                    .filter(candidate -> !candidate.isVisible())
+                    .filter(candidate -> candidate.getName().equalsIgnoreCase(name))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (column == null) {
+            throw new AnalysisException("Unknown column '" + name + "' in target table.");
+        }
+        if (table instanceof PluginDrivenExternalTable && !column.isVisible()) {
+            throw new AnalysisException(
+                    "Cannot specify invisible column '" + name + "' in INSERT statement");
+        }
+        return column;
     }
 
     /** buildAnalyzer */
@@ -486,7 +673,7 @@ public class InsertUtils {
                     if (expr.child(0).getDataType() instanceof AggStateType) {
                         expr = ConvertAggStateCast.convert((Cast) expr);
                     } else {
-                        expr = FoldConstantRuleOnFE.evaluate(expr, context);
+                        expr = foldConstantAfterBind(expr, context);
                     }
                 }
                 return expr;
@@ -547,6 +734,24 @@ public class InsertUtils {
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
             boolean strictCast) {
+        addColumnValue(analyzer, optimizedRowConstructor, value, targetType, rewriteContext, strictCast, null);
+    }
+
+    private static void addColumnValue(Optional<ExpressionAnalyzer> analyzer,
+            ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
+            NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
+            boolean strictCast, Column targetColumn) {
+        if (targetColumn != null && targetColumn.getConnectorStringWriteType() != null) {
+            // Preserve textual input until binding can apply the connector's semantic conversion.
+            if (!analyzer.isPresent()) {
+                optimizedRowConstructor.add(value);
+                return;
+            }
+            value = (NamedExpression) analyzer.get().analyze(value,
+                    new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            Expression input = value instanceof Alias ? value.child(0) : value;
+            value = new Alias(ConnectorWriteValueConverter.convert(targetColumn, input), value.getName());
+        }
         if (targetType != null) {
             // In strict cast/insert mode, we don't cast to target varchar type here,
             // we cast to varchar max here and do substring accordingly in BindSink.
@@ -563,9 +768,15 @@ public class InsertUtils {
             );
             value = rewriteContext == null
                     ? value
-                    : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
+                    : (NamedExpression) foldConstantAfterBind(value, rewriteContext);
         }
         optimizedRowConstructor.add(value);
+    }
+
+    private static Expression foldConstantAfterBind(
+            Expression expression, ExpressionRewriteContext rewriteContext) {
+        return MoreFieldsThread.keepFunctionSignature(
+                () -> FoldConstantRuleOnFE.evaluate(expression, rewriteContext));
     }
 
     private static NamedExpression castValue(Expression value, DataType targetType) {
@@ -596,16 +807,10 @@ public class InsertUtils {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundHiveTableSink) {
-            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundIcebergTableSink) {
-            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundMaxComputeTableSink) {
-            unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundConnectorTableSink) {
             unboundTableSink = (UnboundConnectorTableSink<? extends Plan>) plan;
         } else {
@@ -617,7 +822,7 @@ public class InsertUtils {
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
 
-    private static NamedExpression generateDefaultExpression(Column column) {
+    static NamedExpression generateDefaultExpression(Column column) {
         GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
         // Using NullLiteral as a placeholder.
         // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
@@ -625,7 +830,8 @@ public class InsertUtils {
         if (generatedColumnInfo != null) {
             return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
         }
-        if (column.getDefaultValue() == null) {
+        String defaultValueSql = column.getDefaultValueSql();
+        if (defaultValueSql == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {
                 throw new AnalysisException("Column has no default value, column=" + column.getName());
             }
@@ -634,7 +840,7 @@ public class InsertUtils {
                     column.getName());
         } else {
             Expression defualtValueExpression = new NereidsParser().parseExpression(
-                    column.getDefaultValueSql());
+                    defaultValueSql);
             if (!(defualtValueExpression instanceof UnboundAlias)) {
                 defualtValueExpression = new UnboundAlias(defualtValueExpression);
             }
@@ -647,8 +853,16 @@ public class InsertUtils {
      */
     public static Plan getPlanForExplain(
             ConnectContext ctx, Optional<CascadesContext> analyzeContext, LogicalPlan logicalQuery) {
+        return getPlanForExplain(ctx, analyzeContext, logicalQuery, Optional.empty());
+    }
+
+    /** Normalize an INSERT plan for EXPLAIN against the connector writer schema of its target ref. */
+    public static Plan getPlanForExplain(ConnectContext ctx, Optional<CascadesContext> analyzeContext,
+            LogicalPlan logicalQuery, Optional<String> branchName) {
+        TableIf targetTable = InsertUtils.getTargetTable(logicalQuery, ctx);
+        pinConnectorWriteSchema(ctx.getStatementContext(), targetTable, logicalQuery, branchName);
         return InsertUtils.normalizePlan(
-            logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), analyzeContext, Optional.empty());
+                logicalQuery, targetTable, analyzeContext, Optional.empty());
     }
 
     /** supportFastInsertIntoValues */

@@ -65,6 +65,7 @@
 #include "exec/common/sip_hash.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"

@@ -19,6 +19,8 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <functional>
+
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/table/iceberg/schema.h"
@@ -43,6 +45,9 @@ class VFileFormatTransformer;
 
 class VIcebergPartitionWriter : public IPartitionWriterBase {
 public:
+    using ClosedFileCallback =
+            std::function<void(std::shared_ptr<io::FileSystem>, const std::string&)>;
+
     VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
                             const VExprContextSPtrs& write_output_expr_ctxs,
                             const doris::iceberg::Schema& schema,
@@ -51,7 +56,8 @@ public:
                             std::string file_name, int file_name_index,
                             TFileFormatType::type file_format_type,
                             TFileCompressType::type compress_type,
-                            const std::map<std::string, std::string>& hadoop_conf);
+                            const std::map<std::string, std::string>& hadoop_conf,
+                            ClosedFileCallback closed_file_callback = nullptr);
 
     Status open(RuntimeState* state, RuntimeProfile* profile,
                 const RowDescriptor* row_desc) override;
@@ -64,7 +70,9 @@ public:
 
     inline int file_name_index() const override { return _file_name_index; }
 
-    inline size_t written_len() const override { return _file_format_transformer->written_len(); }
+    inline size_t written_len() const override {
+        return _file_format_transformer == nullptr ? 0 : _file_format_transformer->written_len();
+    }
 
 private:
     friend class VIcebergPartitionWriterTest;
@@ -72,6 +80,8 @@ private:
     std::string _get_target_file_name();
 
     Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
+
+    void _defer_file_cleanup();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
                                     TFileCompressType::type write_compress_type);
@@ -93,7 +103,13 @@ private:
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
+    ClosedFileCallback _closed_file_callback;
+    bool _file_cleanup_deferred = false;
+    Status _terminal_close_status = Status::OK();
     bool _collect_column_stats = true;
+    // FE's metrics policy for NaN counting; empty (including an older FE that sends nothing) means the
+    // parquet writer skips the extra pass entirely. See IcebergWriterHelper#nanCountFieldIds.
+    std::vector<int32_t> _nan_count_field_ids;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

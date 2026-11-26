@@ -249,7 +249,7 @@ Status TimeSharingTaskExecutor::init() {
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_active_threads);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_queue_size);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_time_ns_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_count_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_time_ns_total);
@@ -266,7 +266,7 @@ Status TimeSharingTaskExecutor::init() {
 
         thread_pool_active_threads->set_value(num_active_threads());
         thread_pool_queue_size->set_value(get_queue_size());
-        thread_pool_max_threads->set_value(get_max_queue_size());
+        thread_pool_max_queue_size->set_value(get_max_queue_size());
         thread_pool_max_threads->set_value(max_threads());
     });
     return Status::OK();

@@ -50,6 +50,7 @@
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_profile.h"
 #include "service/backend_options.h"

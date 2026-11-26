@@ -104,7 +104,7 @@
 9	aaabbbcccdddeeefff	aaabbbcccdddeeefff
 
 -- !sql_25 --
-61	5A	616263647879
+a	Z	abcdxy
 
 -- !sql_26 --
 0x6162	0x48656C6C6F2C20215E25	0x446F726973

@@ -126,13 +126,11 @@ suite("spark_connector_for_arrow", "connector") {
     sql """DELETE FROM spark_connector_map where id > 0"""
     sql """DELETE FROM spark_connector_struct where id > 0"""
 
-    def jar_name = "spark-doris-connector-3.4_2.12-1.3.0-SNAPSHOT.jar"
+    def jar_name = "spark-doris-regression-case-arrow.jar"
 
-    logger.info("start delete local spark doris demo jar...")
-    def delete_local_spark_jar = "rm -rf ${jar_name}".execute()
     logger.info("start download spark doris demo ...")
     logger.info("getS3Url ==== ${getS3Url()}")
-    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/${jar_name} --output ${jar_name}".execute().getText()
+    def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/spark-doris-regression-case.jar --output ${jar_name}".execute().getText()
     logger.info("finish download spark doris demo ...")
 
     def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
@@ -150,8 +148,15 @@ suite("spark_connector_for_arrow", "connector") {
         addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED"
     }
 
-    def run_cmd = "${javaPath} ${addOpens} -cp ${jar_name} org.apache.doris.spark.testcase.TestStreamLoadForArrowType $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector"
-    logger.info("run_cmd : $run_cmd")
+    def run_cmd = [javaPath]
+    run_cmd.addAll(addOpens.tokenize())
+    run_cmd.addAll(["-cp", jar_name, "org.apache.doris.spark.testcase.TestStreamLoadForArrowType",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-database", "regression_test_connector_p0_spark_connector",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword])
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
     def proc = run_cmd.execute()
     def sout = new StringBuilder()
     def serr = new StringBuilder()

@@ -1,0 +1,236 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.cache;
+
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletionStage;
+import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+/** One typed physical cache owned by a {@link CatalogMetaCache}. */
+public final class MetaCache<K, V> {
+    private final MetaCacheDefinition<K, V> definition;
+    private final ScopedMetaCache<K, V> delegate;
+
+    MetaCache(MetaCacheDefinition<K, V> definition, ScopedMetaCache<K, V> delegate) {
+        this.definition = Objects.requireNonNull(definition, "definition can not be null");
+        this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
+    }
+
+    public String name() {
+        return definition.name();
+    }
+
+    public V get(K key) {
+        Function<K, V> loader = definition.loader();
+        if (loader == null) {
+            throw new IllegalStateException("Meta cache '" + name() + "' has no default loader");
+        }
+        return get(key, loader);
+    }
+
+    public V get(K key, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.get(nonNullKey, definition.scope(nonNullKey), loader);
+    }
+
+    /**
+     * Share completed values, but coalesce in-flight loads only within this identity-scoped owner.
+     * The cache must have automatic refresh disabled: a request-owned loader cannot outlive its request.
+     */
+    public V getForLoadScope(K key, Object loadScope, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getForLoadScope(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(loadScope, "loadScope can not be null"), loader);
+    }
+
+    /**
+     * Loads on the caller when elected, or observes an existing load without blocking this caller.
+     * Cancelling or completing a future obtained from the stage does not affect the shared load.
+     * Callbacks run on the completing thread and must not perform blocking work.
+     */
+    public CompletionStage<V> getOrLoadFuture(K key, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getOrLoadFuture(nonNullKey, definition.scope(nonNullKey), loader);
+    }
+
+    /**
+     * Loads a missing value while allowing an adapter to publish an auxiliary side effect immediately before the
+     * cache value at the same guarded commit point. The coordinator must invoke the supplied commit callback once;
+     * the callback argument is run only if the load is still current and is fenced with cache publication.
+     */
+    public V getWithPublicationAction(K key, Function<K, V> loader,
+            BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getWithPublicationAction(nonNullKey, definition.scope(nonNullKey), loader,
+                publicationCoordinator);
+    }
+
+    public V getIfPresent(K key) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getIfPresent(nonNullKey, definition.scope(nonNullKey));
+    }
+
+    public void put(K key, V value) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        delegate.put(nonNullKey, definition.scope(nonNullKey), value);
+    }
+
+    public boolean compareAndSet(K key, V expectedValue, V updatedValue) {
+        return compareAndSet(key, expectedValue, updatedValue, () -> {
+        });
+    }
+
+    /**
+     * Updates a value only if it is still current, and runs an auxiliary action inside the same guarded commit.
+     * Concurrent cache loads can not publish between the action and the value update.
+     * The action runs while the publication guards and key lock are held, so it must be short, non-blocking, and
+     * must not re-enter this cache. If it throws, the value is not updated, but completed external side effects are
+     * not rolled back.
+     */
+    public boolean compareAndSet(K key, V expectedValue, V updatedValue, Runnable commitAction) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue,
+                Objects.requireNonNull(commitAction, "commitAction can not be null"));
+    }
+
+    /** Captures an exact retained registration without loading or holding locks across a remote read. */
+    public Optional<Observation> observe(K key, Object expectedValue) {
+        K nonNullKey = Objects.requireNonNull(key, "key");
+        return delegate.observe(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(expectedValue, "expectedValue"));
+    }
+
+    /**
+     * A short guarded action may nest observations in parent-to-child order. It must not perform I/O,
+     * re-enter this cache, or invalidate this cache's owner. Returning false leaves this entry unchanged.
+     * Conditional invalidation still removes the observed value if its dependency cleanup throws.
+     */
+    public static final class Observation {
+        private final ObservationOperation operation;
+
+        Observation(ObservationOperation operation) {
+            this.operation = operation;
+        }
+
+        public boolean runIfCurrent(BooleanSupplier action) {
+            return operation.run(false, Objects.requireNonNull(action, "action"), () -> {
+            });
+        }
+
+        public boolean invalidateIfCurrent(BooleanSupplier action) {
+            return invalidateIfCurrent(action, () -> {
+            });
+        }
+
+        /**
+         * Runs the final action after retiring this registration, before releasing its publication guard.
+         * It follows the same parent-to-child lock order and no-I/O/no-reentry contract as the guarded action.
+         * It also runs when authorized dependency cleanup throws, but never when authorization returns false.
+         */
+        public boolean invalidateIfCurrent(BooleanSupplier action, Runnable afterInvalidation) {
+            return operation.run(true, Objects.requireNonNull(action, "action"),
+                    Objects.requireNonNull(afterInvalidation, "afterInvalidation"));
+        }
+    }
+
+    @FunctionalInterface
+    interface ObservationOperation {
+        boolean run(boolean invalidate, BooleanSupplier action, Runnable afterInvalidation);
+    }
+
+    public void invalidateKey(K key) {
+        delegate.invalidateKey(Objects.requireNonNull(key, "key can not be null"));
+    }
+
+    /**
+     * Starts a bulk remote load whose results all belong below {@code parentScope}. Publishing through the
+     * returned handle is fenced against concurrent scope and exact-key invalidation. A disabled cache still
+     * returns a currentness fence, but {@link BulkLoad#publish(Object, Object)} retains no values.
+     */
+    public BulkLoad<K, V> beginBulkLoad(ScopePath parentScope) {
+        return new BulkLoad<>(this, delegate.beginBulkLoad(parentScope));
+    }
+
+    public ScopedMetaCache.CacheMetrics metrics() {
+        return delegate.metrics();
+    }
+
+    public boolean isEnabled() {
+        return metrics().isEffectiveEnabled();
+    }
+
+    /** Whether this entry currently participates in byte-based memory governance. */
+    public boolean isWeightBounded() {
+        return metrics().isWeightBounded();
+    }
+
+    public long size() {
+        return metrics().getPhysicalEntryCount();
+    }
+
+    public long loadSuccessCount() {
+        return metrics().getLoadSuccessCount();
+    }
+
+    public CacheSpec cacheSpec() {
+        return definition.cacheSpec();
+    }
+
+    public boolean isAutoRefresh() {
+        return definition.refreshAfterWrite() != null;
+    }
+
+    public void forEach(BiConsumer<K, V> consumer) {
+        delegate.forEach(consumer);
+    }
+
+    void closeFromOwner() {
+        delegate.close();
+    }
+
+    public static final class BulkLoad<K, V> implements AutoCloseable {
+        private final MetaCache<K, V> owner;
+        private final ScopedMetaCache.BulkLoadHandle delegate;
+
+        private BulkLoad(MetaCache<K, V> owner, ScopedMetaCache.BulkLoadHandle delegate) {
+            this.owner = owner;
+            this.delegate = delegate;
+        }
+
+        /** Returns false when an invalidation raced the remote load and the value was intentionally not cached. */
+        public boolean publish(K key, V value) {
+            K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+            return owner.delegate.publish(delegate, nonNullKey, owner.definition.scope(nonNullKey), value);
+        }
+
+        /** Returns whether this load is still current for {@code key}, without publishing a value. */
+        public boolean isCurrent(K key) {
+            K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+            return owner.delegate.isBulkLoadCurrent(delegate, nonNullKey);
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+    }
+}

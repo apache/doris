@@ -35,6 +35,7 @@ void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll(SimpleFunctionFactory& factory);
+void register_function_datasketches_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
 void register_function_encode_varchar(SimpleFunctionFactory& factory);
@@ -69,6 +70,7 @@ void register_function_collection_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
+void register_function_row_ttl(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
@@ -93,6 +95,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_variant_element(SimpleFunctionFactory& factory);
+void register_function_variant_parse(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -122,6 +125,7 @@ void register_function_binary(SimpleFunctionFactory& factory);
 void register_function_levenshtein(SimpleFunctionFactory& factory);
 void register_function_hamming_distance(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
+void register_function_character_encoding(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -282,6 +286,7 @@ public:
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
             register_function_hll(instance);
+            register_function_datasketches_hll(instance);
             register_function_comparison(instance);
             register_function_encode_varchar(instance);
             register_function_decode_as_varchar(instance);
@@ -311,12 +316,14 @@ public:
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
+            register_function_row_ttl(instance);
             register_function_timestamp(instance);
             register_function_utility(instance);
             register_function_date_time_to_string(instance);
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_variant_parse(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
             register_function_comparison_eq_for_null(instance);
@@ -364,6 +371,7 @@ public:
             register_function_levenshtein(instance);
             register_function_hamming_distance(instance);
             register_function_soundex(instance);
+            register_function_character_encoding(instance);
             register_function_json_transform(instance);
             register_function_json_hash(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)

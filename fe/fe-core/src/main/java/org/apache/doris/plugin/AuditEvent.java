@@ -104,6 +104,10 @@ public class AuditEvent {
     public long spillWriteBytesToLocalStorage = -1;
     @AuditField(value = "SpillReadBytesFromLocalStorage", colName = "spill_read_bytes_from_local_storage")
     public long spillReadBytesFromLocalStorage = -1;
+    @AuditField(value = "SpillWriteBytesToRemoteStorage", colName = "spill_write_bytes_to_remote_storage")
+    public long spillWriteBytesToRemoteStorage = -1;
+    @AuditField(value = "SpillReadBytesFromRemoteStorage", colName = "spill_read_bytes_from_remote_storage")
+    public long spillReadBytesFromRemoteStorage = -1;
     @AuditField(value = "ScanBytesFromLocalStorage", colName = "scan_bytes_from_local_storage")
     public long scanBytesFromLocalStorage = -1;
     @AuditField(value = "ScanBytesFromRemoteStorage", colName = "scan_bytes_from_remote_storage")
@@ -161,6 +165,10 @@ public class AuditEvent {
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
 
+    // the protocol the session runs, as SHOW PROCESSLIST names it: MySQL / ArrowFlightSQL
+    @AuditField(value = "Protocol", colName = "protocol")
+    public String protocol = "";
+
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
     public String stmt = "";
@@ -210,6 +218,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setCloudCluster(String cloudClusterName) {
             auditEvent.cloudClusterName = cloudClusterName;
+            return this;
+        }
+
+        public AuditEventBuilder setProtocol(String protocol) {
+            auditEvent.protocol = protocol;
             return this;
         }
 
@@ -345,6 +358,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillWriteBytesToRemoteStorage(long bytes) {
+            auditEvent.spillWriteBytesToRemoteStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillReadBytesFromRemoteStorage(long bytes) {
+            auditEvent.spillReadBytesFromRemoteStorage = bytes;
             return this;
         }
 

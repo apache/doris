@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -49,11 +50,24 @@ public class ArrayFlatten extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
-        DataType dataType = getArgument(0).getDataType();
+        DataType dataType = getValidatedArgumentType();
         while (dataType instanceof ArrayType) {
             dataType = ((ArrayType) dataType).getItemType();
         }
         return FunctionSignature.ret(ArrayType.of(dataType)).args(getArgument(0).getDataType());
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        getValidatedArgumentType();
+    }
+
+    private DataType getValidatedArgumentType() {
+        DataType dataType = getArgument(0).getDataType();
+        if (!dataType.isArrayType() && !dataType.isNullType()) {
+            throw new AnalysisException("array_flatten requires an ARRAY argument, but got " + dataType.toSql());
+        }
+        return dataType;
     }
 
     /**
