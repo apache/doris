@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -201,23 +203,20 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
                 + ") b ON f.agent_code = b.agent_code", knownStats, PhysicalNestedLoopJoin.class);
     }
 
-    @Test
-    void testNestedLoopLeftSemiBuildDoesNotPropagateRightChangelog() {
-        RuntimeFilterContext context = getRuntimeFilterContext(
-                "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
-                        + "SELECT a.agent_code FROM rf_prune_agent a LEFT SEMI JOIN "
-                        + "rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s ON a.agent_code < s.agent_code"
-                        + ") b ON f.agent_code = b.agent_code", true);
-
-        Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
-        Assertions.assertEquals(1, context.prunedRF.size());
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testNestedLoopLeftSemiBuildKeepsStreamRuntimeFilter(boolean knownStats) {
+        assertBuildKeepsRuntimeFilter("SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                + "SELECT a.agent_code FROM rf_prune_agent a LEFT SEMI JOIN "
+                + "rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s ON a.agent_code < s.agent_code"
+                + ") b ON f.agent_code = b.agent_code", knownStats, PhysicalNestedLoopJoin.class);
     }
 
     @ParameterizedTest
     @CsvSource({"true, true, MIN_DELTA", "true, false, MIN_DELTA",
             "false, true, MIN_DELTA", "false, false, MIN_DELTA",
             "true, true, APPEND_ONLY", "true, false, APPEND_ONLY"})
-    void testOuterJoinChangelogFollowsBuildKey(boolean hashJoin, boolean streamKey, String streamType) {
+    void testOuterJoinChangelogKeepsRuntimeFilterForEitherKey(boolean hashJoin, boolean streamKey, String streamType) {
         String condition = hashJoin ? "a.id = s.id" : "COALESCE(a.id, 0) < s.id";
         String key = streamKey ? "stream_key" : "preserved_key";
         RuntimeFilterContext context = getRuntimeFilterContext(
@@ -228,15 +227,37 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
                         + ") b ON f.agent_code = b." + key, true);
 
         List<RuntimeFilter> retained = context.getNereidsRuntimeFilter();
-        List<RuntimeFilter> pruned = context.prunedRF;
-        Assertions.assertEquals(streamKey ? 1 : 0, retained.size());
-        Assertions.assertEquals(streamKey ? 0 : 1, pruned.size());
-        PhysicalHashJoin<?, ?> builder = (PhysicalHashJoin<?, ?>) (streamKey ? retained : pruned)
-                .get(0).getBuilderNode();
+        Assertions.assertEquals(1, retained.size());
+        Assertions.assertTrue(context.prunedRF.isEmpty());
+        PhysicalHashJoin<?, ?> builder = (PhysicalHashJoin<?, ?>) retained.get(0).getBuilderNode();
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.CHANGELOG,
+                context.getEffectiveSrcType(builder.right()));
         Assertions.assertTrue(builder.right().anyMatch(plan ->
                 (hashJoin ? plan instanceof PhysicalHashJoin : plan instanceof PhysicalNestedLoopJoin)
                         && ((AbstractPhysicalJoin<?, ?>) plan).getJoinType().isLeftOuterJoin()),
                 () -> builder.right().treeString());
+    }
+
+    @Test
+    void testWindowBuildKeepsStreamRuntimeFilter() {
+        assertBuildKeepsRuntimeFilter(
+                "SELECT f.id, b.preserved_key FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT a.agent_code AS preserved_key, SUM(s.agent_code) OVER (PARTITION BY a.id) AS total "
+                        + "FROM rf_prune_fact a LEFT JOIN [broadcast] "
+                        + "rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s ON a.id = s.id"
+                        + ") b ON f.k = b.total", true, PhysicalWindow.class);
+    }
+
+    @Test
+    void testGenerateBuildKeepsStreamRuntimeFilter() {
+        assertBuildKeepsRuntimeFilter(
+                "SELECT f.id, b.preserved_key FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT a.preserved_key, generated_key FROM ("
+                        + "SELECT a.agent_code AS preserved_key, s.agent_code AS stream_key "
+                        + "FROM rf_prune_fact a LEFT JOIN [broadcast] "
+                        + "rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s ON a.id = s.id"
+                        + ") a LATERAL VIEW explode_numbers(COALESCE(a.stream_key, 1)) lv AS generated_key"
+                        + ") b ON f.agent_code = b.generated_key", true, PhysicalGenerate.class);
     }
 
     @ParameterizedTest

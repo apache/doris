@@ -19,18 +19,14 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -41,14 +37,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
@@ -57,11 +51,8 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -74,12 +65,12 @@ import java.util.Set;
  * 3. the build column's ColumnStats.selectivity < 1, OR
  * 4. the build column is reduced by another RF, which satisfies above criterions, OR
  * 5. the RF can eliminate whole scan ranges, OR
- * 6. the build side scans a table stream's incremental data.
+ * 6. the build subtree reads a table stream's incremental data.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
-    private final Map<CTEId, Plan> changelogCteProducers = new HashMap<>();
+    private final Set<CTEId> changelogCteIds = new HashSet<>();
     private final Set<CTEId> changelogWorkTableIds = new HashSet<>();
 
     @Override
@@ -96,7 +87,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalRecursiveUnion<? extends Plan, ? extends Plan> visitPhysicalRecursiveUnion(
             PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, CascadesContext context) {
-        visitSetOperationChildren(recursiveUnion, recursiveUnion.getRegularChildrenOutputs(), true, context);
+        visitChildrenAndPropagateChangelog(recursiveUnion, context);
         return recursiveUnion;
     }
 
@@ -126,68 +117,22 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
-        visitSetOperationChildren(setOperation, setOperation.getRegularChildrenOutputs(),
-                setOperation instanceof PhysicalUnion, context);
+        visitChildrenAndPropagateChangelog(setOperation, context);
         return setOperation;
     }
 
-    private void visitSetOperationChildren(Plan plan, List<List<SlotReference>> childOutputs,
-            boolean union, CascadesContext context) {
+    private void visitChildrenAndPropagateChangelog(Plan plan, CascadesContext context) {
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-        for (int i = 0; i < plan.arity(); i++) {
-            Plan child = plan.child(i);
+        for (Plan child : plan.children()) {
             child.accept(this, context);
-            if (rfContext.hasChangelogSource(child)) {
-                if (union) {
-                    Set<Slot> sourceSlots = rfContext.getChangelogSourceSlots(child);
-                    Set<Slot> outputSlots = new HashSet<>();
-                    List<SlotReference> inputs = childOutputs.get(i);
-                    List<Slot> outputs = plan.getOutput();
-                    for (int j = 0; j < inputs.size(); j++) {
-                        if (sourceSlots.contains(inputs.get(j))) {
-                            outputSlots.add(outputs.get(j));
-                        }
-                    }
-                    rfContext.addChangelogSource(plan, outputSlots);
-                } else {
-                    // Membership in EXCEPT and INTERSECT depends on the entire tuple.
-                    rfContext.addEffectiveSrcNode(plan, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
-                }
-            }
+            propagateChangelog(plan, child, rfContext);
         }
     }
 
     private void propagateChangelog(Plan plan, Plan child, RuntimeFilterContext rfContext) {
-        if (!rfContext.hasChangelogSource(child)) {
-            return;
-        }
-        Set<Slot> sourceSlots = rfContext.getChangelogSourceSlots(child);
-        if (sourceSlots.containsAll(child.getOutputSet())
-                || (plan instanceof PhysicalFilter && plan.getExpressions().stream()
-                        .anyMatch(predicate -> !Collections.disjoint(predicate.getInputSlots(), sourceSlots)))) {
+        if (rfContext.getEffectiveSrcType(child) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
             rfContext.addEffectiveSrcNode(plan, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
-            return;
         }
-        Set<Slot> outputs = new HashSet<>();
-        if (plan instanceof PhysicalProject) {
-            for (NamedExpression project : ((PhysicalProject<?>) plan).getProjects()) {
-                if (!Collections.disjoint(project.getInputSlots(), sourceSlots)) {
-                    outputs.add(project.toSlot());
-                }
-            }
-        } else if (plan instanceof PhysicalHashAggregate) {
-            for (NamedExpression output : ((PhysicalHashAggregate<?>) plan).getOutputExpressions()) {
-                // An aggregate can depend on row multiplicity even when its input key is unchanged.
-                if (output.anyMatch(AggregateExpression.class::isInstance)
-                        || !Collections.disjoint(output.getInputSlots(), sourceSlots)) {
-                    outputs.add(output.toSlot());
-                }
-            }
-        } else {
-            outputs.addAll(plan.getOutputSet());
-            outputs.retainAll(sourceSlots);
-        }
-        rfContext.addChangelogSource(plan, outputs);
     }
 
     @Override
@@ -204,38 +149,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         join.right().accept(this, context);
         join.left().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-        propagateOrdinaryJoinSource(join, join.left(), join.getJoinType().isLeftSideNullable(), rfContext);
-        propagateJoinChangelog(join, join.getJoinType().isRemainRightJoin(), rfContext);
+        propagateEffectiveSrc(join, join.left(), rfContext);
+        // The right stream can affect the result even when the join emits only left slots.
+        propagateChangelog(join, join.right(), rfContext);
         return join;
-    }
-
-    private void propagateJoinChangelog(AbstractPhysicalJoin<?, ?> join, boolean includeRight,
-            RuntimeFilterContext rfContext) {
-        boolean leftChangelog = rfContext.hasChangelogSource(join.left());
-        boolean rightChangelog = includeRight && rfContext.hasChangelogSource(join.right());
-        if (!leftChangelog && !rightChangelog) {
-            return;
-        }
-        JoinType joinType = join.getJoinType();
-        if (!joinType.isLeftSideNullable() && !joinType.isRightSideNullable()) {
-            rfContext.addEffectiveSrcNode(join, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
-            return;
-        }
-        // Changes on the null-supplying side cannot remove or add keys from the preserved side.
-        Set<Slot> outputs = new HashSet<>();
-        if (leftChangelog) {
-            outputs.addAll(rfContext.getChangelogSourceSlots(join.left()));
-            if (!joinType.isLeftSideNullable()) {
-                outputs.addAll(join.right().getOutputSet());
-            }
-        }
-        if (rightChangelog) {
-            outputs.addAll(rfContext.getChangelogSourceSlots(join.right()));
-            if (!joinType.isRightSideNullable()) {
-                outputs.addAll(join.left().getOutputSet());
-            }
-        }
-        rfContext.addChangelogSource(join, outputs);
     }
 
     @Override
@@ -245,8 +162,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
         // Visit the producer first so that its source is available to all consumers in the query.
         cteAnchor.left().accept(this, context);
-        if (rfContext.hasChangelogSource(cteAnchor.left())) {
-            changelogCteProducers.put(cteAnchor.getCteId(), cteAnchor.left());
+        if (rfContext.getEffectiveSrcType(cteAnchor.left()) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            changelogCteIds.add(cteAnchor.getCteId());
         }
         cteAnchor.right().accept(this, context);
         propagateChangelog(cteAnchor, cteAnchor.right(), rfContext);
@@ -255,18 +172,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, CascadesContext context) {
-        visitPhysicalRelation(consumer, context);
-        Plan producer = changelogCteProducers.get(consumer.getCteId());
-        if (producer != null) {
-            RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-            Set<Slot> sourceSlots = rfContext.getChangelogSourceSlots(producer);
-            Set<Slot> outputs = new HashSet<>();
-            for (Slot slot : consumer.getOutput()) {
-                if (sourceSlots.contains(consumer.getProducerSlot(slot))) {
-                    outputs.add(slot);
-                }
-            }
-            rfContext.addChangelogSource(consumer, outputs);
+        if (changelogCteIds.contains(consumer.getCteId())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(consumer,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(consumer, context);
         }
         return consumer;
     }
@@ -292,12 +202,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-        Plan build = join.right();
-        RuntimeFilterContext.EffectiveSrcType rightSource = rfContext.getOrdinaryEffectiveSrcType(build);
-        Set<Slot> changelogSlots = rfContext.getChangelogSourceSlots(build);
-        if (rightSource != null) {
-            propagateOrdinaryJoinSource(join, build, join.getJoinType().isRightSideNullable(), rfContext);
-        } else if (!rfContext.hasChangelogSource(build) || !changelogSlots.containsAll(build.getOutputSet())) {
+        RuntimeFilterContext.EffectiveSrcType buildSource = rfContext.getEffectiveSrcType(join.right());
+        if (buildSource != null) {
+            rfContext.addEffectiveSrcNode(join, buildSource);
+        } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
                 // Check the row-level filtering effectiveness of runtime filters, not partition/bucket pruning.
@@ -310,10 +218,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     }
                 }
                 if (!hasEffectiveRowFilter) {
-                    // Decide per filter: the target can prune scan ranges or its build key can depend on a stream.
+                    // Scan-range pruning is target-specific. Keep only the filters whose own target
+                    // can prune partitions or buckets instead of retaining every filter from the join.
                     for (RuntimeFilter filter : ImmutableList.copyOf(join.getRuntimeFilters())) {
-                        if (!filter.canPruneScanRanges()
-                                && Collections.disjoint(filter.getSrcExpr().getInputSlots(), changelogSlots)) {
+                        if (!filter.canPruneScanRanges()) {
                             rfContext.removeFilter(filter, filter.getTargetSlot().getExprId());
                         }
                     }
@@ -321,18 +229,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             }
         }
         join.left().accept(this, context);
-        propagateOrdinaryJoinSource(join, join.left(), join.getJoinType().isLeftSideNullable(), rfContext);
-        propagateJoinChangelog(join, true, rfContext);
+        propagateEffectiveSrc(join, join.left(), rfContext);
         return join;
-    }
-
-    private void propagateOrdinaryJoinSource(Plan join, Plan child, boolean nullableSide,
-            RuntimeFilterContext rfContext) {
-        // A changelog branch can also carry an ordinary marker, for example from its APPEND_ONLY filter.
-        // Neither source on the null-supplying side can change the keys from the preserved side.
-        if (!nullableSide || !rfContext.hasChangelogSource(child)) {
-            propagateOrdinaryEffectiveSrc(join, child, rfContext);
-        }
     }
 
     private boolean isVisibleColumn(Slot slot) {
@@ -429,16 +327,14 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * RF on q1 is not effective, but RF on q2 is. Let RF judge by ndv.
      */
     private <T extends Plan> T propagateEffectiveSrc(T plan, CascadesContext context) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Plan child = plan.child(0);
         child.accept(this, context);
-        propagateOrdinaryEffectiveSrc(plan, child, ctx);
-        propagateChangelog(plan, child, ctx);
+        propagateEffectiveSrc(plan, child, context.getRuntimeFilterContext());
         return plan;
     }
 
-    private void propagateOrdinaryEffectiveSrc(Plan plan, Plan child, RuntimeFilterContext rfContext) {
-        RuntimeFilterContext.EffectiveSrcType type = rfContext.getOrdinaryEffectiveSrcType(child);
+    private void propagateEffectiveSrc(Plan plan, Plan child, RuntimeFilterContext rfContext) {
+        RuntimeFilterContext.EffectiveSrcType type = rfContext.getEffectiveSrcType(child);
         if (type != null) {
             rfContext.addEffectiveSrcNode(plan, type);
         }
