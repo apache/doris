@@ -288,6 +288,9 @@ public class TypeCoercionUtils {
             // is already a parent of the input type, no need to cast.
             return Optional.of(input);
         }
+        if (expected instanceof AnyDataType) {
+            return expected.acceptsType(input) ? Optional.of(input) : Optional.empty();
+        }
         if (input instanceof NullType) {
             // Cast null type (usually from null literals) into target types
             returnType = expected.defaultConcreteType();

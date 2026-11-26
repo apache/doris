@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -253,6 +254,18 @@ public class WindowExpression extends Expression {
     @Override
     public DataType getDataType() throws UnboundException {
         return function.getDataType();
+    }
+
+    @Override
+    protected TypeCheckResult checkInputDataTypesInternal() {
+        for (Expression key : partitionKeys) {
+            DataType type = key.getDataType();
+            if (!type.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
+                return new TypeCheckResult(false,
+                        "window PARTITION BY does not support type " + type.toSql());
+            }
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     public boolean isSkew() {

@@ -362,6 +362,11 @@ public class Column implements GsonPostProcessable {
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
+        } else if (type.isFileType()) {
+            for (StructField field : ((FileType) type).getFields()) {
+                Column child = new Column(field.getName(), field.getType(), true);
+                column.addChildrenColumn(child);
+            }
         } else if (type.isVariantType() && type instanceof VariantType) {
             // variant may contain predefined structured fields
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
@@ -758,7 +763,7 @@ public class Column implements GsonPostProcessable {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.type.isStructType()) {
+        } else if (column.type.isStructType() || column.type.isFileType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {
@@ -1241,6 +1246,7 @@ public class Column implements GsonPostProcessable {
                 break;
             case ARRAY:
             case MAP:
+            case FILE:
             case STRUCT:
                 sb.append(type.toString());
                 break;

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.PartialAggType;
@@ -182,6 +183,20 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     public List<Expression> getDistinctArguments() {
         return distinct ? getArguments() : ImmutableList.of();
+    }
+
+    @Override
+    protected TypeCheckResult checkInputDataTypesInternal() {
+        if (!(this instanceof Count)) {
+            for (Expression argument : getDistinctArguments()) {
+                DataType type = argument.getDataType();
+                if (!type.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
+                    return new TypeCheckResult(false,
+                            "DISTINCT does not support type " + type.toSql());
+                }
+            }
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     public boolean mustUseMultiDistinctAgg() {

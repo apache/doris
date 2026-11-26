@@ -61,7 +61,7 @@ public class ArrayContains extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+        ArrayFunctionUtils.checkEqualityArguments(this);
     }
 
     /**

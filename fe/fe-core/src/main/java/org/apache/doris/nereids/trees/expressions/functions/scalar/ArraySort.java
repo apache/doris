@@ -67,7 +67,7 @@ public class ArraySort extends ScalarFunction
             while (itemType.isArrayType()) {
                 itemType = ((ArrayType) itemType).getItemType();
             }
-            if (itemType.isMapType() || itemType.isStructType()
+            if (!itemType.allowsKeyUse(DataType.KeyUse.ORDERING) || itemType.isMapType() || itemType.isStructType()
                     || itemType.isVariantType() || itemType.isJsonType()) {
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
@@ -77,6 +77,10 @@ public class ArraySort extends ScalarFunction
             if (lambda.getLambdaArgumentNames().size() != 2) {
                 throw new AnalysisException("When using lambda as the parameter of array_sort,"
                         + " the lambda must be a binary comparator lambda.");
+            }
+            DataType sourceType = lambda.getLambdaArguments().get(0).getArrayExpression().getDataType();
+            if (!sourceType.allowsKeyUse(DataType.KeyUse.ORDERING)) {
+                throw new AnalysisException("array_sort does not support types: " + sourceType.toSql());
             }
             // The comparator returns -1, 0 or 1 for less than, equal to or greater than.
             if (!lambda.getRetType().isIntegralType()) {

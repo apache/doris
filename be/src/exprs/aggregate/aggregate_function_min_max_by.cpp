@@ -52,6 +52,7 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
+    case PrimitiveType::TYPE_FILE:
         return std::make_unique<MaxMinValue<SingleValueDataComplexType>>(DataTypes {type},
                                                                          be_version);
     default:

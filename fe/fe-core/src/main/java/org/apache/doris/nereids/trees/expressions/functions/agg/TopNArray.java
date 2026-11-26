@@ -41,9 +41,9 @@ public class TopNArray extends NullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(new AnyDataType(0), IntegerType.INSTANCE),
+                    .args(AnyDataType.ordering(0), IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(new AnyDataType(0), IntegerType.INSTANCE, IntegerType.INSTANCE)
+                    .args(AnyDataType.ordering(0), IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**

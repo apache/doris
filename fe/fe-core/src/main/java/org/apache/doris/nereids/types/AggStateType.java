@@ -173,4 +173,9 @@ public class AggStateType extends DataType {
     public String toSql() {
         return toCatalogDataType().toSql();
     }
+
+    @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return subTypes.stream().allMatch(subType -> subType.allowsKeyUse(keyUse));
+    }
 }

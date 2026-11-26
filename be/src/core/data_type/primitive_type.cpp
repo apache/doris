@@ -131,6 +131,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
+    case TPrimitiveType::FILE:
+        return TYPE_FILE;
 
     case TPrimitiveType::LAMBDA_FUNCTION:
         // TYPE_LAMBDA_FUNCTION is deprecated. Lambda execution is driven by
@@ -262,6 +264,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_STRUCT:
         return TPrimitiveType::STRUCT;
+    case TYPE_FILE:
+        return TPrimitiveType::FILE;
     case TYPE_AGG_STATE:
         return TPrimitiveType::AGG_STATE;
     case TYPE_VARBINARY:
@@ -382,6 +386,8 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_STRUCT:
         return "STRUCT";
+    case TYPE_FILE:
+        return "FILE";
 
     case TYPE_VARIANT:
         return "VARIANT";

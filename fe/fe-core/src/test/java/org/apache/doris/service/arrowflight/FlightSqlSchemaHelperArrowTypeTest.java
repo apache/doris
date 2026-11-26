@@ -87,6 +87,20 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc);
     }
 
+    @Test
+    public void fileAndNestedFileHaveNoArrowRepresentation() {
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> FlightSqlSchemaHelper.getArrowType(PrimitiveType.FILE, null, null));
+        for (TColumnDesc column : Arrays.asList(
+                desc("file", TPrimitiveType.FILE),
+                desc("files", TPrimitiveType.ARRAY, desc("item", TPrimitiveType.FILE)),
+                desc("files", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.STRING), desc("value", TPrimitiveType.FILE)),
+                desc("holder", TPrimitiveType.STRUCT, desc("file", TPrimitiveType.FILE)))) {
+            Assertions.assertThrows(UnsupportedOperationException.class, () -> buildField(column));
+        }
+    }
+
     /**
      * BE writes a DATEV2 column as {@code arrow::Date32Type} -- a day number. {@link DateUnit#MILLISECOND}
      * is date64, a different width and a different meaning, and a client that believes it renders and

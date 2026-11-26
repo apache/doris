@@ -27,12 +27,15 @@ final class ArrayFunctionUtils {
     private ArrayFunctionUtils() {
     }
 
-    static void checkNoVarBinaryArguments(ScalarFunction function) {
+    static void checkEqualityArguments(ScalarFunction function) {
         // Inspect original arguments before coercion can hide unsupported binary comparison/hash inputs.
         for (Expression argument : function.getArguments()) {
             DataType type = argument.getDataType();
             while (type instanceof ArrayType) {
                 type = ((ArrayType) type).getItemType();
+            }
+            if (!type.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
+                throw new AnalysisException(function.getName() + " does not support element type " + type.toSql());
             }
             if (type.isVarBinaryType()) {
                 throw new AnalysisException(function.getName() + " does not support VARBINARY arguments");
