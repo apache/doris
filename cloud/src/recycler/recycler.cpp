@@ -6062,8 +6062,8 @@ int InstanceRecycler::recycle_rowsets() {
             }
             num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
             if (compacted_rowsets_to_delete > 0) {
-                g_bvar_compaction_recycle_rowset_kv_remove_total.put(
-                        {instance_id_}, compacted_rowsets_to_delete);
+                g_bvar_compaction_recycle_rowset_kv_remove_total.put({instance_id_},
+                                                                     compacted_rowsets_to_delete);
             }
             metrics_context.total_recycled_num.fetch_add(rowset_keys_to_delete.size(),
                                                          std::memory_order_relaxed);
@@ -6481,7 +6481,6 @@ int InstanceRecycler::recycle_versioned_rowsets() {
                         if (recycle_rowset_meta_and_data(task) != 0) {
                             return;
                         }
-                        num_compacted += is_compacted;
                         num_recycled.fetch_add(1, std::memory_order_relaxed);
                         metrics_context.total_recycled_num.fetch_add(1, std::memory_order_relaxed);
                         metrics_context.report();
