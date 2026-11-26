@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecMaxComputeTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -146,8 +149,11 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> childOutput.get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecMaxComputeTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecMaxComputeTableSinkHashPartitioned(exprIds);
+            // Older execution versions can route by the same partition keys using an ordinary hash exchange.
+            PhysicalProperties partitioning = Config.be_exec_version
+                    < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION
+                    ? PhysicalProperties.createHash(exprIds, ShuffleType.REQUIRE)
+                    : new PhysicalProperties(new DistributionSpecMaxComputeTableSinkHashPartitioned(exprIds));
             // A plain OrderSpec is deliberate, NOT MustLocalSortOrderSpec: the enforcer reads
             // MustLocalSortOrderSpec as "sort locally before distributing" and therefore emits
             // localSort -> distribution -> global sort. That appends a merging exchange after
@@ -157,8 +163,7 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             List<OrderKey> orderKeys = columnIdx.stream()
                     .map(idx -> new OrderKey(childOutput.get(idx), true, false))
                     .collect(Collectors.toList());
-            return new PhysicalProperties(shuffleInfo)
-                    .withOrderSpec(new OrderSpec(orderKeys));
+            return partitioning.withOrderSpec(new OrderSpec(orderKeys));
         }
         // Keep sharing the original Hive-style non-partitioned writer scaling until
         // MaxCompute defines an independent sink-exchange contract.

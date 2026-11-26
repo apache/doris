@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMaxComputeTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
@@ -44,6 +46,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -52,23 +56,35 @@ import java.util.stream.Collectors;
 
 class PhysicalMaxComputeTableSinkTest {
 
-    @Test
-    void testDynamicPartitionWriteUsesShuffleThenPlainSort() {
+    @ParameterizedTest
+    @CsvSource({"12, false", "12, true", "13, false", "13, true"})
+    void testDynamicPartitionWriteUsesShuffleThenPlainSort(int beExecVersion, boolean strictConsistency) {
         MaxComputeExternalTable table = mockTable(
                 ImmutableList.of(new Column("part", PrimitiveType.INT)),
                 ImmutableList.of(
                         new Column("data", PrimitiveType.INT),
                         new Column("part", PrimitiveType.INT)));
         List<Slot> childOutput = slots("data", "part");
-        PhysicalProperties properties = deriveChildProperties(
-                table,
-                ImmutableList.of(new Column("data", PrimitiveType.INT),
-                        new Column("part", PrimitiveType.INT)),
-                childOutput, false);
+        PhysicalProperties properties;
+        int previousVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = beExecVersion;
+            properties = deriveChildProperties(table, table.getFullSchema(), childOutput, strictConsistency);
+        } finally {
+            Config.be_exec_version = previousVersion;
+        }
 
-        DistributionSpecMaxComputeTableSinkHashPartitioned distribution = Assertions.assertInstanceOf(
-                DistributionSpecMaxComputeTableSinkHashPartitioned.class, properties.getDistributionSpec());
-        Assertions.assertEquals(ImmutableList.of(childOutput.get(1).getExprId()), distribution.getOutputColumnExprIds());
+        if (beExecVersion == 12) {
+            DistributionSpecHash distribution = Assertions.assertInstanceOf(
+                    DistributionSpecHash.class, properties.getDistributionSpec());
+            Assertions.assertEquals(ImmutableList.of(childOutput.get(1).getExprId()),
+                    distribution.getOrderedShuffledColumns());
+        } else {
+            DistributionSpecMaxComputeTableSinkHashPartitioned distribution = Assertions.assertInstanceOf(
+                    DistributionSpecMaxComputeTableSinkHashPartitioned.class, properties.getDistributionSpec());
+            Assertions.assertEquals(ImmutableList.of(childOutput.get(1).getExprId()),
+                    distribution.getOutputColumnExprIds());
+        }
         Assertions.assertFalse(properties.getOrderSpec() instanceof MustLocalSortOrderSpec,
                 "MustLocalSortOrderSpec appends a merging exchange after the partition shuffle");
         Assertions.assertInstanceOf(OrderSpec.class, properties.getOrderSpec());

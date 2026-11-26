@@ -26,7 +26,8 @@ import java.util.Objects;
 
 /** Common logical-partition and writer-assignment contract for external table sink writers. */
 public abstract class DistributionSpecExternalTableSinkHashPartitioned extends DistributionSpec {
-    public static final int MIN_BE_EXEC_VERSION = 12;
+    // Keep in sync with SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION in be_exec_version_manager.h.
+    public static final int MIN_BE_EXEC_VERSION = 13;
 
     private final ImmutableList<ExprId> outputColumnExprIds;
 
