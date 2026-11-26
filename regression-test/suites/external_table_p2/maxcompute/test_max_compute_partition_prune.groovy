@@ -92,7 +92,7 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
 
     def three_partition_1_1 = """SELECT * FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2024 AND part3 = 'Q1' ORDER BY id;"""
     def three_partition_3_3 = """
-        SELECT /*+ SET_VAR(num_partitions_in_batch_mode=1, fetch_splits_max_wait_time_ms=10000) */ *
+        SELECT /*+ SET_VAR(num_partitions_in_batch_mode=2, fetch_splits_max_wait_time_ms=10000) */ *
         FROM three_partition_tb
         WHERE part1 = 'AS' AND part2 = 2025 ORDER BY id;
     """
