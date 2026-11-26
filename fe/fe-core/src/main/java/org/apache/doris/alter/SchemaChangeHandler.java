@@ -3975,7 +3975,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
 
                     if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                            partitionName, alterIndexes)) {
+                            partitionId, alterIndexes)) {
                         throw new DdlException("partition " + partitionName + " has been built specified index."
                                             + " please check your build stmt.");
                     }
@@ -4041,29 +4041,32 @@ public class SchemaChangeHandler extends AlterHandler {
                     + " please run them in separate statements.");
         }
         getCloudClusterName();
-        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, new HashSet<>(olapTable.getPartitionIds()));
     }
 
     // Throws if any of the partitions still has an unfinished index change job on the base index.
+    // Jobs are matched by partition ID because a partition can be renamed while its job is unfinished.
     private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
-            Set<String> partitionNames) throws DdlException {
+            Set<Long> partitionIds) throws DdlException {
         // Scan the retained job history once instead of once per partition, the table write lock is held here.
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
             // Cheap partition check first, the predicate compares index lists.
-            if (partitionNames.contains(indexChangeJob.getPartitionName())
+            if (partitionIds.contains(indexChangeJob.getPartitionId())
                     && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
                     olapTable.getId(), alterIndexes)) {
-                throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
-                        + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
+                throw new DdlException("partition " + olapTable.getPartition(indexChangeJob.getPartitionId()).getName()
+                        + " of table " + olapTable.getName()
+                        + " has an unfinished index change job, please retry after it finishes.");
             }
         }
     }
 
+    // Jobs are matched by partition ID because a partition can be renamed while its job is unfinished.
     public boolean hasIndexChangeJobOnPartition(
-            long originIndexId, long dbId, long tableId, String partitionName, List<Index> alterIndexes) {
+            long originIndexId, long dbId, long tableId, long partitionId, List<Index> alterIndexes) {
         // TODO: this is temporary methods
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (indexChangeJob.getPartitionName().equals(partitionName)
+            if (indexChangeJob.getPartitionId() == partitionId
                     && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes)) {
                 return true;
             }
