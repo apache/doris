@@ -461,8 +461,11 @@ bool set_boolean_zone_map(const ::orc::ColumnStatistics& statistics,
 bool set_floating_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics& statistics,
                            segment_v2::ZoneMap* zone_map) {
     const auto* double_statistics = dynamic_cast<const ::orc::DoubleColumnStatistics*>(&statistics);
+    // A standard writer can give [1, NaN, 2] finite bounds but a NaN sum. Without a finite
+    // sum, metadata MIN/MAX cannot preserve the row scanner's NaN ordering.
     if (double_statistics == nullptr || !double_statistics->hasMinimum() ||
-        !double_statistics->hasMaximum()) {
+        !double_statistics->hasMaximum() || !double_statistics->hasSum() ||
+        !std::isfinite(double_statistics->getSum())) {
         return false;
     }
     if (type.getKind() == ::orc::TypeKind::FLOAT) {

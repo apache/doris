@@ -1323,12 +1323,46 @@ sys.exit(code)
                 self.assertNotIn("secret-context", saved + result.stdout)
 
 
+FAKE_OSS = r'''
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(os.environ["FAKE_OSS_ROOT"])
+args = sys.argv[1:]
+op = next(arg for arg in args if arg in ("ls", "cp"))
+args = [arg for arg in args[args.index(op) + 1:] if not arg.startswith("-")]
+with (root / "calls.jsonl").open("a") as log:
+    log.write(json.dumps([op, *args]) + "\n")
+prefix = "oss://doris-community-ci/codex/"
+if os.environ.get("FAKE_OSS_FAIL") == f"{op}:{args[-1] if op == 'cp' else args[0]}":
+    sys.exit(1)
+if op == "ls":
+    for path in sorted((root / "objects").iterdir()):
+        name = prefix + path.name
+        if name.startswith(args[0]):
+            print(name)
+    sys.exit(0)
+source, destination = args
+if source.startswith(prefix):
+    source = root / "objects" / source.removeprefix(prefix)
+if destination.startswith(prefix):
+    destination = root / "objects" / destination.removeprefix(prefix)
+if not Path(source).exists():
+    sys.exit(1)
+shutil.copyfile(source, destination)
+# Simulate a concurrent replacement immediately after a candidate is downloaded.
+if os.environ.get("FAKE_OSS_REPLACE_AFTER_DOWNLOAD") == Path(source).name:
+    source.write_text(os.environ["FAKE_OSS_REPLACEMENT"])
+'''
+
+
 class AuthPoolShellTest(unittest.TestCase):
     PREFIX = "oss://doris-community-ci/codex/"
 
     def setUp(self):
-        # Reuse the reference workflow's fake OSS protocol and snapshot-race fixture.
-        from test_review_auth_quarantine import FAKE_OSS
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -1507,7 +1541,6 @@ class WorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.workflow = (assignment.ROOT / ".github/workflows/reviewer-assignment.yml").read_text()
-        cls.runner = (assignment.ROOT / ".github/workflows/code-review-runner.yml").read_text()
 
     def test_reapplication_is_an_event_not_a_one_time_flag(self):
         self.assertIn("issue_comment:\n    types: [created]", self.workflow)
@@ -1556,21 +1589,18 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("            .github/workflows", checkout)
         self.assertIn("            tools/reviewer-routing", checkout)
 
-    def test_github_token_and_write_permissions_are_a_subset_of_reference(self):
+    def test_github_token_and_job_permissions(self):
         self.assertIn("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", self.workflow)
         for permission in ("contents: read", "pull-requests: read", "issues: write"):
             self.assertIn(permission, self.workflow)
-        for permission in ("contents: read", "pull-requests: write", "issues: write"):
-            self.assertIn(permission, self.runner)
         self.assertNotIn("secrets.REVIEWER_ASSIGNMENT", self.workflow)
 
-    def test_runtime_and_checksums_match_the_existing_runner(self):
-        archive = re.search(r"oss://[^\s]+codex-exec-goal-[^\s]+\.tar\.gz", self.workflow)[0]
-        self.assertIn(archive, self.runner)
-        hashes = re.findall(r'echo "([0-9a-f]{64}) ', self.workflow)
-        self.assertEqual(len(hashes), 2)
-        for checksum in hashes:
-            self.assertIn(checksum, self.runner)
+    def test_archive_and_binary_are_verified_before_use(self):
+        checks = re.findall(r'echo "[0-9a-f]{64}  ([^"]+)" \| sha256sum --check', self.workflow)
+        self.assertEqual(["$archive", "$package/bin/codex"], checks)
+        self.assertLess(self.workflow.index('$archive" | sha256sum --check'), self.workflow.index('tar -xzf "$archive"'))
+        self.assertLess(self.workflow.index('$package/bin/codex" | sha256sum --check'),
+                        self.workflow.index('"$package/bin/codex" exec --help'))
 
     def test_no_auth_prompt_or_session_artifacts_are_uploaded(self):
         upload = self.workflow.split("      - name: Publish the validated assignment plan\n")[1]

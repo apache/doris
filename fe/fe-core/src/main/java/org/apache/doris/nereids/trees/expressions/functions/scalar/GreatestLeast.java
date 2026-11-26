@@ -87,6 +87,9 @@ public abstract class GreatestLeast extends ScalarFunction
                     }
                 }
             }
+            if (!commonType.get().allowsKeyUse(DataType.KeyUse.ORDERING)) {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
             return FunctionSignature.ret(commonType.get()).varArgs(commonType.get());
         }
     }

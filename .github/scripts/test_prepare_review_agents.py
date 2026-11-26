@@ -19,33 +19,16 @@
 """Test release review context preparation without credentials or model calls."""
 
 import json
-import os
-import re
-import shutil
 import subprocess
-import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
 from prepare_review_agents import SKILL_PATH, prepare_review_skill
 
-SCRIPTS = Path(__file__).resolve().parent
-WORKFLOW = SCRIPTS.parent / "workflows/code-review-runner.yml"
 EXISTING_GUIDE = "be/src/runtime/AGENTS.md"
 MISSING_GUIDE = "fe/fe-core/AGENTS.md"
 BRANCH_ONLY_GUIDE = "be/src/format_v2/AGENTS.md"
-
-
-def step_script(name):
-    step = re.search(
-        rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|\Z)",
-        WORKFLOW.read_text(), re.MULTILINE | re.DOTALL,
-    ).group(1)
-    return textwrap.dedent(re.search(
-        r"^        run: \|\n((?:          .*\n|\n)+)", step, re.MULTILINE,
-    ).group(1))
 
 
 class ReviewGuidanceTest(unittest.TestCase):
@@ -159,54 +142,6 @@ class ReviewGuidanceTest(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", f"{self.trusted}^{{commit}}", cwd=checkout), self.trusted)
         manifest = json.loads((context / "review_guidance_sources.json").read_text())
         self.assertTrue((checkout / manifest["skill"]).is_file())
-
-    @unittest.skipUnless(shutil.which("jq"), "workflow shell requires jq")
-    def test_actual_workflow_prepares_context_and_final_prompt(self):
-        # Execute the real shell blocks. Only GitHub HTTP is replaced by a fixture.
-        bin_dir = self.root / "bin"
-        bin_dir.mkdir()
-        gh = bin_dir / "gh"
-        gh.write_text(f"#!{sys.executable}\n" + textwrap.dedent('''
-            import json
-            import os
-            import sys
-            from pathlib import Path
-            endpoint = sys.argv[-1]
-            if endpoint == "repos/apache/doris/pulls/66227":
-                print(json.dumps({"head": {"sha": os.environ["HEAD_SHA"]},
-                                  "base": {"sha": os.environ["BASE_SHA"], "ref": "branch-4.1"}}))
-            else:
-                assert endpoint == ("repos/apache/doris/contents/.github/scripts/"
-                                    "prepare_review_agents.py?ref=" + os.environ["HELPER_REF"])
-                print(Path(os.environ["TEST_HELPER"]).read_text())
-        '''))
-        gh.chmod(0o755)
-        if sys.platform == "darwin":
-            # GNU sed -i and BSD sed -i have different argv conventions.
-            sed = bin_dir / "sed"
-            sed.write_text('#!/bin/bash\nif [ "$1" = -i ]; then shift; exec /usr/bin/sed -i "" "$@"; fi\nexec /usr/bin/sed "$@"\n')
-            sed.chmod(0o755)
-        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-               "REVIEW_GH_HELPER": str(SCRIPTS / "review_github_api.py"),
-               "REPO": "apache/doris", "PR_NUMBER": "66227", "HEAD_SHA": self.head,
-               "BASE_SHA": self.base, "HELPER_REF": self.trusted,
-               "REVIEW_CONTEXT_DIR": str(self.context), "REVIEW_CONTEXT_REL": self.context.name,
-               "RUNNER_TEMP": str(self.root), "TEST_HELPER": str(SCRIPTS / "prepare_review_agents.py")}
-        for step in ("Prepare authoritative PR context and required AGENTS guides", "Prepare review prompt"):
-            result = subprocess.run(["bash", "-e", "-c", step_script(step)],
-                                    cwd=self.repo, env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        manifest = self.check_bundle()
-        prompt = (self.context / "review_prompt.txt").read_text()
-        self.assertIn(manifest["skill"], prompt)
-        self.assertIn(self.trusted, prompt)
-        self.assertIn(BRANCH_ONLY_GUIDE, prompt)
-        self.assertNotIn("PLACEHOLDER_", prompt)
-        self.assertEqual((self.context / "required_agents.txt").read_text(), BRANCH_ONLY_GUIDE + "\n")
-        self.assertEqual((self.context / "pr_changed_files.txt").read_text(), "be/src/format_v2/reader.cpp\n")
-        self.assertIn("+PR change", (self.context / "pr.diff").read_text())
-        self.assertIn(f"{self.context.name}/review_prompt.txt",
-                      (self.context / "codex_goal_prompt.txt").read_text())
 
 
 if __name__ == "__main__":

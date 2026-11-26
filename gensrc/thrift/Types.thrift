@@ -105,7 +105,7 @@ enum TPrimitiveType {
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
   UUID = 46,
-  // 47 is FILE in branch-4.1; keep its wire identity reserved.
+  FILE = 47,
   GEOMETRY = 48,
   GEOGRAPHY = 49
 }
@@ -116,6 +116,7 @@ enum TTypeNodeType {
     MAP = 2,
     STRUCT = 3,
     VARIANT = 4,
+    FILE = 5,
 }
 
 enum TStorageBackendType {
@@ -174,7 +175,7 @@ struct TTypeNode {
     // only set for scalar types
     2: optional TScalarType scalar_type
 
-    // only used for structs; has struct_fields.size() corresponding child types
+    // used for STRUCT and FILE; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
 
     // old version used for array

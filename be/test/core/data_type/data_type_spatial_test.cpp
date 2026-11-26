@@ -40,32 +40,27 @@
 namespace doris {
 
 TEST(DataTypeSpatialTest, WireIdsDoNotReuseReleaseFileTypes) {
-    // branch-4.1 FILE uses protobuf 45 and Thrift 47, independently of whether
-    // mixed-version spatial execution is supported. Old FILE must remain unsupported.
+    EXPECT_EQ(PGenericType::FILE, 45);
     EXPECT_EQ(PGenericType::GEOMETRY, 46);
     EXPECT_EQ(PGenericType::GEOGRAPHY, 47);
+    EXPECT_EQ(TPrimitiveType::FILE, 47);
     EXPECT_EQ(TPrimitiveType::GEOMETRY, 48);
     EXPECT_EQ(TPrimitiveType::GEOGRAPHY, 49);
 }
 
-TEST(DataTypeSpatialTest, ReleaseFileProtobufMetadataRemainsUnsupported) {
+TEST(DataTypeSpatialTest, ReleaseFileProtobufMetadataDecodesAsFile) {
     PColumnMeta file_meta;
-    // Parse release FILE's wire field (type, tag 2, value 45). Reserved proto2 enum
-    // values remain unknown fields; the type defaults to UNKNOWN, never GEOMETRY.
+    // PColumnMeta.type is field 2, and FILE was assigned wire value 45 in branch-4.1.
     ASSERT_TRUE(file_meta.ParseFromString(std::string("\x10\x2d", 2)));
-    file_meta.set_is_nullable(false);
-    for (size_t child = 0; child < 6; ++child) {
-        file_meta.add_children()->set_type(PGenericType::STRING);
-    }
-    EXPECT_THROW(DataTypeFactory::instance().create_data_type(file_meta), doris::Exception);
+    ASSERT_TRUE(file_meta.has_type());
+    EXPECT_EQ(file_meta.type(), PGenericType::FILE);
 }
 
-TEST(DataTypeSpatialTest, ReleaseFileThriftDescriptorRemainsUnsupported) {
-    auto file_desc = create_type_desc(TYPE_GEOMETRY);
-    // Intentionally inject branch-4.1's FILE wire value to test unknown-type rejection.
-    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
-    file_desc.types[0].scalar_type.type = static_cast<TPrimitiveType::type>(47);
-    EXPECT_DEATH(DataTypeFactory::instance().create_data_type(file_desc), "meet unknown type 47");
+TEST(DataTypeSpatialTest, ReleaseFileThriftPrimitiveDecodesAsFile) {
+    const auto file_desc = create_type_desc(TYPE_FILE);
+    ASSERT_EQ(file_desc.types[0].scalar_type.type, TPrimitiveType::FILE);
+    EXPECT_EQ(DataTypeFactory::instance().create_data_type(file_desc, false)->get_primitive_type(),
+              TYPE_FILE);
 }
 
 TEST(DataTypeSpatialTest, DefaultCrsCaseIsCanonicalButCustomCrsIsPreserved) {

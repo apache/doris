@@ -38,7 +38,7 @@ public class MaxBy extends NullableAggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX, AnyDataType.INSTANCE_WITHOUT_INDEX)
+            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX, AnyDataType.ORDERING_WITHOUT_INDEX)
     );
 
     /**

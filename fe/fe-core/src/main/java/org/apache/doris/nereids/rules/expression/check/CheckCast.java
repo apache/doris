@@ -393,6 +393,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType.typeContainsFile() || targetType.typeContainsFile()) {
+            return false;
+        }
         // Variant V1 has no spatial primitive, including leaves of Array/Map/Struct.
         // A generic Variant cast must not admit these values and lose their type metadata.
         if ((targetType.isVariantType() && originalType.toCatalogDataType().typeContainsSpatialType())

@@ -204,6 +204,9 @@ public class OutFileClause {
             // So OutfileClause does not support to be analyzed again.
             return;
         }
+        if (needFormat && resultExprs.stream().anyMatch(expr -> expr.getType().typeContainsFile())) {
+            throw new AnalysisException("OUTFILE does not support FILE");
+        }
         analyzeFilePath();
 
         analyzeProperties();

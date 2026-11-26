@@ -24,6 +24,7 @@
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -85,13 +86,20 @@ TEST(VLiteralDigestTest, NestedUnsupportedColumnsDisableDigest) {
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, map_type});
     auto structure =
             Field::create_field<TYPE_STRUCT>(Struct {Field::create_field<TYPE_INT>(1), map});
+    auto file_type = std::make_shared<DataTypeFile>();
+    auto file = Field::create_field<TYPE_FILE>(File(6));
+    auto file_array_type = std::make_shared<DataTypeArray>(file_type);
+    auto file_array = Field::create_field<TYPE_ARRAY>(Array {file});
 
     for (const auto& [type, value] :
          std::vector<std::pair<DataTypePtr, Field>> {{array_type, array},
                                                      {nested_array_type, nested_array},
                                                      {map_type, map},
                                                      {struct_type, structure},
-                                                     {make_nullable(array_type), Field()}}) {
+                                                     {make_nullable(array_type), Field()},
+                                                     {file_type, file},
+                                                     {make_nullable(file_type), Field()},
+                                                     {file_array_type, file_array}}) {
         SCOPED_TRACE(type->get_name());
         auto literal = VLiteral::create_shared(type, value);
         EXPECT_EQ(literal->get_digest(42), 0);

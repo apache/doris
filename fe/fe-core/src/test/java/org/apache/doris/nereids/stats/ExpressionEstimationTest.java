@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -71,6 +72,13 @@ class ExpressionEstimationTest {
                 new NullLiteral(new GeometryType("EPSG:3857")), null));
         Assertions.assertSame(ColumnStatistic.UNKNOWN, ExpressionEstimation.estimate(
                 new NullLiteral(new GeographyType("projjson:my_crs", "karney")), null));
+    }
+
+    @Test
+    public void testFileNullLiteralUsesUnknownStatistics() {
+        Statistics statistics = new Statistics(1, new HashMap<>());
+        Assertions.assertSame(ColumnStatistic.UNKNOWN,
+                ExpressionEstimation.estimate(new NullLiteral(FileType.INSTANCE), statistics));
     }
 
     // MAX(a)

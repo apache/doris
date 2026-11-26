@@ -178,7 +178,7 @@ public class ColumnToThrift {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.getType().isStructType()) {
+        } else if (column.getType().isStructType() || column.getType().isFileType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {

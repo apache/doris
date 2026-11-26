@@ -47,11 +47,11 @@ message PStructField {
 };
 
 message PTypeNode {
-    // TTypeNodeType(SCALAR, ARRAY, MAP, STRUCT)
+    // TTypeNodeType(SCALAR, ARRAY, MAP, STRUCT, VARIANT, FILE)
     required int32 type = 1; 
     // only set for scalar types
     optional PScalarType scalar_type = 2;
-    // only used for structs; has struct_fields.size() corresponding child types
+    // used for STRUCT and FILE; has struct_fields.size() corresponding child types
     repeated PStructField struct_fields = 3;
     // only used for complex types, such as array, map and etc.
     optional bool contains_null = 4;
@@ -128,7 +128,7 @@ message PGenericType {
         TIMESTAMPTZ = 42;
         TIMESTAMP_NS = 43;
         UUID = 44;
-        reserved 45; // FILE in branch-4.1; never reuse its wire identity.
+        FILE = 45;
         GEOMETRY = 46;
         GEOGRAPHY = 47;
         UNKNOWN = 999;

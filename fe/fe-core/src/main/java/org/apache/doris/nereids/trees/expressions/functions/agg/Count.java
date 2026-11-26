@@ -121,7 +121,8 @@ public class Count extends NotNullableAggregateFunction
     private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
         return argumentType.isComplexType()
                 || argumentType.isObjectType()
-                || argumentType.isJsonType();
+                || argumentType.isJsonType()
+                || !argumentType.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY);
     }
 
     private static void throwDistinctArgumentException(Expression function) {

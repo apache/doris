@@ -1,0 +1,18 @@
+name: Cloud Review Receipt
+
+on: status
+
+permissions: {}
+
+jobs:
+  aggregate-cloud-receipt:
+    if: >-
+      vars.DORIS_REVIEW_APP_BOT != '' && github.event.sender.login == vars.DORIS_REVIEW_APP_BOT &&
+      startsWith(github.event.context, 'code-review/cloud/')
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ github.event.sha }}

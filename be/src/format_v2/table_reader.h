@@ -592,12 +592,11 @@ protected:
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
     std::optional<uint64_t> _current_predicate_snapshot_digest() const;
-    // The condition cache key covers the file identity plus the table-level predicate/session
-    // digest only. A table format whose file-column binding can change without changing that digest
-    // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
-    // this to false: a stale all-false granule would silently drop matching rows, because the
-    // cached verdict was produced by a different physical binding.
-    virtual bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
+    // Return the file-local predicate digest only when its row bitmap is cacheable. Table formats
+    // must reject unstable physical bindings (such as Iceberg positional ID fallback), even when
+    // the scanner and localized expression digests stay unchanged.
+    virtual std::optional<uint64_t> _condition_cache_localized_digest(
+            const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);

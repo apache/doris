@@ -362,7 +362,8 @@ public class ColumnDefinition {
                 && !type.isJsonType()
                 && !type.isVariantType()
                 && !type.isMapType()
-                && !type.isStructType();
+                && !type.isStructType()
+                && !type.isFileType();
     }
 
     private void checkKeyColumnType(boolean isOlap) {
@@ -459,6 +460,10 @@ public class ColumnDefinition {
             type.validateDataTypeWithSpatialLeaves();
         } else {
             type.validateDataType();
+        }
+        if (type.typeContainsFile()) {
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql() + " for column '" + name
+                    + "': FILE and types containing FILE cannot be used as table columns");
         }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()

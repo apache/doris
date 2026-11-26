@@ -402,6 +402,12 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "file":
+                if (types.size() != 1) {
+                    throw new AnalysisException("FILE does not accept type parameters");
+                }
+                dataType = FileType.INSTANCE;
+                break;
             case "varbinary":
                 // Keep declared byte limits in table schemas and nested binary leaves.
                 if (types.size() == 1 || (types.size() == 2 && types.get(1).equals("*"))) {
@@ -437,6 +443,7 @@ public abstract class DataType {
     @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
         switch (type.getPrimitiveType()) {
+            case FILE: return FileType.INSTANCE;
             case GEOMETRY:
                 return new GeometryType(((ScalarType) type).getSpatialCrs());
             case GEOGRAPHY:
@@ -781,6 +788,43 @@ public abstract class DataType {
 
     public boolean isVariantType() {
         return this instanceof VariantType;
+    }
+
+    /** Inspect logical types, including unresolved signature placeholders, for a FILE leaf. */
+    public boolean typeContainsFile() {
+        if (this instanceof ArrayType) {
+            return ((ArrayType) this).getItemType().typeContainsFile();
+        } else if (this instanceof MapType) {
+            return ((MapType) this).getKeyType().typeContainsFile()
+                    || ((MapType) this).getValueType().typeContainsFile();
+        } else if (this instanceof StructType) {
+            return ((StructType) this).getFields().stream().anyMatch(field -> field.getDataType().typeContainsFile());
+        } else if (this instanceof AggStateType) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(DataType::typeContainsFile);
+        }
+        return isFileType();
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
+    }
+
+    /** Key capabilities required by ordering, grouping, or deduplication operations. */
+    public enum KeyUse {
+        ORDERING,
+        GROUP_EQUALITY
+    }
+
+    /** Whether expressions of this bound type can participate in keys requiring {@code keyUse}. */
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return true;
+    }
+
+    /** Reject this bound type when {@code operation} requires an unsupported key capability. */
+    public void checkKeyUse(KeyUse keyUse, String operation) {
+        if (!allowsKeyUse(keyUse)) {
+            throw new AnalysisException(operation + " does not support type " + toSql());
+        }
     }
 
     public boolean isStructType() {

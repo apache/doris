@@ -1290,16 +1290,17 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
     return Status::OK();
 }
 
-bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_request) const {
+std::optional<uint64_t> TableReader::_condition_cache_localized_digest(
+        const FileScanRequest& file_request) const {
     if (_condition_cache_digest == 0 || _push_down_agg_type == TPushAggOp::type::COUNT ||
         _current_file_description == std::nullopt || _data_reader.reader == nullptr) {
-        return false;
+        return std::nullopt;
     }
     // Condition cache is populated by file readers after evaluating file-local row-level
     // conjuncts. Metadata pruning can skip row groups/pages, but it does not produce a per-row
     // survivor bitmap that can safely populate the cache.
     if (file_request.conjuncts.empty()) {
-        return false;
+        return std::nullopt;
     }
     // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
     // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
@@ -1308,7 +1309,7 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     for (const auto& conjunct : file_request.conjuncts) {
         localized_digest = conjunct->get_digest(localized_digest);
         if (localized_digest == 0) {
-            return false;
+            return std::nullopt;
         }
     }
     // Delete files/deletion vectors are table-format state. They may change independently of the
@@ -1316,19 +1317,23 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
     if (_delete_rows != nullptr || _deletion_vector != nullptr ||
         !file_request.delete_conjuncts.empty()) {
-        return false;
+        return std::nullopt;
     }
     // Only scanner-driven splits provide a digest rebuilt from the exact RF snapshot. Keep the
     // conservative behavior for standalone TableReader callers: their initial digest may describe
     // only static predicate P and must not store P AND RF under that key.
-    return _condition_cache_digest_covers_current_split ||
-           !contains_runtime_filter(file_request.conjuncts);
+    if (!_condition_cache_digest_covers_current_split &&
+        contains_runtime_filter(file_request.conjuncts)) {
+        return std::nullopt;
+    }
+    return localized_digest;
 }
 
 Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_request) {
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
-    if (!_should_enable_condition_cache(file_request)) {
+    const auto localized_digest = _condition_cache_localized_digest(file_request);
+    if (!localized_digest.has_value()) {
         _condition_cache_split_invalid = _condition_cache_split_participating;
         return Status::OK();
     }
@@ -1339,7 +1344,12 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         return Status::OK();
     }
     const auto& file = *_current_file_description;
-    auto cache_digest = _condition_cache_digest;
+    // Iceberg can keep the scanner predicate P AND Q while a recreated nested child moves P
+    // to residual evaluation. A bitmap for local P AND Q must not be reused for local Q alone.
+    // Retain the scanner seed as well: it carries session and runtime-filter identity.
+    auto cache_digest =
+            HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&*localized_digest),
+                                       sizeof(*localized_digest), _condition_cache_digest);
     if (_format == FileFormat::PARQUET) {
         const auto timezone = _get_int96_timezone_override(_scan_params);
         if (timezone.has_value()) {

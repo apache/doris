@@ -22,10 +22,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,6 +52,10 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
     public FunctionSignature customSignature() {
         MapType mapType = getMapType();
         DataType keyType = mapType.getKeyType();
+        if (!AnyDataType.GROUP_EQUALITY_WITHOUT_INDEX.acceptsType(keyType)
+                || !valueTypeTemplate().acceptsType(mapType.getValueType())) {
+            SearchSignature.throwCanNotFoundFunctionException(getName(), getArguments());
+        }
         DataType argumentValueType = argumentValueType(mapType.getValueType());
         DataType returnValueType = returnValueType(mapType.getValueType());
         return FunctionSignature.ret(MapType.of(keyType, returnValueType))
@@ -72,8 +78,13 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
         checkLegalityBeforeTypeCoercion();
     }
 
+    /** Template constraining map value types in {@link #customSignature()}. */
+    protected AnyDataType valueTypeTemplate() {
+        return AnyDataType.INSTANCE_WITHOUT_INDEX;
+    }
+
     protected MapType getMapType() {
-        DataType dataType = getArgument(0).getDataType();
+        DataType dataType = getArgumentType(0);
         if (!(dataType instanceof MapType)) {
             throw new AnalysisException(getName() + " requires a MAP argument");
         }

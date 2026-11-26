@@ -64,6 +64,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkAllSlotReferenceFromChildren(plan);
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
+            CheckAnalysis.checkKeyTypes(plan);
             checkMatchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);

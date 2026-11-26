@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.iceberg.IcebergTimeUtils;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -53,15 +54,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
 /**
- * Removes old snapshots from an iceberg table to free storage and improve metadata performance. Connector
- * port of legacy {@code IcebergExpireSnapshotsAction} — the most involved of the snapshot procedures (five
- * optional arguments, a custom validation pass, an FE-local fixed thread pool for concurrent deletes, a
- * {@code deleteWith} callback that classifies deleted files into the six Spark-compatible counters, and the
- * file kind map it classifies them by). The validation messages and the SDK call chain are verbatim; the validation
- * failures throw {@link DorisConnectorException} in place of the legacy {@code AnalysisException}/
- * {@code UserException} (message-identical, T08 byte-parity). {@code parseTimestamp} keeps the legacy
- * {@code ZoneId.systemDefault()} (this procedure, unlike {@code rollback_to_timestamp}, never used the
- * session time zone).
+ * Removes old snapshots from an iceberg table to free storage and improve metadata performance.
+ * Local datetime cutoffs use the session time zone; numeric cutoffs are epoch milliseconds.
+ * The result contains six file-deletion counters populated by the {@code deleteWith} callback.
  */
 public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     private static final Logger LOG = LogManager.getLogger(IcebergExpireSnapshotsAction.class);
@@ -200,7 +195,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             // If retain_last is specified without older_than, use current time as the cutoff
             // This is because Iceberg's retainLast only works in conjunction with expireOlderThan
             if (olderThan != null) {
-                long timestampMillis = parseTimestamp(olderThan);
+                long timestampMillis = parseTimestamp(olderThan, IcebergTimeUtils.resolveSessionZone(session));
                 expireSnapshots.expireOlderThan(timestampMillis);
             } else if (retainLast != null && snapshotIdsStr == null) {
                 // When only retain_last is specified, expire all snapshots older than now
@@ -244,6 +239,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                 if (fileKind == null) {
                     fileKind = metadataFileKindByName(path);
                 }
+                // Failed attempts may be retried; count only delete calls that return normally.
+                icebergTable.io().deleteFile(path);
                 if (fileKind == FileKind.POSITION_DELETES) {
                     deletedPositionDeleteFilesCount.incrementAndGet();
                 } else if (fileKind == FileKind.EQUALITY_DELETES) {
@@ -257,7 +254,6 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                 } else {
                     deletedDataFilesCount.incrementAndGet();
                 }
-                icebergTable.io().deleteFile(path);
             });
 
             // Execute and commit
@@ -282,15 +278,15 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     }
 
     /**
-     * Parse timestamp string to milliseconds since epoch.
+     * Parse a local datetime in the supplied time zone or a numeric epoch-millisecond timestamp.
      * Supports ISO datetime format (yyyy-MM-ddTHH:mm:ss) or milliseconds.
      */
-    private long parseTimestamp(String timestamp) {
+    private long parseTimestamp(String timestamp, ZoneId zone) {
         try {
             // Try ISO datetime format
             LocalDateTime dateTime = LocalDateTime.parse(timestamp,
                     DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            return dateTime.atZone(ZoneId.systemDefault())
+            return dateTime.atZone(zone)
                 .toInstant().toEpochMilli();
         } catch (DateTimeParseException e) {
             // Try as milliseconds
