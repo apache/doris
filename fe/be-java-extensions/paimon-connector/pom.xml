@@ -69,8 +69,8 @@ under the License.
         <!-- Keep FileIO service providers with the paimon-common SPI in this connector's
              isolated classloader. Loading them from preload-extensions breaks provider linkage. -->
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>paimon-s3-shade</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>

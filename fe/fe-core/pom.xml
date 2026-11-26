@@ -350,6 +350,10 @@ under the License.
             <artifactId>hadoop-huaweicloud</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>cos-api-shade</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
         </dependency>
@@ -466,8 +470,7 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- Replace Huawei IAM's bcprov-jdk15on 1.69/1.70 with 1.84 from the maintained
-             jdk18on line; it fixes CVE-2023-33202 and the later 2025/2026 BC Java advisories. -->
+        <!-- Use the managed jdk18on provider rather than Huawei IAM's retired jdk15on line. -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
@@ -512,7 +515,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <artifactId>hive-catalog-filtered</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -636,8 +639,8 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>paimon-s3-shade</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>

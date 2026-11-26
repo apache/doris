@@ -34,6 +34,10 @@ under the License.
             <unpackOptions>
                 <excludes>
                     <exclude>**/Log4j2Plugins.dat</exclude>
+                    <!-- These jars precede Hadoop's shared libraries on the JVM classpath.
+                         Keep BC in its signed jars so JCE can authenticate the provider. -->
+                    <exclude>org/bouncycastle/**</exclude>
+                    <exclude>META-INF/versions/**/org/bouncycastle/**</exclude>
                 </excludes>
             </unpackOptions>
         </dependencySet>

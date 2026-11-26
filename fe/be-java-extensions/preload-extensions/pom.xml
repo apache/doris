@@ -122,10 +122,18 @@ under the License.
         <!-- For BE CosN Access -->
         <!-- Keep a single declaration: Maven 3.10+ rejects duplicate dependency coordinates. -->
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>cos-api-shade</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
             <exclusions>
+                <exclusion>
+                    <groupId>com.qcloud</groupId>
+                    <artifactId>cos_api-bundle</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>org.json</groupId>
                     <artifactId>json</artifactId>
