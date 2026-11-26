@@ -94,7 +94,7 @@ public class MTMVTest {
                 + "querySql='select * from xxx;', "
                 + "status=MTMVStatus{state=INIT, schemaChangeDetail='null', refreshState=INIT}, "
                 + "jobInfo=MTMVJobInfo{jobName='job1', "
-                + "historyTasks=[MTMVTask{dbId=0, mtmvId=0, taskContext=null, "
+                + "historyTasks=[MTMVTask{dbId=0, mtmvId=1, taskContext=null, "
                 + "needRefreshPartitions=null, completedPartitions=null, refreshMode=null} "
                 + "AbstractTask{jobId=null, taskId=1, status=null, createTimeMs=null, startTimeMs=null, "
                 + "finishTimeMs=null, taskType=null, errMsg='null'}]}, mvProperties={}, "
