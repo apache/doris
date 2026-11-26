@@ -2028,14 +2028,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     /**
      * The engine name shown in the {@code ENGINE} column of {@code SHOW TABLE STATUS} and
-     * {@code information_schema.tables} (and through the REST metadata API). Named by the connector, which
-     * defaults it to the catalog type; the engine keeps no mapping from data source to displayed name.
+     * {@code information_schema.tables} (and through the REST metadata API). Views report {@code View}
+     * for {@code SHOW VIEWS}. Base tables report the connector's display name, which defaults to the catalog type.
      *
      * <p>Falls back to the generic {@code Plugin} only for a table whose catalog is not plugin-driven, which
      * no production path builds.</p>
      */
     @Override
     public String getEngine() {
+        if (supportsView() && isView()) {
+            return TableType.VIEW.toEngineName();
+        }
         return catalog instanceof PluginDrivenExternalCatalog
                 ? ((PluginDrivenExternalCatalog) catalog).getDisplayEngineName()
                 : super.getEngine();
@@ -2043,7 +2046,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     /**
      * What {@code SHOW CREATE TABLE} prints after {@code ENGINE=}. Deliberately the same string as
-     * {@link #getEngine()}: one connector, one engine name, however the user reaches it.
+     * {@link #getEngine()} for a base table.
      *
      * <p>It is display only, and was never round-trippable — an HMS catalog prints {@code hms} here while the
      * name it accepts back in {@code CREATE TABLE ... ENGINE=} is {@code hive}. Connectors that render their

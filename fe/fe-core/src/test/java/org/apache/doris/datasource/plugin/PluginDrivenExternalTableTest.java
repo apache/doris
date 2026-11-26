@@ -810,6 +810,7 @@ public class PluginDrivenExternalTableTest {
         Mockito.when(db.getRemoteName()).thenReturn("db1");
         Mockito.when(db.getId()).thenReturn(100L);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getDisplayEngineName()).thenReturn("iceberg");
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
@@ -893,6 +894,13 @@ public class PluginDrivenExternalTableTest {
                 pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), true).isView());
         Assertions.assertFalse(
                 pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), false).isView());
+    }
+
+    @Test
+    public void icebergEngineDistinguishesPersistentViewsFromTables() {
+        Set<ConnectorCapability> capabilities = EnumSet.of(ConnectorCapability.SUPPORTS_VIEW);
+        Assertions.assertEquals("View", pluginViewTable(capabilities, true).getEngine());
+        Assertions.assertEquals("iceberg", pluginViewTable(capabilities, false).getEngine());
     }
 
     @Test
