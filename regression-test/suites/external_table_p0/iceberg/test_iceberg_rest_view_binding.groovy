@@ -28,6 +28,7 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     String sourceDb = config.get("iceberg_view_source_namespace") ?: "iceberg_rest_view_source"
     String storeDb = config.get("iceberg_view_store_namespace") ?: "iceberg_rest_view_store"
     String catalog = config.get("iceberg_view_catalog") ?: "iceberg_rest_view_binding"
+    String rootedCatalog = "${catalog}_rooted"
     String accessKey = config.get("iceberg_view_access_key")
     String secretKey = config.get("iceberg_view_secret_key")
 
@@ -71,10 +72,10 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         return result
     }
     def createView = { String name, String text, List<String> names, Map summary = [:],
-                       String defaultCatalog = catalog, String namespace = sourceDb, List representations = [],
+                       String defaultCatalog = catalog, Object namespace = sourceDb, List representations = [],
                        List parent = [] ->
         String path = "/v1/namespaces/${(parent + [storeDb]).join('%1F')}/views"
-        List savedNamespace = namespace == null ? [] : parent + [namespace]
+        List savedNamespace = namespace instanceof List ? namespace : (namespace == null ? [] : [namespace])
         request("DELETE", "${path}/${name}", null, [200, 204, 404])
         def fields = names.withIndex().collect { String column, int index ->
             [id: index + 1, name: column, required: false, type: "int"]
@@ -132,7 +133,13 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         DROP VIEW IF EXISTS demo.${storeDb}.v_spark_created;
         CREATE VIEW demo.${storeDb}.v_spark_created (declared_name) AS SELECT x FROM t;
     """
-    createView("v_rooted", "SELECT x FROM rooted_base", ["x"], [:], null, storeDb, [], [storeDb])
+    // A single dotted level must never be looked up as the two existing levels used by rooted_base.
+    String dottedLevel = "${storeDb}.${storeDb}"
+    createView("v_literal_dot", "SELECT x FROM rooted_base", ["x"], [:], catalog, dottedLevel)
+    createView("v_literal_dot_qualified", "SELECT x FROM ${catalog}.${sourceDb}.t", ["x"], [:], catalog, dottedLevel)
+    List rootedNamespace = [storeDb, storeDb]
+    createView("v_rooted", "SELECT x FROM rooted_base", ["x"], [:], null, rootedNamespace, [], [storeDb])
+    createView("v_foreign_rooted", "SELECT x FROM rooted_base", ["x"], [:], rootedCatalog, rootedNamespace)
     createView("v_engine_doris", "SELECT CAST(10 AS INT) AS x", ["x"], ["engine-name": "doris"])
     createView("v_engine_missing", "SELECT CAST(10 AS INT) AS x", ["x"])
     createView("v_engine_empty", "SELECT CAST(10 AS INT) AS x", ["x"], ["engine-name": ""])
@@ -199,7 +206,6 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         's3.access_key' = '${accessKey}', 's3.secret_key' = '${secretKey}',
         's3.endpoint' = 'http://${host}:${config.get('iceberg_minio_port')}',
         's3.region' = 'us-east-1', 'use_path_style' = 'true'"""
-    String rootedCatalog = "${catalog}_rooted"
     sql """DROP CATALOG IF EXISTS ${rootedCatalog}"""
     sql """CREATE CATALOG ${rootedCatalog} PROPERTIES (${catalogProperties}, 'external_catalog.name' = '${storeDb}')"""
     // Binding the view must find its unqualified table in the one-level database exposed by this catalog.
@@ -214,6 +220,12 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
 
     order_qt_table_control "SELECT x, y FROM ${catalog}.${sourceDb}.t"
     order_qt_spark_created "SELECT declared_name FROM v_spark_created"
+    test {
+        sql "SELECT x FROM v_literal_dot"
+        exception "Current database is not set."
+    }
+    sql "SELECT x FROM v_literal_dot_qualified LIMIT 0"
+    sql "SELECT x FROM v_foreign_rooted LIMIT 0"
     order_qt_engine_doris "SELECT * FROM v_engine_doris"
     order_qt_engine_missing "SELECT * FROM v_engine_missing"
     order_qt_engine_empty "SELECT * FROM v_engine_empty"

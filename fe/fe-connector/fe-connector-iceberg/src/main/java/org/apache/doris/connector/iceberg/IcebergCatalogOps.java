@@ -25,7 +25,6 @@ import org.apache.doris.connector.spi.ddl.DropRefChange;
 import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
-import com.google.common.base.Splitter;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -118,11 +117,6 @@ public interface IcebergCatalogOps {
      * seam does not).
      */
     View loadView(String dbName, String viewName);
-
-    /** Maps a view's saved namespace to the namespace Doris exposes in this catalog. */
-    default Namespace visibleViewNamespace(Namespace namespace) {
-        return namespace;
-    }
 
     /** Drops the view {@code dbName.viewName}. Requires a (view-enabled) {@link ViewCatalog}; else fails loud. */
     void dropView(String dbName, String viewName);
@@ -435,19 +429,6 @@ public interface IcebergCatalogOps {
                 return false;
             }
             return probeViews(() -> resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName)), false);
-        }
-
-        @Override
-        public Namespace visibleViewNamespace(Namespace namespace) {
-            if (externalCatalogName.isPresent() && !(restFlavor && nestedNamespaceEnabled)
-                    && namespace.length() == 2 && namespace.level(0).equals(externalCatalogName.get())) {
-                String dbName = namespace.level(1);
-                // Flat listing exposes the child name. Only use it if lookup reaches the saved namespace.
-                if (toNamespace(dbName).equals(namespace)) {
-                    return Namespace.of(dbName);
-                }
-            }
-            return namespace;
         }
 
         @Override
@@ -952,18 +933,8 @@ public interface IcebergCatalogOps {
             return externalCatalogName.map(Namespace::of).orElseGet(Namespace::empty);
         }
 
-        /**
-         * Builds the multi-level namespace for {@code dbName}, mirroring legacy {@code getNamespace}: split
-         * on {@code '.'} (omit empties / trim), then append the external-catalog level last when present.
-         */
         private Namespace toNamespace(String dbName) {
-            // Use the SAME Guava splitter as legacy IcebergMetadataOps.getNamespace so splitting is
-            // byte-faithful — including trimResults()==CharMatcher.whitespace(), which trims Unicode
-            // whitespace above U+0020 (e.g. U+3000) that String.trim() would leave behind.
-            List<String> levels = new ArrayList<>(
-                    Splitter.on('.').omitEmptyStrings().trimResults().splitToList(dbName));
-            externalCatalogName.ifPresent(levels::add);
-            return Namespace.of(levels.toArray(new String[0]));
+            return IcebergNamespaces.fromDatabaseName(dbName, externalCatalogName);
         }
 
         private TableIdentifier toTableIdentifier(String dbName, String tableName) {

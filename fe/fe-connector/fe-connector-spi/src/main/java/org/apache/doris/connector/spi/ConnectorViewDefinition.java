@@ -75,7 +75,10 @@ public final class ConnectorViewDefinition {
         return defaultCatalog;
     }
 
-    /** The saved namespace; an absent value uses the view's database, while an empty list has no default database. */
+    /**
+     * The saved namespace components in the target catalog. An absent value uses the view's database,
+     * while an empty list has no default database.
+     */
     public Optional<List<String>> getDefaultNamespace() {
         return defaultNamespace;
     }

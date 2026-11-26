@@ -88,6 +88,7 @@ org.apache.doris.connector.spi.ConnectorProvider#create():org.apache.doris.exten
 org.apache.doris.connector.spi.ConnectorProvider#create(java.util.Map,org.apache.doris.connector.spi.ConnectorContext):org.apache.doris.connector.spi.Connector
 org.apache.doris.connector.spi.ConnectorProvider#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin
 org.apache.doris.connector.spi.ConnectorProvider#createFileFormatConnector(java.lang.String,org.apache.doris.connector.spi.ConnectorContext):org.apache.doris.connector.spi.Connector
+org.apache.doris.connector.spi.ConnectorProvider#databaseNameForViewNamespace(java.util.Map,java.util.List):java.util.Optional
 org.apache.doris.connector.spi.ConnectorProvider#defaultDatabaseOnUse():java.util.Optional
 org.apache.doris.connector.spi.ConnectorProvider#description():java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#displayEngineName():java.lang.String

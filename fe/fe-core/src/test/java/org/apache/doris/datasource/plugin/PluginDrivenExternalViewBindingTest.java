@@ -194,6 +194,26 @@ public class PluginDrivenExternalViewBindingTest extends TestWithFeService {
     }
 
     @Test
+    public void unrepresentableDefaultOnlyAffectsRelationsThatNeedIt() {
+        // An internal target has a single database component. Joining these two components would invent a name.
+        List<String> namespace = Arrays.asList("source", "nested");
+        Fixture unqualified = new Fixture(new ConnectorViewDefinition("SELECT x FROM t", "spark", columns("x"),
+                "internal", namespace));
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                () -> unqualified.query("SELECT x FROM " + VIEW_DB + ".v").analyze());
+        Assertions.assertEquals("Current database is not set.", error.getMessage());
+        assertCallerRestored();
+        for (String body : Arrays.asList("SELECT 10 AS x", "SELECT x FROM " + SOURCE_DB + ".t",
+                "SELECT x FROM internal." + SOURCE_DB + ".t")) {
+            Fixture qualified = new Fixture(new ConnectorViewDefinition(body, "spark", columns("x"),
+                    "internal", namespace));
+            Assertions.assertEquals(Collections.singletonList("x"),
+                    names(qualified.query("SELECT x FROM " + VIEW_DB + ".v").analyze().getPlan()));
+            assertCallerRestored();
+        }
+    }
+
+    @Test
     public void unusedDefaultCatalogDoesNotBlockConstantOrQualifiedSql() {
         Fixture constant = new Fixture(new ConnectorViewDefinition("SELECT CAST(10 AS INT) AS x", "spark",
                 columns("x"), "unregistered_view_catalog", Collections.emptyList()));

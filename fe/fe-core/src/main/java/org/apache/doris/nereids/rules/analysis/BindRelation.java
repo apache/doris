@@ -47,6 +47,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -908,8 +909,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         ConnectorViewDefinition definition = pluginViewTable.getViewDefinition();
                         String pluginCatalog = definition.getDefaultCatalog()
                                 .orElse(pluginViewTable.getCatalog().getName());
-                        String pluginDb = definition.getDefaultNamespace().map(levels -> String.join(".", levels))
-                                .orElse(pluginViewTable.getDatabase().getFullName());
+                        String pluginDb = definition.getDefaultNamespace().map(levels -> {
+                            CatalogIf<?> target = cascadesContext.getConnectContext().getCatalog(pluginCatalog);
+                            // Leave no current database if these components cannot name one in the target catalog.
+                            // Only relations that actually use the default database will then fail to bind.
+                            return target == null ? "" : target.databaseNameForViewNamespace(levels).orElse("");
+                        }).orElseGet(() -> pluginViewTable.getDatabase().getFullName());
                         ExternalView externalView = new ExternalView(pluginViewTable, definition.getSql(),
                                 pluginViewTable.getViewSchema(definition));
                         Plan pluginViewPlan = parseAndAnalyzeExternalView(externalView,

@@ -22,6 +22,7 @@ import org.apache.doris.extension.spi.PluginFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -64,6 +65,15 @@ public interface ConnectorProvider extends PluginFactory {
      */
     default boolean supports(String catalogType, Map<String, String> properties) {
         return getType().equalsIgnoreCase(catalogType);
+    }
+
+    /**
+     * Returns a database name that resolves to exactly the given saved view namespace in this catalog.
+     * An empty result means there is no usable default database. This is a local name conversion:
+     * even a view that never uses its default database can request it during planning.
+     */
+    default Optional<String> databaseNameForViewNamespace(Map<String, String> properties, List<String> levels) {
+        return levels.size() == 1 ? Optional.of(levels.get(0)) : Optional.empty();
     }
 
     /**

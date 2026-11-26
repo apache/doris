@@ -88,7 +88,6 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
@@ -425,13 +424,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     throw new DorisConnectorException("Cannot get schema for view '" + dbName + "." + viewName + "'");
                 }
                 List<ConnectorColumn> columns = parseSchema(schema);
-                String defaultCatalog = viewVersion.defaultCatalog();
-                Namespace namespace = viewVersion.defaultNamespace();
-                if (defaultCatalog == null || defaultCatalog.equals(context.getCatalogName())) {
-                    namespace = catalogOps.visibleViewNamespace(namespace);
-                }
                 return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns,
-                        defaultCatalog, Arrays.asList(namespace.levels()));
+                        viewVersion.defaultCatalog(), Arrays.asList(viewVersion.defaultNamespace().levels()));
             });
         } catch (Exception e) {
             if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchViewException.class::isInstance)) {

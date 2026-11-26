@@ -770,7 +770,7 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionProjectsOnlyNamespacesInTheOwningCatalog() {
+    public void getViewDefinitionPreservesPhysicalNamespaceForTheTargetCatalog() {
         FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
         Namespace root = Namespace.of("cat");
         Namespace child = Namespace.of("cat", "cat");
@@ -785,21 +785,54 @@ public class IcebergConnectorMetadataTest {
                 catalog, true, false, true, Optional.of("cat"));
         IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
                 IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
-        List<String> visibleDb = Collections.singletonList("cat");
-        Assertions.assertEquals(visibleDb, metadata.listDatabaseNames(null));
-        Assertions.assertEquals(visibleDb, metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
+        List<String> levels = Arrays.asList(child.levels());
+        Assertions.assertEquals(Collections.singletonList("cat"), metadata.listDatabaseNames(null));
+        Assertions.assertEquals(levels, metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
 
         for (String savedCatalog : Arrays.asList("test", "foreign")) {
             ViewVersion saved = ImmutableViewVersion.builder().from(version).defaultCatalog(savedCatalog).build();
             catalog.loadableViews.put(viewId, viewWithMetadata(saved, idNameSchema()));
-            Assertions.assertEquals(savedCatalog.equals("test") ? visibleDb : Arrays.asList(child.levels()),
-                    metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
+            Assertions.assertEquals(levels, metadata.getViewDefinition(null, "cat", "v").getDefaultNamespace().get());
         }
-        Assertions.assertEquals(Namespace.of("other", "cat"), ops.visibleViewNamespace(Namespace.of("other", "cat")));
-        Assertions.assertEquals(Namespace.empty(), ops.visibleViewNamespace(Namespace.empty()));
-        IcebergCatalogOps nested = new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(
-                catalog, true, true, true, Optional.of("cat"));
-        Assertions.assertEquals(child, nested.visibleViewNamespace(child));
+    }
+
+    @Test
+    public void viewDatabaseNamesResolveToTheExactPhysicalNamespace() {
+        Namespace dotted = Namespace.of("alpha.beta");
+        Namespace nested = Namespace.of("alpha", "beta");
+        FakeIcebergCatalog catalog = new FakeIcebergCatalog();
+        catalog.childNamespaces.put(Namespace.empty(), Arrays.asList(dotted, Namespace.of("alpha")));
+        catalog.childNamespaces.put(Namespace.of("alpha"), Collections.singletonList(nested));
+        catalog.tablesByNs.put(dotted, Collections.singletonList("literal_table"));
+        catalog.tablesByNs.put(nested, Collections.singletonList("nested_table"));
+        IcebergConnectorProvider provider = new IcebergConnectorProvider();
+        Map<String, String> properties = Collections.emptyMap();
+        for (boolean recursive : Arrays.asList(false, true)) {
+            IcebergCatalogOps ops = new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(
+                    catalog, true, recursive, true, Optional.empty());
+            Assertions.assertTrue(ops.listDatabaseNames().contains("alpha.beta"));
+            Assertions.assertEquals(Optional.empty(), provider.databaseNameForViewNamespace(properties,
+                    Arrays.asList(dotted.levels())));
+            String db = provider.databaseNameForViewNamespace(properties, Arrays.asList(nested.levels())).get();
+            Assertions.assertEquals(Collections.singletonList("nested_table"), ops.listTableNames(db));
+            Assertions.assertEquals(nested, catalog.lastListTablesNs);
+        }
+        Assertions.assertEquals(Optional.empty(), provider.databaseNameForViewNamespace(properties,
+                Arrays.asList("alpha", " beta")));
+        Assertions.assertEquals(Optional.empty(), provider.databaseNameForViewNamespace(properties,
+                Arrays.asList("alpha", "", "beta")));
+
+        Map<String, String> rooted = Collections.singletonMap(IcebergCatalogProperties.EXTERNAL_CATALOG_NAME, "cat");
+        for (boolean recursive : Arrays.asList(false, true)) {
+            IcebergCatalogOps ops = new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(
+                    catalog, true, recursive, true, Optional.of("cat"));
+            String db = provider.databaseNameForViewNamespace(rooted, Arrays.asList("cat", "cat")).get();
+            Assertions.assertEquals("cat", db);
+            ops.listTableNames(db);
+            Assertions.assertEquals(Namespace.of("cat", "cat"), catalog.lastListTablesNs);
+            Assertions.assertEquals(Optional.empty(), provider.databaseNameForViewNamespace(rooted,
+                    Arrays.asList("cat", "other")));
+        }
     }
 
     @Test

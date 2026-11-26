@@ -26,7 +26,9 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -56,6 +58,12 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public Set<String> acceptedCreateTableEngineNames() {
         return Collections.singleton("iceberg");
+    }
+
+    @Override
+    public Optional<String> databaseNameForViewNamespace(Map<String, String> properties, List<String> levels) {
+        Optional<String> root = IcebergCatalogProperties.of(properties).getExternalCatalogName();
+        return IcebergNamespaces.toDatabaseName(levels, root);
     }
 
     /**
