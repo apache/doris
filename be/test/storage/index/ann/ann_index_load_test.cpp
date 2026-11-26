@@ -19,12 +19,16 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "exprs/vectorized_fn_call.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/clucene/lucene_ann_store.h"
@@ -33,6 +37,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
+#include "storage/segment/virtual_column_iterator.h"
 
 namespace doris::segment_v2 {
 
@@ -236,6 +241,134 @@ TEST_F(AnnIndexLoadTest, MissingInternalFaissFileIsNotMissingIndex) {
         auto status = reader->load_index(nullptr);
         EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>()) << status;
         EXPECT_TRUE(reader->healthy_status().is<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>());
+    }
+}
+
+TEST_F(AnnIndexLoadTest, SparseTopNRanksOnlyIndexedCandidates) {
+    TQueryOptions query_options;
+    query_options.__set_enable_ann_index_result_cache(false);
+    RuntimeState state(query_options, TQueryGlobals());
+    for (const auto* type : {"hnsw", "ivf", "ivf_on_disk"}) {
+        for (bool l2 : {true, false}) {
+            for (bool all_empty : {false, true}) {
+                SCOPED_TRACE(fmt::format("type={} l2={} all_empty={}", type, l2, all_empty));
+                _meta._properties["index_type"] = type;
+                _meta._properties["metric_type"] = l2 ? "l2_distance" : "inner_product";
+                // Distinct files must not share an IVF list-cache key across fixture iterations.
+                ++_meta._index_id;
+                FaissBuildParameter build;
+                build.dim = 4;
+                build.max_degree = 128;
+                build.ivf_nlist = 1;
+                build.index_type =
+                        std::string(type) == "hnsw"  ? FaissBuildParameter::IndexType::HNSW
+                        : std::string(type) == "ivf" ? FaissBuildParameter::IndexType::IVF
+                                                     : FaissBuildParameter::IndexType::IVF_ON_DISK;
+                build.metric_type = l2 ? FaissBuildParameter::MetricType::L2
+                                       : FaissBuildParameter::MetricType::IP;
+                FaissVectorIndex writer;
+                writer.build(build);
+                std::vector<float> vectors;
+                std::vector<Int64> labels;
+                if (!all_empty) {
+                    for (int i = 0; i < 64; ++i) {
+                        vectors.insert(vectors.end(), {static_cast<float>(i), 0, 0, 0});
+                        labels.push_back(3 * i + 1);
+                    }
+                    ASSERT_TRUE(writer.train(labels.size(), vectors.data()).ok());
+                }
+                ASSERT_TRUE(writer.add_with_ids(labels.size(), vectors.data(), labels.data()).ok());
+                auto directory = std::make_shared<lucene::store::RAMDirectory>();
+                ASSERT_TRUE(vector_search_utils::save_to_directory(&writer, directory).ok());
+                auto file_reader = std::make_shared<MockIndexFileReader>();
+                EXPECT_CALL(*file_reader, init(testing::_, testing::_))
+                        .WillOnce(testing::Return(Status::OK()));
+                EXPECT_CALL(*file_reader, open_ann_source(testing::_, testing::_))
+                        .WillOnce([directory](const TabletIndex*, const io::IOContext*)
+                                          -> Result<std::unique_ptr<AnnIndexSource>> {
+                            return std::make_unique<LuceneAnnSource>(directory);
+                        });
+                auto reader = std::make_shared<AnnIndexReader>(&_meta, file_reader);
+                // Keep empty rows, delete only empty placeholders, or delete an indexed row too.
+                // Every case must use ANN even though the segment has 193 rows and <=64 vectors.
+                for (int delete_mode : {0, 1, 2}) {
+                    for (int limit : {1, 1000}) {
+                        SCOPED_TRACE(fmt::format("delete_mode={} limit={}", delete_mode, limit));
+                        auto schema = std::make_shared<TabletSchema>();
+                        auto segment = std::make_shared<Segment>(0, RowsetId(), schema,
+                                                                 InvertedIndexFileInfo());
+                        segment->_num_rows = 193;
+                        auto read_schema =
+                                std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {});
+                        OlapReaderStatistics stats;
+                        StorageReadOptions opts(stats);
+                        opts.runtime_state = &state;
+                        SegmentIterator iter(segment, read_schema, opts);
+                        iter._index_iterators.resize(1);
+                        iter._index_iterators[0] = std::make_unique<AnnIndexIterator>(reader);
+                        iter._column_states.resize(1);
+                        iter._column_states[0].need_read_data = true;
+                        iter._column_iterators.resize(2);
+                        auto distance_iter = std::make_unique<VirtualColumnIterator>();
+                        auto* materialized = distance_iter.get();
+                        iter._column_iterators[1] = std::move(distance_iter);
+                        iter._row_bitmap.addRange(0, 193);
+                        if (delete_mode == 1) {
+                            for (uint32_t row = 0; row < 193; ++row) {
+                                if (row % 3 != 1) {
+                                    iter._row_bitmap.remove(row);
+                                }
+                            }
+                        } else if (delete_mode == 2) {
+                            iter._row_bitmap.remove(l2 ? 1 : 190);
+                        }
+                        VExprContextSPtr order_ctx;
+                        ASSERT_TRUE(VExpr::create_expr_tree(
+                                            read_from_json<TExpr>(_distance_function_call_thrift),
+                                            order_ctx)
+                                            .ok());
+                        auto runtime = std::make_shared<AnnTopNRuntime>(l2, limit, order_ctx);
+                        runtime->_src_column_idx = 0;
+                        runtime->_dest_column_idx = 1;
+                        runtime->_metric_type = l2 ? AnnIndexMetric::L2 : AnnIndexMetric::IP;
+                        runtime->_user_params.ann_index_candidate_rows_percent_threshold = 0;
+                        runtime->_user_params.hnsw_ef_search = 256;
+                        auto query = ColumnFloat32::create(4, 0.0f);
+                        query->get_data()[0] = l2 ? 0.0f : 1.0f;
+                        runtime->_query_array = std::move(query);
+                        iter._ann_topn_runtime = std::move(runtime);
+
+                        roaring::Roaring expected;
+                        for (int i = 0;
+                             i < 64 && expected.cardinality() < static_cast<size_t>(limit); ++i) {
+                            const auto row = static_cast<uint32_t>(3 * (l2 ? i : 63 - i) + 1);
+                            if (!all_empty && iter._row_bitmap.contains(row)) {
+                                expected.add(row);
+                            }
+                        }
+                        ASSERT_TRUE(iter._apply_ann_topn_predicate().ok());
+                        EXPECT_EQ(stats.ann_fall_back_brute_force_cnt, 0);
+                        EXPECT_EQ(stats.ann_index_topn_search_cnt, 1);
+                        EXPECT_FALSE(iter._column_states[0].need_read_data);
+                        EXPECT_EQ(iter._row_bitmap, expected);
+                        EXPECT_EQ(materialized->get_materialized_column()->size(),
+                                  expected.cardinality());
+                        for (auto row : expected) {
+                            const auto& column = *materialized->get_materialized_column();
+                            ASSERT_TRUE(is_column_nullable(column));
+                            const auto* nullable = check_and_get_column<ColumnNullable>(column);
+                            ASSERT_NE(nullable, nullptr);
+                            const auto pos = materialized->get_row_id_to_idx().at(row);
+                            EXPECT_FALSE(nullable->is_null_at(pos));
+                            const auto& distances = assert_cast<const ColumnFloat32&>(
+                                    nullable->get_nested_column());
+                            EXPECT_FLOAT_EQ(distances.get_data()[pos],
+                                            static_cast<float>((row - 1) / 3));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

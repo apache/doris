@@ -83,6 +83,9 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                         }
                     }
                 }
+                // With a valid query, ANN TopN ranks only indexed nonempty vectors, even for
+                // NULLS FIRST or LIMIT > 64. Exact/scalar execution and the unsupported sort
+                // direction still include NULL distances. Keep separate outputs for each phase.
                 for (def direction : ['ASC', 'DESC']) {
                     for (def nullOrder : ['FIRST', 'LAST']) {
                         for (def limit : [1, 10, 64, 65, 1000]) {
@@ -148,7 +151,8 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                     checkQueries('scalar_fallback')
                     sql "SET ann_index_candidate_rows_threshold = 0"
                     sql "SET enable_ann_index_result_cache = true"
-                    // Repeat to cover cached range results as well as the initial search.
+                    // Repeat to cover cached range and sparse TopN results, including short
+                    // results when LIMIT exceeds the number of indexed candidates.
                     for (def iteration : 0..1) {
                         checkQueries("cached_${iteration}")
                     }
@@ -170,6 +174,7 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                         checkQueries('write_disabled')
                     }
                     // No nonempty row exists anywhere: IVF must persist/reload without training.
+                    // Projection still returns NULL distances; indexed TopN returns zero rows.
                     sql "TRUNCATE TABLE ann_empty_array_queries"
                     sql "INSERT INTO ann_empty_array_queries VALUES (1, []), (2, [])"
                     sql "INSERT INTO ann_empty_array_queries VALUES (3, [])"

@@ -1105,8 +1105,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
     // AnnTopNRuntime keeps VSlotRef::column_id(), which is the read-schema ordinal.
     ColumnId src_cid = cast_set<ColumnId>(_ann_topn_runtime->get_src_column_idx());
-    // NULL/[] queries give every row a NULL distance. Normal evaluation and sorting
-    // must preserve NULL ordering and LIMIT; FAISS cannot search a missing vector.
+    // FAISS requires a non-empty query vector. NULL/[] query arguments still use
+    // scalar evaluation, which returns NULL distances.
     if (_ann_topn_runtime->has_missing_query_vector()) {
         _column_states[src_cid].need_read_data = true;
         _opts.stats->ann_fall_back_brute_force_cnt += 1;
@@ -1227,15 +1227,9 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
-    // Empty arrays have NULL distances. Omitting them would break NULLS FIRST,
-    // and also NULLS LAST when LIMIT exceeds the number of non-empty vectors.
-    // Sparse segments use scalar evaluation and the normal SQL sort for TopN.
-    if (cast_set<size_t>(ann_index_reader->get_num_rows_in_index()) != rows_of_segment) {
-        _column_states[src_cid].need_read_data = true;
-        _opts.stats->ann_fall_back_brute_force_cnt += 1;
-        return Status::OK();
-    }
-
+    // ANN TopN ranks indexed vectors only. For [vector, [], vector], it may return
+    // rows 0 and 2, but never pads LIMIT with row 1 for NULLS FIRST/LAST. This also
+    // keeps ANN enabled when empty placeholder rows are already masked by deletes.
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
