@@ -23,8 +23,12 @@ iceberg_view_secret_key = System.getenv("ICEBERG_VIEW_SECRET_KEY")
 The usual `externalEnvIp`, `iceberg_rest_uri_port`, `iceberg_minio_port`, and Spark
 connection settings must point to the same Docker environment. Credentials are
 read from configuration; do not commit local configuration or credential values.
-The optional `iceberg_view_catalog`, `iceberg_view_source_namespace`, and
-`iceberg_view_store_namespace` settings isolate concurrent runs.
+For concurrent runs, give each run its own `iceberg_view_catalog`,
+`iceberg_view_source_namespace`, and `iceberg_view_store_namespace`. Each run
+also uses `<iceberg_view_catalog>_rooted` for its rooted catalog and
+`internal.<iceberg_view_catalog>_internal` for its CTAS database. Reserve both
+catalog names and both Iceberg namespaces for that run. All runs share the
+`demo` catalog and must use the same Docker fixture.
 
 Run with the repository regression runner:
 

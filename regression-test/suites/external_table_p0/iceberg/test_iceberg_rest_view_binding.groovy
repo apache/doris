@@ -29,6 +29,7 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     String storeDb = config.get("iceberg_view_store_namespace") ?: "iceberg_rest_view_store"
     String catalog = config.get("iceberg_view_catalog") ?: "iceberg_rest_view_binding"
     String rootedCatalog = "${catalog}_rooted"
+    String ctasDb = "${catalog}_internal"
     String accessKey = config.get("iceberg_view_access_key")
     String secretKey = config.get("iceberg_view_secret_key")
 
@@ -309,24 +310,24 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
     }
 
     // Both reads and CTAS writes execute on BE, including two independent aliases of one source slot.
-    sql "CREATE DATABASE IF NOT EXISTS internal.iceberg_rest_view_binding_internal"
-    sql "DROP TABLE IF EXISTS internal.iceberg_rest_view_binding_internal.ctas_computed"
-    sql """CREATE TABLE internal.iceberg_rest_view_binding_internal.ctas_computed
+    sql "CREATE DATABASE IF NOT EXISTS internal.${ctasDb}"
+    sql "DROP TABLE IF EXISTS internal.${ctasDb}.ctas_computed"
+    sql """CREATE TABLE internal.${ctasDb}.ctas_computed
         DISTRIBUTED BY HASH(declared_a) BUCKETS 1 PROPERTIES ('replication_num' = '1')
         AS SELECT * FROM v_computed"""
-    order_qt_ctas_computed "SELECT declared_a, declared_b FROM internal.iceberg_rest_view_binding_internal.ctas_computed"
-    sql "DROP TABLE IF EXISTS internal.iceberg_rest_view_binding_internal.ctas_repeat"
-    sql """CREATE TABLE internal.iceberg_rest_view_binding_internal.ctas_repeat
+    order_qt_ctas_computed "SELECT declared_a, declared_b FROM internal.${ctasDb}.ctas_computed"
+    sql "DROP TABLE IF EXISTS internal.${ctasDb}.ctas_repeat"
+    sql """CREATE TABLE internal.${ctasDb}.ctas_repeat
         DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES ('replication_num' = '1')
         AS SELECT * REPLACE (100 AS a) FROM v_repeat"""
-    order_qt_ctas_repeat "SELECT a, b FROM internal.iceberg_rest_view_binding_internal.ctas_repeat"
+    order_qt_ctas_repeat "SELECT a, b FROM internal.${ctasDb}.ctas_repeat"
 
     order_qt_refresh_before "SELECT a FROM v_refresh"
     String refreshPath = "/v1/namespaces/${storeDb}/views/v_refresh"
     def previous = request("GET", refreshPath, null, [200]).metadata
     int schemaId = (previous.schemas*.get("schema-id").max() as int) + 1
     int versionId = (previous.versions*.get("version-id").max() as int) + 1
-    def updatedVersion = version("SELECT CAST(20 AS INT) AS x", [:], catalog, sourceDb, [])
+    def updatedVersion = version("SELECT CAST(20 AS INT) AS x", [:], catalog, [sourceDb], [])
     updatedVersion["version-id"] = versionId
     updatedVersion["schema-id"] = schemaId
     def updated = request("POST", refreshPath,
@@ -408,19 +409,19 @@ suite("test_iceberg_rest_view_binding", "p0,external,iceberg,external_docker,ext
         UNION ALL
         SELECT id, v FROM v_filter_unpartitioned WHERE p = 20) u GROUP BY id"""
 
-    sql "DROP TABLE IF EXISTS internal.iceberg_rest_view_binding_internal.ctas_where_partitioned"
-    sql """CREATE TABLE internal.iceberg_rest_view_binding_internal.ctas_where_partitioned
+    sql "DROP TABLE IF EXISTS internal.${ctasDb}.ctas_where_partitioned"
+    sql """CREATE TABLE internal.${ctasDb}.ctas_where_partitioned
         DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')
         AS SELECT id, p, v, n FROM v_filter_partitioned
         WHERE (p = 20 OR p IS NULL) AND (v >= 300 OR v IS NULL)"""
-    order_qt_where_ctas_partitioned "SELECT * FROM internal.iceberg_rest_view_binding_internal.ctas_where_partitioned"
-    order_qt_where_ctas_partitioned_count "SELECT COUNT(*) FROM internal.iceberg_rest_view_binding_internal.ctas_where_partitioned"
-    sql "DROP TABLE IF EXISTS internal.iceberg_rest_view_binding_internal.ctas_where_unpartitioned"
-    sql """CREATE TABLE internal.iceberg_rest_view_binding_internal.ctas_where_unpartitioned
+    order_qt_where_ctas_partitioned "SELECT * FROM internal.${ctasDb}.ctas_where_partitioned"
+    order_qt_where_ctas_partitioned_count "SELECT COUNT(*) FROM internal.${ctasDb}.ctas_where_partitioned"
+    sql "DROP TABLE IF EXISTS internal.${ctasDb}.ctas_where_unpartitioned"
+    sql """CREATE TABLE internal.${ctasDb}.ctas_where_unpartitioned
         DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')
         AS SELECT id, p, v, n FROM v_filter_unpartitioned
         WHERE (p = 20 OR p IS NULL) AND (v >= 300 OR v IS NULL)"""
-    order_qt_where_ctas_unpartitioned "SELECT * FROM internal.iceberg_rest_view_binding_internal.ctas_where_unpartitioned"
-    order_qt_where_ctas_unpartitioned_count "SELECT COUNT(*) FROM internal.iceberg_rest_view_binding_internal.ctas_where_unpartitioned"
+    order_qt_where_ctas_unpartitioned "SELECT * FROM internal.${ctasDb}.ctas_where_unpartitioned"
+    order_qt_where_ctas_unpartitioned_count "SELECT COUNT(*) FROM internal.${ctasDb}.ctas_where_unpartitioned"
     // Keep the catalog, source files, views and CTAS tables for debugging.
 }
