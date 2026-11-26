@@ -71,8 +71,14 @@ static Status parse_thrift_footer(io::FileReaderSPtr file,
     uint8_t* meta_ptr;
     if (metadata_size > bytes_read - PARQUET_FOOTER_SIZE) {
         new_buff = make_unique_buffer<uint8_t>(metadata_size);
-        RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
-                                      Slice(new_buff.get(), metadata_size), &bytes_read, io_ctx));
+        const size_t metadata_offset = file_size - PARQUET_FOOTER_SIZE - metadata_size;
+        RETURN_IF_ERROR(file->read_at(metadata_offset, Slice(new_buff.get(), metadata_size),
+                                      &bytes_read, io_ctx));
+        if (bytes_read < metadata_size) {
+            VLOG(1) << "Short read of Parquet footer metadata: path=" << file->path().native()
+                    << ", offset=" << metadata_offset << ", requested=" << metadata_size
+                    << ", actual=" << bytes_read;
+        }
         meta_ptr = new_buff.get();
     } else {
         meta_ptr = footer.data() + bytes_read - PARQUET_FOOTER_SIZE - metadata_size;

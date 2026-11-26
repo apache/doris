@@ -221,6 +221,12 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
                      << ", error=" << s.to_string();
         return s;
     }
+    if (bytes_read < buffer.get_size()) {
+        VLOG(1) << "Short read from local file cache: path=" << file_reader->path()
+                << ", hash=" << key.hash.to_string() << ", block_offset=" << key.offset
+                << ", offset_in_block=" << value_offset << ", reader_size=" << file_reader->size()
+                << ", requested=" << buffer.get_size() << ", actual=" << bytes_read;
+    }
     DCHECK(bytes_read == buffer.get_size());
     return Status::OK();
 }
@@ -744,6 +750,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                 if (!parse_filename_suffix_to_cache_type(fs, offset_it->path().filename().native(),
                                                          expiration_time, size, &offset, &is_tmp,
                                                          &cache_type)) {
+                    VLOG(1) << "Skipping file cache entry during startup scan: path="
+                            << offset_it->path() << ", size=" << size;
                     continue;
                 }
                 context.cache_type = cache_type;
@@ -841,6 +849,8 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         if (!parse_filename_suffix_to_cache_type(fs, check_it->path().filename().native(),
                                                  context_original.expiration_time, size, &offset,
                                                  &is_tmp, &cache_type)) {
+            VLOG(1) << "Skipping file cache entry during lookup: path=" << check_it->path()
+                    << ", size=" << size;
             continue;
         }
         if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
