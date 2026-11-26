@@ -114,7 +114,6 @@ import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
-import org.apache.doris.nereids.rules.rewrite.PreferIvmDeltaBuildSide;
 import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
@@ -408,7 +407,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(
                                             new PruneOlapScanPartition(),
                                             new PruneEmptyPartition(),
-                                            new PreferIvmDeltaBuildSide(),
                                             new NormalizeOlapTableStreamScan(),
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
@@ -735,7 +733,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
-                                new PreferIvmDeltaBuildSide(),
                                 // Stream lowering needs the pruned partitions and must finish before
                                 // OperativeColumnDerive treats stream virtual columns as scan slots.
                                 new NormalizeOlapTableStreamScan(),

@@ -120,12 +120,6 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         // Right-side appends produce NULL-repair events because the join key is non-unique.
         sql "INSERT INTO ivm_build_snapshot VALUES (2, 200), (2, 201)"
         checkJoinAndScanOrder("mow_repair", "ivm_build_outer")
-        sql "SET GLOBAL disable_join_reorder = false"
-        explain {
-            sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW ivm_build_outer INCREMENTAL"
-            contains "type=RIGHT_ANTI_JOIN,"
-        }
-        sql "SET GLOBAL disable_join_reorder = true"
         for (def mv : ["ivm_build_dup", "ivm_build_mow", "ivm_build_outer"]) {
             sql "REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
             waitingMTMVTaskFinishedByMvName(mv)

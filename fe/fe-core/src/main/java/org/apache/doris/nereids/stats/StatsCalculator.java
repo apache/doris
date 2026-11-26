@@ -262,7 +262,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (scan instanceof OlapScan) {
                 // ndv abnormal
-                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                Optional<String> reason = calculator.checkNdvValidation(
+                        (OlapScan) scan, rowCount, ((Plan) scan).getOutput(), false);
                 if (reason.isPresent()) {
                     try {
                         context.getConnectContext().getSessionVariable()
@@ -514,13 +515,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
-    // check validation of ndv.
-    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
+    /** Whether this scan lacks usable row count or column stats for its operative slots. */
+    public boolean hasUnreliableScanStats(CatalogRelation scan) {
+        double rowCount = getTableRowCount(scan);
+        return rowCount == -1 || (scan instanceof OlapScan
+                && checkNdvValidation((OlapScan) scan, rowCount, scan.getOperativeSlots(), true).isPresent());
+    }
+
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount,
+            List<Slot> slots, boolean includeUnknown) {
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
         boolean explicitScanEstimate = hasScanRowCountEstimates(olapScan);
-        for (Slot slot : ((Plan) olapScan).getOutput()) {
+        for (Slot slot : slots) {
             if (isVisibleSlotReference(slot)) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                if (cache.isUnKnown && includeUnknown) {
+                    return Optional.of("slot " + slot.getName() + " has unknown column stats");
+                }
                 if (!cache.isUnKnown) {
                     // Stream scan estimates cover a window or selected partitions. Cached column stats
                     // still describe the underlying index, so use the population stored with the NDV.
