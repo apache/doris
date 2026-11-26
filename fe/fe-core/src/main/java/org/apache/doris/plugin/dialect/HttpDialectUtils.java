@@ -17,6 +17,10 @@
 
 package org.apache.doris.plugin.dialect;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.Data;
@@ -24,12 +28,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import javax.annotation.Nullable;
 
 /**
  * This class is used to convert sql with different dialects using sql convertor service.
@@ -38,8 +44,18 @@ import java.nio.charset.StandardCharsets;
 public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
+    private static final ObjectReader CONFIRMED_RESPONSE = new ObjectMapper().readerFor(JsonNode.class)
+            .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY, DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                    DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+
     public static String convertSql(String targetURL, String originStmt, String dialect,
             String[] features, String config) {
+        return convertSql(targetURL, originStmt, dialect, features, config, originStmt);
+    }
+
+    @Nullable
+    static String convertSql(String targetURL, String originStmt, String dialect,
+            String[] features, String config, @Nullable String onFailure) {
         ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect, features, config);
 
         HttpURLConnection connection = null;
@@ -62,6 +78,19 @@ public class HttpDialectUtils {
             }
 
             if (responseCode == HttpURLConnection.HTTP_OK) {
+                if (onFailure == null) {
+                    // Parse the response bytes directly. Reading it line by line can change a SQL
+                    // literal and turn an invalid response into an apparently successful conversion.
+                    try (InputStream response = connection.getInputStream()) {
+                        JsonNode result = CONFIRMED_RESPONSE.readTree(response);
+                        JsonNode code = result.path("code");
+                        if ("v1".equals(result.path("version").textValue()) && code.isNumber()
+                                && code.decimalValue().signum() == 0) {
+                            return result.path("data").textValue();
+                        }
+                        return null;
+                    }
+                }
                 try (InputStreamReader inputStreamReader
                         = new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8);
                         BufferedReader in = new BufferedReader(inputStreamReader)) {
@@ -81,21 +110,21 @@ public class HttpDialectUtils {
                     if (result.code == 0) {
                         if (!"v1".equals(result.version)) {
                             LOG.warn("failed to convert sql, response version is not v1: {}", result.version);
-                            return originStmt;
+                            return onFailure;
                         }
                         return result.data;
                     } else {
                         LOG.warn("failed to convert sql, response: {}", result);
-                        return originStmt;
+                        return onFailure;
                     }
                 }
             } else {
                 LOG.warn("failed to convert sql, response code: {}", responseCode);
-                return originStmt;
+                return onFailure;
             }
         } catch (Exception e) {
             LOG.warn("failed to convert sql", e);
-            return originStmt;
+            return onFailure;
         } finally {
             if (connection != null) {
                 connection.disconnect();

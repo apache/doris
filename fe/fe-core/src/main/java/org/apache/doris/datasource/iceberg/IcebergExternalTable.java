@@ -65,12 +65,14 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewRepresentation;
 import org.apache.iceberg.view.ViewVersion;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -427,33 +429,53 @@ public class IcebergExternalTable extends ExternalTable
     }
 
     public String getViewText() {
-        try {
-            return catalog.getExecutionAuthenticator().execute(() -> {
-                View icebergView = getIcebergView();
-                ViewVersion viewVersion = icebergView.currentVersion();
-                if (viewVersion == null) {
-                    throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
-                }
-                Map<String, String> summary = viewVersion.summary();
-                if (summary == null) {
-                    throw new RuntimeException(String.format("Cannot get summary for view '%s'", icebergView));
-                }
-                String engineName = summary.get(ENGINE_PROP_NAME);
-                if (StringUtils.isEmpty(engineName)) {
-                    throw new RuntimeException(String.format("Cannot get engine-name for view '%s'", icebergView));
-                }
-                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(engineName.toLowerCase());
-                if (sqlViewRepresentation == null) {
-                    throw new UnsupportedOperationException("Cannot get view text from iceberg view");
-                }
-                return sqlViewRepresentation.sql();
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        return getViewDefinition().getSql();
     }
 
     public String getSqlDialect() {
+        return getViewDefinition().getDialect();
+    }
+
+    /** SQL and resolution defaults from one Iceberg view version. */
+    public final class ViewDefinition {
+        private final ViewVersion version;
+        private final SQLViewRepresentation representation;
+
+        private ViewDefinition(ViewVersion version, SQLViewRepresentation representation) {
+            this.version = version;
+            this.representation = representation;
+        }
+
+        public String getSql() {
+            return representation.sql();
+        }
+
+        public String getDialect() {
+            return representation.dialect().toLowerCase(Locale.ROOT);
+        }
+
+        public boolean hasEngineName() {
+            return !StringUtils.isEmpty(version.summary().get(ENGINE_PROP_NAME));
+        }
+
+        public String getBindingCatalog() {
+            // A foreign engine's catalog alias need not identify the same catalog in Doris.
+            String saved = version.defaultCatalog();
+            return hasEngineName() || saved == null || saved.equals(catalog.getName()) ? catalog.getName() : "";
+        }
+
+        public String getBindingDatabase() {
+            if (hasEngineName()) {
+                return db.getFullName();
+            }
+            if (getBindingCatalog().isEmpty()) {
+                return "";
+            }
+            return ((IcebergMetadataOps) catalog.getMetadataOps()).getViewDatabase(version.defaultNamespace());
+        }
+    }
+
+    public ViewDefinition getViewDefinition() {
         try {
             return catalog.getExecutionAuthenticator().execute(() -> {
                 View icebergView = getIcebergView();
@@ -466,10 +488,25 @@ public class IcebergExternalTable extends ExternalTable
                     throw new RuntimeException(String.format("Cannot get summary for view '%s'", icebergView));
                 }
                 String engineName = summary.get(ENGINE_PROP_NAME);
-                if (StringUtils.isEmpty(engineName)) {
-                    throw new RuntimeException(String.format("Cannot get engine-name for view '%s'", icebergView));
+                String preferredDialect = StringUtils.isEmpty(engineName) ? "doris" : engineName;
+                // Match BaseView.sqlFor on the captured version: sqlFor reads currentVersion() again.
+                SQLViewRepresentation firstSql = null;
+                for (ViewRepresentation representation : viewVersion.representations()) {
+                    if (representation instanceof SQLViewRepresentation) {
+                        SQLViewRepresentation sql = (SQLViewRepresentation) representation;
+                        if (preferredDialect.equalsIgnoreCase(sql.dialect())) {
+                            return new ViewDefinition(viewVersion, sql);
+                        }
+                        if (firstSql == null) {
+                            firstSql = sql;
+                        }
+                    }
                 }
-                return engineName.toLowerCase();
+                if (firstSql == null) {
+                    throw new UnsupportedOperationException(String.format(
+                            "Cannot get SQL representation for Iceberg view '%s'", icebergView));
+                }
+                return new ViewDefinition(viewVersion, firstSql);
             });
         } catch (Exception e) {
             throw new RuntimeException(e);

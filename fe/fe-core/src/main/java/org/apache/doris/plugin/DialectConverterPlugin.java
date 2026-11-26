@@ -49,6 +49,17 @@ public interface DialectConverterPlugin {
     }
 
     /**
+     * Return SQL only when the conversion succeeded. A stored view must not silently parse
+     * foreign SQL using Doris syntax when a converter is unavailable.
+     */
+    default @Nullable String tryConvertSql(String originSql, SessionVariable sessionVariable) {
+        String converted = convertSql(originSql, sessionVariable);
+        // Legacy converters may echo their input on failure. They can override this method to
+        // distinguish a successful identity conversion from that fallback.
+        return originSql.equals(converted) ? null : converted;
+    }
+
+    /**
      * <pre>
      * Parse sql with dialect.
      * Fallback to next dialect plugin if this method returns null, empty string or any exception throws.

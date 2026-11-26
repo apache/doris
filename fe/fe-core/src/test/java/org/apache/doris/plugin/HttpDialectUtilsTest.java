@@ -17,7 +17,10 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 import org.apache.doris.plugin.dialect.HttpDialectUtils;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -28,6 +31,7 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
+import java.util.Arrays;
 
 public class HttpDialectUtilsTest {
 
@@ -69,6 +73,47 @@ public class HttpDialectUtilsTest {
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
         res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(originSql, res);
+    }
+
+    @Test
+    public void testStrictConversionDistinguishesIdentityFromFailure() {
+        String previousUrl = GlobalVariable.sqlConverterServiceUrl;
+        try {
+            GlobalVariable.sqlConverterServiceUrl = "http://127.0.0.1:" + port + "/api/v1/convert";
+            HttpDialectConverterPlugin plugin = new HttpDialectConverterPlugin();
+            SessionVariable session = new SessionVariable();
+            session.setSqlDialect("trino");
+            String sql = "SELECT 1";
+            server.setResponse("{\"version\":\"v1\",\"code\":400}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            Assert.assertEquals(sql, plugin.convertSql(sql, session));
+            for (String code : Arrays.asList("", "\"code\":null,", "\"code\":\"0\",", "\"code\":0.1,")) {
+                server.setResponse("{\"version\":\"v1\"," + code + "\"data\":\"SELECT 1\"}");
+                Assert.assertNull(plugin.tryConvertSql(sql, session));
+            }
+            server.setResponse("{\"version\":\"v1\",\"data\":\"SELECT 2\"}");
+            Assert.assertEquals("SELECT 2", plugin.convertSql(sql, session));
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":17}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 1\"}");
+            Assert.assertEquals(sql, plugin.tryConvertSql(sql, session));
+
+            String prefix = "{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 'A";
+            String suffix = "B' AS person\"}";
+            for (String rawNewline : Arrays.asList("\n", "\r\n", "\r")) {
+                server.setResponse(prefix + rawNewline + suffix);
+                Assert.assertNull(plugin.tryConvertSql(sql, session));
+            }
+            server.setResponse("{\r\n  \"version\": \"v1\",\n  \"code\": 0,\n  \"data\": \"SELECT 'A\\nB' AS person\"\n}");
+            Assert.assertEquals("SELECT 'A\nB' AS person", plugin.tryConvertSql(sql, session));
+            server.setResponse(prefix + suffix + "\n{}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":400,\"code\":0,\"data\":\"SELECT 1\"}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+        } finally {
+            GlobalVariable.sqlConverterServiceUrl = previousUrl;
+        }
     }
 
     private static int findValidPort() {

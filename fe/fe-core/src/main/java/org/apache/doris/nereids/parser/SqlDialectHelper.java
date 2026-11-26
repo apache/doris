@@ -27,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
@@ -43,24 +44,32 @@ public class SqlDialectHelper {
      * @return converted SQL statement, or original statement if conversion fails
      */
     public static String convertSqlByDialect(String originStmt, SessionVariable sessionVariable) {
-        String convertedStmt = originStmt;
+        return convertSql(originStmt, sessionVariable, false).orElse(originStmt);
+    }
+
+    /** A foreign view may use the result only when a converter successfully handled its dialect. */
+    public static Optional<String> tryConvertSqlByDialect(String originStmt, SessionVariable sessionVariable) {
+        return convertSql(originStmt, sessionVariable, true);
+    }
+
+    private static Optional<String> convertSql(String originStmt, SessionVariable sessionVariable, boolean strict) {
         @Nullable Dialect sqlDialect = Dialect.getByName(sessionVariable.getSqlDialect());
         if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
             PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
             List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
             for (DialectConverterPlugin plugin : plugins) {
                 try {
-                    String convertedSql = plugin.convertSql(originStmt, sessionVariable);
+                    String convertedSql = strict ? plugin.tryConvertSql(originStmt, sessionVariable)
+                            : plugin.convertSql(originStmt, sessionVariable);
                     if (StringUtils.isNotEmpty(convertedSql)) {
-                        convertedStmt = convertedSql;
-                        break;
+                        return Optional.of(convertedSql);
                     }
                 } catch (Throwable throwable) {
-                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
+                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}.",
                             sqlDialect, plugin.getClass().getSimpleName(), originStmt, throwable);
                 }
             }
         }
-        return convertedStmt;
+        return Optional.empty();
     }
 }

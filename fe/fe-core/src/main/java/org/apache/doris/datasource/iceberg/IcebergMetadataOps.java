@@ -2221,6 +2221,32 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return TableIdentifier.of(ns, tblName);
     }
 
+    /** Return the listed local database for this physical namespace, or no default if it cannot be addressed. */
+    String getViewDatabase(Namespace namespace) {
+        if (namespace.isEmpty()) {
+            return "";
+        }
+        // Forward lookup splits the listed database name on dots and appends external_catalog.name.
+        // Only remove that exact trailing component. A dot inside a saved level is not a separator.
+        int databaseLevels = namespace.length();
+        if (externalCatalogName.isPresent() && externalCatalogName.get().equals(namespace.level(databaseLevels - 1))) {
+            databaseLevels--;
+        }
+        if (databaseLevels > 0) {
+            String remoteName = String.join(".", Arrays.copyOf(namespace.levels(), databaseLevels));
+            if (getNamespace(remoteName).equals(namespace)) {
+                String localName = dorisCatalog.fromRemoteDatabaseName(remoteName);
+                ExternalDatabase<?> database = dorisCatalog.getDbNullable(localName);
+                // Reserved names can resolve to Doris system databases even when their remote names match.
+                if (database instanceof IcebergExternalDatabase && database.getCatalog() == dorisCatalog
+                        && getNamespace(database.getRemoteName()).equals(namespace)) {
+                    return database.getFullName();
+                }
+            }
+        }
+        return "";
+    }
+
     private Namespace getNamespace(String dbName) {
         return getNamespace(externalCatalogName, dbName);
     }

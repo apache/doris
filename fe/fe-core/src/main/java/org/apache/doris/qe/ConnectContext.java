@@ -88,6 +88,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -116,6 +117,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 
@@ -197,6 +199,8 @@ public class ConnectContext {
     protected volatile boolean isKilled;
     // Db
     protected volatile String currentDb = "";
+    // Only the analyzing thread may consult its view's metadata using its catalog session.
+    private final ThreadLocal<Pair<String, Supplier<String>>> viewNamespace = new ThreadLocal<>();
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
@@ -748,7 +752,15 @@ public class ConnectContext {
     }
 
     public long getCurrentDbId() {
-        return currentDbId;
+        if (viewNamespace.get() == null) {
+            return currentDbId;
+        }
+        String database = getDatabase();
+        if (database.isEmpty()) {
+            return -1L;
+        }
+        Optional<DatabaseIf> resolved = getCurrentCatalog().getDb(database);
+        return resolved.map(DatabaseIf::getId).orElse(-1L);
     }
 
     public TransactionEntry getTxnEntry() {
@@ -1225,12 +1237,13 @@ public class ConnectContext {
     }
 
     public String getDefaultCatalog() {
-        return defaultCatalog;
+        Pair<String, Supplier<String>> view = viewNamespace.get();
+        return view == null ? defaultCatalog : view.first;
     }
 
     public CatalogIf getCurrentCatalog() {
         // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
-        return getCatalog(defaultCatalog);
+        return getCatalog(getDefaultCatalog());
     }
 
     public String getSessionId() {
@@ -1241,7 +1254,7 @@ public class ConnectContext {
      * Maybe return when catalogName is not exist. So need to check nullable.
      */
     public CatalogIf getCatalog(String catalogName) {
-        String realCatalogName = catalogName == null ? defaultCatalog : catalogName;
+        String realCatalogName = catalogName == null ? getDefaultCatalog() : catalogName;
         if (env == null) {
             return Env.getCurrentEnv().getCatalogMgr().getCatalog(realCatalogName);
         }
@@ -1261,8 +1274,24 @@ public class ConnectContext {
         currentDbId = -1;
     }
 
+    /** Scope stored defaults to this analysis thread. Fully qualified names need neither default. */
+    public <T> T withViewNamespace(String catalogName, Supplier<String> database, Supplier<T> action) {
+        Pair<String, Supplier<String>> previous = viewNamespace.get();
+        try {
+            viewNamespace.set(Pair.of(catalogName, Suppliers.memoize(database::get)));
+            return action.get();
+        } finally {
+            if (previous == null) {
+                viewNamespace.remove();
+            } else {
+                viewNamespace.set(previous);
+            }
+        }
+    }
+
     public String getDatabase() {
-        return currentDb;
+        Pair<String, Supplier<String>> view = viewNamespace.get();
+        return view == null ? currentDb : view.second.get();
     }
 
     public void setDatabase(String db) {
