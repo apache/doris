@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.MaxComputeTableSink;
@@ -54,6 +55,9 @@ public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         // Let parent call bindDataSink() to build the Thrift sink
         super.finalizeSink(fragment, sink, physicalSink);
+        // Dispatch the version used to choose the partition exchange, even if the FE config changed since planning.
+        int plannedVersion = ((PhysicalMaxComputeTableSink<?>) physicalSink).getBeExecVersion();
+        getCoordinator().getQueryOptions().setBeExecVersion(plannedVersion);
         // Save reference so beforeExec() can inject writeSessionId later
         mcTableSink = (MaxComputeTableSink) sink;
     }

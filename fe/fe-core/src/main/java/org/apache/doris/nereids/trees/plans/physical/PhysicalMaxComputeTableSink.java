@@ -46,6 +46,8 @@ import java.util.stream.Collectors;
 /** physical maxcompute table sink */
 public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
+    private final int beExecVersion;
+
     /**
      * constructor
      */
@@ -72,8 +74,21 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
                                        PhysicalProperties physicalProperties,
                                        Statistics statistics,
                                        CHILD_TYPE child) {
+        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+                physicalProperties, statistics, child, Config.be_exec_version);
+    }
+
+    private PhysicalMaxComputeTableSink(MaxComputeExternalDatabase database, MaxComputeExternalTable targetTable,
+            List<Column> cols, List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            CHILD_TYPE child, int beExecVersion) {
         super(PlanType.PHYSICAL_MAX_COMPUTE_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.beExecVersion = beExecVersion;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 
     @Override
@@ -81,7 +96,7 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
         return new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable,
                 cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), beExecVersion);
     }
 
     @Override
@@ -93,7 +108,7 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null, child(), beExecVersion);
     }
 
     @Override
@@ -101,25 +116,21 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
+                children.get(0), beExecVersion);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child(), beExecVersion);
     }
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        return buildRequirePhysicalProperties(
-                (MaxComputeExternalTable) targetTable, cols, child().getOutput());
-    }
-
-    static PhysicalProperties buildRequirePhysicalProperties(
-            MaxComputeExternalTable targetTable, List<Column> cols, List<Slot> childOutput) {
-        Set<String> partitionNames = targetTable.getPartitionColumns().stream()
+        MaxComputeExternalTable table = (MaxComputeExternalTable) targetTable;
+        Set<String> partitionNames = table.getPartitionColumns().stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());
         if (!partitionNames.isEmpty()) {
@@ -139,18 +150,19 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             }
 
             List<Integer> columnIdx = new ArrayList<>();
-            List<Column> fullSchema = targetTable.getFullSchema();
+            List<Column> fullSchema = table.getFullSchema();
             for (int i = 0; i < fullSchema.size(); i++) {
                 Column column = fullSchema.get(i);
                 if (partitionNames.contains(column.getName())) {
                     columnIdx.add(i);
                 }
             }
+            List<Slot> childOutput = child().getOutput();
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> childOutput.get(idx).getExprId())
                     .collect(Collectors.toList());
             // Older execution versions can route by the same partition keys using an ordinary hash exchange.
-            PhysicalProperties partitioning = Config.be_exec_version
+            PhysicalProperties partitioning = beExecVersion
                     < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION
                     ? PhysicalProperties.createHash(exprIds, ShuffleType.REQUIRE)
                     : new PhysicalProperties(new DistributionSpecMaxComputeTableSinkHashPartitioned(exprIds));
