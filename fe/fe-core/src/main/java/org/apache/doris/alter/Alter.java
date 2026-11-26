@@ -254,7 +254,7 @@ public class Alter {
                     .checkStoragePolicyIfSameResource(tableStoragePolicy, currentStoragePolicy)
                     && !tableStoragePolicy.isEmpty()) {
                 for (Partition partition : olapTable.getAllPartitions()) {
-                    if (Partition.hasDataAtVersion(partition.getVisibleVersion())) {
+                    if (Partition.PARTITION_INIT_VERSION < partition.getVisibleVersion()) {
                         throw new DdlException("Do not support alter table's storage policy , this table ["
                             + olapTable.getName() + "] has storage policy " + tableStoragePolicy
                             + ", the table need to be empty.");
