@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"

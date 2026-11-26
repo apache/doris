@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"

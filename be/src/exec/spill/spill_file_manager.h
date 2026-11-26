@@ -44,6 +44,7 @@ struct MetricPrototype;
 class QueryContext;
 class ResourceContext;
 
+class LocalSpillDataDir;
 class RemoteSpillDataDir;
 class SpillFileManager;
 struct StorePath;

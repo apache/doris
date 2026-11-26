@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_counters.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
