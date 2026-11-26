@@ -44,7 +44,8 @@ public:
     std::string get_spill_data_gc_path(const std::string& sub_dir_name = "") const;
 
 protected:
-    bool _reach_limit_unlocked(int64_t incoming_data_size) override;
+    bool _reach_limit_unlocked(int64_t incoming_data_size,
+                               const std::lock_guard<std::mutex>& lock) override;
 
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);

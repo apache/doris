@@ -109,7 +109,7 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
                                     _vault_id, fs->type());
     }
     if (!ready() || _fs != fs) {
-        _bind_fs_unlocked(fs, std::move(endpoint));
+        _bind_fs_unlocked(fs, std::move(endpoint), lock);
     }
     *file_fs = _fs;
     return Status::OK();
@@ -118,10 +118,11 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
 void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string endpoint) {
     std::lock_guard<std::mutex> lock(_init_mutex);
     _test_binding = true;
-    _bind_fs_unlocked(std::move(fs), std::move(endpoint));
+    _bind_fs_unlocked(std::move(fs), std::move(endpoint), lock);
 }
 
-void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint) {
+void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint,
+                                           const std::lock_guard<std::mutex>&) {
     DCHECK(!endpoint.empty());
     _fs = std::move(fs);
     if (!ready()) {
@@ -169,7 +170,8 @@ Status RemoteSpillDataDir::update_capacity() {
     return Status::OK();
 }
 
-bool RemoteSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size) {
+bool RemoteSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size,
+                                               const std::lock_guard<std::mutex>&) {
     // 0 means unlimited.
     if (_spill_data_limit_bytes > 0 &&
         _spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {

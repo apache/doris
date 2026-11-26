@@ -1681,8 +1681,8 @@ TEST_F(SpillFileTest, ExternalSpillSessionSkipsFullManagedRoot) {
     auto query_ctx = MockQueryContext::create(query_id);
 
     const int64_t unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
-    _data_dir_ptr->update_spill_data_usage(unavailable_bytes);
-    Defer release_full_root([&]() { _data_dir_ptr->update_spill_data_usage(-unavailable_bytes); });
+    _data_dir_ptr->reserve(unavailable_bytes);
+    Defer release_full_root([&]() { _data_dir_ptr->release(unavailable_bytes); });
 
     std::unique_ptr<ExternalSpillSession> spill_session;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
@@ -1754,11 +1754,11 @@ TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {
 
     const int64_t first_unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
     const int64_t second_unavailable_bytes = _second_data_dir_ptr->get_spill_data_limit() + 1;
-    _data_dir_ptr->update_spill_data_usage(first_unavailable_bytes);
-    _second_data_dir_ptr->update_spill_data_usage(second_unavailable_bytes);
+    _data_dir_ptr->reserve(first_unavailable_bytes);
+    _second_data_dir_ptr->reserve(second_unavailable_bytes);
     Defer release_full_roots([&]() {
-        _data_dir_ptr->update_spill_data_usage(-first_unavailable_bytes);
-        _second_data_dir_ptr->update_spill_data_usage(-second_unavailable_bytes);
+        _data_dir_ptr->release(first_unavailable_bytes);
+        _second_data_dir_ptr->release(second_unavailable_bytes);
     });
 
     std::unique_ptr<ExternalSpillSession> spill_session;

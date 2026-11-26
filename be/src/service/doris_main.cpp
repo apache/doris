@@ -71,6 +71,7 @@
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
+#include "common/spill_storage_type.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/read_io_trace.h"
@@ -537,7 +538,8 @@ int main(int argc, char** argv) {
     }
     // With spill_storage_type=s3 query spill goes to object storage (validated by
     // SpillFileManager::init()), so local spill paths are optional.
-    if (doris::config::spill_storage_type != "s3" && spill_paths.empty()) {
+    if (!doris::spill_storage_type::is_remote(doris::config::spill_storage_type) &&
+        spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }

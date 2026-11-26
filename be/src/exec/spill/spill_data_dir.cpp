@@ -80,26 +80,34 @@ std::string SpillDataDir::get_spill_data_path(const std::string& query_id) const
 
 bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     std::lock_guard<std::mutex> l(_mutex);
-    return _reach_limit_unlocked(incoming_data_size);
+    return _reach_limit_unlocked(incoming_data_size, l);
 }
 
-Status SpillDataDir::try_reserve(int64_t bytes, bool force) {
+Status SpillDataDir::try_reserve(int64_t bytes) {
     std::lock_guard<std::mutex> l(_mutex);
-    if (!force && _reach_limit_unlocked(bytes)) {
+    if (_reach_limit_unlocked(bytes, l)) {
         return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                 "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                 "size: {}",
                 _path, PrettyPrinter::print_bytes(_spill_data_limit_bytes),
                 PrettyPrinter::print_bytes(_spill_data_bytes));
     }
-    _spill_data_bytes += bytes;
-    spill_disk_data_size->set_value(_spill_data_bytes);
+    _update_usage_unlocked(bytes, l);
     return Status::OK();
 }
 
-void SpillDataDir::update_spill_data_usage(int64_t incoming_data_size) {
+void SpillDataDir::reserve(int64_t bytes) {
     std::lock_guard<std::mutex> l(_mutex);
-    _spill_data_bytes += incoming_data_size;
+    _update_usage_unlocked(bytes, l);
+}
+
+void SpillDataDir::release(int64_t bytes) {
+    std::lock_guard<std::mutex> l(_mutex);
+    _update_usage_unlocked(-bytes, l);
+}
+
+void SpillDataDir::_update_usage_unlocked(int64_t delta, const std::lock_guard<std::mutex>&) {
+    _spill_data_bytes += delta;
     spill_disk_data_size->set_value(_spill_data_bytes);
 }
 

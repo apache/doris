@@ -155,7 +155,8 @@ bool LocalSpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
     return false;
 }
 
-bool LocalSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size) {
+bool LocalSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size,
+                                              const std::lock_guard<std::mutex>&) {
     if (_reach_disk_capacity_limit(incoming_data_size)) {
         return true;
     }

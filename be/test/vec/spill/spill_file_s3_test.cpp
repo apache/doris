@@ -1748,7 +1748,7 @@ TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
     }
     ASSERT_EQ(granted.load(), 100);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 1000);
-    ASSERT_TRUE(_data_dir->try_reserve(16, /*force=*/true).ok());
+    _data_dir->reserve(16);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 1016);
     _data_dir->release(1016);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
