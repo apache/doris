@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 #include <string>
 
@@ -119,5 +120,19 @@ TEST(FunctionWidthBucketTest, WidthBucketFloatingBounds) {
                         -std::numeric_limits<double>::max(), double(0), Int64(2)},
                        Int64(2)}};
     check_function_all_arg_comb<DataTypeInt64>("width_bucket", types, inside);
+}
+
+TEST(FunctionWidthBucketTest, WidthBucketFloatingInteriorBoundaries) {
+    const auto check = []<typename T>(PrimitiveType type) {
+        InputTypeSet types = {type, type, type, PrimitiveType::TYPE_BIGINT};
+        // With unit-width buckets, 15 is the first value in bucket 16. Dividing
+        // 15 by 21 before multiplying by 21 rounds just below 15 on x86_64.
+        DataSet rows = {{{std::nextafter(T(15), T(0)), T(0), T(21), Int64(21)}, Int64(15)},
+                        {{T(15), T(0), T(21), Int64(21)}, Int64(16)},
+                        {{std::nextafter(T(15), T(21)), T(0), T(21), Int64(21)}, Int64(16)}};
+        check_function_all_arg_comb<DataTypeInt64>("width_bucket", types, rows);
+    };
+    check.template operator()<float>(PrimitiveType::TYPE_FLOAT);
+    check.template operator()<double>(PrimitiveType::TYPE_DOUBLE);
 }
 } // namespace doris

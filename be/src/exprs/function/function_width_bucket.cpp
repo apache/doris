@@ -167,7 +167,9 @@ private:
                 } else {
                     long double width = static_cast<long double>(max_value) - min_value;
                     long double distance = static_cast<long double>(expr_data[i]) - min_value;
-                    long double bucket = distance / width * num_buckets;
+                    // Multiply first so 15 in [0, 21) with 21 buckets stays exactly
+                    // on its boundary instead of rounding below 15 before the cast.
+                    long double bucket = distance * num_buckets / width;
                     // Rounding near the upper bound must not produce an outside bucket.
                     nested_data[i] = static_cast<Int64>(std::min(
                                              bucket, static_cast<long double>(num_buckets - 1))) +
