@@ -2,3 +2,7 @@
 -- !select --
 76
 
+-- !decimal_abs_union --
+0.2045
+1.0101
+

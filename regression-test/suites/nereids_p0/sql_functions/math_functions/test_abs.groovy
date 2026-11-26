@@ -28,5 +28,19 @@ suite("test_abs") {
     sql """insert into tpch_tiny_lineitem values(1, 1.0); """
     qt_select """select abs(cast(abs(cast(76 as int)) as int)) as c1 from tpch_tiny_lineitem as ref_1 order by ref_1.`quantity` desc;"""
     sql """DROP TABLE IF EXISTS `tpch_tiny_lineitem`; """
+
+    sql "SET enable_fold_constant_by_be=false"
+    explain {
+        verbose true
+        sql "SELECT ABS(CAST(-0.2045 AS DECIMAL(5,4)))"
+        contains "type=decimalv3(5,4)"
+    }
+
+    qt_decimal_abs_union """
+        SELECT ABS(CAST(-0.2045 AS DECIMAL(5,4))) AS magnitude
+        UNION ALL
+        SELECT ABS(CAST(-1.0101 AS DECIMAL(5,4))) AS magnitude
+        ORDER BY magnitude
+    """
 }
 
