@@ -384,6 +384,9 @@ TEST_P(NodeStatusTest, UpdatesNodesWithoutStoredClusterIdAtomically) {
             check_nodes();
             InstanceInfoPB persisted;
             get_instance_info(meta_service.get(), &persisted, instance.instance_id());
+            // Every cluster update persists a strictly increasing cluster mtime.
+            EXPECT_GT(persisted.clusters(0).mtime(), cluster->mtime());
+            cluster->set_mtime(persisted.clusters(0).mtime());
             EXPECT_EQ(persisted.clusters(0).SerializeAsString(),
                       instance.clusters(0).SerializeAsString());
         }
@@ -740,6 +743,7 @@ TEST(ResourceTest, // NOLINT(readability-function-cognitive-complexity)
         txn->put(instance_key({instance_id}), instance.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
+        ScopedLegacyInstanceRpc legacy_instance_rpc;
         brpc::Controller cntl;
         AlterClusterRequest req;
         req.set_instance_id(instance_id);

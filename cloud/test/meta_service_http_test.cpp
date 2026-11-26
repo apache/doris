@@ -1071,6 +1071,9 @@ TEST_P(NodeStatusWithoutClusterIdHttpTest, PreservesNamedClusterWithoutStoredId)
     expected_node->set_mtime(mtime);
     expected_node->set_status(notify_decommissioned ? NodeStatusPB::NODE_STATUS_DECOMMISSIONED
                                                     : NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+    // Every cluster update persists a strictly increasing cluster mtime.
+    EXPECT_GT(persisted.clusters(0).mtime(), expected.mtime());
+    expected.set_mtime(persisted.clusters(0).mtime());
     EXPECT_EQ(persisted.clusters(0).SerializeAsString(), expected.SerializeAsString());
 }
 
