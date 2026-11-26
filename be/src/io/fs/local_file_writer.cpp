@@ -253,11 +253,12 @@ Status LocalFileWriter::sync() {
     if (_state != State::OPENED) {
         return Status::InternalError("sync on closed file: {}", _path.native());
     }
-    return _sync();
+    // A WAL leader can sync while another thread appends. Leave _dirty to the append and close paths.
+    return _sync(true);
 }
 
-Status LocalFileWriter::_sync() {
-    if (_dirty) {
+Status LocalFileWriter::_sync(bool sync_file) {
+    if (sync_file) {
         int rc;
 #ifdef __APPLE__
         RETRY_ON_EINTR(rc, ::fcntl(_fd, F_FULLFSYNC));
@@ -267,7 +268,6 @@ Status LocalFileWriter::_sync() {
         if (rc < 0) {
             return localfs_error(errno, fmt::format("failed to sync {}", _path.native()));
         }
-        _dirty = false;
     }
     if (!_parent_synced) {
         RETURN_IF_ERROR(sync_dir(_path.parent_path()));
@@ -286,7 +286,7 @@ Status LocalFileWriter::_close(bool sync) {
         return st;
     };
     if (sync && config::sync_file_on_close) {
-        auto st = _sync();
+        auto st = _sync(_dirty);
         if (!st.ok()) {
             return fd_reclaim_func(st);
         }

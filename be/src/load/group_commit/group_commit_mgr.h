@@ -137,6 +137,13 @@ private:
     std::string _wal_base_path;
     std::shared_ptr<VWalWriter> _v_wal_writer;
 
+    // Protected by mutex. Sequence 1 covers the WAL header written during creation.
+    uint64_t _wal_append_seq = 1;
+    uint64_t _wal_synced_seq = 0;
+    bool _wal_sync_in_progress = false;
+    std::condition_variable _wal_sync_cv;
+    Status _sync_wal_before_ack(std::unique_lock<std::mutex>& lock);
+
     // commit
     std::atomic<bool> _need_commit = false;
     // commit by time interval, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'

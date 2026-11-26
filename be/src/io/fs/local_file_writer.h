@@ -42,7 +42,7 @@ public:
     Status close(bool non_block = false) override;
 
 private:
-    Status _sync();
+    Status _sync(bool sync_file);
     Status _finalize();
     void _abort();
     Status _close(bool sync);

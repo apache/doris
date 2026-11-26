@@ -37,24 +37,28 @@ suite("test_group_commit_error", "nonConcurrent") {
         assertTrue(false, "Failed to find BE config: " + key)
     }
 
+    def set_config_on_be = { String backend_id, String key, String value ->
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
+                backendId_to_backendHttpPort.get(backend_id), key, value)
+        assertEquals(0, code, err)
+        assertEquals("OK", parseJson(out.trim())[0].status, out)
+    }
     def set_be_config = { String key, String value ->
-        for (String backend_id : backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-        }
+        backendId_to_backendIP.keySet().each { set_config_on_be(it, key, value) }
     }
 
+    def syncConfig = "group_commit_wal_sync_before_ack"
+    def originSyncConfig = [:]
     def originBeConfig = [:]
     for (String backend_id : backendId_to_backendIP.keySet()) {
+        originSyncConfig[backend_id] = get_be_config(backend_id, syncConfig)
         originBeConfig[backend_id] = get_be_config(backend_id, beConfigName)
     }
 
     onFinish {
         for (String backend_id : originBeConfig.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
-                    backendId_to_backendHttpPort.get(backend_id), beConfigName, originBeConfig[backend_id])
-            logger.info("restore config: code=" + code + ", out=" + out + ", err=" + err)
+            set_config_on_be(backend_id, syncConfig, originSyncConfig[backend_id])
+            set_config_on_be(backend_id, beConfigName, originBeConfig[backend_id])
         }
         GetDebugPoint().clearDebugPointsForAllBEs()
         GetDebugPoint().clearDebugPointsForAllFEs()
@@ -78,6 +82,9 @@ suite("test_group_commit_error", "nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs("WalWriter.sync.fail")
         sql "set group_commit = async_mode"
+        set_be_config(syncConfig, "false")
+        sql "insert into ${tableName} values (-1, -1)"
+        set_be_config(syncConfig, "true")
         test {
             sql "insert into ${tableName} values (0, 0)"
             exception "injected WAL sync failure"
