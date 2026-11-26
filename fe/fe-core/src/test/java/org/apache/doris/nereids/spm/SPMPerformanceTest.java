@@ -147,16 +147,13 @@ public class SPMPerformanceTest {
     public void testFreezePreflightShortCircuitsAndDoesNotInspectSameInputTwice() {
         LogicalPlan plan = new NereidsParser().parseSingle("SELECT 1");
         try (MockedStatic<SPMPlanTreeSupport> support = Mockito.mockStatic(SPMPlanTreeSupport.class)) {
-            Assertions.assertFalse(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, true));
-            support.verifyNoInteractions();
-
             support.when(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan)).thenReturn(true);
-            Assertions.assertFalse(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, false));
+            Assertions.assertFalse(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan));
             support.verify(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan));
             support.verifyNoMoreInteractions();
         }
         try (MockedStatic<SPMPlanTreeSupport> support = Mockito.mockStatic(SPMPlanTreeSupport.class)) {
-            Assertions.assertTrue(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, false));
+            Assertions.assertTrue(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan));
             support.verify(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan));
             support.verify(() -> SPMPlanTreeSupport.requiresSessionSensitiveReplay(plan));
             support.verify(() -> SPMPlanTreeSupport.referencesView(null, plan));

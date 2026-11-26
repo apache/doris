@@ -198,11 +198,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /** Number of array items or map values before reaching the key selected by MAP_KEYS. */
     private int mapKeyDepth = NO_MAP_KEY_DEPENDENCY;
 
-    /** Marker-id sets of the SELECT expressions targeted by ordinary GROUP BY ordinals. */
-    private final Set<Set<Long>> groupByOrdinalTargets = new HashSet<>();
-
-    /** Parameterized grouping-set ordinal targets require a separate repeat-aware proof. */
-    private boolean parameterizedGroupingSetOrdinalTarget;
+    /** Marker-id sets of grouping expressions that need the capture-time column proof. */
+    private final Set<Set<Long>> groupingColumnTargets = new HashSet<>();
 
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock. */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
@@ -216,29 +213,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         this.groupByMirrorLookup = lookup;
     }
 
-    /** Reports whether any GROUP BY ordinal needs the frozen grouping-column proof. */
-    public boolean hasParameterizedGroupByOrdinalTarget() {
-        return !groupByOrdinalTargets.isEmpty() || parameterizedGroupingSetOrdinalTarget;
-    }
-
-    /** Returns the marker sets that the ordinary grouping-column proof must preserve. */
-    public Set<Set<Long>> getGroupByOrdinalTargets() {
-        return Set.copyOf(groupByOrdinalTargets);
-    }
-
-    /** Reports whether the separate grouping-set path must retain the raw SQL. */
-    public boolean hasParameterizedGroupingSetOrdinalTarget() {
-        return parameterizedGroupingSetOrdinalTarget;
+    /** Returns the marker sets that the grouping-column proof must preserve. */
+    public Set<Set<Long>> getGroupingColumnTargets() {
+        return Set.copyOf(groupingColumnTargets);
     }
 
     /** Records targets across both bind and plan trees before optimization can erase their provenance. */
     @Override
-    public void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
-        if (groupingSet) {
-            parameterizedGroupingSetOrdinalTarget = true;
-        } else {
-            groupByOrdinalTargets.add(Set.copyOf(SPMPlanTreeSupport.collectPlaceholderIds(target)));
-        }
+    public void noteParameterizedGroupingTarget(Expression target) {
+        groupingColumnTargets.add(Set.copyOf(SPMPlanTreeSupport.collectPlaceholderIds(target)));
     }
 
     /** Starts one expression ROOT of the current block (see nextRootOrdinal). */
@@ -298,8 +281,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
 
         @Override
-        public void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
-            SPMPlaceholderBuilder.this.noteParameterizedGroupByOrdinalTarget(target, groupingSet);
+        public void noteParameterizedGroupingTarget(Expression target) {
+            SPMPlaceholderBuilder.this.noteParameterizedGroupingTarget(target);
         }
 
         @Override
@@ -972,6 +955,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     @Override
     public Expression visitLiteral(Literal literal, Expression parent) {
+        // A constant SELECT item can itself be a grouping key. GROUPING(1) is
+        // a reference to that expression, not a fresh independent value.
+        if (groupByMirrorLookup != null && SPMPlanTreeSupport.groupingFunctionName(parent) != null) {
+            Expression mirror = groupByMirrorLookup.apply(SPMPlanTreeSupport.expressionIdentity(literal));
+            if (mirror != null) {
+                return mirror;
+            }
+        }
         // The ESCAPE operand of LIKE must stay a STRING LITERAL: parameterizing it turned
         // the escape into a scalar placeholder call, and the analyzer rejected the whole
         // statement ("like escape character must be a string literal" on

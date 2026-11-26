@@ -3124,11 +3124,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // group-by column pass-through: reference by its (child) name
             sql = exprSqlBuilder.print(output, child);
             ref = sql;
-            if (ref != null && ref.startsWith("GROUPING(")) {
-                // GROUPING virtual column (ROLLUP): GROUPING(col) is only valid in the
+            if (ref != null && (ref.startsWith("GROUPING(") || ref.startsWith("GROUPING_ID("))) {
+                // GROUPING / GROUPING_ID virtual columns are only valid in the
                 // SELECT of the GROUP BY GROUPING SETS / ROLLUP aggregate itself. Export
                 // it here under a plain alias (c_<seq>) so upper projections reference the
-                // alias column instead of re-printing GROUPING(col) in a non-grouping
+                // alias column instead of re-printing a grouping function in a non-grouping
                 // scope ("LOGICAL_PROJECT should not contain grouping expression").
                 String alias = stableRef(output, scopeNames(child, relation));
                 sql = ref + " AS " + alias;

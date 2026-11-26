@@ -125,7 +125,7 @@ true
 2	2	1
 
 -- !rollup_frozen --
-false
+true
 
 -- !rollup_0_spm --
 \N	4
@@ -150,7 +150,7 @@ false
 2	1
 
 -- !cube_frozen --
-false
+true
 
 -- !cube_0_spm --
 \N	4
@@ -175,7 +175,7 @@ false
 2	1
 
 -- !grouping_sets_frozen --
-false
+true
 
 -- !grouping_sets_0_spm --
 \N	4

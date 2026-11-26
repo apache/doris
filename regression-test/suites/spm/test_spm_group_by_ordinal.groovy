@@ -56,13 +56,13 @@ suite("test_spm_group_by_ordinal", "p0") {
         ["two_keys", true,
             "SELECT k % 2 AS c, v % 3 AS d, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY 2, 1 ORDER BY 1, 2",
             "SELECT k % 3 AS c, v % 4 AS d, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY 2, 1 ORDER BY 1, 2"],
-        ["rollup", false,
+        ["rollup", true,
             "SELECT k % 2 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY ROLLUP(1) ORDER BY 1",
             "SELECT k % 3 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY ROLLUP(1) ORDER BY 1"],
-        ["cube", false,
+        ["cube", true,
             "SELECT k % 2 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY CUBE(1) ORDER BY 1",
             "SELECT k % 3 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY CUBE(1) ORDER BY 1"],
-        ["grouping_sets", false,
+        ["grouping_sets", true,
             "SELECT k % 2 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY GROUPING SETS((1), ()) ORDER BY 1",
             "SELECT k % 3 AS c, COUNT(*) AS n FROM spm_group_by_ordinal GROUP BY GROUPING SETS((1), ()) ORDER BY 1"]
     ]

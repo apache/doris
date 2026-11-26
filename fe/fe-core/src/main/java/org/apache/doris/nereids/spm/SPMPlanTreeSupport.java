@@ -195,8 +195,8 @@ public final class SPMPlanTreeSupport {
         default void setGroupByMirrorLookup(java.util.function.Function<String, Expression> lookup) {
         }
 
-        /** Records a GROUP BY ordinal whose SELECT item contains placeholders. */
-        default void noteParameterizedGroupByOrdinalTarget(Expression target, boolean groupingSet) {
+        /** Records a parameterized grouping expression that must survive as a frozen grouping column. */
+        default void noteParameterizedGroupingTarget(Expression target) {
         }
     }
 
@@ -1522,7 +1522,7 @@ public final class SPMPlanTreeSupport {
             }
             // The source target carries the placeholder ids that must survive in a
             // grouping-column producer in the frozen SQL, not in the ordinal itself.
-            noteParameterizedGroupByOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform, false);
+            noteParameterizedGroupByOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform);
             if (!changed) {
                 return aggregate;
             }
@@ -1606,18 +1606,11 @@ public final class SPMPlanTreeSupport {
 
         /** Detects a GROUP BY ordinal that resolves to a parameterized SELECT item. */
         private void noteParameterizedGroupByOrdinalTargets(List<Expression> keys,
-                List<? extends NamedExpression> outputs, ExprTransform transform, boolean groupingSet) {
+                List<? extends NamedExpression> outputs, ExprTransform transform) {
             for (Expression key : keys) {
-                if (!(key instanceof IntegerLikeLiteral)) {
-                    continue;
-                }
-                BigDecimal ordinal = ((IntegerLikeLiteral) key).getBigDecimalValue();
-                if (ordinal.compareTo(BigDecimal.ONE) >= 0
-                        && ordinal.compareTo(BigDecimal.valueOf(outputs.size())) <= 0) {
-                    Expression target = outputs.get(ordinal.intValueExact() - 1);
-                    if (containsPlaceholder(target)) {
-                        transform.noteParameterizedGroupByOrdinalTarget(target, groupingSet);
-                    }
+                Expression target = groupingOrdinalTarget(key, outputs);
+                if (target != null && containsPlaceholder(target)) {
+                    transform.noteParameterizedGroupingTarget(target);
                 }
             }
         }
@@ -1668,34 +1661,93 @@ public final class SPMPlanTreeSupport {
         @Override
         public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
                 ExprTransform transform) {
-            // GROUPING SETS / ROLLUP / CUBE.
-            // The outputExpressions are the SELECT-list items of the query block (constants
-            // like "SELECT 5 AS tag" live here) and need parameterizes select items
-            // like any other expression -> parameterize them so a user value change can
-            // match and be substituted. The groupingSets are the grouping keys (GROUP BY
-            // columns); we does not traverse them -> they stay concrete.
             Plan child = repeat.child().accept(this, transform);
             boolean changed = child != repeat.child();
-            List<NamedExpression> newOutput = transformNamed(repeat.getOutputExpressions(),
-                    transform);
-            if (newOutput != repeat.getOutputExpressions()) {
-                changed = true;
+            int mirrorMark = groupByMirrors.size();
+            List<NamedExpression> outputs = repeat.getOutputExpressions();
+            // ROLLUP/CUBE expand the same key into several sets. Parameterize each
+            // distinct expression once, before its SELECT/GROUPING/HAVING consumers.
+            // An ordinal itself stays concrete; its SELECT target is the expression
+            // that must share the marker ids with GROUPING(target).
+            Map<String, Expression> transformedKeys = new HashMap<>();
+            List<List<Expression>> newSets = new ArrayList<>(repeat.getGroupingSets().size());
+            for (List<Expression> set : repeat.getGroupingSets()) {
+                List<Expression> newKeys = new ArrayList<>(set.size());
+                for (Expression key : set) {
+                    Expression target = groupingOrdinalTarget(key, outputs);
+                    if (target == null && key instanceof IntegerLikeLiteral) {
+                        // An out-of-range integer is a concrete grouping value, just
+                        // as in visitLogicalAggregate; never turn it into an ordinal.
+                        newKeys.add(key);
+                        continue;
+                    }
+                    Expression value = target == null ? key : target;
+                    String identity = expressionIdentity(value);
+                    Expression transformed = transformedKeys.get(identity);
+                    if (transformed == null) {
+                        transformed = transform.apply(value);
+                        transformedKeys.put(identity, transformed);
+                        if (transformed != value) {
+                            groupByMirrors.add(new GroupByMirror(identity, transformed));
+                        }
+                        if (containsPlaceholder(transformed)) {
+                            transform.noteParameterizedGroupingTarget(transformed);
+                        }
+                    }
+                    Expression newKey = target == null ? transformed : key;
+                    newKeys.add(newKey);
+                    changed |= newKey != key;
+                }
+                newSets.add(newKeys);
             }
-            for (List<Expression> groupingSet : repeat.getGroupingSets()) {
-                noteParameterizedGroupByOrdinalTargets(groupingSet, newOutput, transform, true);
+            List<NamedExpression> newOutput;
+            if (groupByMirrors.size() == mirrorMark) {
+                newOutput = transformNamed(outputs, transform);
+            } else {
+                // GROUPING()/GROUPING_ID() arguments and nested grouping expressions
+                // must reuse the same symbolic key, even when the referencing item
+                // precedes the SELECT item that an ordinal names.
+                installGroupByMirrorLookup(transform, mirrorMark);
+                try {
+                    newOutput = transformProjectItems(outputs, transform, mirrorMark);
+                } finally {
+                    clearGroupByMirrorLookup(transform);
+                }
             }
+            changed |= newOutput != outputs;
             if (!changed) {
                 return repeat;
             }
-            // NOTE: the overload that takes the grouping-id VALUES rebuilds through a
-            // constructor that forces withInProjection=true, which flips toDigest from
-            // "SELECT <outputs> FROM <child>" to "<child>". A rebuild must keep the
-            // parse-time rendering state: only the qualification below changes a digest,
-            // not the fact that a node was rebuilt on the way. The 4-arg overload reuses
-            // the existing grouping-id values and keeps withInProjection as-is.
-            return repeat.withGroupingIdValues(repeat.getGroupingSets(), newOutput,
+            // Preserve the parse-time withInProjection flag and any grouping-id values.
+            return repeat.withGroupingIdValues(newSets, newOutput,
                     repeat.getGroupingId().orElse(null), child);
         }
+    }
+
+    /** Name of a parsed, unqualified GROUPING/GROUPING_ID call, or null for other expressions. */
+    public static String groupingFunctionName(Expression expression) {
+        if (expression instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) expression;
+            String name = function.getName().toLowerCase(Locale.ROOT);
+            if ((function.getDbName() == null || function.getDbName().isEmpty())
+                    && ("grouping".equals(name) || "grouping_id".equals(name))) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    /** Resolves an in-range integer grouping ordinal against its SELECT list, without changing the ordinal. */
+    static Expression groupingOrdinalTarget(Expression key, List<? extends NamedExpression> outputs) {
+        if (!(key instanceof IntegerLikeLiteral)) {
+            return null;
+        }
+        BigDecimal ordinal = ((IntegerLikeLiteral) key).getBigDecimalValue();
+        if (ordinal.compareTo(BigDecimal.ONE) < 0 || ordinal.compareTo(BigDecimal.valueOf(outputs.size())) > 0) {
+            return null;
+        }
+        NamedExpression item = outputs.get(ordinal.intValueExact() - 1);
+        return item instanceof Alias || item instanceof UnboundAlias ? item.child(0) : item;
     }
 
     /**
@@ -2624,6 +2676,20 @@ public final class SPMPlanTreeSupport {
             if (((LogicalTopN<?>) bind).getLimit() != ((LogicalTopN<?>) user).getLimit()
                     || ((LogicalTopN<?>) bind).getOffset() != ((LogicalTopN<?>) user).getOffset()) {
                 return false;
+            }
+        }
+        // LogicalRepeat.getExpressions flattens its grouping sets. Compare their
+        // boundaries before matching the member expressions, including empty sets.
+        if (bind instanceof LogicalRepeat) {
+            List<List<Expression>> bindSets = ((LogicalRepeat<?>) bind).getGroupingSets();
+            List<List<Expression>> userSets = ((LogicalRepeat<?>) user).getGroupingSets();
+            if (bindSets.size() != userSets.size()) {
+                return false;
+            }
+            for (int i = 0; i < bindSets.size(); i++) {
+                if (bindSets.get(i).size() != userSets.get(i).size()) {
+                    return false;
+                }
             }
         }
         // compare this node's expressions first (bind side is parameterized)

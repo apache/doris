@@ -19,6 +19,8 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -71,7 +73,52 @@ class SPMGroupByOrdinalValidatorTest {
         }
     }
 
+    @Test
+    void testRepeatContractPreservesMembershipMultiplicityAndGroupingArgumentOrder() {
+        String source = "SELECT k % 2 AS a, v % 3 AS b, grouping_id(v % 3, k % 2) AS g, count(*) AS n FROM t"
+                + " GROUP BY GROUPING SETS((1, 2), (1), (1), ())";
+        String projection = " FROM (SELECT k % _spm_const_var(1) AS x, v % _spm_const_var(2) AS y FROM t) q";
+        String output = "SELECT x, y, grouping_id(y, x) AS g, count(*) AS n";
+        String sets = " GROUP BY GROUPING SETS((x, y), (x), (x), ())";
+        Assertions.assertTrue(preservesRepeat(source, output + projection + sets));
+        Assertions.assertTrue(preservesRepeat(source,
+                output + projection + " GROUP BY GROUPING SETS((), (x), (y, x), (x))"));
+        for (String frozen : List.of(
+                output + projection + " GROUP BY GROUPING SETS((x, y), (x), (x))",
+                output + projection + " GROUP BY GROUPING SETS((x, y), (x), ())",
+                output + projection + " GROUP BY GROUPING SETS((x, y), (x), (y), ())",
+                output + projection + " GROUP BY GROUPING SETS((1, y), (1), (1), ())",
+                output.replace("grouping_id(y, x)", "grouping_id(x, y)") + projection + sets,
+                output.replace("grouping_id(y, x)", "grouping(y)") + projection + sets,
+                output.replace("grouping_id(y, x)", "0") + projection + sets,
+                output + projection.replace("_spm_const_var(2)", "_spm_const_var(3)") + sets,
+                output + projection + " GROUP BY x, y")) {
+            Assertions.assertFalse(preservesRepeat(source, frozen), frozen);
+        }
+    }
+
+    @Test
+    void testRepeatContractPreservesConcreteMemberAndConsumerGroupingCall() {
+        String source = "SELECT k % 2 AS a, v, count(*) AS n FROM t GROUP BY ROLLUP(1, 2)"
+                + " HAVING grouping(k % 2) = 0";
+        String frozen = "SELECT x, v, grouping(x) AS hidden, count(*) AS n FROM"
+                + " (SELECT k % _spm_const_var(1) AS x, v FROM t) q GROUP BY GROUPING SETS((x,v),(x),())";
+        Assertions.assertTrue(preservesRepeat(source, frozen));
+        Assertions.assertFalse(preservesRepeat(source, frozen.replace("grouping(x)", "grouping(v)")));
+        Assertions.assertFalse(preservesRepeat(source, frozen.replace("AS x, v FROM", "AS x, k AS v FROM")));
+    }
+
+    private boolean preservesRepeat(String source, String frozen) {
+        NereidsParser parser = new NereidsParser();
+        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        LogicalPlan parameterized = SPMPlanTreeSupport.transform(parser.parseSingle(source), builder);
+        return SPMGroupByOrdinalValidator.preservesTargets(parser.parseSingle(frozen), parameterized,
+                builder.getGroupingColumnTargets());
+    }
+
     private boolean preserves(String sql, Set<Set<Long>> targets) {
-        return SPMGroupByOrdinalValidator.preservesTargets(new NereidsParser().parseSingle(sql), targets);
+        NereidsParser parser = new NereidsParser();
+        return SPMGroupByOrdinalValidator.preservesTargets(parser.parseSingle(sql),
+                parser.parseSingle("SELECT 1"), targets);
     }
 }
