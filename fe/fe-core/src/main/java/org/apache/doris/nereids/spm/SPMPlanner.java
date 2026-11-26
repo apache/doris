@@ -676,10 +676,10 @@ public class SPMPlanner {
      * SELECT now() AS ts FROM t returned the CREATE timestamp on every later
      * matching query.
      */
-    private static void rejectReplayContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
+    private static void rejectCreatorContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql) throws AnalysisException {
-        if (SPMPlanTreeSupport.containsReplayContextExpression(bindPlan)
-                || SPMPlanTreeSupport.containsReplayContextExpression(planPlan)) {
+        if (SPMPlanTreeSupport.containsCreatorContextExpression(bindPlan)
+                || SPMPlanTreeSupport.containsCreatorContextExpression(planPlan)) {
             throw new AnalysisException("SPM does not support replay-time context expressions"
                     + " (user/session variables including a parsed @v, current_user(),"
                     + " session_user(), user(), database(), current_catalog(), connection_id(),"
@@ -699,8 +699,8 @@ public class SPMPlanner {
         // the creating identity. The resolved bodies are inspected TRANSITIVELY (and in the
         // same resolved scope the call will use) before anything is parameterized.
         ConnectContext currentCtx = ConnectContext.get();
-        if (SPMPlanTreeSupport.containsReplayContextInAliasBodies(currentCtx, bindPlan)
-                || SPMPlanTreeSupport.containsReplayContextInAliasBodies(currentCtx, planPlan)) {
+        if (SPMPlanTreeSupport.containsCreatorContextInAliasBodies(currentCtx, bindPlan)
+                || SPMPlanTreeSupport.containsCreatorContextInAliasBodies(currentCtx, planPlan)) {
             throw new AnalysisException("SPM does not support replay-time context expressions"
                     + " inside a resolved ALIAS FUNCTION body (an alias whose body calls"
                     + " current_user() / session_user() / database() / @v / a clock function,"
@@ -763,7 +763,7 @@ public class SPMPlanner {
             throw new AnalysisException(
                     "SPM does not support SELECT ... INTO OUTFILE statements: " + bindSql);
         }
-        rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
+        rejectCreatorContextExpressions(bindPlan, planPlan, bindSql);
         // Collect shared facts once, then validate scan selectors and logical query equivalence.
         SPMPlanTreeSupport.rejectManualPlanMismatch(bindPlan, planPlan, bindSql);
         // key(...) folds a named secret into a constant during optimization, and the parsed
@@ -782,33 +782,13 @@ public class SPMPlanner {
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
                 parameterizeBuilder);
         LogicalPlan parameterizedPlan = trees.second;
-        // Keep original plan SQL when either input references a view rather than storing its base-table
-        // expansion. The rewrite entry currently skips view queries before replay so their ordinary planning
-        // retains view resolution and authorization.
-        boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
-                || SPMPlanTreeSupport.referencesView(ctx, planPlan);
-        // Preserve omitted session-dependent arguments and keep concrete VALUES / REPLACE payloads
-        // that must be evaluated using the caller's settings.
-        boolean sessionSensitiveReplay =
-                SPMPlanTreeSupport.requiresSessionSensitiveReplay(bindPlan)
-                        || (!sameSql && SPMPlanTreeSupport.requiresSessionSensitiveReplay(planPlan));
-        // An explicit FROM t INDEX mv pin is a SEMANTIC choice (on an aggregate-key
-        // table a coarser rollup returns aggregated rows where the base table returns one
-        // per record), and the decompiled text cannot carry it: the physical scan only
-        // knows the SELECTED index id - which every optimizer-side rollup / MV choice sets
-        // as well - while the matching key DOES carry the pin (the digest renders INDEX
-        // <name>, so only callers with the same pin match). A frozen "FROM t" would then
-        // read the base table for a pinned caller, silently returning finer-grained rows;
-        // the replan probe does not catch it (the text is valid) and the schema
-        // fingerprint does not hash the selection. Decline the freeze exactly like the
-        // view / session-sensitive-payload guards: the raw planSql is kept and the rewrite
-        // replays the parameterized tree, whose own analysis re-applies the pin.
-        boolean pinsExplicitIndex = SPMPlanTreeSupport.pinsExplicitIndex(bindPlan)
-                || SPMPlanTreeSupport.pinsExplicitIndex(planPlan);
+        // The cost, validation and locked table/function fingerprints still require optimization
+        // even when the parsed inputs already rule out freezing. Skip the freeze-specific work in that case.
+        boolean attemptFreeze = canFreezeBeforeOptimization(ctx, bindPlan, planPlan,
+                parameterizeBuilder.hasParameterizedGroupByOrdinalTarget());
 
         SPMOptimizer.OptimizeResult optimizeResult;
         DecompiledPlan frozen;
-        boolean rawPlanOptimized = false;
         try {
             // optimize the parameterized plan tree in SPM mode: placeholders travel
             // through analyze / rewrite / CBO and survive into the physical plan.
@@ -821,11 +801,9 @@ public class SPMPlanner {
             // at replay, so the EXECUTING user's own policy checks still run exactly as
             // for an ordinary query.
             optimizeResult = SPMOptimizer.optimize(ctx,
-                    SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
-            frozen = decompileFrozenPlan(referencesView, sessionSensitiveReplay,
-                    pinsExplicitIndex,
-                    parameterizeBuilder.hasParameterizedGroupByOrdinalTarget(),
-                    optimizeResult, planSql);
+                    SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql, attemptFreeze);
+            frozen = attemptFreeze
+                    ? decompileFrozenPlan(optimizeResult, planSql) : new DecompiledPlan(planSql, false);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -840,12 +818,11 @@ public class SPMPlanner {
             // check policy markers for the same reason as above.
             LOG.warn("SPM parameterized plan optimization failed, falling back to raw planSql",
                     e);
-            rawPlanOptimized = true;
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(
                             parseSelectWithSqlMode(creatorMode, planSql,
                                     "SPM planSql must be a SELECT statement: " + planSql)),
-                    planSql);
+                    planSql, false);
             frozen = new DecompiledPlan(planSql, false);
         }
         // A successful decompilation is not proof the text can be re-planned: the
@@ -889,7 +866,7 @@ public class SPMPlanner {
         // decompiles): replaying it as frozen would skip the user-value substitution and
         // return the captured literals - such a text must keep the parameterized-plan-tree
         // rewrite path (planFrozen=false), exactly like a failed decompile.
-        Boolean planFrozen = frozen.decompiled && !rawPlanOptimized;
+        Boolean planFrozen = frozen.decompiled;
         long planSqlMode = frozen.decompiled ? SqlModeHelper.MODE_DEFAULT : creatorMode;
         BaselinePlan baseline = assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
                 frozen.sql, optimizeResult.getCost(),
@@ -996,7 +973,7 @@ public class SPMPlanner {
             // A re-plannable tree can still be unusable for replay, for example a
             // derived table folded to a one-row relation whose outputs cannot be aligned.
             LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(substituted, bindPlan);
-            SPMOptimizer.optimize(ctx, aligned, frozen.sql);
+            SPMOptimizer.optimize(ctx, aligned, frozen.sql, false);
             return frozen;
         } catch (UserException | RuntimeException e) {
             LOG.warn("SPM decompiled text cannot be re-planned; storing the user planSql"
@@ -1059,47 +1036,51 @@ public class SPMPlanner {
     }
 
     /**
-     * Decompiles the optimized physical plan into the frozen planSql. The user-supplied
-     * planSql text is kept when the decompiler does not support the plan shape, when the plan references a view
-     * (the frozen text is
-     * replayed ahead of authorization, and replaying a view's base-table expansion would
-     * authorize those base tables instead of the view), when an inline VALUES cell /
-     * REPLACE payload or analyzed concrete expression folds a value the caller's session must
-     * evaluate for itself, when binding inserts the session's encryption mode or AI resource (see
-     * SPMPlanTreeSupport.requiresSessionSensitiveReplay), or when the statement
-     * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
-     * text cannot carry the pin, and dropping it would read the base table instead of the
-     * pinned - possibly coarser - index; see SPMPlanTreeSupport.pinsExplicitIndex). A GROUP BY ordinal
-     * that references a parameterized SELECT item also keeps the original statement.
+     * Checks the parsed inputs before optimizing. Once freezing is ruled out, no further
+     * freeze eligibility checks are necessary. Check inexpensive structural properties
+     * before resolving relations for the view check.
      */
-    private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
-            boolean sessionSensitiveReplay, boolean pinsExplicitIndex,
-            boolean parameterizedGroupByOrdinal, SPMOptimizer.OptimizeResult optimizeResult,
-            String planSql) {
-        if (referencesView) {
-            LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
-                    + " so the rewrite replays the parameterized tree (view authorization"
-                    + " preserved)");
-            return new DecompiledPlan(planSql, false);
+    static boolean canFreezeBeforeOptimization(ConnectContext ctx, LogicalPlan bindPlan,
+            LogicalPlan planPlan, boolean parameterizedGroupByOrdinal) {
+        if (parameterizedGroupByOrdinal) {
+            LOG.info("SPM freeze skipped: a GROUP BY ordinal references a parameterized SELECT item;"
+                    + " the parameterized tree preserves the grouping");
+            return false;
         }
-        if (sessionSensitiveReplay || optimizeResult.hasConcreteSessionSensitiveExpression()) {
-            LOG.info("SPM freeze skipped: binding or folding can capture a session-dependent"
-                    + " value; keeping the user planSql so the"
-                    + " rewrite replays the parameterized tree, where the caller's own"
-                    + " session evaluates the expression");
-            return new DecompiledPlan(planSql, false);
-        }
-        if (pinsExplicitIndex) {
+        if (SPMPlanTreeSupport.pinsExplicitIndex(bindPlan)
+                || (bindPlan != planPlan && SPMPlanTreeSupport.pinsExplicitIndex(planPlan))) {
             LOG.info("SPM freeze skipped: the statement pins a materialized view / rollup"
                     + " with an explicit INDEX clause, which the decompiled text cannot"
                     + " carry (dropping it would read the base table instead of the pinned"
                     + " index); keeping the user planSql so the rewrite replays the"
                     + " parameterized tree, whose analysis re-applies the pin");
-            return new DecompiledPlan(planSql, false);
+            return false;
         }
-        if (parameterizedGroupByOrdinal) {
-            LOG.info("SPM freeze skipped: a GROUP BY ordinal references a parameterized SELECT item;"
-                    + " the parameterized tree preserves the grouping");
+        if (SPMPlanTreeSupport.requiresSessionSensitiveReplay(bindPlan)
+                || (bindPlan != planPlan && SPMPlanTreeSupport.requiresSessionSensitiveReplay(planPlan))) {
+            logSessionSensitiveFreezeSkipped();
+            return false;
+        }
+        if (SPMPlanTreeSupport.referencesView(ctx, bindPlan)
+                || (bindPlan != planPlan && SPMPlanTreeSupport.referencesView(ctx, planPlan))) {
+            LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
+                    + " so the rewrite replays the parameterized tree (view authorization"
+                    + " preserved)");
+            return false;
+        }
+        return true;
+    }
+
+    private static void logSessionSensitiveFreezeSkipped() {
+        LOG.info("SPM freeze skipped: binding or folding can capture a session-dependent"
+                + " value; keeping the user planSql so the rewrite replays the parameterized tree,"
+                + " where the caller's own session evaluates the expression");
+    }
+
+    /** Decompiles only when the analyzed plan did not expose a concrete session-sensitive expression. */
+    private static DecompiledPlan decompileFrozenPlan(SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
+        if (optimizeResult.hasConcreteSessionSensitiveExpression()) {
+            logSessionSensitiveFreezeSkipped();
             return new DecompiledPlan(planSql, false);
         }
         try {

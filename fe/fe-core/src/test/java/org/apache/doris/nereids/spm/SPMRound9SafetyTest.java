@@ -199,19 +199,19 @@ public class SPMRound9SafetyTest {
 
     @Test
     public void testReplayContextExpressionsAreDetected() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT current_user() AS u, k FROM t1 WHERE k = 1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT session_user() AS u FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT database() AS d FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT connection_id() AS c FROM t1")));
         // a nested subquery must be scanned too
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k IN (SELECT k FROM t2 WHERE k = 1"
                         + " AND current_user() IS NOT NULL)")));
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k = 1")));
     }
 

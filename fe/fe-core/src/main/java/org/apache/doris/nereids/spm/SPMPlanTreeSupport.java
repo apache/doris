@@ -2110,11 +2110,10 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    // replay-time context expression detection.
+    // creator-context expression detection.
 
     /**
-     * Whether the tree contains an expression whose value belongs to the CREATOR's
-     * replay-time context: a session / user variable (@v) or current_user,
+     * Whether the tree captures a CREATOR context expression: a session / user variable (@v) or current_user,
      * session_user, database, connection_id. Such leaves survive
      * parameterization, the creator-context optimization then resolves them to LITERALS,
      * and the frozen SQL persists the CREATOR's value - while matching still compares the
@@ -2127,7 +2126,7 @@ public final class SPMPlanTreeSupport {
      *         (IN / EXISTS / scalar, coercions included), CTE bodies and an ASOF join's
      *         out-of-band MATCH_CONDITION are scanned
      */
-    public static boolean containsReplayContextExpression(LogicalPlan plan) {
+    public static boolean containsCreatorContextExpression(LogicalPlan plan) {
         if (plan == null) {
             return false;
         }
@@ -2137,12 +2136,12 @@ public final class SPMPlanTreeSupport {
                 Optional<Expression> matchCondition =
                         ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
                 if (matchCondition.isPresent()
-                        && containsReplayContextExpression(matchCondition.get())) {
+                        && containsCreatorContextExpression(matchCondition.get())) {
                     return true;
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsReplayContextExpression(expr, false)) {
+                if (containsCreatorContextExpression(expr, false)) {
                     return true;
                 }
             }
@@ -2150,12 +2149,12 @@ public final class SPMPlanTreeSupport {
         });
     }
 
-    /** Whether an expression tree contains a replay-time context expression. */
-    public static boolean containsReplayContextExpression(Expression expr) {
-        return containsReplayContextExpression(expr, true);
+    /** Whether an expression tree contains a creator-context expression. */
+    public static boolean containsCreatorContextExpression(Expression expr) {
+        return containsCreatorContextExpression(expr, true);
     }
 
-    private static boolean containsReplayContextExpression(Expression expr, boolean descendSubqueries) {
+    private static boolean containsCreatorContextExpression(Expression expr, boolean descendSubqueries) {
         if (expr instanceof Variable || expr instanceof UnboundVariable
                 || expr instanceof CurrentUser || expr instanceof SessionUser
                 || expr instanceof Database || expr instanceof ConnectionId
@@ -2223,18 +2222,18 @@ public final class SPMPlanTreeSupport {
             // children of the star, so the recursive walk below never reached them and the
             // statement passed the guard. Scan the payloads explicitly.
             for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
-                if (containsReplayContextExpression(replaced, descendSubqueries)) {
+                if (containsCreatorContextExpression(replaced, descendSubqueries)) {
                     return true;
                 }
             }
         }
         if (descendSubqueries && expr instanceof SubqueryExpr) {
-            if (containsReplayContextExpression(((SubqueryExpr) expr).getQueryPlan())) {
+            if (containsCreatorContextExpression(((SubqueryExpr) expr).getQueryPlan())) {
                 return true;
             }
         }
         for (Expression child : expr.children()) {
-            if (containsReplayContextExpression(child, descendSubqueries)) {
+            if (containsCreatorContextExpression(child, descendSubqueries)) {
                 return true;
             }
         }
@@ -2244,7 +2243,7 @@ public final class SPMPlanTreeSupport {
     /**
      * Whether the tree REFERENCES an alias UDF whose RESOLVED BODY (transitively) carries a
      * replay-time context expression (see
-     * org.apache.doris.nereids.spm.SPMPlanner.rejectReplayContextExpressions).
+     * org.apache.doris.nereids.spm.SPMPlanner.rejectCreatorContextExpressions).
      *
      * The parsed-tree check above only sees the CALL: CREATE ALIAS FUNCTION f() WITH
      * PARAMETER() AS current_user() is an ordinary UnboundFunction in the bind text, and its
@@ -2262,16 +2261,16 @@ public final class SPMPlanTreeSupport {
      * Parameter plan: the parsed (unbound) tree
      * Returns: whether a resolved alias body contains a replay-time context expression
      */
-    public static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+    public static boolean containsCreatorContextInAliasBodies(ConnectContext ctx,
             LogicalPlan plan) {
-        return containsReplayContextInAliasBodies(ctx, plan, new HashSet<>());
+        return containsCreatorContextInAliasBodies(ctx, plan, new HashSet<>());
     }
 
     /**
-     * As containsReplayContextInAliasBodies(ConnectContext, LogicalPlan), carrying the
+     * As containsCreatorContextInAliasBodies(ConnectContext, LogicalPlan), carrying the
      * resolved scopes already expanded on this path (an alias body may reference a subquery).
      */
-    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx, LogicalPlan plan,
+    private static boolean containsCreatorContextInAliasBodies(ConnectContext ctx, LogicalPlan plan,
             Set<String> expanding) {
         if (plan == null) {
             return false;
@@ -2280,13 +2279,13 @@ public final class SPMPlanTreeSupport {
             if (node instanceof LogicalUsingJoin) {
                 Optional<Expression> matchCondition =
                         ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
-                if (matchCondition.isPresent() && containsReplayContextInAliasBodies(ctx,
+                if (matchCondition.isPresent() && containsCreatorContextInAliasBodies(ctx,
                         matchCondition.get(), expanding)) {
                     return true;
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsReplayContextInAliasBodies(ctx, expr, expanding, false)) {
+                if (containsCreatorContextInAliasBodies(ctx, expr, expanding, false)) {
                     return true;
                 }
             }
@@ -2295,12 +2294,12 @@ public final class SPMPlanTreeSupport {
     }
 
     /** Whether one expression tree references an alias body with a context expression. */
-    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+    private static boolean containsCreatorContextInAliasBodies(ConnectContext ctx,
             Expression expr, Set<String> expanding) {
-        return containsReplayContextInAliasBodies(ctx, expr, expanding, true);
+        return containsCreatorContextInAliasBodies(ctx, expr, expanding, true);
     }
 
-    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+    private static boolean containsCreatorContextInAliasBodies(ConnectContext ctx,
             Expression expr, Set<String> expanding, boolean descendSubqueries) {
         if (expr == null) {
             return false;
@@ -2317,8 +2316,8 @@ public final class SPMPlanTreeSupport {
                 try {
                     for (org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf body
                             : aliasUdfBodies(scope, function.getName())) {
-                        if (containsReplayContextExpression(body.getUnboundFunction())
-                                || containsReplayContextInAliasBodies(ctx,
+                        if (containsCreatorContextExpression(body.getUnboundFunction())
+                                || containsCreatorContextInAliasBodies(ctx,
                                         body.getUnboundFunction(), expanding)) {
                             return true;
                         }
@@ -2330,19 +2329,19 @@ public final class SPMPlanTreeSupport {
         }
         if (expr instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
-                if (containsReplayContextInAliasBodies(ctx, replaced, expanding, descendSubqueries)) {
+                if (containsCreatorContextInAliasBodies(ctx, replaced, expanding, descendSubqueries)) {
                     return true;
                 }
             }
         }
         if (descendSubqueries && expr instanceof SubqueryExpr) {
-            if (containsReplayContextInAliasBodies(ctx,
+            if (containsCreatorContextInAliasBodies(ctx,
                     ((SubqueryExpr) expr).getQueryPlan(), expanding)) {
                 return true;
             }
         }
         for (Expression child : expr.children()) {
-            if (containsReplayContextInAliasBodies(ctx, child, expanding, descendSubqueries)) {
+            if (containsCreatorContextInAliasBodies(ctx, child, expanding, descendSubqueries)) {
                 return true;
             }
         }
@@ -2351,7 +2350,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The ALIAS UDF definitions one unqualified / qualified call resolves to (see
-     * containsReplayContextInAliasBodies).
+     * containsCreatorContextInAliasBodies).
      *
      * Parameter scope: the resolved lookup scope (the written qualifier, else the current database)
      * Parameter name: the written function name
@@ -7038,7 +7037,7 @@ public final class SPMPlanTreeSupport {
      * with that very pin match). The replan probe does not catch it either: the text IS
      * valid, it just reads different data, and the schema fingerprint hashes table identity
      * / base columns only. Freezing is therefore DECLINED for such a statement (see
-     * SPMPlanner.decompileFrozenPlan): the user planSql is kept and the rewrite replays the
+     * SPMPlanner.canFreezeBeforeOptimization): the user planSql is kept and the rewrite replays the
      * parameterized tree, which re-parses the caller's own INDEX clause.
      *
      * The WHOLE statement is inspected, not just children: an INDEX on a relation inside
@@ -8859,41 +8858,11 @@ public final class SPMPlanTreeSupport {
                     found[0] = true;
                 }
             }
-            // Generator arguments keep their literals during parameterization.
-            // Refuse a generator argument that can fold using the creator's time zone.
-            if (node instanceof LogicalGenerate) {
-                rejectFoldedZoneSensitiveGenerators((LogicalGenerate<? extends Plan>) node);
-            }
         });
         if (found[0]) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM does not support baselines using the key() function: the folded key"
                             + " value cannot be re-validated before replay");
-        }
-    }
-
-    /**
-     * Refuses a baseline whose GENERATOR argument would freeze a session-time-zone
-     * dependent value: a constant-argument from_unixtime / unix_timestamp / now-family
-     * call inside a LATERAL VIEW / UNNEST argument is FOLDED by the optimizer in the
-     * CREATOR's session zone and rendered as that literal into the frozen plan text (the
-     * generator arguments stay concrete for matching, see visitLogicalGenerate), so a
-     * caller in another zone would replay the creator's value. The user must rewrite the
-     * argument to depend on a column (evaluated per row in the CALLER's zone) or drop the
-     * baseline.
-     */
-    private static void rejectFoldedZoneSensitiveGenerators(LogicalGenerate<? extends Plan> generate) {
-        for (Expression generator : generate.getGenerators()) {
-            if (containsFoldableCall(generator, SPMPlanTreeSupport::isZoneSensitiveCall)) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                        "SPM does not support a baseline whose generator argument folds a"
-                                + " session-time-zone dependent function ("
-                                + generator.toSql() + "): the value is evaluated in the"
-                                + " CREATOR's session zone and frozen into the plan text, so a"
-                                + " replay in another zone would return the creator's value."
-                                + " Make the argument depend on a column, or drop the"
-                                + " baseline");
-            }
         }
     }
 
@@ -8917,7 +8886,8 @@ public final class SPMPlanTreeSupport {
      * Zone-sensitive calls include conversions between TIMESTAMPTZ and a zone-less type.
      * A foldable cast whose input type needs analysis is also treated as potentially sensitive.
      */
-    private static boolean isZoneSensitiveCall(Expression expression) {
+    private static boolean isZoneSensitiveCall(Expression expression,
+            java.util.function.Function<Expression, DataType> operandType) {
         if (expression instanceof Function) {
             return isZoneSensitiveFunction((Function) expression) && isLiteralOnly(expression);
         }
@@ -8925,7 +8895,7 @@ public final class SPMPlanTreeSupport {
             return false;
         }
         Cast cast = (Cast) expression;
-        DataType sourceType = typeKnownBeforeAnalysis(cast.child());
+        DataType sourceType = operandType.apply(cast.child());
         return sourceType == null
                 || (sourceType instanceof TimeStampTzType) != (cast.getDataType() instanceof TimeStampTzType);
     }
@@ -8964,24 +8934,22 @@ public final class SPMPlanTreeSupport {
      * casts and resolved builtins, including those exposed by alias expansion and generators.
      */
     static boolean containsConcreteSessionSensitiveExpression(Plan analyzed) {
-        boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(analyzed, node -> {
-            if (found[0]) {
-                return;
-            }
-            for (Expression expr : node.getExpressions()) {
+        return anyPlan(analyzed, node -> {
+            for (Expression expr : Iterables.concat(node.getExpressions(), outOfBandExpressions(node))) {
                 if (containsFoldableCall(expr, SPMPlanTreeSupport::isAnalyzedSessionSensitiveCall)) {
-                    found[0] = true;
-                    return;
+                    return true;
                 }
             }
+            return false;
         });
-        return found[0];
     }
 
     private static boolean isAnalyzedSessionSensitiveCall(Expression expression) {
+        if (isZoneSensitiveCall(expression, Expression::getDataType)) {
+            return true;
+        }
         if (expression instanceof Function) {
-            return isZoneSensitiveCall(expression) || isLocaleSensitiveCall(expression)
+            return isLocaleSensitiveCall(expression)
                     || isConcreteDecimalArrayFunction(expression, Expression::getDataType);
         }
         return isConcreteDecimalArithmetic(expression, Expression::getDataType)
@@ -9062,7 +9030,8 @@ public final class SPMPlanTreeSupport {
      * Returns: true when the freeze must be declined for such a payload
      */
     public static boolean requiresSessionSensitiveReplay(LogicalPlan plan) {
-        return containsFoldablePayload(plan, expression -> isZoneSensitiveCall(expression)
+        return containsFoldablePayload(plan, expression -> isZoneSensitiveCall(expression,
+                SPMPlanTreeSupport::typeKnownBeforeAnalysis)
                 || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression)
                 || isConcreteDecimalArithmetic(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)
                 || isConcreteDecimalArrayFunction(expression, SPMPlanTreeSupport::typeKnownBeforeAnalysis)

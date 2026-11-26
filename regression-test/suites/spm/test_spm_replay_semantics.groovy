@@ -459,6 +459,35 @@ suite("test_spm_replay_semantics", "spm") {
     String previousZone = sql("SELECT @@time_zone")[0][0].toString()
     String previousLocale = sql("SELECT @@lc_time_names")[0][0].toString()
     try {
+        def zoneGenerators = [
+            generator_zone_function: "from_unixtime(0)",
+            generator_zone_cast: "CAST(CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMPTZ) AS DATETIME(6))",
+            generator_bound_cast: "CAST(CAST(CONCAT('2020-01-01',' 00:00:00+00:00')" +
+                    " AS TIMESTAMPTZ) AS DATETIME(6))",
+            generator_zone_less_cast: "CAST(abs(-7) AS BIGINT)"
+        ]
+        zoneGenerators.each { tag, payload ->
+            sql "SET time_zone = 'UTC'"
+            String query = "SELECT k, lv.x AS x FROM spm_replay_semantics_u" +
+                    " LATERAL VIEW explode(array(${payload})) lv AS x WHERE k = 1"
+            withBaseline(query) { long id ->
+                sql "SET time_zone = 'Asia/Shanghai'"
+                sql "SET enable_spm_rewrite = false"
+                def (nativeRows, nativeMeta) = JdbcUtils.executeToList(context.getConnection(), query)
+                sql "SET enable_spm_rewrite = true"
+                def (replayRows, replayMeta) = JdbcUtils.executeToList(context.getConnection(), query)
+                boolean sameType = nativeMeta.getColumnTypeName(2) == replayMeta.getColumnTypeName(2) &&
+                        nativeMeta.getPrecision(2) == replayMeta.getPrecision(2) &&
+                        nativeMeta.getScale(2) == replayMeta.getScale(2)
+                boolean sameRows = nativeRows == replayRows
+                boolean hit = explainHit(query, id)
+                quickTest(tag + "_rows", query, true)
+                quickTest(tag + "_checks", "SELECT ${sameRows}, ${sameType}, ${hit}", false)
+                quickTest(tag + "_frozen", "SELECT plan_frozen FROM __internal_schema.spm_baselines" +
+                        " WHERE id = ${id}", false)
+            }
+        }
+
         sql "SET time_zone = 'UTC'"
         String epoch = "SELECT * REPLACE(from_second(0) AS k, from_millisecond(1) AS b," +
                 " from_microsecond(1) AS a, hour_from_unixtime(0) AS v," +

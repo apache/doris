@@ -361,19 +361,19 @@ public class SPMRound20SafetyTest {
      */
     @Test
     public void testReplayContextInsideSubqueryPlansIsRejected() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT (SELECT max(@v) FROM t2) AS m FROM t1")),
                 "a @v inside a scalar subquery plan must be rejected");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k = (SELECT max(@v) FROM t2)")),
                 "a @v inside a WHERE subquery plan must be rejected");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k IN (SELECT user() FROM t2)")),
                 "user() inside an IN subquery must be rejected");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("WITH c AS (SELECT max(@v) AS m FROM t2) SELECT m FROM t1, c")),
                 "a @v inside a CTE body must be rejected");
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT (SELECT max(x) FROM t2) AS m FROM t1")),
                 "a plain subquery is not a replay-context expression");
     }

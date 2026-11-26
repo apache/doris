@@ -413,6 +413,42 @@ true
 -- !uuid_decimal_frozen --
 true
 
+-- !generator_zone_function_rows --
+1	1970-01-01 08:00:00
+
+-- !generator_zone_function_checks --
+true	true	true
+
+-- !generator_zone_function_frozen --
+false
+
+-- !generator_zone_cast_rows --
+1	2020-01-01T08:00
+
+-- !generator_zone_cast_checks --
+true	true	true
+
+-- !generator_zone_cast_frozen --
+false
+
+-- !generator_bound_cast_rows --
+1	2020-01-01T08:00
+
+-- !generator_bound_cast_checks --
+true	true	true
+
+-- !generator_bound_cast_frozen --
+false
+
+-- !generator_zone_less_cast_rows --
+1	7
+
+-- !generator_zone_less_cast_checks --
+true	true	true
+
+-- !generator_zone_less_cast_frozen --
+true
+
 -- !builtin_zone_values --
 1970-01-01T08:00	1970-01-01T08:00:00.001	1970-01-01T08:00:00.000001	a	8	1970-01-01T08:00
 

@@ -22,9 +22,22 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -90,14 +103,14 @@ public class SPMRound91GuardTest {
     /** {@code utc_time()} and {@code utc_date()} read the statement clock like {@code now()}. */
     @Test
     public void testUtcClockFunctionsAreReplayContextExpressions() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 firstProjection("SELECT utc_time() AS t")),
                 "utc_time() is the statement clock evaluated in the UTC zone");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 firstProjection("SELECT utc_date() AS d")),
                 "utc_date() is the statement clock evaluated in the UTC zone");
         // control: a pure function of its argument stays freezable
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 firstProjection("SELECT unix_timestamp('2020-01-01 00:00:00') AS u")),
                 "unix_timestamp(arg) is a pure function of the argument");
     }
@@ -144,6 +157,31 @@ public class SPMRound91GuardTest {
         Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(parameterized));
         Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
                 parse("SELECT CAST(1 AS BIGINT)")));
+    }
+
+    @Test
+    public void testAnalyzedZoneSensitiveCastUsesBoundTypes() {
+        Expression formatted = new Concat(new StringLiteral("2020-01-01"),
+                new StringLiteral(" 00:00:00+00:00"));
+        // Strict casts cannot rely on the independent non-strict-cast guard.
+        Cast timestamp = new Cast(formatted, TimeStampTzType.SYSTEM_DEFAULT, true, true);
+        Cast datetime = new Cast(timestamp, DateTimeV2Type.SYSTEM_DEFAULT, true, true);
+        Assertions.assertTrue(containsAnalyzedSensitiveExpression(timestamp));
+        Assertions.assertTrue(containsAnalyzedSensitiveExpression(datetime));
+
+        Cast number = new Cast(new Abs(new IntegerLiteral(-7)), BigIntType.INSTANCE, true, true);
+        Assertions.assertFalse(containsAnalyzedSensitiveExpression(number));
+        Cast column = new Cast(new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT),
+                TimeStampTzType.SYSTEM_DEFAULT, true, true);
+        Assertions.assertFalse(containsAnalyzedSensitiveExpression(column));
+        Cast marker = new Cast(SpmConstVar.of(1L, new StringLiteral("2020-01-01 00:00:00")),
+                TimeStampTzType.SYSTEM_DEFAULT, true, true);
+        Assertions.assertFalse(containsAnalyzedSensitiveExpression(marker));
+    }
+
+    private static boolean containsAnalyzedSensitiveExpression(Expression expression) {
+        return SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
+                new LogicalOneRowRelation(new RelationId(1), List.of(new Alias(new ExprId(1), expression, "v"))));
     }
 
     @Test

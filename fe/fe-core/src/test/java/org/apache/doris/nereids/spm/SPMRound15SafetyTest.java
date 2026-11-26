@@ -162,21 +162,21 @@ public class SPMRound15SafetyTest {
      */
     @Test
     public void testParsedRuntimeContextsAreDetected() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k = @v")),
                 "a parsed @v is an UnboundVariable and must be rejected");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT user() AS u FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT version() AS v FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT current_catalog() AS c FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT last_query_id() AS q FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT * REPLACE(database() AS k) FROM t1")),
                 "the payloads of * REPLACE sit outside children() and must be scanned");
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT abs(k) AS k FROM t1")),
                 "a plain function call is not a replay-time context");
     }
@@ -202,21 +202,21 @@ public class SPMRound15SafetyTest {
      */
     @Test
     public void testCreatorTimeClockFunctionsAreDetected() {
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT now() AS ts FROM t1")),
                 "now() freezes the CREATE statement's start time");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT current_timestamp() AS ts FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT current_date() AS d FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT utc_timestamp() AS ts FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT localtime() AS ts FROM t1")));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT k FROM t1 WHERE k < unix_timestamp()")),
                 "the argument-less unix_timestamp() is the statement clock as well");
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT unix_timestamp(k) AS ts FROM t1")),
                 "unix_timestamp(expr) is a pure function of its argument");
 

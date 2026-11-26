@@ -125,10 +125,10 @@ public class SPMPerformanceTest {
         Assertions.assertTrue(SPMPlanTreeSupport.collectPlaceholderIds(tree).isEmpty());
         Assertions.assertTrue(reads.get() <= 4 * 17, "placeholder scan reads: " + reads);
         reads.set(0);
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(tree));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(tree));
         Assertions.assertTrue(reads.get() <= 4 * 17, "context scan reads: " + reads);
         reads.set(0);
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextInAliasBodies(null, tree));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextInAliasBodies(null, tree));
         Assertions.assertTrue(reads.get() <= 4 * 17, "alias scan reads: " + reads);
     }
 
@@ -139,8 +139,29 @@ public class SPMPerformanceTest {
         CountingRow root = new CountingRow(50, new NereidsParser().parseExpression("@v"), rootReads);
         root.extra = List.of(nested(new IntegerLiteral(1), 16, tailReads));
         tailReads.set(0);
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(root));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(root));
         Assertions.assertEquals(0, tailReads.get(), "a positive guard must stop the whole traversal");
+    }
+
+    @Test
+    public void testFreezePreflightShortCircuitsAndDoesNotInspectSameInputTwice() {
+        LogicalPlan plan = new NereidsParser().parseSingle("SELECT 1");
+        try (MockedStatic<SPMPlanTreeSupport> support = Mockito.mockStatic(SPMPlanTreeSupport.class)) {
+            Assertions.assertFalse(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, true));
+            support.verifyNoInteractions();
+
+            support.when(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan)).thenReturn(true);
+            Assertions.assertFalse(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, false));
+            support.verify(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan));
+            support.verifyNoMoreInteractions();
+        }
+        try (MockedStatic<SPMPlanTreeSupport> support = Mockito.mockStatic(SPMPlanTreeSupport.class)) {
+            Assertions.assertTrue(SPMPlanner.canFreezeBeforeOptimization(null, plan, plan, false));
+            support.verify(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan));
+            support.verify(() -> SPMPlanTreeSupport.requiresSessionSensitiveReplay(plan));
+            support.verify(() -> SPMPlanTreeSupport.referencesView(null, plan));
+            support.verifyNoMoreInteractions();
+        }
     }
 
     @Test
@@ -150,8 +171,8 @@ public class SPMPerformanceTest {
         Assertions.assertEquals(Set.of(7L), SPMPlanTreeSupport.collectPlaceholderIds(markers));
         Expression variable = new NereidsParser().parseExpression("@v");
         CountingRow context = nested(variable, 8, reads);
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(context));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(new ScalarSubquery(context)));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(context));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(new ScalarSubquery(context)));
     }
 
     @Test
@@ -283,7 +304,7 @@ public class SPMPerformanceTest {
         LogicalPlan contextJoin = new LogicalUsingJoin<>(JoinType.ASOF_LEFT_INNER_JOIN, left, right,
                 List.of(new UnboundSlot("k")), Optional.of(new ScalarSubquery(variable)),
                 new DistributeHint(DistributeType.NONE));
-        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(contextJoin));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(contextJoin));
     }
 
     @Test

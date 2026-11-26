@@ -45,7 +45,7 @@ public final class SpmPlannerTestAccess {
     public static BaselinePlan buildBaseline(SPMPlanner planner, LogicalPlan bind, LogicalPlan plan,
             String bindSql, String planSql, double cost) {
         try {
-            invoke(null, "rejectReplayContextExpressions",
+            invoke(null, "rejectCreatorContextExpressions",
                     new Class<?>[] {LogicalPlan.class, LogicalPlan.class, String.class}, bind, plan, bindSql);
             SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, bindSql);
             SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bind, plan);

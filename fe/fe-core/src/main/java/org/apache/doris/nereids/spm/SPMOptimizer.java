@@ -358,6 +358,12 @@ public class SPMOptimizer {
      */
     public static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql)
             throws UserException {
+        return optimize(ctx, logicalPlan, originSql, true);
+    }
+
+    /** Skips the freeze-specific analysis scan when the caller already knows the plan will stay raw. */
+    static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql,
+            boolean attemptFreeze) throws UserException {
         // Planning applies the hints again after the capture settings below are installed. Reject assignments
         // to protected settings before entering the planner. Raw fallback uses the same check, so it also fails.
         rejectProtectedSetVarHints(logicalPlan);
@@ -376,7 +382,7 @@ public class SPMOptimizer {
         // . Re-running the check against the SAME registry state the snapshot
         // describes closes that window: any LATER change is caught by the registry version
         // fence below.
-        if (SPMPlanTreeSupport.containsReplayContextInAliasBodies(ctx, logicalPlan)) {
+        if (SPMPlanTreeSupport.containsCreatorContextInAliasBodies(ctx, logicalPlan)) {
             throw new AnalysisException("SPM does not support replay-time context expressions"
                     + " inside a resolved ALIAS FUNCTION body (an alias whose body calls"
                     + " current_user() / session_user() / database() / @v / a clock function,"
@@ -392,13 +398,16 @@ public class SPMOptimizer {
         CaptureStatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean[] concreteSessionSensitiveExpression = {false};
-        statementContext.addPlannerHook(new PlannerHook() {
-            @Override
-            public void afterAnalyze(NereidsPlanner planner) {
-                concreteSessionSensitiveExpression[0] = SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
-                        planner.getCascadesContext().getRewritePlan());
-            }
-        });
+        if (attemptFreeze) {
+            statementContext.addPlannerHook(new PlannerHook() {
+                @Override
+                public void afterAnalyze(NereidsPlanner planner) {
+                    concreteSessionSensitiveExpression[0] =
+                            SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
+                                    planner.getCascadesContext().getRewritePlan());
+                }
+            });
+        }
 
         SessionVariable sessionVar = ctx.getSessionVariable();
         String originalEnabled = sessionVar.getEnableNereidsRulesStr();

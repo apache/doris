@@ -275,7 +275,7 @@ public class SPMRound85PlannerTest {
             Env env = Mockito.mock(Env.class);
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getFunctionRegistry()).thenReturn(registry);
-            return SPMPlanTreeSupport.containsReplayContextInAliasBodies(ctx, parse(sql));
+            return SPMPlanTreeSupport.containsCreatorContextInAliasBodies(ctx, parse(sql));
         }
     }
 

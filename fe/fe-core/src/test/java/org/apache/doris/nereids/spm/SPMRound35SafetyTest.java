@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
  * - #4 (SPMPlanTreeSupport#collectRowLimits): the walker visited children() only, so a
  *   cap inside a CTE body (LogicalCTE.extraPlans()) or an expression-owned subquery plan
  *   was invisible - the caller raising only the OUTER limit kept the frozen body cap.
- * - #5 (SPMPlanTreeSupport#containsReplayContextExpression): the BARE clock keywords
+ * - #5 (SPMPlanTreeSupport#containsCreatorContextExpression): the BARE clock keywords
  *   (CURRENT_DATE / CURRENT_TIME / CURRENT_TIMESTAMP / LOCALTIME / LOCALTIMESTAMP) are
  *   parsed into the BOUND CurrentDate / CurrentTime / Now leaves, not UnboundFunction
  *   calls, so the name-based guard missed them and a global baseline could freeze the
@@ -122,17 +122,17 @@ public class SPMRound35SafetyTest {
         String[] bareForms = {"CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP",
                 "LOCALTIME", "LOCALTIMESTAMP"};
         for (String form : bareForms) {
-            Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+            Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                     parse("SELECT " + form + " AS d FROM t")),
                     "the bare " + form + " freezes the statement clock and must be rejected");
         }
         // the parenthesized forms stay covered by the name-based check
         for (String form : new String[] {"now()", "current_timestamp()", "localtime()"}) {
-            Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+            Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                     parse("SELECT " + form + " AS d FROM t")),
                     form + " must stay rejected");
         }
-        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+        Assertions.assertFalse(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT d AS d FROM t")),
                 "a plain column is freezable");
     }
