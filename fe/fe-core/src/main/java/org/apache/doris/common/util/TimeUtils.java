@@ -55,6 +55,8 @@ import java.util.regex.Pattern;
 public class TimeUtils {
     public static final String UTC_TIME_ZONE = "UTC"; // This is just a Country to represent UTC offset +00:00
     public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
+    // MySQL's name for "the server's system time zone", e.g. SET time_zone = 'SYSTEM'.
+    public static final String SYSTEM_TIME_ZONE_NAME = "SYSTEM";
     public static final ImmutableMap<String, String> timeZoneAliasMap;
     public static final Pattern DATETIME_FORMAT_REG =
             Pattern.compile("^((\\d{2}(([02468][048])|([13579][26]))[\\-\\/\\s]?((((0?[13578])|(1[02]))[\\-\\/\\s]?"
@@ -313,6 +315,18 @@ public class TimeUtils {
             return -1;
         }
         return d.atZone(timeZone.toZoneId()).toInstant().toEpochMilli();
+    }
+
+    // Check the value of the time_zone variable in SET time_zone = ... and standardize it.
+    // SYSTEM, MySQL's name for the server's system time zone, resolves here to the zone a new session gets by default
+    // and that system_time_zone reports, so the session holds a concrete zone and every BE that executes its queries
+    // uses that zone. Only the variable accepts SYSTEM: a BE does not, so CONVERT_TZ and other time zone arguments
+    // keep using checkTimeZoneValidAndStandardize, and FE constant folding gives the same answer as the BE.
+    public static String checkSessionTimeZoneValidAndStandardize(String value) throws DdlException {
+        if (SYSTEM_TIME_ZONE_NAME.equalsIgnoreCase(value)) {
+            return getSystemTimeZone().getID();
+        }
+        return checkTimeZoneValidAndStandardize(value);
     }
 
     // Check if the time zone_value is valid

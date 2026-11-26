@@ -93,7 +93,7 @@ public class SetSessionVarOp extends SetVarOp {
 
         // Check variable time_zone value is valid
         if (name.equalsIgnoreCase(SessionVariable.TIME_ZONE)) {
-            this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(value.getStringValue()));
+            this.value = new StringLiteral(TimeUtils.checkSessionTimeZoneValidAndStandardize(value.getStringValue()));
         }
         if (name.equalsIgnoreCase(SessionVariable.GROUP_COMMIT)) {
             if (GroupCommitBlockSink.parseGroupCommit(value.getStringValue()) == null) {
