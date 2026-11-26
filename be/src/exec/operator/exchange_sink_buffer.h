@@ -62,7 +62,7 @@ class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
-    BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
+    BroadcastPBlockHolder() = default;
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
@@ -76,7 +76,7 @@ public:
 
 private:
     friend class BroadcastPBlockHolderMemLimiter;
-    std::unique_ptr<PBlock> _pblock;
+    std::unique_ptr<PBlock> _pblock = std::make_unique<PBlock>();
     // Includes the outer PTransmitDataParams.block/blocks field tag and length.
     // Keep _pblock for the existing protobuf and HTTP paths.
     butil::IOBuf _serialized_block;
@@ -121,6 +121,16 @@ struct TransmitInfo {
     std::unique_ptr<PBlock> block;
     bool eos;
 };
+
+// Fill `dst` with everything of `src` but column_values, which `dst` only borrows: the payload
+// is neither copied nor moved and `src` stays its owner. Every block an ExchangeSinkBuffer
+// request carries goes through here, whether owned by a TransmitInfo (unicast) or shared by all
+// channels through a BroadcastPBlockHolder (broadcast), so a request never owns block data and
+// serializing it, including the http attachment path, never mutates a shared owner. The borrow
+// must be returned through release_borrowed_blocks() before the request is cleared, reused or
+// destroyed.
+void borrow_block(PBlock* src, PBlock* dst);
+void release_borrowed_blocks(PTransmitDataParams* request);
 
 struct BroadcastTransmitInfo {
     std::shared_ptr<BroadcastPBlockHolder> block_holder = nullptr;
@@ -298,9 +308,7 @@ public:
 
     void set_low_memory_mode() { _queue_capacity = 8; }
     std::string debug_each_instance_queue_size();
-#ifdef BE_TEST
-public:
-#else
+#ifndef BE_TEST
 private:
 #endif
     friend class ExchangeSinkLocalState;
