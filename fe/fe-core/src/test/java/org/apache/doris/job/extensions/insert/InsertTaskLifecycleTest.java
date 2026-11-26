@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
@@ -47,8 +48,14 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.workloadgroup.PausedAdmission;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +64,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -73,7 +81,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class InsertTaskLifecycleTest extends TestWithFeService {
     private static final String SQL = "INSERT INTO s3(\"file_path\"=\"s3://unit-test/result_\","
-            + "\"format\"=\"csv\") SELECT 1";
+            + "\"format\"=\"csv\",\"s3.endpoint\"=\"http://127.0.0.1:1\",\"s3.region\"=\"us-east-1\","
+            + "\"s3.access_key\"=\"unit-test-access\",\"s3.secret_key\"=\"unit-test-secret\") "
+            + "SELECT k FROM task_lifecycle_test.src";
     private final List<String> persisted = new ArrayList<>();
     private InsertJob job;
     private InsertTask task;
@@ -90,6 +100,8 @@ public class InsertTaskLifecycleTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("task_lifecycle_test");
+        createTable("CREATE TABLE task_lifecycle_test.src(k INT) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES(\"replication_num\"=\"1\")");
     }
 
     @Override
@@ -138,6 +150,10 @@ public class InsertTaskLifecycleTest extends TestWithFeService {
     }
 
     private void runTaskWithCommand(String sql, Command command) throws Exception {
+        runTaskWithCommand(sql, command, 10);
+    }
+
+    private void runTaskWithCommand(String sql, Command command, int completionTimeoutSeconds) throws Exception {
         AtomicReference<StatementContext> statement = new AtomicReference<>();
         AtomicReference<Thread> worker = new AtomicReference<>();
         AtomicReference<Thread> reusedThread = new AtomicReference<>();
@@ -168,7 +184,7 @@ public class InsertTaskLifecycleTest extends TestWithFeService {
         try {
             Assertions.assertTrue(processor.addTask(task));
             Assertions.assertTrue(processor.addTask(probe));
-            Assertions.assertNull(reusedContext.get(10, TimeUnit.SECONDS));
+            Assertions.assertNull(reusedContext.get(completionTimeoutSeconds, TimeUnit.SECONDS));
             Assertions.assertSame(worker.get(), reusedThread.get());
             if (statement.get() != null) {
                 Mockito.verify(statement.get()).close();
@@ -274,6 +290,64 @@ public class InsertTaskLifecycleTest extends TestWithFeService {
     @Test
     public void lateFailureCannotOverwriteCancellationReason() throws Exception {
         cancelDuringExecution(true);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void cancelJobBeforeAdmissionTokenPublication(boolean stopJob) throws Exception {
+        QueryQueue queue = Mockito.spy(new QueryQueue(1, 1, 1, 60000));
+        QueueToken holder = queue.getToken(1);
+        Assertions.assertTrue(holder.isReadyToRun());
+        int dispatchesBefore = DefaultPBackendServiceImpl.getExecPlanFragmentCalls();
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        try (PausedAdmission admission = new PausedAdmission(queue)) {
+            Mockito.doAnswer(call -> {
+                ConnectContext ctx = call.getArgument(0);
+                // Keep the empty test table's scan in the plan so Coordinator enters the query queue.
+                ctx.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
+                PausedAdmission.useQueue(ctx, queue);
+                try (MockedStatic<EnvFactory> ignored = admission.observeCancellation(ctx)) {
+                    return call.callRealMethod();
+                }
+            }).when(tvfCommand).run(Mockito.any(ConnectContext.class), Mockito.any(StmtExecutor.class));
+            Future<?> run = threads.submit(() -> {
+                runTaskWithCommand(SQL, tvfCommand, 60);
+                return null;
+            });
+            QueueToken waiting = admission.awaitWaiter();
+            Assertions.assertFalse(waiting.isReadyToRun());
+            Future<?> cancel = threads.submit(() -> {
+                if (stopJob) {
+                    job.updateJobStatus(JobStatus.STOPPED);
+                } else {
+                    job.cancelTaskById(task.getTaskId());
+                }
+                return null;
+            });
+            Coordinator coordinator = admission.awaitFirstCancel();
+            Assertions.assertTrue(coordinator.getCoordinatorContext().getQueueToken().isEmpty());
+            Assertions.assertEquals(TStatusCode.CANCELLED, coordinator.getExecStatus().getErrorCode());
+            admission.publish();
+            Assertions.assertDoesNotThrow(() -> cancel.get(5, TimeUnit.SECONDS),
+                    "Job cancellation remained blocked after admission token publication");
+            run.get(10, TimeUnit.SECONDS);
+
+            Assertions.assertEquals(TaskStatus.CANCELED, task.getStatus());
+            Assertions.assertEquals(1, job.getCanceledTaskCount().get());
+            Assertions.assertEquals(stopJob ? JobStatus.STOPPED : JobStatus.FINISHED, job.getJobStatus());
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(coordinator.getQueryId()));
+            Assertions.assertTrue(coordinator.getDispatchedBackendIds().isEmpty());
+            Assertions.assertEquals(dispatchesBefore, DefaultPBackendServiceImpl.getExecPlanFragmentCalls());
+            Mockito.verify(queue).releaseAndNotify(waiting);
+            Assertions.assertEquals(1, queue.usedSlotCount());
+        } finally {
+            threads.shutdown();
+            try {
+                Assertions.assertTrue(threads.awaitTermination(30, TimeUnit.SECONDS));
+            } finally {
+                queue.releaseAndNotify(holder);
+            }
+        }
     }
 
     @Test

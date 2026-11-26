@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -29,10 +28,9 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.workloadgroup.PausedAdmission;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
-import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.TestWithFeService;
@@ -43,12 +41,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.AdditionalAnswers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -81,13 +76,7 @@ public class InsertIntoTVFAdmissionCancellationTest extends TestWithFeService {
         context.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
         context.getSessionVariable().setQueryTimeoutS(60);
         queue = Mockito.spy(new QueryQueue(1, 1, 1, 60000));
-        WorkloadGroup group = Mockito.spy(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context).get(0));
-        Mockito.doReturn(queue).when(group).getQueryQueue();
-        WorkloadGroupMgr groups = Mockito.mock(WorkloadGroupMgr.class);
-        Mockito.when(groups.getWorkloadGroup(context)).thenReturn(List.of(group));
-        Env env = Mockito.mock(Env.class, AdditionalAnswers.delegatesTo(context.getEnv()));
-        Mockito.doReturn(groups).when(env).getWorkloadGroupMgr();
-        context.setEnv(env);
+        PausedAdmission.useQueue(context, queue);
 
         workers = Executors.newFixedThreadPool(2);
         selectCoordinator = null;
@@ -116,49 +105,29 @@ public class InsertIntoTVFAdmissionCancellationTest extends TestWithFeService {
 
     @Test
     public void cancelBeforeTokenPublication() throws Exception {
-        CountDownLatch tokenAllocated = new CountDownLatch(1);
-        CountDownLatch publishToken = new CountDownLatch(1);
-        CountDownLatch firstCancelReturned = new CountDownLatch(1);
-        Mockito.doAnswer(call -> {
-            QueueToken token = (QueueToken) call.callRealMethod();
-            Assertions.assertFalse(token.isReadyToRun());
-            tokenAllocated.countDown();
-            Assertions.assertTrue(publishToken.await(30, TimeUnit.SECONDS));
-            return token;
-        }).when(queue).getToken(1);
-
         createStatementCtx(INSERT, context);
         StmtExecutor executor = new StmtExecutor(context, INSERT);
-        Future<?> run = workers.submit(() -> {
-            context.setThreadLocalInfo();
-            EnvFactory factory = Mockito.spy(EnvFactory.getInstance());
-            try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
-                factories.when(EnvFactory::getInstance).thenReturn(factory);
-                Mockito.doAnswer(call -> new Coordinator(context, call.getArgument(1), call.getArgument(2)) {
-                    @Override
-                    public void cancel(Status reason) {
-                        super.cancel(reason);
-                        firstCancelReturned.countDown();
-                    }
-                }).when(factory).createCoordinator(Mockito.eq(context), Mockito.any(), Mockito.any());
-                InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(INSERT);
-                command.run(context, executor);
-            } finally {
-                context.getStatementContext().close();
-                ConnectContext.remove();
-            }
-            return null;
-        });
-        try {
-            Assertions.assertTrue(tokenAllocated.await(30, TimeUnit.SECONDS), context.getState().getErrorMessage());
+        try (PausedAdmission admission = new PausedAdmission(queue)) {
+            Future<?> run = workers.submit(() -> {
+                context.setThreadLocalInfo();
+                try (MockedStatic<EnvFactory> ignored = admission.observeCancellation(context)) {
+                    InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(INSERT);
+                    command.run(context, executor);
+                } finally {
+                    context.getStatementContext().close();
+                    ConnectContext.remove();
+                }
+                return null;
+            });
+            Assertions.assertFalse(admission.awaitWaiter().isReadyToRun());
             Coordinator coordinator = executor.getCoord();
             Future<?> cancel = workers.submit(() -> executor.cancel(
                     new Status(TStatusCode.CANCELLED, "cancel from executor"), false));
-            Assertions.assertTrue(firstCancelReturned.await(10, TimeUnit.SECONDS));
+            Assertions.assertSame(coordinator, admission.awaitFirstCancel());
             Assertions.assertTrue(coordinator.getCoordinatorContext().getQueueToken().isEmpty());
             Assertions.assertEquals("cancel from executor", coordinator.getExecStatus().getErrorMsg());
 
-            publishToken.countDown();
+            admission.publish();
             QueueToken token = awaitPublishedToken(coordinator);
             Assertions.assertDoesNotThrow(() -> cancel.get(5, TimeUnit.SECONDS),
                     "cancel(false) remained blocked after token publication with the admission slot held");
@@ -174,12 +143,6 @@ public class InsertIntoTVFAdmissionCancellationTest extends TestWithFeService {
             Mockito.verify(queue).releaseAndNotify(token);
             Mockito.verify(queue, Mockito.never()).releaseAndNotify(holder);
             Assertions.assertEquals(1, queue.usedSlotCount());
-        } finally {
-            publishToken.countDown();
-            Coordinator coordinator = executor.getCoord();
-            if (coordinator != null) {
-                coordinator.getCoordinatorContext().getQueueToken().ifPresent(QueueToken::cancel);
-            }
         }
     }
 
