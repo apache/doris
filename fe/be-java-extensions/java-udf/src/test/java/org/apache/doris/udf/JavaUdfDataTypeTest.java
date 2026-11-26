@@ -21,8 +21,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 public class JavaUdfDataTypeTest {
+    @Test
+    public void uuidClassSupportsUuidType() {
+        Assertions.assertTrue(JavaUdfDataType.getCandidateTypes(UUID.class).contains(JavaUdfDataType.UUID));
+    }
+
     /**
      * TIMESTAMP_NS carries nanoseconds, and only {@code java.time.LocalDateTime} can hold them: the
      * joda types are millisecond-precise, so a function declared over them must not be offered the

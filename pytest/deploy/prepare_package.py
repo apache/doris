@@ -25,7 +25,7 @@ import os
 import env_config
 
 
-def prepare_palo_package(deploy_audit=False):
+def prepare_palo_package():
     """prepare palo package
     """
     os.system('mv fe.conf.out output/fe/conf/fe.conf')
@@ -36,9 +36,6 @@ def prepare_palo_package(deploy_audit=False):
               'ulimit -c unlimited\\n    nohup/g" output/be/bin/start_be.sh')
     os.system('sed -i "s/limit3 -c 0 -n/limit3 -n/g" output/be/bin/start_be.sh')
     os.system('mkdir -p output/be/var/pull_load > /dev/null 2>&1')
-    if deploy_audit:
-        os.system('unzip -q -u -d output/fe/plugin_auditloader output/audit_loader/auditloader.zip')
-        os.system('mv plugin_auditload.conf.out output/fe/plugin_auditloader/plugin.conf')
     os.system('cd output;tar -cf - fe | gzip --fast > fe.tar.gz; cd -')
     os.system('cd output;tar -cf - be | gzip --fast > be.tar.gz; cd -')
     os.system('mv output/fe.tar.gz .')

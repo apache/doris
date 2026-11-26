@@ -81,6 +81,68 @@ TEST_F(HistoricalRowFetcherTest, ReadColumnsReturnsThePlannedRows) {
     EXPECT_EQ(read_int(old_values, 0, read_index[1]), 11); // dst 1 <- row 0
 }
 
+TEST_F(HistoricalRowFetcherTest, RowidReadsUseTemporaryTsoUntilPublish) {
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    TabletColumn tso_column;
+    tso_column.set_unique_id(3);
+    tso_column.set_name(COMMIT_TSO_COL);
+    tso_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    tso_column.set_is_nullable(false);
+    tso_column.set_length(8);
+    tso_column.set_index_length(8);
+    tso_column.set_default_value("0");
+    schema->append_column(std::move(tso_column));
+
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5005, 0, {{1, 11}, {2, 22}}, &tablet);
+    ASSERT_NE(rowset, nullptr);
+    ASSERT_EQ(rowset->commit_tso(), TsoRange(-1, -1));
+    // CloudTabletCalcDeleteBitmapTask sets the version while the rowset is still unpublished.
+    rowset->set_version(Version(6, 6));
+    std::map<RowsetId, RowsetSharedPtr> rowsets {{rowset->rowset_id(), rowset}};
+    FixedReadPlan read_plan;
+    read_plan.prepare_to_read(RowLocation {rowset->rowset_id(), 0, 1}, 0);
+    read_plan.prepare_to_read(RowLocation {rowset->rowset_id(), 0, 0}, 1);
+    const std::vector<uint32_t> cids {3};
+
+    auto check_read = [&](int64_t expected_tso) {
+        auto block = schema->create_storage_block(cids);
+        std::map<uint32_t, uint32_t> read_index;
+        auto st = read_plan.read_columns_by_plan(*schema, cids, rowsets, block, &read_index,
+                                                 FixedReadPlan::ReadStrategy::COLUMN_STORE, false);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(block.rows(), 2);
+        const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        EXPECT_EQ(values.get_element(0), expected_tso);
+        EXPECT_EQ(values.get_element(1), expected_tso);
+
+        MutableColumnPtr column = ColumnInt64::create();
+        st = BaseTablet::fetch_value_by_rowids(rowset, 0, {1, 0}, schema->column(3), column);
+        ASSERT_TRUE(st.ok()) << st;
+        const auto& scalar_values = assert_cast<const ColumnInt64&>(*column);
+        ASSERT_EQ(scalar_values.size(), 2);
+        EXPECT_EQ(scalar_values.get_element(0), expected_tso);
+        EXPECT_EQ(scalar_values.get_element(1), expected_tso);
+    };
+
+    // An assigned version with unknown TSO must still fail in the generic reader.
+    auto block = schema->create_storage_block(cids);
+    std::map<uint32_t, uint32_t> read_index;
+    auto st = read_plan.read_columns_by_plan(*schema, cids, rowsets, block, &read_index,
+                                             FixedReadPlan::ReadStrategy::COLUMN_STORE, false);
+    ASSERT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos);
+
+    // Cloud delete-bitmap calculation supplies this placeholder before partial-update reads.
+    // The reader needs no publish-state flag and must not cache the temporary constant.
+    rowset->rowset_meta()->set_commit_tso(0);
+    ASSERT_NO_FATAL_FAILURE(check_read(0));
+
+    constexpr int64_t commit_tso = 123456;
+    rowset->make_visible(Version(6, 6), commit_tso);
+    ASSERT_NO_FATAL_FAILURE(check_read(commit_tso));
+}
+
 // A full row-store schema can still read a narrow projection directly from physical columns.
 // Both sources must preserve planned row order and delete-sign semantics.
 TEST_F(HistoricalRowFetcherTest, FixedPlanColumnStoreReadMatchesRowStore) {
@@ -247,6 +309,52 @@ TEST_F(HistoricalRowFetcherTest, FillMissingColumnsMixesHistoryAndDefaults) {
     EXPECT_EQ(read_int(full_block, 1, 1), 33);
     EXPECT_EQ(read_int(full_block, 1, 2), 0); // column default, not NULL
     EXPECT_FALSE(read_is_null(full_block, 1, 2));
+}
+
+// A fixed partial update may read history from a segment written before a later value column was
+// added. The historical row fetch must synthesize that column's schema default for both an
+// existing key and a brand-new key instead of treating the old segment as malformed.
+TEST_F(HistoricalRowFetcherTest, FillAddedColumnFromHistoricalSegmentDefault) {
+    auto historical_schema = create_mow_schema(/*has_seq=*/false);
+    historical_schema->set_schema_version(1);
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(historical_schema, 5012, 2, {{1, 11}}, &tablet);
+
+    auto current_schema = std::make_shared<TabletSchema>(*historical_schema);
+    TabletColumn added_column;
+    added_column.set_unique_id(3);
+    added_column.set_name("added_v");
+    added_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    added_column.set_is_key(false);
+    added_column.set_is_nullable(false);
+    added_column.set_length(4);
+    added_column.set_index_length(4);
+    added_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    added_column.set_default_value("99");
+    current_schema->append_column(std::move(added_column));
+    current_schema->set_schema_version(2);
+    tablet->update_max_version_schema(current_schema);
+
+    HistoricalRowFetcher fetcher {
+            make_fetcher_ctx(current_schema, tablet, key_only_partial_update(current_schema))};
+    fetcher.pin_rowset(rowset);
+    fetcher.plan_fixed_read(RowLocation {rowset->rowset_id(), 0, 0}, /*dst_pos=*/0);
+
+    Block input = key_block(current_schema, {1, 99});
+    Block full_block = current_schema->create_storage_block();
+    full_block.replace_by_position(0, input.get_by_position(0).column);
+    std::vector<bool> use_default_or_null_flag {false, true};
+
+    auto st = fetcher.fill_missing_columns(*current_schema, full_block, use_default_or_null_flag,
+                                           /*has_default_or_nullable=*/true,
+                                           /*segment_start_pos=*/0, &input);
+    ASSERT_TRUE(st.ok()) << st;
+
+    ASSERT_EQ(2, full_block.rows());
+    EXPECT_EQ(11, read_int(full_block, 1, 0));
+    EXPECT_EQ(0, read_int(full_block, 1, 1));
+    EXPECT_EQ(99, read_int(full_block, 3, 0));
+    EXPECT_EQ(99, read_int(full_block, 3, 1));
 }
 
 // A row whose historical value sits behind a delete sign gets the default instead: the old row is

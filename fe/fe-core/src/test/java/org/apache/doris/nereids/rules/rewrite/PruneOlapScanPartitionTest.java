@@ -21,18 +21,33 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.tso.MasterTsoProvider;
+import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.List;
+import java.util.Locale;
 
 class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatternMatchSupported {
+
+    private static final long CHANGELOG_REFERENCE_TSO = TSOTimestamp.composePhysicalTimestamp(1700000000001L);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -160,6 +175,25 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    void testEpochConversionWithTimeZoneAlias() throws Exception {
+        createTable("create table epoch_conversion_alias_prune ("
+                + "epoch_sec bigint not null) "
+                + "partition by range(epoch_sec) ("
+                + "partition p1 values[('1719792000'), ('1721001600')),"
+                + "partition p2 values[('1721001600'), ('1722470400'))"
+                + ") distributed by hash(epoch_sec) buckets 1 "
+                + "properties ('replication_num'='1')");
+
+        String previousTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("CST");
+            test("epoch_conversion_alias_prune", "from_second(epoch_sec) < '2024-07-10 00:00:00'", 1);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(previousTimeZone);
+        }
+    }
+
+    @Test
     void testOlapScanPartitionPruneWithTablet() throws Exception {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("single_not_null");
@@ -181,6 +215,77 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("test.single_not_null", "", String.valueOf(tablet2.getId()), "p20211122", 0);
         test("test.single_not_null", "dt in (20211124)", String.valueOf(tablet1.getId()), "p20211122", 0);
 
+    }
+
+    @ParameterizedTest
+    @CsvSource({"RANGE, false", "LIST, false", "RANGE, true", "LIST, true"})
+    void testChangelogTabletPartitionPruning(String partitionType, boolean reuseBaseTablets) throws Exception {
+        String tableName = "test_changelog_tablet_" + partitionType.toLowerCase(Locale.ROOT) + "_" + reuseBaseTablets;
+        String partitions = partitionType.equals("RANGE")
+                ? "partition by range(part) (partition p1 values less than ('10'), "
+                        + "partition p2 values less than ('20')) "
+                : "partition by list(part) (partition p1 values in ('1'), partition p2 values in ('11')) ";
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
+        try {
+            createTable("create table " + tableName + " (id int, part int not null, v int) "
+                    + "duplicate key(id, part) " + partitions
+                    + "distributed by hash(id) buckets 1 "
+                    + "properties ('replication_num'='1', 'changelog.enable'='true')");
+        } finally {
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
+        }
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName);
+        Partition p1 = table.getPartition("p1");
+        Partition p2 = table.getPartition("p2");
+        long changelogIndexId = table.getChangelogIndexMeta().getIndexId();
+        long baseTabletId = p1.getBaseIndex().getTablets().get(0).getId();
+        Assertions.assertNotEquals(baseTabletId, p1.getIndex(changelogIndexId).getTablets().get(0).getId());
+        if (reuseBaseTablets) {
+            // Older metadata has the changelog schema but no separate partition index.
+            table.writeLock();
+            try {
+                p1.deleteRollupIndex(changelogIndexId);
+                p2.deleteRollupIndex(changelogIndexId);
+            } finally {
+                table.writeUnlock();
+            }
+        }
+        long physicalIndexId = reuseBaseTablets ? table.getBaseIndexId() : changelogIndexId;
+        long tablet1 = p1.getIndex(physicalIndexId).getTablets().get(0).getId();
+        long tablet2 = p2.getIndex(physicalIndexId).getTablets().get(0).getId();
+        String incr = "select * from " + tableName + "@incr('incrementType'='DETAIL')";
+        String oneTablet = " tablet(" + tablet1 + ")";
+        String twoTablets = " tablet(" + tablet1 + ", " + tablet2 + ")";
+
+        // No WHERE clause is needed to trigger tablet-based partition pruning.
+        checkSelectedPartitions(incr + oneTablet, changelogIndexId, ImmutableList.of(p1.getId()));
+        checkSelectedPartitions(incr + twoTablets, changelogIndexId, ImmutableList.of(p1.getId(), p2.getId()));
+        checkSelectedPartitions(incr + twoTablets + " where part = 1", changelogIndexId,
+                ImmutableList.of(p1.getId()));
+        checkSelectedPartitions(incr + " partition(p1)" + twoTablets, changelogIndexId,
+                ImmutableList.of(p1.getId()));
+        checkSelectedPartitions(incr + oneTablet + " where part = 11", changelogIndexId, ImmutableList.of());
+        checkSelectedPartitions(incr + " partition(p2)" + oneTablet, changelogIndexId, ImmutableList.of());
+        checkSelectedPartitions(incr + " tablet(" + Long.MAX_VALUE + ")", changelogIndexId, ImmutableList.of());
+        // APPEND_ONLY adds an internal filter even without a user WHERE clause.
+        checkSelectedPartitions(incr.replace("DETAIL", "APPEND_ONLY") + oneTablet, changelogIndexId,
+                ImmutableList.of(p1.getId()));
+        checkSelectedPartitions("select * from " + tableName + " tablet(" + baseTabletId + ")",
+                table.getBaseIndexId(), ImmutableList.of(p1.getId()));
+        if (!reuseBaseTablets) {
+            checkSelectedPartitions(incr + " tablet(" + baseTabletId + ")", changelogIndexId, ImmutableList.of());
+        }
+
+        // EXPLAIN builds scan ranges without waiting for a live changelog visibility fence.
+        try (MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+            mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(CHANGELOG_REFERENCE_TSO);
+            OlapScanNode scanNode = (OlapScanNode) getSQLPlanner("explain " + incr + oneTablet).getScanNodes().get(0);
+            Assertions.assertEquals(changelogIndexId, scanNode.getSelectedIndexId());
+            Assertions.assertEquals(ImmutableList.of(tablet1), scanNode.getScanTabletIds());
+        }
     }
 
     @Test
@@ -445,6 +550,29 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("t1", "(dt between 20211121 and 20211122) or dt is null or (dt between 20211123 and 20211125)",
                 6);
 
+    }
+
+    private PlanChecker parseWithChangelogReference(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        // Direct analyzer tests bypass the planner's statement reference initialization.
+        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(
+                () -> CHANGELOG_REFERENCE_TSO);
+        return checker;
+    }
+
+    private void checkSelectedPartitions(String sql, long indexId, List<Long> partitionIds) {
+        PlanChecker checker = parseWithChangelogReference(sql).analyze().rewrite();
+        if (partitionIds.isEmpty()) {
+            checker.matches(logicalEmptyRelation());
+        } else {
+            checker.matches(logicalOlapScan().when(scan -> {
+                Assertions.assertEquals(indexId, scan.getSelectedIndexId());
+                Assertions.assertEquals(ImmutableSet.copyOf(partitionIds),
+                        ImmutableSet.copyOf(scan.getSelectedPartitionIds()));
+                Assertions.assertEquals(scan.getManuallySpecifiedTabletIds(), scan.getSelectedTabletIds());
+                return true;
+            }));
+        }
     }
 
     private void test(String table, String filter, int expectScanPartitionNum) {

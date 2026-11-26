@@ -17,12 +17,14 @@
 
 #include "io/file_factory.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <mutex>
 #include <utility>
+#include <variant>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -39,25 +41,38 @@
 #include "io/fs/http_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
-#include "io/fs/s3_file_reader.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_reader.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "io/object_storage/be_obj_storage_config_parser.h"
+#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
-#include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
+
+// The file cache keys an external file by its path and modification time, but a path names a file
+// only within one storage: the same bucket and key on two object storage endpoints, or the same
+// path on two HDFS clusters, are different files. Put the storage in front of the key.
+static io::FileReaderOptions with_storage_in_cache_key(const io::FileReaderOptions& options,
+                                                       std::string storage) {
+    auto keyed = options;
+    keyed.cache_key_function = [storage = std::move(storage)](const std::string& path,
+                                                              int64_t mtime) {
+        return fmt::format("{}:{}:{}", storage, path, mtime);
+    };
+    return keyed;
+}
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
@@ -115,10 +130,14 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                *fs_properties.properties, s3_uri, &s3_conf));
-        return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+        auto resource_res =
+                parse_be_obj_storage_config(*fs_properties.properties, s3_uri.get_bucket());
+        // Invalid storage properties must propagate as an error in this Result-returning API.
+        if (!resource_res.has_value()) {
+            return unexpected(std::move(resource_res).error());
+        }
+        auto resource = std::move(resource_res).value();
+        return io::ObjStorageFileSystem::create(std::move(resource), io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_HDFS: {
         std::string fs_name = _get_fs_name(file_description);
@@ -179,13 +198,20 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     case TFileType::FILE_S3: {
         S3URI s3_uri(path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
-        auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
+        auto resource_res = parse_be_obj_storage_config(properties, s3_uri.get_bucket());
+        // Invalid storage properties must propagate as an error in this Result-returning API.
+        if (!resource_res.has_value()) {
+            return unexpected(std::move(resource_res).error());
+        }
+        auto resource = std::move(resource_res).value();
+        auto client = std::make_shared<io::ObjStorageClientHolder>(
+                std::move(resource.client),
+                ObjStorageRateLimiterManager::policy_for(resource.is_internal_bucket),
+                resource.bucket);
         RETURN_IF_ERROR_RESULT(client->init());
-        return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), &options);
+        return std::make_unique<io::ObjStorageFileWriter>(
+                std::move(client), std::move(resource.bucket), s3_uri.get_key(), &options,
+                resource.sse_enabled);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
@@ -227,15 +253,28 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                system_properties.properties, s3_uri, &s3_conf));
-        auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+        auto resource_res =
+                parse_be_obj_storage_config(system_properties.properties, s3_uri.get_bucket());
+        // Invalid storage properties must propagate as an error in this Result-returning API.
+        if (!resource_res.has_value()) {
+            return unexpected(std::move(resource_res).error());
+        }
+        auto resource = std::move(resource_res).value();
+        const auto* aws = std::get_if<AwsObjStorageConfig>(&resource.client);
+        auto storage = aws && aws->use_sdk_endpoint
+                               ? fmt::format("aws:{}", aws->region)
+                               : obj_storage_connection(resource.client).endpoint;
+        auto options = with_storage_in_cache_key(reader_options, std::move(storage));
+        auto client_holder = std::make_shared<io::ObjStorageClientHolder>(
+                std::move(resource.client),
+                ObjStorageRateLimiterManager::policy_for(resource.is_internal_bucket),
+                resource.bucket);
         RETURN_IF_ERROR_RESULT(client_holder->init());
-        return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
-                                        file_description.file_size, profile)
-                .and_then([&](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), reader_options);
+        return io::ObjStorageFileReader::create(std::move(client_holder),
+                                                std::move(resource.bucket), s3_uri.get_key(),
+                                                file_description.file_size, profile)
+                .and_then([&options](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), options);
                 });
     }
     case TFileType::FILE_HDFS: {
@@ -248,10 +287,12 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         }
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
+        // The reader's path drops the name node, so the cache key takes it from here.
+        auto options = with_storage_in_cache_key(reader_options, *fs_name);
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
-                                          reader_options)
-                .and_then([&](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), reader_options);
+                                          options)
+                .and_then([&options](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), options);
                 });
     }
     case TFileType::FILE_BROKER: {
@@ -272,17 +313,11 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
                 });
     }
     case TFileType::FILE_HTTP: {
-        auto options = reader_options;
-        auto chunk_response = system_properties.properties.find("http.enable.chunk.response");
-        if (chunk_response != system_properties.properties.end() &&
-            (iequal(chunk_response->second, "true") || chunk_response->second == "1")) {
-            options.cache_type = io::FileCachePolicy::NO_CACHE;
-        }
+        // HTTP responses never enter the file cache. The cache key names an external file by its
+        // path and modification time, but an HTTP source has no modification time, so a URL whose
+        // content changes would keep serving the blocks cached from the old content.
         return io::HttpFileReader::create(file_description.path, system_properties.properties,
-                                          options, profile)
-                .and_then([&options](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), options);
-                });
+                                          reader_options, profile);
     }
     default:
         return ResultError(

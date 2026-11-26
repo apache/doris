@@ -24,27 +24,28 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
   def backendId_to_backendHttpPort = [:]
   getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-
-  sql "DROP TABLE IF EXISTS ${tableName2}"
-  sql """
-    CREATE TABLE ${tableName2} (
-      `@timestamp` int(11) NULL COMMENT "",
-      `clientip` varchar(20) NULL COMMENT "",
-      `request` text NULL COMMENT "",
-      `status` int(11) NULL COMMENT "",
-      `size` int(11) NULL COMMENT "",
-      INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`@timestamp`)
-    COMMENT "OLAP"
-    DISTRIBUTED BY RANDOM BUCKETS 1
-    PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1",
-      "disable_auto_compaction" = "true",
-      "inverted_index_storage_format" = "V2"
-    );
-  """
+  def createTable = {
+    sql "DROP TABLE IF EXISTS ${tableName2}"
+    sql """
+      CREATE TABLE ${tableName2} (
+        `@timestamp` int(11) NULL COMMENT "",
+        `clientip` varchar(20) NULL COMMENT "",
+        `request` text NULL COMMENT "",
+        `status` int(11) NULL COMMENT "",
+        `size` int(11) NULL COMMENT "",
+        INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
+        INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true",
+        "inverted_index_storage_format" = "V2"
+      );
+    """
+  }
 
   boolean disableAutoCompaction = false
 
@@ -84,7 +85,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     }
   }
 
-  def run_test = { tableName ->
+  def run_test = { tableName, debugPointName ->
     sql """ INSERT INTO ${tableName} VALUES (1, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (2, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (3, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
@@ -113,23 +114,35 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
       }
     }
 
+    // INSERT completion does not imply that a cloud BE has refreshed its CloudTablet cache.
+    // Synchronize every replica and use version 11 as a read barrier before counting rowsets.
+    // Enable the compaction fault only after this step so the synchronization itself remains
+    // outside the fault-injection scope being tested.
+    syncAndWaitTabletVersion(tablets, 11)
+
     int rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11 * replicaNum)
 
-    // first
-    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+    try {
+      GetDebugPoint().enableDebugPointForAllBEs(debugPointName)
 
-    rowsetCount = get_rowset_count.call(tablets);
-    assert (rowsetCount == 11 * replicaNum)
+      // The first injected compaction must fail without changing the rowset layout.
+      trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
-    // second
-    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+      rowsetCount = get_rowset_count.call(tablets);
+      assert (rowsetCount == 11 * replicaNum)
 
-    rowsetCount = get_rowset_count.call(tablets);
-    if (isCloudMode) {
-      assert (rowsetCount == (1 + 1) * replicaNum)
-    } else {
-      assert (rowsetCount == 1 * replicaNum)
+      // The second compaction verifies recovery after the one-shot injected failure.
+      trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
+
+      rowsetCount = get_rowset_count.call(tablets);
+      if (isCloudMode) {
+        assert (rowsetCount == (1 + 1) * replicaNum)
+      } else {
+        assert (rowsetCount == 1 * replicaNum)
+      }
+    } finally {
+      GetDebugPoint().disableDebugPointForAllBEs(debugPointName)
     }
   }
 
@@ -156,13 +169,10 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     has_update_be_config = true
     check_config.call("inverted_index_compaction_enable", "true");
 
-
-    try {
-      GetDebugPoint().enableDebugPointForAllBEs("Compaction::open_inverted_index_file_writer")
-      run_test.call(tableName2)
-    } finally {
-      GetDebugPoint().disableDebugPointForAllBEs("Compaction::open_inverted_index_file_writer")
-    }
+    createTable.call()
+    run_test.call(tableName2, "Compaction::open_inverted_index_file_reader")
+    createTable.call()
+    run_test.call(tableName2, "Compaction::open_inverted_index_file_writer")
   } finally {
     if (has_update_be_config) {
       set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())

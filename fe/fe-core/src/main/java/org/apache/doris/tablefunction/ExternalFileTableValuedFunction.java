@@ -44,9 +44,21 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.PluginFileFormat;
+import org.apache.doris.connector.spi.ConnectorFileSource;
+import org.apache.doris.connector.spi.ConnectorFileSourceOps;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.PluginFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
@@ -95,8 +107,10 @@ import org.apache.thrift.TSerializer;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -135,6 +149,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public FileFormatProperties fileFormatProperties;
     private String hiveParquetTimeZone = "";
     private long tableId;
+    /** The reader of this table function's format when a connector plugin claims it; null for the engine's own. */
+    private PluginFileFormat pluginFormat;
+    /** What that plugin resolved {@link #filePath} to; see {@link #readPluginFormat}. */
+    private ConnectorTableHandle pluginTableHandle;
 
     public abstract TFileType getTFileType();
 
@@ -159,18 +177,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
-            // Ozone) — the exact implementor set of the legacy object-storage marker interface;
-            // Azure deliberately stays excluded, matching the legacy instanceof check.
-            StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
-            if (storageAdapter != null
-                    && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
-                S3Util.validateAndTestEndpoint(
-                        ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+            validateEndpoint(brokerDesc);
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
@@ -184,8 +202,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     entries = fs.listFiles(Location.of(path));
                 }
                 for (FileEntry e : entries) {
-                    fileStatuses.add(new TBrokerFileStatus(
-                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    TBrokerFileStatus status = new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory());
+                    // BE keys cached blocks of external files by path and modification time, so a
+                    // file overwritten in place must arrive with its new mtime, not as mtime 0.
+                    status.setModificationTime(e.modificationTime());
+                    fileStatuses.add(status);
                 }
             } catch (IOException e) {
                 throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
@@ -200,6 +222,84 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+
+    /**
+     * The endpoint white list and SSRF check of an object-storage location, which the FE reaches before any BE
+     * does: listing its files, or a plugin reading the data set there.
+     */
+    private static void validateEndpoint(BrokerDesc brokerDesc) throws UserException {
+        // "Object storage" here means an S3-compatible binding (S3/OSS/OBS/COS/GCS/MinIO/
+        // Ozone) — the exact implementor set of the legacy object-storage marker interface;
+        // Azure deliberately stays excluded, matching the legacy instanceof check.
+        StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+        if (storageAdapter != null
+                && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
+            S3Util.validateAndTestEndpoint(
+                    ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+        }
+    }
+
+    /** Whether a connector plugin reads this table function's format; see {@link #readPluginFormat}. */
+    public boolean isPluginFormat() {
+        return pluginFormat != null;
+    }
+
+    /**
+     * Hands the location to the plugin that reads this table function's format, after the endpoint check a listing
+     * gets, and takes the columns from what the plugin resolved. The plugin interprets the data set as a whole, so
+     * nothing is listed, and it pins what the statement reads.
+     */
+    protected void readPluginFormat() throws AnalysisException {
+        // s3() reports FILE_S3 whatever it binds, Azure included, and rewrites an Azure location to
+        // s3://container/path, which a plugin would read with no S3 storage at all.
+        if (!(storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties)) {
+            throw pluginFormatOutsideS3(pluginFormat.getFormat());
+        }
+        long startAt = System.currentTimeMillis();
+        try {
+            validateEndpoint(getBrokerDesc());
+            ConnectorFileSource source = new ConnectorFileSource(pluginFormat.getFormat(), filePath,
+                    Collections.singletonList(storageAdapter.getSpiProperties()), backendConnectProperties);
+            ConnectorSession session = pluginFormat.buildSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginFormat.getConnector());
+            pluginTableHandle = ((ConnectorFileSourceOps) metadata).getFileTableHandle(session, source);
+            List<Column> pluginColumns = ConnectorColumnConverter.convertColumns(
+                    metadata.getTableSchema(session, pluginTableHandle).getColumns());
+            // Kept in the plugin's spelling; names that differ only in case are refused, as a file's are.
+            Set<String> columnLowerNames = new HashSet<>();
+            for (Column column : pluginColumns) {
+                addColumnLowerName(columnLowerNames, column.getName());
+            }
+            columns = pluginColumns;
+        } catch (UserException e) {
+            throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (profile != null) {
+                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            }
+        }
+    }
+
+    /** A plugin reads its data set from object storage by the S3 vocabulary, which only s3() hands over. */
+    private static AnalysisException pluginFormatOutsideS3(String format) {
+        return new AnalysisException("Format " + format + " is read only by the s3() table function,"
+                + " or by file() over S3-compatible storage");
+    }
+
+    /**
+     * Records a column's name in lower case and returns it, refusing a name another column already took: Doris
+     * resolves column names regardless of case, so two columns whose names differ only in case cannot be told apart.
+     */
+    private static String addColumnLowerName(Set<String> columnLowerNames, String columnName) {
+        String colLowerName = columnName.toLowerCase();
+        if (!columnLowerNames.add(colLowerName)) {
+            throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
+        }
+        return colLowerName;
+    }
 
     // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
@@ -220,17 +320,23 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        pluginFormat = ConnectorFactory.getFileFormat(formatString).orElse(null);
+        if (pluginFormat != null) {
+            // No other table function hands a data set over, and file() reaches here through s3() for object
+            // storage. readPluginFormat checks the binding, which may be Azure.
+            if (getTFileType() != TFileType.FILE_S3) {
+                throw pluginFormatOutsideS3(formatString);
+            }
+            fileFormatProperties = new PluginFileFormatProperties(formatString);
+        } else {
+            fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        }
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
-
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
+        fileFormatProperties.enableMappingTimestampTz = true;
 
         String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
                 FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
@@ -257,6 +363,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         .map(String::trim)
                         .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
+        if (pluginFormat != null && !pathPartitionKeys.isEmpty()) {
+            throw new AnalysisException("'" + FileFormatConstants.PROP_PATH_PARTITION_KEYS
+                    + "' is not supported for format " + formatString);
+        }
         this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
@@ -282,6 +392,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        if (pluginFormat != null) {
+            // Planned by the plugin through the connector scan interfaces, as the query() table function is.
+            return new PluginDrivenScanNode(id, desc, false, sv,
+                    ScanContext.builder().clusterName(sv.resolveCloudClusterName())
+                            .beExecVersion(ConnectContext.get().getStatementContext().getBeExecVersion())
+                            .build(),
+                    pluginFormat.getConnector(), pluginFormat.buildSession(), pluginTableHandle);
+        }
         return new TVFScanNode(id, desc, false, sv,
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
@@ -302,7 +420,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return columns;
         }
         // get one BE address
-        columns = Lists.newArrayList();
         Backend be = getBackend();
         if (be == null) {
             String computeGroupHints = "";
@@ -328,17 +445,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
-            PFetchTableSchemaRequest request = getFetchTableStructureRequest();
+            if (getTFileType() == TFileType.FILE_STREAM) {
+                fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            }
+            Iterator<TBrokerFileStatus> files = fileStatuses.iterator();
+            PFetchTableSchemaRequest request = getFetchTableStructureRequest(files);
             InternalService.PFetchTableSchemaResult result = null;
 
             // `request == null` means we don't need to get schemas from BE,
             // and we fill a dummy col for this table.
-            if (request != null) {
+            while (request != null) {
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                         .fetchTableStructureAsync(address, request);
 
                 result = future.get();
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code == TStatusCode.NOT_FOUND) {
+                    request = getFetchTableStructureRequest(files);
+                    if (request != null) {
+                        continue;
+                    }
+                }
                 String errMsg;
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
@@ -350,7 +477,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     }
                     throw new AnalysisException(errMsg);
                 }
+                break;
             }
+            columns = Lists.newArrayList();
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -469,27 +598,30 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         // add fetched file columns
         Set<String> columnLowerNames = new HashSet<>();
+        boolean preserveColumnCase = fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx).toLowerCase();
-            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
-            // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colName);
-            } else {
-                columnLowerNames.add(colName);
-                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
-            }
+            String originalColName = result.getColumnNames(idx);
+            String colLowerName = addColumnLowerName(columnLowerNames, originalColName);
+            String colName = preserveColumnCase ? originalColName : colLowerName;
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
+            String colLowerName = colName.toLowerCase();
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException(
+                        "Path partition column conflicts with an existing column: " + colName);
+            }
+            columnLowerNames.add(colLowerName);
             columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest(Iterator<TBrokerFileStatus> files)
+            throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
@@ -502,13 +634,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
         if (!hiveParquetTimeZone.isEmpty()) {
             fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
         }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
-            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
             fileScanRangeParams.setFileType(getTFileType());
         }
 
@@ -522,7 +655,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
+        while (files.hasNext()) {
+            TBrokerFileStatus fileStatus = files.next();
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }

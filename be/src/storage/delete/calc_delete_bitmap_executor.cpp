@@ -23,6 +23,7 @@
 
 #include "common/check.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
@@ -39,13 +40,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
                                      int64_t end_version, DeleteBitmapPtr delete_bitmap,
                                      RowsetWriter* rowset_writer,
                                      DeleteBitmapPtr tablet_delete_bitmap) {
-    {
-        std::shared_lock rlock(_lock);
-        RETURN_IF_ERROR(_status);
-    }
-
     const auto submit_time_us = MonotonicMicros();
-    return _submit_func([=, this]() {
+    return submit_func([=]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
@@ -55,11 +51,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
                          << " seg_id: " << cur_segment->id() << " version: " << end_version
                          << " error: " << st;
-            std::lock_guard wlock(_lock);
-            if (_status.ok()) {
-                _status = st;
-            }
         }
+        return st;
     });
 }
 
@@ -67,12 +60,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
                                      RowsetId rowset_id,
                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                      DeleteBitmapPtr delete_bitmap) {
-    {
-        std::shared_lock rlock(_lock);
-        RETURN_IF_ERROR(_status);
-    }
     const auto submit_time_us = MonotonicMicros();
-    return _submit_func([=, this]() {
+    return submit_func([=]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
                                                               delete_bitmap, queue_time_us);
@@ -80,11 +69,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << rowset_id
                          << " segments num: " << segments.size() << " error: " << st;
-            std::lock_guard wlock(_lock);
-            if (_status.ok()) {
-                _status = st;
-            }
         }
+        return st;
     });
 }
 
@@ -94,19 +80,13 @@ Status CalcDeleteBitmapToken::wait() {
         if (!st.ok()) {
             // Do not return while callbacks can still access this token or its
             // caller's state. Factory-created nested tokens always own leaves.
-            {
-                std::lock_guard wlock(_lock);
-                if (_status.ok()) {
-                    _status = st;
-                }
-            }
+            _set_status(st);
             _thread_token->shutdown();
         }
     } else {
         _thread_token->wait();
     }
-    std::shared_lock rlock(_lock);
-    RETURN_IF_ERROR(_status);
+    RETURN_IF_ERROR(_get_status());
     // A workload-group shutdown may remove queued tasks without executing them.
     if (_finished_tasks.load() != _submitted_tasks.load()) {
         return Status::Cancelled("delete bitmap tasks were cancelled before completion");
@@ -114,7 +94,32 @@ Status CalcDeleteBitmapToken::wait() {
     return Status::OK();
 }
 
+Status CalcDeleteBitmapToken::_get_status() {
+    std::shared_lock rlock(_lock);
+    RETURN_IF_ERROR(_status);
+    return _load_cancel_status && !_load_cancel_status->ok() ? _load_cancel_status->status()
+                                                             : Status::OK();
+}
+
+void CalcDeleteBitmapToken::_set_status(const Status& st) {
+    DCHECK(!st.ok());
+    std::lock_guard wlock(_lock);
+    if (_status.ok()) {
+        // Keep an earlier token failure local. If load cancellation is already
+        // observable, a later callback failure must not replace its reason.
+        _status = _load_cancel_status && !_load_cancel_status->ok() ? _load_cancel_status->status()
+                                                                    : st;
+    }
+}
+
+void CalcDeleteBitmapToken::cancel(const Status& st) {
+    _set_status(st);
+    // Running callbacks may still need _lock to publish their result.
+    _thread_token->shutdown();
+}
+
 Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
+    TEST_SYNC_POINT_CALLBACK("CalcDeleteBitmapToken::submit_func:before_submit", this);
     ++_submitted_tasks;
     auto task = [this, func = std::move(func)]() {
         func();
@@ -140,10 +145,8 @@ Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
     if (!st.ok()) {
         // Preserve the submission error before wait() checks for callbacks
         // that did not finish; a rejection is not a generic cancellation.
-        std::lock_guard wlock(_lock);
-        if (_status.ok()) {
-            _status = st;
-        }
+        _set_status(st);
+        return _get_status();
     }
     return st;
 }
@@ -157,26 +160,31 @@ void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads,
                               .build(&_thread_pool));
 }
 
-std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() {
+std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token(
+        std::shared_ptr<AtomicStatus> load_cancel_status) {
     return std::make_unique<CalcDeleteBitmapToken>(
-            _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT));
+            _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT),
+            std::move(load_cancel_status));
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        int64_t load_id, LoadTaskPriority priority, LoadTaskType type) {
+        int64_t load_id, std::shared_ptr<AtomicStatus> load_cancel_status,
+        LoadTaskPriority priority, LoadTaskType type) {
     return create_load_token(load_id, priority, type,
-                             thread_context()->resource_ctx()->workload_group());
+                             thread_context()->resource_ctx()->workload_group(),
+                             std::move(load_cancel_status));
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
         int64_t load_id, LoadTaskPriority priority, LoadTaskType type,
-        std::shared_ptr<WorkloadGroup> wg) {
+        std::shared_ptr<WorkloadGroup> wg, std::shared_ptr<AtomicStatus> load_cancel_status) {
     // Nested segment calculations belong to the parent's actual pool. Its
     // attached request context may not carry the workload group used to route it.
     if (auto* pool = ThreadPool::current_load_pool()) {
         DORIS_CHECK(type == LoadTaskType::LEAF) << "Nested bitmap tasks must be leaves";
         return std::make_unique<CalcDeleteBitmapToken>(
-                pool->new_load_token(load_id, priority, type), std::move(wg), true);
+                pool->new_load_token(load_id, priority, type), std::move(load_cancel_status),
+                std::move(wg), true);
     }
     // A commit retry can outlive a dropped workload group. Its pool is stopped;
     // use the default domain in that case. A concurrent stop is reported by submit/wait.
@@ -186,7 +194,7 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_tok
     }
     DCHECK(pool != nullptr);
     return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(load_id, priority, type),
-                                                   std::move(wg));
+                                                   std::move(load_cancel_status), std::move(wg));
 }
 
 } // namespace doris

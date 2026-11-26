@@ -21,6 +21,7 @@
 
 #include "runtime/memory/memory_profile.h"
 #include "storage/metadata_adder.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -29,6 +30,16 @@ ProcessProfile::ProcessProfile() {
 }
 
 void ProcessProfile::refresh_profile() {
+    // Untracked memory is the resident size minus every tracked byte, so it drops below zero
+    // while tracked memory is not resident, and a tracker can be briefly negative under batched
+    // tracking. The memory maintenance thread refreshes the same snapshot with the non-negative
+    // counter check off; turn it off here too, so such a value does not abort a debug build on
+    // GET /profile. The switch is thread local and this runs on a shared HTTP worker, so put it
+    // back afterwards.
+    const bool counter_check = enable_profile_counter_check;
+    enable_profile_counter_check = false;
+    Defer restore_counter_check {[&]() { enable_profile_counter_check = counter_check; }};
+
     // 1. refresh profile
     _memory_profile->refresh_memory_overview_profile();
     _memory_profile->refresh_tasks_memory_profile();

@@ -31,6 +31,7 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/json/path_in_data.h"
@@ -219,6 +220,9 @@ void Field::create(Field&& field) {
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(std::move(field.template get<TYPE_IPV6>()));
         return;
+    case PrimitiveType::TYPE_UUID:
+        create_concrete<TYPE_UUID>(std::move(field.template get<TYPE_UUID>()));
+        return;
     case PrimitiveType::TYPE_FLOAT:
         create_concrete<TYPE_FLOAT>(std::move(field.template get<TYPE_FLOAT>()));
         return;
@@ -245,6 +249,9 @@ void Field::create(Field&& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(std::move(field.template get<TYPE_STRUCT>()));
+        return;
+    case PrimitiveType::TYPE_FILE:
+        create_concrete<TYPE_FILE>(std::move(field.template get<TYPE_FILE>()));
         return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(std::move(field.template get<TYPE_MAP>()));
@@ -353,6 +360,9 @@ void Field::create(const Field& field) {
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(field.template get<TYPE_IPV6>());
         return;
+    case PrimitiveType::TYPE_UUID:
+        create_concrete<TYPE_UUID>(field.template get<TYPE_UUID>());
+        return;
     case PrimitiveType::TYPE_FLOAT:
         create_concrete<TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
         return;
@@ -379,6 +389,9 @@ void Field::create(const Field& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(field.template get<TYPE_STRUCT>());
+        return;
+    case PrimitiveType::TYPE_FILE:
+        create_concrete<TYPE_FILE>(field.template get<TYPE_FILE>());
         return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(field.template get<TYPE_MAP>());
@@ -443,6 +456,9 @@ void Field::destroy() {
         break;
     case PrimitiveType::TYPE_STRUCT:
         destroy<TYPE_STRUCT>();
+        break;
+    case PrimitiveType::TYPE_FILE:
+        destroy<TYPE_FILE>();
         break;
     case PrimitiveType::TYPE_MAP:
         destroy<TYPE_MAP>();
@@ -517,6 +533,9 @@ void Field::assign(Field&& field) {
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(std::move(field.template get<TYPE_IPV6>()));
         return;
+    case PrimitiveType::TYPE_UUID:
+        assign_concrete<TYPE_UUID>(std::move(field.template get<TYPE_UUID>()));
+        return;
     case PrimitiveType::TYPE_FLOAT:
         assign_concrete<TYPE_FLOAT>(std::move(field.template get<TYPE_FLOAT>()));
         return;
@@ -543,6 +562,9 @@ void Field::assign(Field&& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(std::move(field.template get<TYPE_STRUCT>()));
+        return;
+    case PrimitiveType::TYPE_FILE:
+        assign_concrete<TYPE_FILE>(std::move(field.template get<TYPE_FILE>()));
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(std::move(field.template get<TYPE_MAP>()));
@@ -629,6 +651,9 @@ void Field::assign(const Field& field) {
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(field.template get<TYPE_IPV6>());
         return;
+    case PrimitiveType::TYPE_UUID:
+        assign_concrete<TYPE_UUID>(field.template get<TYPE_UUID>());
+        return;
     case PrimitiveType::TYPE_FLOAT:
         assign_concrete<TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
         return;
@@ -655,6 +680,9 @@ void Field::assign(const Field& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(field.template get<TYPE_STRUCT>());
+        return;
+    case PrimitiveType::TYPE_FILE:
+        assign_concrete<TYPE_FILE>(field.template get<TYPE_FILE>());
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(field.template get<TYPE_MAP>());
@@ -776,6 +804,7 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     }
 
     switch (type) {
+    case PrimitiveType::TYPE_FILE:
     case PrimitiveType::TYPE_BITMAP:
     case PrimitiveType::TYPE_HLL:
     case PrimitiveType::TYPE_QUANTILE_STATE:
@@ -817,6 +846,8 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
         return get<TYPE_LARGEINT>() <=> rhs.get<TYPE_LARGEINT>();
     case PrimitiveType::TYPE_IPV6:
         return get<TYPE_IPV6>() <=> rhs.get<TYPE_IPV6>();
+    case PrimitiveType::TYPE_UUID:
+        return get<TYPE_UUID>() <=> rhs.get<TYPE_UUID>();
     case PrimitiveType::TYPE_IPV4:
         return get<TYPE_IPV4>() <=> rhs.get<TYPE_IPV4>();
     case PrimitiveType::TYPE_FLOAT:
@@ -923,6 +954,7 @@ std::string_view Field::as_string_view() const {
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL256);
     MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
     MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
+    MATCH_PRIMITIVE_TYPE(TYPE_UUID);
     MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
     MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
     // MATCH_PRIMITIVE_TYPE(TYPE_FIXED_LENGTH_OBJECT);
@@ -987,6 +1019,8 @@ std::string Field::to_debug_string(int scale) const {
         return CastToString::from_ip(get<TYPE_IPV4>());
     case PrimitiveType::TYPE_IPV6:
         return CastToString::from_ip(get<TYPE_IPV6>());
+    case PrimitiveType::TYPE_UUID:
+        return UUIDValue::to_string(get<TYPE_UUID>());
     default:
         throw Exception(Status::FatalError("type not supported for to_debug_string, type={}",
                                            get_type_name()));
@@ -1103,6 +1137,10 @@ std::string Field::to_debug_string(int scale) const {
                                               rhs);                                               \
     template void Field::FUNC_NAME<TYPE_IPV6>(                                                    \
             const typename PrimitiveTypeTraits<TYPE_IPV6>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_UUID>(typename PrimitiveTypeTraits<TYPE_UUID>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_UUID>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_UUID>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
             typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType && rhs);                          \
     template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
@@ -1123,6 +1161,10 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType && rhs);                           \
     template void Field::FUNC_NAME<TYPE_STRUCT>(                                                  \
             const typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_FILE>(typename PrimitiveTypeTraits<TYPE_FILE>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_FILE>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_FILE>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_MAP>(typename PrimitiveTypeTraits<TYPE_MAP>::CppType &&   \
                                              rhs);                                                \
     template void Field::FUNC_NAME<TYPE_MAP>(                                                     \
@@ -1179,11 +1221,13 @@ DECLARE_FUNCTION(TYPE_QUANTILE_STATE)
 DECLARE_FUNCTION(TYPE_ARRAY)
 DECLARE_FUNCTION(TYPE_IPV4)
 DECLARE_FUNCTION(TYPE_IPV6)
+DECLARE_FUNCTION(TYPE_UUID)
 DECLARE_FUNCTION(TYPE_BOOLEAN)
 DECLARE_FUNCTION(TYPE_FLOAT)
 DECLARE_FUNCTION(TYPE_DOUBLE)
 DECLARE_FUNCTION(TYPE_JSONB)
 DECLARE_FUNCTION(TYPE_STRUCT)
+DECLARE_FUNCTION(TYPE_FILE)
 DECLARE_FUNCTION(TYPE_MAP)
 DECLARE_FUNCTION(TYPE_BITMAP)
 DECLARE_FUNCTION(TYPE_TIMEV2)

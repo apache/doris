@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "common/config.h"
+#include "common/utils.h"
 #include "event2/buffer.h"
 #include "event2/event.h"
 #include "event2/http.h"
@@ -29,6 +30,8 @@
 #include "evhttp.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "load/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_executor.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/ev_http_server.h"
@@ -53,6 +56,38 @@ public:
 
 void http_request_done_cb(struct evhttp_request* req, void* arg) {
     event_base_loopbreak((struct event_base*)arg);
+}
+
+TEST_F(StreamLoadTest, WalPlanningFailurePreservesTokenForRetryAndRollback) {
+    auto* env = ExecEnv::GetInstance();
+    auto* original_cluster_info = env->cluster_info();
+    ClusterInfo cluster_info;
+    env->set_cluster_info(&cluster_info);
+    Defer restore_cluster_info {[&] { env->set_cluster_info(original_cluster_info); }};
+    auto ctx = std::make_shared<StreamLoadContext>(env);
+    ctx->auth.user = "admin";
+    ctx->auth.token = "internal-wal-token";
+    ctx->sql_str = "insert into wal_replay select * from http_stream()";
+    HttpStreamAction action(env);
+
+    // No FE address: planning fails after constructing the request, before any RPC.
+    EXPECT_FALSE(action.process_put(nullptr, ctx).ok());
+    EXPECT_EQ("internal-wal-token", ctx->auth.token);
+    EXPECT_FALSE(action.process_put(nullptr, ctx).ok());
+    EXPECT_EQ("internal-wal-token", ctx->auth.token);
+
+    TLoadTxnCommitRequest commit;
+    StreamLoadExecutor executor(env);
+    executor.get_commit_request(ctx.get(), commit);
+    EXPECT_TRUE(commit.__isset.token);
+    EXPECT_EQ("internal-wal-token", commit.token);
+    EXPECT_FALSE(commit.__isset.auth_code);
+
+    TLoadTxnRollbackRequest rollback;
+    set_request_auth(&rollback, ctx->auth);
+    EXPECT_TRUE(rollback.__isset.token);
+    EXPECT_EQ(commit.token, rollback.token);
+    EXPECT_FALSE(rollback.__isset.auth_code);
 }
 
 TEST_F(StreamLoadTest, TestHeader) {
@@ -193,6 +228,42 @@ TEST_F(StreamLoadTest, HttpStreamBodySizeLimitPlusOneErrorIncludesExactBytes) {
               "[E-217]body size 104857601 bytes (100.00 MiB) exceeds the limit of 104857600 bytes "
               "(100 MiB) set by BE config `streaming_load_max_mb`. Increase it if you are sure "
               "this load is reasonable");
+    evhttp_request_free(evhttp_req);
+}
+
+// A malformed Content-Length used to escape as an exception from the libevent header
+// callback and take the whole BE process down.
+TEST_F(StreamLoadTest, HttpStreamMalformedContentLengthIsRejected) {
+    for (const auto* content_length : {"not_a_number", "9223372036854775808"}) {
+        auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        req.set_header(HTTP_GROUP_COMMIT, "async_mode");
+        req.set_header(HttpHeaders::CONTENT_LENGTH, content_length);
+
+        HttpStreamAction action(nullptr);
+        auto ctx = std::make_shared<StreamLoadContext>(nullptr);
+        auto status = action._handle_group_commit(&req, ctx);
+
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << content_length;
+        evhttp_request_free(evhttp_req);
+    }
+}
+
+TEST_F(StreamLoadTest, HttpStreamMalformedWalIdIsRejected) {
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req.set_header(HTTP_WAL_ID_KY, "not_a_number");
+
+    HttpStreamAction action(nullptr);
+    auto ctx = std::make_shared<StreamLoadContext>(nullptr);
+    req.set_handler(&action);
+    req.set_handler_ctx(ctx);
+
+    action.on_chunk_data(&req);
+
+    EXPECT_TRUE(ctx->status.is<ErrorCode::INVALID_ARGUMENT>());
+    // ctx carries no ExecEnv, so detach it before ~HttpRequest calls free_handler_ctx()
+    req.set_handler_ctx(nullptr);
     evhttp_request_free(evhttp_req);
 }
 } // namespace doris

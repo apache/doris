@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -41,12 +42,14 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "core/block/block.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/parser/obj_storage_config.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
@@ -54,15 +57,17 @@
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
-#include "util/s3_util.h"
 
 namespace Aws {
 namespace S3 {
@@ -174,6 +179,102 @@ protected:
 
         s = (*result)->init(&context);
         EXPECT_EQ(Status::OK(), s);
+    }
+
+    // (k1 int, k2 int, v int) unique key (k1, k2)
+    void create_unique_tablet_schema(TabletSchemaSPtr tablet_schema) {
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
+        tablet_schema_pb.set_num_short_key_columns(2);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(4);
+        const std::array<const char*, 3> names {"k1", "k2", "v"};
+        for (int32_t i = 0; i < 3; ++i) {
+            ColumnPB* column = tablet_schema_pb.add_column();
+            column->set_unique_id(i + 1);
+            column->set_name(names[i]);
+            column->set_type("INT");
+            column->set_is_key(i < 2);
+            column->set_length(4);
+            column->set_index_length(4);
+            column->set_is_nullable(false);
+            column->set_is_bf_column(false);
+        }
+        tablet_schema->init_from_pb(tablet_schema_pb);
+    }
+
+    // The rowset one load wrote when it flushed several memtables: segment i holds the rows
+    // (k1, k2, v) of `segments[i]`, and the segments overlap on keys.
+    void write_overlapping_rowset(StorageEngine& engine, TabletSchemaSPtr tablet_schema,
+                                  int64_t rowset_id,
+                                  const std::vector<std::vector<std::array<int32_t, 3>>>& segments,
+                                  RowsetSharedPtr* rowset) {
+        RowsetWriterContext context;
+        create_rowset_writer_context(tablet_schema, &context);
+        context.rowset_id.init(rowset_id);
+        context.segments_overlap = OVERLAPPING;
+        auto writer = RowsetFactory::create_rowset_writer(engine, context, false);
+        ASSERT_TRUE(writer.has_value()) << writer.error();
+        for (const auto& rows : segments) {
+            Block block = tablet_schema->create_storage_block();
+            {
+                auto columns_guard = block.mutate_columns_scoped();
+                auto& columns = columns_guard.mutable_columns();
+                for (const auto& row : rows) {
+                    for (size_t i = 0; i < row.size(); ++i) {
+                        columns[i]->insert_data(reinterpret_cast<const char*>(&row[i]),
+                                                sizeof(int32_t));
+                    }
+                }
+            }
+            auto st = writer.value()->add_block(&block);
+            ASSERT_TRUE(st.ok()) << st;
+            st = writer.value()->flush();
+            ASSERT_TRUE(st.ok()) << st;
+        }
+        auto st = writer.value()->build(*rowset);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    // The (k1, k2) of every row a reader of `rowset` initialized with `context` returns.
+    std::vector<std::pair<int32_t, int32_t>> read_keys(Rowset* rowset,
+                                                       RowsetReaderContext& context) {
+        RowsetReaderSharedPtr reader;
+        create_and_init_rowset_reader(rowset, context, &reader);
+        std::vector<std::pair<int32_t, int32_t>> keys;
+        Status st;
+        do {
+            Block block = context.read_schema->create_read_block();
+            st = reader->next_batch(&block);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                keys.emplace_back(
+                        static_cast<int32_t>(block.get_by_position(0).column->get_int(row)),
+                        static_cast<int32_t>(block.get_by_position(1).column->get_int(row)));
+            }
+        } while (st.ok());
+        EXPECT_TRUE(st.is<END_OF_FILE>()) << st;
+        return keys;
+    }
+
+    // The reader context of a read of every column of `tablet_schema` that merges the overlapping
+    // segments of a UNIQUE_KEYS rowset, by `orderby_key_columns` when not null and by the whole
+    // key otherwise.
+    RowsetReaderContext unique_merge_context(const TabletSchema& tablet_schema,
+                                             std::vector<uint32_t>* orderby_key_columns) {
+        auto read_schema = std::make_shared<ReadSchema>(tablet_schema.columns());
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_changelog_columns=*/false)
+                            .ok());
+        RowsetReaderContext context;
+        context.read_schema = read_schema;
+        context.stats = &_stats;
+        context.need_ordered_result = true;
+        context.is_unique = true;
+        context.read_orderby_key_columns = orderby_key_columns;
+        return context;
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
@@ -302,20 +403,16 @@ public:
 TEST_F(BetaRowsetTest, ReadTest) {
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     BetaRowset rowset(nullptr, rowset_meta, "");
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket",
+            .prefix = "prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);
@@ -536,10 +633,18 @@ TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
     ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
     ASSERT_NE(tmp_rowset, nullptr);
     EXPECT_EQ(tmp_rowset->num_segments(), 2);
-    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(2), 0);
-    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(6), 1);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(2)), 0);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(6)), 1);
     EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(0), 2);
     EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(1), 6);
+
+    auto* beta_rowset = static_cast<BetaRowset*>(tmp_rowset.get());
+    segment_v2::SegmentSharedPtr segment;
+    for (int64_t seg_id : {3, 7}) {
+        auto status = beta_rowset->load_segment(seg_id, nullptr, &segment);
+        EXPECT_TRUE(status.is<NOT_FOUND>()) << status;
+        EXPECT_EQ(segment, nullptr);
+    }
 }
 
 TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {
@@ -683,6 +788,60 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
     sp->clear_trace();
 }
 
+TEST_F(BetaRowsetTest, GetSegmentNumRowsRetryAfterFailure) {
+    // A failed load must not be cached. The rowset lives as long as its tablet version, so a
+    // cached transient error (e.g. S3 SlowDown) would fail every later caller, such as compaction.
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    // Use a dedicated rowset id so that no segment of other tests can be hit in segment cache.
+    RowsetId rowset_id;
+    rowset_id.init(540099);
+    rowset_meta->set_rowset_id(rowset_id);
+    rowset_meta->set_num_segments(2);
+    // No segment rows in meta and no segment files, so loading from segment footer fails.
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    auto sp = SyncPoint::get_instance();
+    int meta_path_count = 0;
+    int footer_path_count = 0;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { meta_path_count++; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { footer_path_count++; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_FALSE(st.ok());
+    ASSERT_EQ(footer_path_count, 1);
+
+    // The failure is not cached, so the next call loads again and succeeds.
+    rowset_meta->set_num_segment_rows({100, 200});
+    st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+
+    // The success is cached, so the following call does not load again.
+    std::vector<uint32_t> segment_rows_2;
+    st = rowset->get_segment_num_rows(&segment_rows_2, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows_2, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+    ASSERT_EQ(footer_path_count, 1);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
 TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
     // Test the simple get_num_segment_rows API (without loading)
     auto tablet_schema = std::make_shared<TabletSchema>();
@@ -703,6 +862,61 @@ TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
     ASSERT_EQ(segment_rows[0], 100);
     ASSERT_EQ(segment_rows[1], 200);
     ASSERT_EQ(segment_rows[2], 300);
+}
+
+// A merge-on-write SELECT ... ORDER BY k1 LIMIT n is read by a storage TopN, which merges the
+// overlapping segments of a rowset by the ORDER BY prefix (read_orderby_key_columns). Rows equal
+// on k1 are different keys, so the merge keeps all of them although the table is UNIQUE_KEYS:
+// one load wrote (k1 = i, k2 = i) into the first segment and (k1 = i, k2 = i + 20) into the
+// second, and all 40 rows come back in k1 order.
+TEST_F(BetaRowsetTest, OrderByKeyPrefixMergeKeepsRowsEqualOnThePrefix) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_unique_tablet_schema(tablet_schema);
+    std::vector<std::vector<std::array<int32_t, 3>>> segments(2);
+    std::vector<std::pair<int32_t, int32_t>> expected_keys;
+    for (int32_t i = 0; i < 20; ++i) {
+        segments[0].push_back({i, i, i});
+        segments[1].push_back({i, i + 20, i + 20});
+        expected_keys.emplace_back(i, i);
+        expected_keys.emplace_back(i, i + 20);
+    }
+    EngineOptions options;
+    StorageEngine engine(options);
+    RowsetSharedPtr rowset;
+    ASSERT_NO_FATAL_FAILURE(
+            write_overlapping_rowset(engine, tablet_schema, 10100, segments, &rowset));
+    ASSERT_TRUE(rowset->is_segments_overlapping());
+
+    std::vector<uint32_t> orderby_key_columns {0};
+    auto context = unique_merge_context(*tablet_schema, &orderby_key_columns);
+    auto keys = read_keys(rowset.get(), context);
+    EXPECT_TRUE(std::ranges::is_sorted(keys, {}, &std::pair<int32_t, int32_t>::first));
+    // Rows equal on k1 come out in either order.
+    std::ranges::sort(keys);
+    EXPECT_EQ(keys, expected_keys);
+}
+
+// A merge by the whole key keeps one row of each key that both overlapping segments of a
+// UNIQUE_KEYS rowset hold.
+TEST_F(BetaRowsetTest, WholeKeyMergeKeepsOneRowPerKey) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_unique_tablet_schema(tablet_schema);
+    std::vector<std::vector<std::array<int32_t, 3>>> segments(2);
+    std::vector<std::pair<int32_t, int32_t>> expected_keys;
+    for (int32_t i = 0; i < 20; ++i) {
+        segments[0].push_back({i, i, i});
+        segments[1].push_back({i, i, i + 20});
+        expected_keys.emplace_back(i, i);
+    }
+    EngineOptions options;
+    StorageEngine engine(options);
+    RowsetSharedPtr rowset;
+    ASSERT_NO_FATAL_FAILURE(
+            write_overlapping_rowset(engine, tablet_schema, 10101, segments, &rowset));
+    ASSERT_TRUE(rowset->is_segments_overlapping());
+
+    auto context = unique_merge_context(*tablet_schema, nullptr);
+    EXPECT_EQ(read_keys(rowset.get(), context), expected_keys);
 }
 
 } // namespace doris

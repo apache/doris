@@ -40,7 +40,7 @@ import java.util.Set;
  *
  * <p>Data flow:
  * <ol>
- *   <li>{@code IvmNormalizeMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
+ *   <li>{@code IvmNormalizeUniqKeysMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
  *       original aggregate arguments into {@link IvmAggTargetSpec}. After normalize resolves final aggregate output
  *       slots, the spec becomes the stable {@link IvmAggTarget} stored in {@link IvmAggMeta}.</li>
  *   <li>{@code IvmAggDeltaHandler#buildDeltaSubPlan}: {@link #appendDeltaAggregateOutputs} creates the signed delta
@@ -77,9 +77,10 @@ public class IvmAggFunctionRegistry {
      * Builds target metadata for one original aggregate function and its optional hidden state columns.
      */
     public IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
-            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
-        return findProcessor(function).buildTargetSpec(
-                ordinal, function, visibleAlias, aggColumnPool, hiddenAggOutputs);
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs,
+            List<NamedExpression> internalAggOutputs, long minMaxTopK) {
+        return findProcessor(function).buildTargetSpec(ordinal, function, visibleAlias, aggColumnPool,
+                hiddenAggOutputs, internalAggOutputs, minMaxTopK);
     }
 
     /**
@@ -129,6 +130,14 @@ public class IvmAggFunctionRegistry {
      */
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext ctx) {
         processorFor(target).appendApplyExpressions(target, ctx);
+    }
+
+    /**
+     * Returns true when this target's own value state is carried by the visible MV column, so normalize
+     * must keep that column alive (materializing a hidden carrier column when an upper expression drops it).
+     */
+    public boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        return processorFor(target).visibleColumnHoldsValueState(target);
     }
 
     private IvmAggFunctionProcessor processorFor(IvmAggTarget target) {

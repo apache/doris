@@ -29,14 +29,18 @@ import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlanShallowCopier;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
 import org.apache.doris.statistics.hbo.PlanStatistics;
@@ -44,6 +48,7 @@ import org.apache.doris.statistics.hbo.PlanStatisticsMatchStrategy;
 import org.apache.doris.statistics.hbo.PlanStatisticsWithInputInfo;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
@@ -68,12 +73,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -111,12 +117,19 @@ public class Profile {
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile;
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
-    // from storage directly.
-    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    // from storage directly. Retries can append executions while an already published profile is read,
+    // so readers iterate a stable snapshot of this infrequently modified list.
+    List<ExecutionProfile> executionProfiles = new CopyOnWriteArrayList<>();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
+    private volatile String storageProfileCompletionState;
+    private volatile boolean executionProfilesReleased;
+    // Serializes the storage and display updates of the completion state. Not the Profile monitor:
+    // ProfileManager renders under its read lock, while updateSummary() holds the monitor and then
+    // takes the manager's write lock.
+    private final Object completionStateLock = new Object();
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -135,7 +148,7 @@ public class Profile {
 
     private PhysicalPlan physicalPlan;
     public Map<String, Long> rowsProducedMap = new HashMap<>();
-    private Set<PhysicalRelation> physicalRelations = new LinkedHashSet<>();
+    private String columnStats = "";
 
     private String changedSessionVarCache = "";
 
@@ -281,6 +294,33 @@ public class Profile {
         return this.executionProfiles;
     }
 
+    public synchronized void clearExecutionProfiles() {
+        ProfileManager.getInstance().removeProfile(this);
+        this.executionProfiles.clear();
+        summaryProfile.clearExecutionDetails();
+        // Clear failed-attempt rows before reusing the plan.
+        rowsProducedMap.clear();
+        resetActualRowCounts(physicalPlan);
+    }
+
+    private void resetActualRowCounts(Plan plan) {
+        if (plan == null) {
+            return;
+        }
+        ((AbstractPlan) plan).updateActualRowCount(-1L);
+        for (Plan child : plan.children()) {
+            resetActualRowCounts(child);
+        }
+    }
+
+    public synchronized void clearPlan() {
+        summaryProfile.clearPlanDetails();
+        physicalPlan = null;
+        columnStats = "";
+        planNodeMap = Maps.newHashMap();
+        rowsProducedMap.clear();
+    }
+
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
@@ -292,8 +332,8 @@ public class Profile {
 
             if (planner != null && planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                physicalPlan = nereidsPlanner.getPhysicalPlan();
-                physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
+                setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
+                columnStats = collectColumnStats(nereidsPlanner.getPhysicalRelations());
                 if (profileLevel >= 3) {
                     FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                     if (distributedPlans != null) {
@@ -314,7 +354,7 @@ public class Profile {
                 long durationThreshold = executionProfiles.isEmpty()
                                     ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
                 if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
-                    ProfileManager.getInstance().removeProfile(this.getId());
+                    ProfileManager.getInstance().removeProfile(this);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Removed profile {} because it's costs {} is less than {}", this.getId(),
                                 durationMs, autoProfileDurationMs * this.executionProfiles.size());
@@ -367,6 +407,7 @@ public class Profile {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
         rootProfile.addChild(summaryProfile.getSummary(), true);
         rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
+        rootProfile.addChild(getAIFunctionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
             rootProfile.addChild(executionProfile.getRoot(), true);
         }
@@ -390,10 +431,11 @@ public class Profile {
             Map<Integer, PhysicalPlan> idToPlanMap = planInfoProvider.getIdToPlanMap(queryId);
             Map<PhysicalPlan, Integer> planToIdMap = planInfoProvider.getPlanToIdMap(queryId);
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
+            Map<Integer, String> nodeFingerprints = planInfoProvider.getNodeIdToFingerprintMap(queryId);
 
             if (!idToPlanMap.isEmpty() && idToPlanMap.size() == planToIdMap.size()) {
                 Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> curPlanStatistics = HboUtils.genPlanStatisticsMap(
-                        idToPlanMap, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
+                        idToPlanMap, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats, nodeFingerprints);
                 Map<PlanNodeAndHash, RecentRunsPlanStatistics> recentRunsPlanStatisticsMap =
                         hboPlanStatisticsProvider.getHboPlanStats(
                                 curPlanStatistics.keySet().stream().collect(Collectors.toList()));
@@ -401,7 +443,7 @@ public class Profile {
                 // update plan statistics
                 Map<PlanNodeAndHash, RecentRunsPlanStatistics> newPlanStatistics = curPlanStatistics.entrySet().stream()
                         .filter(entry -> entry.getKey().getHash().isPresent()
-                                && entry.getValue().getInputTableInfo().getInputTableStatistics().isPresent())
+                                && entry.getValue().getInputTableInfo().hasInputTables())
                         .collect(Collectors.toMap(
                                 Map.Entry::getKey,
                                 entry -> {
@@ -454,6 +496,16 @@ public class Profile {
         return new RecentRunsPlanStatistics(newRecentRunsStatistics);
     }
 
+    private RuntimeProfile getAIFunctionSummary() {
+        RuntimeProfile summary = new RuntimeProfile("AIFunctionSummary");
+        // Loads and query retries can contain multiple executions; each contributes once to the totals.
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            executionProfile.addAIFunctionSummaryCounters(summary);
+        }
+        // RuntimeProfile always contains TotalTime, even when no AI counters were reported.
+        return summary.getCounterMap().size() == 1 ? null : summary;
+    }
+
     // Return if profile has been stored to storage
     public void getExecutionProfileContent(SafeStringBuilder builder) {
         if (builder == null) {
@@ -462,6 +514,11 @@ public class Profile {
 
         if (profileHasBeenStored()) {
             return;
+        }
+
+        RuntimeProfile aiSummary = getAIFunctionSummary();
+        if (aiSummary != null) {
+            aiSummary.prettyPrint(builder, "");
         }
 
         // For broker load, if it has more than one execution profile, we will not generate merged profile.
@@ -517,12 +574,7 @@ public class Profile {
             StringBuilder physcialPlanBuilder = new StringBuilder();
             physcialPlanBuilder.append(physicalPlan.treeString());
             physcialPlanBuilder.append("\n");
-            for (PhysicalRelation relation : physicalRelations) {
-                if (relation.getStats() != null) {
-                    physcialPlanBuilder.append(relation).append("\n")
-                            .append(relation.getStats().printColumnStats());
-                }
-            }
+            physcialPlanBuilder.append(columnStats);
             builder.append(
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
@@ -538,11 +590,14 @@ public class Profile {
     }
 
     public void releaseMemory() {
+        // The manager also releases reports after a failed spill. An empty list then means
+        // lost reports, not successful collection; retain that distinction across retries.
+        executionProfilesReleased = true;
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
         this.rowsProducedMap = null;
-        this.physicalRelations = null;
+        this.columnStats = "";
     }
 
     public boolean shouldStoreToStorage() {
@@ -600,13 +655,23 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    // Query completion precedes asynchronous BE reports; persisted profiles must retain
+    // their terminal state even after the in-memory reports have been released.
     public String getProfileCompletionState() {
+        String storageState = storageProfileCompletionState;
+        if (storageState != null) {
+            return storageState;
+        }
         if (profileHasBeenStored()) {
             String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
             if (!Strings.isNullOrEmpty(storedState)) {
                 return storedState;
             }
             return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
         }
 
         if (!isQueryFinished) {
@@ -623,6 +688,9 @@ public class Profile {
     }
 
     private String getProfileCompletionStateForStorage() {
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
         if (!isQueryFinished) {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
@@ -637,11 +705,18 @@ public class Profile {
     }
 
     private void updateProfileCompletionStateForStorage() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+        synchronized (completionStateLock) {
+            // Freeze the terminal state before serialization. Concurrent rendering must not
+            // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
+            storageProfileCompletionState = getProfileCompletionStateForStorage();
+            summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+        }
     }
 
     private void updateProfileCompletionStateForDisplay() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        synchronized (completionStateLock) {
+            summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        }
     }
 
     // Profile IO threads races with Coordinator threads.
@@ -714,6 +789,7 @@ public class Profile {
             this.profileStoragePath = profileFilePath;
 
         } catch (Exception e) {
+            storageProfileCompletionState = null;
             LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
@@ -765,7 +841,47 @@ public class Profile {
     }
 
     public void setPhysicalPlan(PhysicalPlan physicalPlan) {
-        this.physicalPlan = physicalPlan;
+        this.physicalPlan = physicalPlan == null ? null : PhysicalPlanShallowCopier.copy(physicalPlan);
+    }
+
+    /** Capture only known operative column statistics, once per qualified table and column. */
+    static String collectColumnStats(List<PhysicalRelation> relations) {
+        Map<List<String>, Map<String, String>> tables = new LinkedHashMap<>();
+        for (PhysicalRelation relation : relations) {
+            if (relation.getStats() == null) {
+                continue;
+            }
+            List<String> tableName;
+            List<Slot> operativeSlots;
+            if (relation instanceof CatalogRelation) {
+                CatalogRelation catalogRelation = (CatalogRelation) relation;
+                tableName = new ArrayList<>(catalogRelation.getQualifier());
+                tableName.add(catalogRelation.getTable().getName());
+                operativeSlots = catalogRelation.getOperativeSlots();
+            } else if (relation instanceof PhysicalTVFRelation) {
+                PhysicalTVFRelation tvf = (PhysicalTVFRelation) relation;
+                tableName = List.of(tvf.getFunction().toSql());
+                operativeSlots = tvf.getOperativeSlots();
+            } else {
+                continue;
+            }
+            for (Slot slot : operativeSlots) {
+                ColumnStatistic statistic = relation.getStats().findColumnStatistics(slot);
+                // Virtual/unsupported slots may have no column statistics.
+                if (statistic == null || statistic.isUnKnown) {
+                    continue;
+                }
+                tables.computeIfAbsent(tableName, key -> new LinkedHashMap<>())
+                        .computeIfAbsent(slot.getName(), key -> statistic.toString());
+            }
+        }
+        StringBuilder builder = new StringBuilder();
+        tables.forEach((table, columns) -> {
+            builder.append(String.join(".", table)).append("\n");
+            columns.forEach((column, statistic) -> builder.append("  ").append(column)
+                    .append(" -> ").append(statistic).append("\n"));
+        });
+        return builder.toString();
     }
 
     private void updateActualRowCountOnPhysicalPlan(Plan plan) {

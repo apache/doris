@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -74,18 +76,20 @@ class OssFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("oss-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=oss-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("oss-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("oss-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://oss-cn-hangzhou.aliyuncs.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new OssFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("oss.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("OSS_SECRET_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("OSS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("oss.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("OSS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("oss.access_key"), keys.toString());
     }
 
     @Test
@@ -200,6 +204,32 @@ class OssFileSystemPropertiesTest {
         Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
         Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
         Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk"));
+        OssFileSystemProperties otherCredentials = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "other-ak",
+                "oss.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("oss", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
     }
 
     @Test

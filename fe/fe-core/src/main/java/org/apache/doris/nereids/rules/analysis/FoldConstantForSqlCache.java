@@ -56,9 +56,6 @@ public class FoldConstantForSqlCache implements CustomRewriter {
                                     BoundFunction boundFunction, ExpressionRewriteContext context) {
                                 Expression fold = super.visitBoundFunction(boundFunction, context);
                                 boolean unfold = !fold.isDeterministic();
-                                if (unfold) {
-                                    sqlCacheContext.setCannotProcessExpression(true);
-                                }
                                 if (!boundFunction.isDeterministic() && !unfold) {
                                     sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
                                 }
@@ -66,6 +63,10 @@ public class FoldConstantForSqlCache implements CustomRewriter {
                             }
                         }.rewrite(root, ctx);
 
+                        // Casts can depend on the query clock too, without containing a BoundFunction.
+                        if (foldNondeterministic.containsNondeterministic()) {
+                            sqlCacheContext.setCannotProcessExpression(true);
+                        }
                         if (foldNondeterministic != root) {
                             sqlCacheContext.addFoldFullNondeterministicPair(root, foldNondeterministic);
                             return foldNondeterministic;
@@ -86,12 +87,16 @@ public class FoldConstantForSqlCache implements CustomRewriter {
                 cascadesContext.getConnectContext().getSessionVariable());
         StatementContext statementContext = cascadesContext.getStatementContext();
         SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().orElse(null);
-        if (!wantToUseSqlCache || !statementContext.hasNondeterministic()
-                || sqlCacheContext == null
+        if (!wantToUseSqlCache || sqlCacheContext == null
                 || !sqlCacheContext.supportSqlCache()) {
             return plan;
         }
 
+        // The binder tracks function calls; implicit casts can be introduced after binding them.
+        if (!statementContext.hasNondeterministic() && !plan.anyMatch(node ->
+                ((Plan) node).getExpressions().stream().anyMatch(Expression::containsNondeterministic))) {
+            return plan;
+        }
         rewriteJob.execute(jobContext);
         return cascadesContext.getRewritePlan();
     }

@@ -65,7 +65,8 @@ public class ColumnToThrift {
         tColumn.setIsOnUpdateCurrentTimestamp(column.hasOnUpdateDefaultValue());
         String realDefaultValue = column.getRealDefaultValue();
         tColumn.setDefaultValue(realDefaultValue == null ? column.getDefaultValue() : realDefaultValue);
-        if (column.getType().isTimeStampNs() && realDefaultValue != null && column.getDefaultValue() != null
+        if ((column.getType().isTimeStampNs() || column.getType().isTimeStampTz())
+                && realDefaultValue != null && column.getDefaultValue() != null
                 && !realDefaultValue.equals(column.getDefaultValue())) {
             tColumn.setDefaultValueExpr(column.getDefaultValue());
         }
@@ -177,7 +178,7 @@ public class ColumnToThrift {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.getType().isStructType()) {
+        } else if (column.getType().isStructType() || column.getType().isFileType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {

@@ -53,6 +53,13 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
+        def waitForScannedRows = { long expected ->
+            Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+                def rows = sql """SELECT LoadStatistic, Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+                rows[0][1] == "RUNNING" && parseJson(rows[0][0]).scannedRows >= expected
+            })
+        }
+
         // create test
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
@@ -115,17 +122,9 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         assert createTalInfo.contains("UNIQUE KEY(`name`)");
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
 
-        // check job running
+        // Wait for committed snapshot rows; an idle source does not produce more successful tasks.
         try {
-            Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(1, SECONDS).until(
-                    {
-                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '3' <= jobSuccendCount.get(0).get(0)
-                    }
-            )
+            waitForScannedRows(4)
         } catch (Exception ex){
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
             def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
@@ -146,7 +145,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(60000); // wait for cdc incremental data
+        waitForScannedRows(7)
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -165,10 +164,28 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Apache',40);"""
         }
 
-        sleep(60000); // wait for cdc incremental data
+        waitForScannedRows(8)
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
+
+        // A later committed marker proves the reader has passed the rolled-back transaction.
+        def expectedAfterRollback = connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql "BEGIN"
+            try {
+                sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('rolled_back', 99)"""
+                sql """UPDATE ${mysqlDb}.${table1} SET age=99 WHERE name='B1'"""
+                sql """DELETE FROM ${mysqlDb}.${table1} WHERE name='Doris'"""
+            } finally {
+                sql "ROLLBACK"
+            }
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('AfterRollback', 50)"""
+            sql """SELECT name, age FROM ${mysqlDb}.${table1} ORDER BY name"""
+        }
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT name, age FROM ${currentDb}.${table1} ORDER BY name") == expectedAfterRollback
+        }
+        order_qt_after_rollback "SELECT name, age FROM ${currentDb}.${table1} ORDER BY name"
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'

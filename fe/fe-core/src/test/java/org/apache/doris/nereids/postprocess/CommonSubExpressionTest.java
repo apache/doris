@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -73,6 +75,36 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testShortCircuitIfDoesNotCollectChildCommonExpressions() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression add = new Add(a, b);
+        ShortCircuitIf guarded = new ShortCircuitIf(
+                BooleanLiteral.TRUE, new Add(add, add), Literal.of(0));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+
+        collector.collect(guarded);
+
+        Assertions.assertFalse(collector.commonExprByDepth.values().stream()
+                .anyMatch(expressions -> expressions.contains(add)));
+        Assertions.assertFalse(collector.commonExprByDepth.values().stream()
+                .anyMatch(expressions -> expressions.contains(guarded)));
+    }
+
+    @Test
+    public void testShortCircuitIfDoesNotReuseExtractedBranchExpression() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression add = new Add(a, b);
+        ShortCircuitIf guarded = new ShortCircuitIf(BooleanLiteral.TRUE, add, Literal.of(0));
+        Alias extracted = new Alias(add, "extracted");
+
+        Assertions.assertEquals(guarded,
+                guarded.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                        ImmutableMap.of(add, extracted)));
+    }
+
+    @Test
     void testLambdaExpression() {
         ArrayItemReference ref = new ArrayItemReference("x", new SlotReference(new ExprId(1), "y",
                 ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of()));
@@ -88,6 +120,44 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(1, collector.commonExprByDepth.size());
         Assertions.assertEquals(1, collector.commonExprByDepth.get(4).size());
         Assertions.assertEquals(arrayMap, collector.commonExprByDepth.get(4).iterator().next());
+    }
+
+    @Test
+    public void testCapturedLambdaInputIsNotExtracted() {
+        Slot arrays = new SlotReference("arrays", ArrayType.of(ArrayType.of(IntegerType.INSTANCE)));
+        ArrayItemReference outer = new ArrayItemReference("z", arrays);
+        ArrayItemReference inner = new ArrayItemReference("y", outer.toSlot());
+        ArrayMap nested = new ArrayMap(new Lambda(ImmutableList.of("y"), inner.toSlot(),
+                ImmutableList.of(inner)));
+        ArrayMap complete = new ArrayMap(new Lambda(ImmutableList.of("z"), nested,
+                ImmutableList.of(outer)));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        collector.collect(new Alias(complete, "a"));
+        collector.collect(new Alias(complete, "b"));
+        Set<Expression> extracted = new HashSet<>();
+        collector.commonExprByDepth.values().forEach(extracted::addAll);
+        Assertions.assertFalse(extracted.contains(nested));
+        Assertions.assertTrue(extracted.contains(complete));
+    }
+
+    @Test
+    public void testClosedNestedLambdaKeepsEvaluationBoundary() {
+        Slot arrays = new SlotReference("outer_arr", ArrayType.of(IntegerType.INSTANCE));
+        Slot a = new SlotReference("a", ArrayType.of(IntegerType.INSTANCE));
+        Slot b = new SlotReference("b", ArrayType.of(IntegerType.INSTANCE));
+        ArrayItemReference u = new ArrayItemReference("u", a);
+        ArrayItemReference v = new ArrayItemReference("v", b);
+        ArrayMap inner = new ArrayMap(new Lambda(ImmutableList.of("u", "v"),
+                new Add(u.toSlot(), v.toSlot()), ImmutableList.of(u, v)));
+        ArrayItemReference z = new ArrayItemReference("z", arrays);
+        ArrayMap outer = new ArrayMap(new Lambda(ImmutableList.of("z"), inner, ImmutableList.of(z)));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        collector.collect(new Alias(outer, "p"));
+        collector.collect(new Alias(outer, "q"));
+        Set<Expression> extracted = new HashSet<>();
+        collector.commonExprByDepth.values().forEach(extracted::addAll);
+        Assertions.assertFalse(extracted.contains(inner));
+        Assertions.assertTrue(extracted.contains(outer));
     }
 
     @Test

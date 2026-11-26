@@ -93,6 +93,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::IPV6:
         return TYPE_IPV6;
 
+    case TPrimitiveType::UUID:
+        return TYPE_UUID;
+
     case TPrimitiveType::DECIMALV2:
         return TYPE_DECIMALV2;
 
@@ -128,6 +131,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
+    case TPrimitiveType::FILE:
+        return TYPE_FILE;
 
     case TPrimitiveType::LAMBDA_FUNCTION:
         // TYPE_LAMBDA_FUNCTION is deprecated. Lambda execution is driven by
@@ -221,6 +226,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_IPV6:
         return TPrimitiveType::IPV6;
 
+    case TYPE_UUID:
+        return TPrimitiveType::UUID;
+
     case TYPE_DECIMALV2:
         return TPrimitiveType::DECIMALV2;
 
@@ -256,6 +264,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_STRUCT:
         return TPrimitiveType::STRUCT;
+    case TYPE_FILE:
+        return TPrimitiveType::FILE;
     case TYPE_AGG_STATE:
         return TPrimitiveType::AGG_STATE;
     case TYPE_VARBINARY:
@@ -335,6 +345,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_IPV6:
         return "IPV6";
 
+    case TYPE_UUID:
+        return "UUID";
+
     case TYPE_DECIMALV2:
         return "DECIMALV2";
 
@@ -373,6 +386,8 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_STRUCT:
         return "STRUCT";
+    case TYPE_FILE:
+        return "FILE";
 
     case TYPE_VARIANT:
         return "VARIANT";
@@ -382,6 +397,12 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
+
+    case TYPE_UINT32:
+        return "UINT32";
+
+    case TYPE_UINT64:
+        return "UINT64";
     default:
         return "";
     };

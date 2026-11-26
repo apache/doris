@@ -16,252 +16,61 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#!/bin/bash
-
-# PR的目标分支
-# 到
-# 可以跑的流水线
-# 的映射
-# 控制哪些分支可以跑哪些流水线
-declare -A targetBranch_to_pipelines
-targetBranch_to_pipelines=(
-    ['master']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.2']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-3.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-3.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-2.1']='feut beut compile p0 p1 external'
-    ['branch-2.0']='feut beut compile p0 p1 external'
+# Comment keywords match the suffix of the published TeamCity/<keyword> check.
+# External and Performance are optional and therefore absent from required checks.
+declare -A targetBranch_to_pipelines=(
+    [master]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent performance'
+    [branch-4.2]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
+    [branch-4.1]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
 )
-
-# github中评论的要触发的流水线名字
-# 到
-# teamcity流水线实际的名称
-# 的映射
-# 新加流水线需要修改这里
-declare -A comment_to_pipeline
-comment_to_pipeline=(
-    ['feut']='Doris_Doris_FeUt'
-    ['beut']='Doris_DorisBeUt_BeUt'
-    ['cloudut']='Doris_DorisCloudUt_CloudUt'
-    ['compile']='Doris_DorisCompile_Compile'
-    ['p0']='Doris_DorisRegression_P0Regression'
-    ['p1']='Doris_DorisRegression_P1Regression'
-    ['external']='Doris_External_Regression'
-    ['performance']='Doris_DorisPerformance_Performance'
-    ['cloud_p0']='Doris_DorisRegression_CloudP0'
-    ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
-    ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
-    ['nonConcurrent']='Doris_DorisRegression_NonConcurrentRegression'
-    ['check_coverage']='Doris_Coverage_Merge_P0_UT'
-)
-
-# github中评论的要触发的流水线名字
-# 到
-# teamcity流水线返回结果给github的名称
-# 的映射
-# 新加流水线需要修改这里
 declare -A conment_to_context
-conment_to_context=(
-    ['compile']='COMPILE (DORIS_COMPILE)'
-    ['feut']='FE UT (Doris FE UT)'
-    ['beut']='BE UT (Doris BE UT)'
-    ['cloudut']='Cloud UT (Doris Cloud UT)'
-    ['p0']='P0 Regression (Doris Regression)'
-    ['p1']='P1 Regression (Doris Regression)'
-    ['external']='External Regression (Doris External Regression)'
-    ['performance']='performance (Doris Performance)'
-    ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
-    ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
-    ['vault_p0']='vault_p0 (Doris Cloud Regression)'
-    ['nonConcurrent']='NonConcurrent Regression (nonConcurrent)'
-    ['check_coverage']='check_coverage (Coverage)'
+for lane in ${targetBranch_to_pipelines[master]}; do conment_to_context[$lane]="TeamCity/$lane"; done
+unset lane
+
+teamcity_current_pr() {
+    set +x
+    curl --fail --silent --show-error --max-time 45 \
+        -H "Authorization: Bearer ${GITHUB_TOKEN:?}" \
+        "https://api.github.com/repos/apache/doris/pulls/${PULL_REQUEST_NUM}" |
+        jq -e --arg head "$COMMIT_ID_FROM_TRIGGER" --arg branch "$PULL_REQUEST_TARGET_BRANCH" \
+            '.state=="open" and .head.sha==$head and .base.ref==$branch' >/dev/null
+}
+
+# Run only in the OIDC-enabled job after GitHub records the lane approvals.
+teamcity_fc_submit() (
+    set -euo pipefail
+    set +x
+    local lane=$1 pr=$2 head=$3 branch=$4 repeat=$5 token body receipt
+    local endpoint=${TEAMCITY_FC_TRIGGER_URL:?Set the repository variable TEAMCITY_FC_TRIGGER_URL}
+    local expected_endpoint='https://doris-c-trigger-mtjzjrppvu.cn-hongkong.fcapp.run/trigger'
+    if [ "$endpoint" != "$expected_endpoint" ]; then
+        echo "TEAMCITY_FC_TRIGGER_URL must be $expected_endpoint" >&2
+        return 1
+    fi
+    token=$(printf 'Authorization: Bearer %s\n' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?}" |
+        curl -q --proto '=https' --fail --silent --show-error --max-time 20 --header @- \
+            --get --data-urlencode 'audience=urn:apache:doris:ci:teamcity-trigger' "${ACTIONS_ID_TOKEN_REQUEST_URL:?}" |
+        jq -er '.value | select(type == "string" and length > 0)') || return 1
+    echo "::add-mask::$token"
+    body=$(jq -cn --arg lane "$lane" --argjson pr "$pr" --arg head "$head" --arg base "$branch" --argjson repeat "$repeat" \
+        '{pipeline:$lane, pr:$pr, head_sha:$head, base_branch:$base, repeat:$repeat}') || return 1
+    local response status
+    response=$(printf 'Authorization: Bearer %s\n' "$token" |
+        curl -q --proto '=https' --silent --show-error --max-time 300 --header @- \
+            -H 'Content-Type: application/json' --write-out '\n%{http_code}' --data-binary "$body" "$endpoint") || return 1
+    status=${response##*$'\n'}
+    receipt=${response%$'\n'*}
+    if [[ $status != 200 ]]; then
+        jq -c '{error, request_key, completed}' <<< "$receipt" >&2
+        return 1
+    fi
+    jq -e --argjson repeat "$repeat" '.build_ids | type == "array" and length == $repeat and
+        all(.[]; type == "number" and . > 0 and floor == .)' <<< "$receipt" >/dev/null || return 1
+    printf '%s queued build IDs: %s\n' "$lane" "$(jq -c '.build_ids' <<< "$receipt")"
 )
-
-get_commit_id_of_build() {
-    # 获取某个build的commit id
-    if [[ -z "$1" ]]; then return 1; fi
-    local build_id="$1"
-    local commit_id
-    local ret
-    set -x
-    if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds/${build_id}"
-    ); then
-        set +x
-        commit_id=$(echo "${ret}" | jq -r '.revisions.revision[0].version')
-        echo "${commit_id}"
-    else
-        set +x
-        return 1
-    fi
-}
-
-get_running_build_of_pr() {
-    # "获取pr在某条流水线上正在跑的build"
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local running_builds_list
-    local ret
-    set -x
-    if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds?locator=buildType:${PIPELINE},branch:pull/${PULL_REQUEST_NUM},running:true"
-    ); then
-        set +x
-        running_builds_list=$(echo "${ret}" | jq -r '.build[].id')
-        echo "${running_builds_list}"
-    else
-        set +x
-        return 1
-    fi
-}
-# get_running_build_of_pr "$1" "$2"
-
-get_queue_build_of_pr() {
-    # "获取pr在某条流水线上排队的build"
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local queue_builds_list
-    local ret
-    set -x
-    if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/buildQueue?locator=buildType:${PIPELINE}"
-    ); then
-        set +x
-        queue_builds_list=$(echo "${ret}" | jq ".build[] | select(.branchName == \"pull/${PULL_REQUEST_NUM}\") | .id")
-        echo "${queue_builds_list}"
-    else
-        set +x
-        echo "WARNING: failed to get queue build for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}" && return 1
-    fi
-}
-# get_queue_build_of_pr "$1" "$2"
-
-get_active_builds_of_revision() {
-    # Return active build IDs for the same PR, pipeline, and revision.
-    # Return 0 when a duplicate exists, 1 when none exists, and 2 when lookup fails.
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
-    if [[ -z "${PULL_REQUEST_NUM}" ||
-        -z "${COMMENT_TRIGGER_TYPE}" ||
-        -z "${COMMIT_ID_FROM_TRIGGER}" ]]; then
-        echo "Usage: get_active_builds_of_revision PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE COMMIT_ID_FROM_TRIGGER" >&2
-        return 2
-    fi
-
-    local queue_build_ids
-    local running_build_ids
-    if ! queue_build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
-        echo "WARNING: failed to get queued builds for duplicate check" >&2
-        return 2
-    fi
-    if ! running_build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
-        echo "WARNING: failed to get running builds for duplicate check" >&2
-        return 2
-    fi
-
-    local build_id
-    local build_revision
-    local duplicate_build_ids=()
-    for build_id in ${queue_build_ids} ${running_build_ids}; do
-        if ! build_revision=$(get_commit_id_of_build "${build_id}"); then
-            echo "WARNING: failed to get revision of active build ${build_id}" >&2
-            return 2
-        fi
-        if [[ "${build_revision}" == "${COMMIT_ID_FROM_TRIGGER}" ]]; then
-            duplicate_build_ids+=("${build_id}")
-        fi
-    done
-
-    if [[ ${#duplicate_build_ids[@]} -gt 0 ]]; then
-        printf '%s\n' "${duplicate_build_ids[@]}"
-        return 0
-    fi
-    return 1
-}
-# get_active_builds_of_revision "$1" "$2" "$3"
-
-cancel_running_build() {
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local build_ids
-    if ! build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
-    for id in ${build_ids}; do
-        set -x
-        if curl -s -X POST \
-            -u OneMoreChance:OneMoreChance \
-            -H "Content-Type:application/json" \
-            -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds/id:${id}" \
-            -d '{ "comment": "Canceling this running build before triggering a new one", "readdIntoQueue": false }'; then
-            set +x
-            echo -e "\nINFO: canceled running build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        else
-            set +x
-            echo "WARNING: failed to cancel running build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        fi
-    done
-}
-# cancel_running_build "$1" "$2"
-
-cancel_queue_build() {
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local build_ids
-    if ! build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
-    for id in ${build_ids}; do
-        set -x
-        if curl -s -X POST \
-            -u OneMoreChance:OneMoreChance \
-            -H "Content-Type:application/json" \
-            -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/buildQueue/id:${id}" \
-            -d '{ "comment": "Canceling this queued build before triggering a new one", "readdIntoQueue": false }'; then
-            set +x
-            echo -e "\nINFO: canceled queue build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        else
-            set +x
-            echo "WARNING: failed to cancel queue build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        fi
-    done
-}
-# cancel_queue_build "$1" "$2"
 
 skip_build() {
+    set +x
     # 对于不需要跑teamcity pipeline的PR，直接调用github的接口返回成功
     if [[ -z "${GITHUB_TOKEN}" ]]; then
         echo "ERROR: env GITHUB_TOKEN not set"
@@ -274,10 +83,14 @@ skip_build() {
     local COMMIT_ID_FROM_TRIGGER="$1"
     local COMMENT_TRIGGER_TYPE="$2"
 
+    if [[ -z ${conment_to_context[$COMMENT_TRIGGER_TYPE]:-} ]]; then
+        echo "ERROR: Unknown TeamCity check ${COMMENT_TRIGGER_TYPE}" >&2
+        return 1
+    fi
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
     local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
-    set -x
-    if curl -L \
+    set +x
+    if curl --fail --silent --show-error --max-time 45 \
         -X POST \
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
@@ -293,96 +106,43 @@ skip_build() {
 }
 # skip_build "$1" "$2"
 
-trigger_build() {
-    # 新触发一个build
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$2}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$3}"
-    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$4}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMIT_ID_FROM_TRIGGER}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: add_build PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
-        return 1
+# A skipped Compile also resolves the checks that its fanout would publish.
+teamcity_skip_unaffected() {
+    teamcity_current_pr || { echo 'PR revision or target changed; no skip status written' >&2; return 1; }
+    local lane lanes="$COMMENT_TRIGGER_TYPE"
+    if [[ $COMMENT_TRIGGER_TYPE == compile ]]; then
+        lanes='compile p0 cloud_p0 vault_p0 external nonconcurrent'
     fi
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    set -x
-    if curl -s -X POST \
-        -u OneMoreChance:OneMoreChance \
-        -H "Content-Type:text/plain" \
-        -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
-        set +x
-        echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
-    else
-        set +x
-        return 1
-    fi
+    for lane in $lanes; do
+        skip_build "$COMMIT_ID_FROM_TRIGGER" "$lane" || return 1
+    done
 }
-# trigger_build "$1" "$2" "$3" "$4"
 
 trigger_or_skip_build() {
-    # 根据相关文件是否修改，来触发or跳过跑流水线
-    local FILE_CHANGED="$1" # 默认为"true"
+    set +x
+    # Preserve the existing per-pipeline file filter.
+    local FILE_CHANGED="${1:-true}"
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
     local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
     local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
     local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$5}"
-    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$6}"
     if [[ -z "${PULL_REQUEST_NUM}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: add_build FILE_CHANGED PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
+        echo "Usage: trigger_or_skip_build FILE_CHANGED PR TARGET_BRANCH COMMIT LANE"
         return 1
     fi
 
-    # 有些分支不需要某些跑流水线，在targetBranch_to_pipelines中的分支，需要判断
-    if [[ "${!targetBranch_to_pipelines[*]}" =~ ${PULL_REQUEST_TARGET_BRANCH} ]]; then
-        if [[ "${targetBranch_to_pipelines[${PULL_REQUEST_TARGET_BRANCH}]}" =~ ${COMMENT_TRIGGER_TYPE} ]]; then
-            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} need to run ${COMMENT_TRIGGER_TYPE}"
-        else
-            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} not need to run ${COMMENT_TRIGGER_TYPE}"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
-            return 0
-        fi
-    fi
-
-    if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
-        local duplicate_build_ids
-        local duplicate_lookup_status=0
-        duplicate_build_ids=$(
-            get_active_builds_of_revision \
-                "${PULL_REQUEST_NUM}" \
-                "${COMMENT_TRIGGER_TYPE}" \
-                "${COMMIT_ID_FROM_TRIGGER}"
-        ) || duplicate_lookup_status=$?
-        if [[ ${duplicate_lookup_status} -eq 0 ]]; then
-            echo "INFO: active build(s) ${duplicate_build_ids//$'\n'/,} already exist for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}, revision ${COMMIT_ID_FROM_TRIGGER}; skip duplicate trigger"
-            return 0
-        elif [[ ${duplicate_lookup_status} -ne 1 ]]; then
-            echo "WARNING: duplicate lookup failed for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}; continue with the existing trigger flow"
-        fi
-
-        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
-    else
-        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
-        if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage 都 skip 了
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
-        elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
-            # skip beut 的时候，也把 check_coverage skip 了
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
-        fi
-    fi
+    [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $COMMENT_TRIGGER_TYPE "* ]] || {
+        echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
+    }
+    case "$FILE_CHANGED" in
+        true)
+            printf '%s\n' "$COMMENT_TRIGGER_TYPE" >> "${TEAMCITY_FC_PLAN:?Missing FC lane plan}"
+            ;;
+        false) teamcity_skip_unaffected ;;
+        *) echo "Invalid FILE_CHANGED: $FILE_CHANGED" >&2; return 1 ;;
+    esac
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"
 

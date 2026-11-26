@@ -82,6 +82,33 @@ public class ConfigBase {
         }
     }
 
+    public static class RegexConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            Pattern.compile(confVal.trim());
+            setConfigField(field, confVal);
+        }
+    }
+
+    // The value must be one of the annotation's options; stored as the option's own spelling.
+    public static class OptionsConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            setConfigField(field, checkedOption(field, confVal));
+        }
+
+        // Pure validation shared by startup loading and dynamic updates.
+        private static String checkedOption(Field field, String confVal) throws ConfigException {
+            for (String option : field.getAnnotation(ConfField.class).options()) {
+                if (option.equalsIgnoreCase(confVal.trim())) {
+                    return option;
+                }
+            }
+            throw new ConfigException("Config '" + field.getName() + "' must be one of "
+                    + String.join(", ", field.getAnnotation(ConfField.class).options()));
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {
@@ -298,11 +325,23 @@ public class ConfigBase {
             // ensure that field has property string
             String confKey = f.getName();
             String confVal = props.getProperty(confKey, props.getProperty(anno.varType().getPrefix() + confKey));
-            if (Strings.isNullOrEmpty(confVal)) {
+            if (confVal == null) {
                 continue;
             }
 
             try {
+                // Regex validation must run at startup too; a bad masking rule cannot reach query rendering.
+                if (anno.callback() == RegexConfHandler.class) {
+                    new RegexConfHandler().handle(f, confVal);
+                    continue;
+                }
+                // Other runtime callbacks can have side effects; only pure validators run at startup.
+                if (anno.callback() == OptionsConfHandler.class) {
+                    confVal = OptionsConfHandler.checkedOption(f, confVal);
+                }
+                if (confVal.isEmpty()) {
+                    continue;
+                }
                 setConfigField(f, confVal);
             } catch (Exception e) {
                 String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);

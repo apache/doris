@@ -130,7 +130,7 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
     EXPECT_EQ(executing_task_num, 2);
 }
 
-TEST_F(CompactionTaskTest, BinlogCompactionProducerIgnoresCcrSwitch) {
+TEST_F(CompactionTaskTest, ChangelogCompactionProducerIgnoresCcrSwitch) {
     const bool old_enable_feature_binlog = config::enable_feature_binlog;
     const bool old_disable_auto_compaction = config::disable_auto_compaction;
     const bool old_enable_compaction_pause_on_high_memory =
@@ -162,11 +162,11 @@ TEST_F(CompactionTaskTest, BinlogCompactionProducerIgnoresCcrSwitch) {
     config::disable_auto_compaction = false;
     config::enable_compaction_pause_on_high_memory = false;
     _storage_engine->_stop_background_threads_latch.count_down();
-    _storage_engine->_binlog_compaction_tasks_producer_callback();
+    _storage_engine->_changelog_compaction_tasks_producer_callback();
     EXPECT_EQ(generation_count, 1);
 
     config::disable_auto_compaction = true;
-    _storage_engine->_binlog_compaction_tasks_producer_callback();
+    _storage_engine->_changelog_compaction_tasks_producer_callback();
     EXPECT_EQ(generation_count, 1);
 }
 

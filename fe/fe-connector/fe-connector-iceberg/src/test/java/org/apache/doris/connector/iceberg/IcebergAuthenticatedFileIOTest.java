@@ -20,9 +20,13 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.io.DelegateFileIO;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SupportsBulkOperations;
+import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +70,35 @@ public class IcebergAuthenticatedFileIOTest {
     }
 
     @Test
+    public void withPrefixOperationsListsAndDeletesByPrefixInsideDoAs() {
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        PrefixRecordingFileIO delegate = new PrefixRecordingFileIO(auth);
+
+        IcebergAuthenticatedFileIO io = IcebergAuthenticatedFileIO.withPrefixOperations(delegate, auth);
+
+        // remove_orphan_files rejects a FileIO without prefix listing.
+        Assertions.assertTrue(io instanceof SupportsPrefixOperations);
+        // HadoopFileIO's bulk delete runs on its own pool, outside any doAs, so callers must delete one by one.
+        Assertions.assertFalse(io instanceof SupportsBulkOperations, "bulk deletes must stay hidden");
+        ((SupportsPrefixOperations) io).listPrefix("hdfs://nn/t/");
+        ((SupportsPrefixOperations) io).deletePrefix("hdfs://nn/t/tmp/");
+        io.newInputFile("hdfs://nn/t/in");
+        Assertions.assertEquals(3, auth.doAsCount);
+        Assertions.assertEquals(Arrays.asList("listPrefix", "deletePrefix", "newInputFile"), delegate.reachedInDoAs);
+    }
+
+    @Test
+    public void withPrefixOperationsAddsNoPrefixListingToAPlainDelegate() {
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+
+        IcebergAuthenticatedFileIO io =
+                IcebergAuthenticatedFileIO.withPrefixOperations(new RecordingFileIO(auth), auth);
+
+        Assertions.assertFalse(io instanceof SupportsPrefixOperations,
+                "the wrapper must not claim prefix listing its delegate cannot do");
+    }
+
+    @Test
     public void nonAuthMethodsForwardWithoutDoAs() {
         RecordingAuthenticator auth = new RecordingAuthenticator();
         RecordingFileIO delegate = new RecordingFileIO(auth);
@@ -105,7 +138,7 @@ public class IcebergAuthenticatedFileIOTest {
     }
 
     /** FileIO double: records the name of each factory call together with whether it ran inside a doAs. */
-    private static final class RecordingFileIO implements FileIO {
+    private static class RecordingFileIO implements FileIO {
         private final RecordingAuthenticator auth;
         final List<String> reachedInDoAs = new ArrayList<>();
         boolean closed;
@@ -114,7 +147,7 @@ public class IcebergAuthenticatedFileIOTest {
             this.auth = auth;
         }
 
-        private void record(String op) {
+        void record(String op) {
             // Only record when observed inside the authenticator's doAs — the property under test.
             if (auth.inDoAs) {
                 reachedInDoAs.add(op);
@@ -148,6 +181,29 @@ public class IcebergAuthenticatedFileIOTest {
         @Override
         public void close() {
             closed = true;
+        }
+    }
+
+    /** Prefix-capable double shaped like {@code HadoopFileIO}, which also offers bulk deletes. */
+    private static final class PrefixRecordingFileIO extends RecordingFileIO implements DelegateFileIO {
+        PrefixRecordingFileIO(RecordingAuthenticator auth) {
+            super(auth);
+        }
+
+        @Override
+        public Iterable<FileInfo> listPrefix(String prefix) {
+            record("listPrefix");
+            return Collections.emptyList();
+        }
+
+        @Override
+        public void deletePrefix(String prefix) {
+            record("deletePrefix");
+        }
+
+        @Override
+        public void deleteFiles(Iterable<String> pathsToDelete) {
+            record("deleteFiles");
         }
     }
 }

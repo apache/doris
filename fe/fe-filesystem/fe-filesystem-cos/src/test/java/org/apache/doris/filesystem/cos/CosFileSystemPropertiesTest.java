@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -73,19 +75,21 @@ class CosFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("cos-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=cos-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("cos-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("cos-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://cos.ap-guangzhou.myqcloud.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new CosFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("cos.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("COS_SECRET_KEY"), keys.toString());
         Assertions.assertTrue(keys.contains("COS_SESSION_TOKEN"), keys.toString());
-        Assertions.assertFalse(keys.contains("COS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("cos.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("COS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("cos.access_key"), keys.toString());
     }
 
     @Test
@@ -156,6 +160,32 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
         Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
         Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com",
+                "cos.access_key", "ak",
+                "cos.secret_key", "sk"));
+        CosFileSystemProperties otherCredentials = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com",
+                "cos.access_key", "other-ak",
+                "cos.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("cos", "cosn", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
     }
 
     @Test

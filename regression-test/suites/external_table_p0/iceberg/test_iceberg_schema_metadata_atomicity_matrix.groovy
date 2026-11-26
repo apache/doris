@@ -58,6 +58,8 @@ suite("test_iceberg_schema_metadata_atomicity_matrix",
     sql """switch ${catalogName}"""
     sql """create database if not exists ${dbName}"""
     sql """use ${dbName}"""
+    // DESC hides comments by default, so enable them before validating Iceberg field docs.
+    sql """set show_column_comment_in_describe=true"""
 
     try {
         sql """drop table if exists ${tableName}"""
@@ -89,9 +91,8 @@ suite("test_iceberg_schema_metadata_atomicity_matrix",
             it == null ? "" : it.toString()
         }.join(" ")
         assertTrue(sparkDescriptionText.contains("top-level-comment"))
-        // Negative contract: Doris DESC currently omits Iceberg field comments.
-        assertFalse(descAfterComment.contains("top-level-comment"))
-        assertFalse(descAfterComment.contains("nested-comment"))
+        assertTrue(descAfterComment.contains("top-level-comment"))
+        assertTrue(descAfterComment.contains("nested-comment"))
         assertEquals(initialSnapshots, snapshotCount())
 
         // Scenario S19-nullability: relaxing required to optional preserves data and historical refs.

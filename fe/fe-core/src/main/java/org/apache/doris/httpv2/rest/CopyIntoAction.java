@@ -35,6 +35,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
+import org.apache.doris.httpv2.util.HttpHeaderUtils;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -120,7 +121,7 @@ public class CopyIntoAction extends RestBaseController {
             }
             while (headerNames.hasMoreElements()) {
                 String key = headerNames.nextElement();
-                String value = request.getHeader(key);
+                String value = HttpHeaderUtils.getRedactedHeaderValueForLogging(request, key);
                 map.put(key, value);
             }
             return map;

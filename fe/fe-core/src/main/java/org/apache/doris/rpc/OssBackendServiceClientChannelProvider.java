@@ -19,7 +19,10 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
+import com.google.common.net.HostAndPort;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 
@@ -28,7 +31,37 @@ import java.util.concurrent.TimeUnit;
 
 public class OssBackendServiceClientChannelProvider implements BackendServiceClientChannelProvider {
     @Override
+    public boolean supportsPrivateFileKeys() {
+        // A subclass can replace channel creation; it must explicitly prove its own transport policy.
+        return getClass() == OssBackendServiceClientChannelProvider.class
+                && PrivateRpcTls.supportsPrivateFileKeys(Protocol.BRPC);
+    }
+
+    @Override
     public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor) {
+        return createChannelForPurpose(address, resolvedIp, executor, true);
+    }
+
+    @Override
+    public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
+        // Legacy subclasses own their policy through the original provider entry point.
+        if (getClass() != OssBackendServiceClientChannelProvider.class) {
+            return createChannel(address, resolvedIp, executor);
+        }
+        return createChannelForPurpose(address, resolvedIp, executor, internalRpc);
+    }
+
+    @Override
+    public boolean supportsRemoteWorkers() {
+        // Remote BEs keep their own exchange and coordinator-report policy. Configuring the FE's outbound
+        // channel cannot give them this cluster's TLS identity or change their plaintext callback transport.
+        return getClass() != OssBackendServiceClientChannelProvider.class
+                || !(PrivateRpcTls.enabled(Protocol.BRPC) || PrivateRpcTls.enabled(Protocol.THRIFT));
+    }
+
+    private ManagedChannel createChannelForPurpose(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
         String targetHost = (resolvedIp != null && !resolvedIp.isEmpty()) ? resolvedIp : address.getHostname();
         NettyChannelBuilder channelBuilder = NettyChannelBuilder.forAddress(targetHost, address.getPort())
                 .keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
@@ -36,18 +69,20 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
                 .enableRetry()
-                .maxRetryAttempts(10)
-                .usePlaintext();
+                .maxRetryAttempts(10);
+        // Remote Doris workers expose their own endpoint contract, independently of local private TLS.
+        if (internalRpc && PrivateRpcTls.enabled(Protocol.BRPC)) {
+            // DNS resolution may change the connect address, but must not change the certified peer identity.
+            channelBuilder.sslContext(PrivateRpcTls.grpcClientContext()).overrideAuthority(
+                    HostAndPort.fromParts(address.getHostname(), address.getPort()).toString());
+        } else {
+            channelBuilder.usePlaintext();
+        }
         if (Config.grpc_backend_client_use_direct_executor) {
             channelBuilder.directExecutor();
         } else {
             channelBuilder.executor(executor);
         }
         return channelBuilder.build();
-    }
-
-    @Override
-    public long currentConfigVersion() {
-        return 0L;
     }
 }

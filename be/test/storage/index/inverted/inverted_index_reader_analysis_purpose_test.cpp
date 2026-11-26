@@ -29,14 +29,17 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/analyzer/analyzer_provider.h"
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/snii_index_reader.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/snii/searcher_cache_value.h"
+#include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
 #include "util/time.h"
@@ -48,7 +51,7 @@ using inverted_index::AnalyzerProvider;
 
 class RecordingFailingAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced analyzer provider failure");
@@ -57,70 +60,49 @@ public:
     mutable uint32_t calls = 0;
 };
 
-class PartialFailureTokenStream final : public lucene::analysis::TokenStream {
+class PartialFailureTokenStream final : public inverted_index::TextTokenizer {
 public:
     explicit PartialFailureTokenStream(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
             : _emitted_tokens(std::move(emitted_tokens)) {}
 
-    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
+    void reset(std::string_view /*text*/) override { _emitted = false; }
+
+    // One batch with one token, then a failure.
+    bool next_batch(inverted_index::TokenBatch& batch) override {
+        batch.clear();
         if (!_emitted) {
             _emitted = true;
-            _term = "partial";
-            token->clear();
-            token->setTextNoCopy(_term.data(), static_cast<int32_t>(_term.size()));
-            token->positionIncrement = 1;
+            batch.push("partial", 1);
             _emitted_tokens->fetch_add(1, std::memory_order_relaxed);
-            return token;
+            return true;
         }
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced failure after first token");
     }
 
-    void close() override {}
-    void reset() override { _emitted = false; }
+    size_t reserved_bytes() const override { return 0; }
 
 private:
     std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
     bool _emitted = false;
-    std::string _term;
 };
 
-class PartialFailureAnalyzer final : public lucene::analysis::Analyzer {
+class PartialFailureAnalyzer final : public inverted_index::TextAnalyzer {
 public:
     explicit PartialFailureAnalyzer(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
             : _emitted_tokens(std::move(emitted_tokens)) {}
 
-    bool isSDocOpt() override { return true; }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
-        return new PartialFailureTokenStream(_emitted_tokens);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       lucene::util::Reader*) override {
-        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
-        return _reusable.get();
-    }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
-                                               const inverted_index::ReaderPtr&) override {
-        return new PartialFailureTokenStream(_emitted_tokens);
-    }
-
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       const inverted_index::ReaderPtr&) override {
-        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
-        return _reusable.get();
+    std::unique_ptr<inverted_index::TextTokenStream> create_stream() const override {
+        return std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
     }
 
 private:
     std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
-    std::unique_ptr<PartialFailureTokenStream> _reusable;
 };
 
 class RecordingPartialFailureAnalyzerProvider final : public AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         return std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
     }
@@ -196,7 +178,7 @@ protected:
         const InvertedIndexSearcherCache::CacheKey snii_key(
                 _snii_file_reader->get_index_file_cache_key(&_meta));
         _searcher_cache->insert(
-                snii_key, new InvertedIndexSearcherCache::CacheValue(
+                snii_key, new SniiLogicalReaderCacheValue(
                                   std::make_unique<doris::snii::reader::LogicalIndexReader>(), 1,
                                   UnixMillis(), _snii_file_reader));
     }
@@ -277,13 +259,11 @@ protected:
         const InvertedIndexRawQuerySemantic semantic {
                 .raw_query_bytes = raw_query,
                 .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                .slop = 0,
-                .ordered = false,
                 .max_expansions =
                         execution.runtime_state.query_options().inverted_index_max_expansions};
         const InvertedIndexQueryCache::CacheKey key {
                 file_reader->get_index_file_cache_key(&_meta), "content",
-                InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()};
+                InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic};
         auto cached = std::make_shared<roaring::Roaring>();
         cached->add(7);
         InvertedIndexQueryCacheHandle insert_handle;
@@ -318,50 +298,80 @@ protected:
 };
 
 TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutDelimiters) {
+    const auto encode = [](const InvertedIndexRawQuerySemantic& value) {
+        return InvertedIndexQueryCache::CacheKey {"", "",
+                                                  InvertedIndexQueryType::MATCH_PHRASE_QUERY, value}
+                .encode();
+    };
     const std::string raw_query("a/b\0c", 5);
     InvertedIndexRawQuerySemantic base {.raw_query_bytes = raw_query,
                                         .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                        .slop = 2,
-                                        .ordered = true,
                                         .max_expansions = 50,
                                         .cache_semantics_version = 3};
-    const std::string encoded = base.encode();
-    constexpr size_t kFixedEncodedBytes = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) +
-                                          sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+    const std::string encoded = encode(base);
+    constexpr size_t kFixedEncodedBytes = 4 * sizeof(uint32_t) + 4 * sizeof(uint64_t);
     EXPECT_EQ(encoded.size(), kFixedEncodedBytes + raw_query.size());
 
     auto changed = base;
     changed.raw_query_bytes = std::string_view(raw_query).substr(0, 3);
-    EXPECT_NE(changed.encode(), encoded);
+    EXPECT_NE(encode(changed), encoded);
     changed = base;
     changed.query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-    EXPECT_NE(changed.encode(), encoded);
-    changed = base;
-    changed.slop = 3;
-    EXPECT_NE(changed.encode(), encoded);
-    changed = base;
-    changed.ordered = false;
-    EXPECT_NE(changed.encode(), encoded);
+    EXPECT_NE(encode(changed), encoded);
     changed = base;
     changed.max_expansions = 51;
-    EXPECT_NE(changed.encode(), encoded);
+    EXPECT_NE(encode(changed), encoded);
     changed = base;
     changed.cache_semantics_version = 4;
-    EXPECT_NE(changed.encode(), encoded);
-    changed = base;
+    EXPECT_NE(encode(changed), encoded);
+}
+
+TEST(InvertedIndexRawQuerySemanticTest, PreservesEncodedBytesAfterInputsExpire) {
+    constexpr char kSemantic[] =
+            "\x03\0\0\0"
+            "\x05\0\0\0\0\0\0\0"
+            "a/b\0c"
+            "\x07\0\0\0"
+            "\x32\0\0\0";
+    constexpr char kEnvelope[] =
+            "\x05\0\0\0\0\0\0\0"
+            "index"
+            "\x03\0\0\0\0\0\0\0"
+            "b\0c"
+            "\x07\0\0\0"
+            "\x19\0\0\0\0\0\0\0";
+    const std::string expected = std::string(kEnvelope, sizeof(kEnvelope) - 1) +
+                                 std::string(kSemantic, sizeof(kSemantic) - 1);
+    InvertedIndexQueryCache::CacheKey raw_key;
+    InvertedIndexQueryCache::CacheKey value_key;
+    {
+        const std::string path = "index";
+        const std::string column("b\0c", 3);
+        const std::string query("a/b\0c", 5);
+        const InvertedIndexRawQuerySemantic semantic {
+                .raw_query_bytes = query,
+                .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                .max_expansions = 50,
+                .cache_semantics_version = 3};
+        raw_key = {path, column, InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic};
+        value_key = {path, column, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                     std::string(kSemantic, sizeof(kSemantic) - 1)};
+    }
+    EXPECT_EQ(raw_key.encode(), expected);
+    EXPECT_EQ(value_key.encode(), expected);
 }
 
 TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundaries) {
     const InvertedIndexQueryCache::CacheKey slash_left {
-            io::Path("a/b"), "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+            "a/b", "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
     const InvertedIndexQueryCache::CacheKey slash_right {
-            io::Path("a"), "b/c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+            "a", "b/c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
     EXPECT_NE(slash_left.encode(), slash_right.encode());
 
     const InvertedIndexQueryCache::CacheKey nul_left {
-            io::Path("a"), std::string("b\0c", 3), InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+            "a", std::string("b\0c", 3), InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
     const InvertedIndexQueryCache::CacheKey nul_right {
-            io::Path(std::string("a\0b", 3)), "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+            std::string("a\0b", 3), "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
@@ -380,7 +390,7 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupC
     disabled_options.enable_inverted_index_searcher_cache = true;
     execution.runtime_state.set_query_options(disabled_options);
 
-    const InvertedIndexQueryCache::CacheKey key {io::Path("disabled-cache"), "content",
+    const InvertedIndexQueryCache::CacheKey key {"disabled-cache", "content",
                                                  InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                                                  "raw-semantic"};
     auto bitmap = std::make_shared<roaring::Roaring>();
@@ -427,6 +437,31 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPubl
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
             snii_provider, /*expected_query_cache_lookups=*/1);
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, ClassicReaderConvertsAnalyzerFailureToStatus) {
+    auto file_reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), "./ut_dir/missing_classic_analysis_failure",
+            InvertedIndexStorageFormatPB::V2);
+    auto reader = FullTextIndexReader::create_shared(&_meta, file_reader);
+    auto emitted_tokens = std::make_shared<std::atomic<uint32_t>>(0);
+
+    QueryExecutionContext execution(/*scoring=*/false);
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer = std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
+    const Field query_value = Field::create_field<TYPE_STRING>("the history");
+    auto original_bitmap = std::make_shared<roaring::Roaring>();
+    original_bitmap->add(999);
+    std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
+
+    Status status;
+    EXPECT_NO_THROW(status = reader->query(execution.context, "content", query_value,
+                                           InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap,
+                                           &analyzer_ctx));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+    EXPECT_EQ(emitted_tokens->load(std::memory_order_relaxed), 1U);
+    EXPECT_EQ(bitmap, original_bitmap);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {

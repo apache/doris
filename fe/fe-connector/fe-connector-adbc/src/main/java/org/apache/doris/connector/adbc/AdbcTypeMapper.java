@@ -64,6 +64,20 @@ public final class AdbcTypeMapper {
     }
 
     private static ConnectorType toDorisType(String columnName, Field field, ArrowType arrowType) {
+        if (field.getMetadata() != null
+                && "arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+            // Flight carries Variant as binary storage; treating it as an ordinary struct loses
+            // its logical type and exposes encoded metadata/value bytes as strings.
+            List<Field> children = field.getChildren();
+            if (arrowType.getTypeID() != ArrowType.ArrowTypeID.Struct || children.size() != 2
+                    || !"metadata".equals(children.get(0).getName())
+                    || !"value".equals(children.get(1).getName())
+                    || !ArrowType.Binary.INSTANCE.equals(children.get(0).getType())
+                    || !ArrowType.Binary.INSTANCE.equals(children.get(1).getType())) {
+                throw unsupported(columnName, arrowType);
+            }
+            return ConnectorType.of("VARIANT_COMPUTE_V2");
+        }
         switch (arrowType.getTypeID()) {
             case Bool:
                 return ConnectorType.of("BOOLEAN");

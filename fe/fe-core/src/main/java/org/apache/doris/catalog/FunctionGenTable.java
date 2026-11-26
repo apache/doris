@@ -38,7 +38,7 @@ public class FunctionGenTable extends Table {
     public List<Column> getBaseSchema() {
         // TVF columns come from the function itself rather than a regular table schema.
         // If we keep filtering by visibility here, callers may fail to bind hidden columns
-        // returned by the TVF (for example direct reads of binlog hidden columns).
+        // returned by the TVF (for example direct reads of changelog hidden columns).
         return getFullSchema();
     }
 

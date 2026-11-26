@@ -24,8 +24,10 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
+import java.util.Set;
 
 public abstract class FileFormatProperties {
     public static final String PROP_FORMAT = "format";
@@ -40,15 +42,21 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
+    /**
+     * The formats {@link #createFileFormatProperties} knows, which no connector plugin may claim for the file table
+     * functions: a plugin answering to one would change what existing statements read.
+     */
+    public static final Set<String> ENGINE_FORMATS = ImmutableSet.of(FORMAT_CSV, FORMAT_HIVE_TEXT,
+            FORMAT_CSV_WITH_NAMES, FORMAT_CSV_WITH_NAMES_AND_TYPES, FORMAT_PARQUET, FORMAT_ORC, FORMAT_JSON,
+            FORMAT_AVRO, FORMAT_WAL, FORMAT_ARROW);
 
     protected String formatName;
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // Default: false, mapping BINARY types to STRING for compatibility
-    // When enabled, BINARY types map to VARBINARY
-    public boolean enableMappingVarbinary = false;
-    public boolean enableMappingTimestampTz = false;
+    // External binary payloads are bytes, including when no mapping option is supplied.
+    public boolean enableMappingVarbinary = true;
+    public boolean enableMappingTimestampTz = true;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;
@@ -97,7 +105,7 @@ public abstract class FileFormatProperties {
             case FORMAT_JSON:
                 return new JsonFileFormatProperties();
             case FORMAT_AVRO:
-                return new AvroFileFormatProperties();
+                throw new AnalysisException("Avro file reads are no longer supported");
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
             case FORMAT_ARROW:

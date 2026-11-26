@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -36,13 +37,20 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
@@ -68,6 +76,41 @@ import java.util.Objects;
  * Add a new section below when moving another shared-fixture rewrite test here.
  */
 public class RewriteRuleSuiteTest extends SqlTestBase {
+
+    @Test
+    void testNonMovableFunctionBlocksSchemaScanPushdown() {
+        LogicalSchemaScan streamScan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("table_stream_consumption"), ImmutableList.of("information_schema"));
+        Slot dbName = streamScan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        LogicalFilter<LogicalSchemaScan> streamFilter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(dbName, new VarcharLiteral("__missing__")),
+                new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))), streamScan);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(connectContext, streamFilter)
+                .applyTopDown(new PushDownFilterIntoSchemaScan())
+                .getPlan();
+        LogicalSchemaScan rewrittenScan = (LogicalSchemaScan) rewritten.child(0);
+        Assertions.assertTrue(rewrittenScan.getFrontendConjuncts().isEmpty());
+
+        LogicalSchemaScan tablesScan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("tables"), ImmutableList.of("information_schema"));
+        Slot tableSchema = tablesScan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("TABLE_SCHEMA"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        LogicalFilter<LogicalSchemaScan> tablesFilter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(tableSchema, new VarcharLiteral("__missing__")),
+                new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))), tablesScan);
+
+        rewritten = (LogicalPlan) PlanChecker.from(connectContext, tablesFilter)
+                .applyTopDown(new PushDownFilterIntoSchemaScan())
+                .getPlan();
+        rewrittenScan = (LogicalSchemaScan) rewritten.child(0);
+        Assertions.assertFalse(rewrittenScan.getSchemaDatabase().isPresent());
+    }
 
     // -------------------------------------------------------------------------
     // from PruneOlapScanTabletTest

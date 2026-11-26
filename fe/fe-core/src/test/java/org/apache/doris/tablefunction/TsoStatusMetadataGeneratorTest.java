@@ -37,15 +37,15 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TsoStatusMetadataGeneratorTest {
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private Env env;
     private TSOService tsoService;
     private MockedStatic<Env> mockedEnv;
 
     @BeforeEach
     public void setUp() {
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
-        Config.enable_feature_binlog = true;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
 
         env = Mockito.mock(Env.class);
         tsoService = Mockito.mock(TSOService.class);
@@ -57,7 +57,7 @@ public class TsoStatusMetadataGeneratorTest {
     @AfterEach
     public void tearDown() {
         mockedEnv.close();
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
     }
 
     @Test
@@ -103,12 +103,12 @@ public class TsoStatusMetadataGeneratorTest {
 
     @Test
     public void testDisabled() throws Exception {
-        Config.enable_feature_binlog = false;
+        Config.enable_feature_changelog = false;
 
         TFetchSchemaTableDataResult result = MetadataGenerator.getSchemaTableData(newRequest());
 
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
-        Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("enable_feature_binlog"));
+        Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("enable_feature_changelog"));
         Mockito.verifyNoInteractions(tsoService);
     }
 

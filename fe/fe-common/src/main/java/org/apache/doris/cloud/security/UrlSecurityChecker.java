@@ -29,6 +29,7 @@ public class UrlSecurityChecker extends SecurityChecker {
     private static final Logger LOG = LogManager.getLogger(UrlSecurityChecker.class);
     private static Method jdbcUrlCheckMethod = null;
     private static Method urlSecurityCheckMethod = null;
+    private static Method tcpSecurityCheckMethod = null;
     private static Method urlSecurityStopCheckMethod = null;
 
     static {
@@ -36,7 +37,11 @@ public class UrlSecurityChecker extends SecurityChecker {
             Class clazz = Class.forName(Config.security_checker_class_name);
             jdbcUrlCheckMethod = clazz.getMethod("filterJdbcConnectionSource", String.class);
             urlSecurityCheckMethod = clazz.getMethod("startSSRFNetHookChecking", String.class);
-            urlSecurityStopCheckMethod = clazz.getMethod("stopSSRFNetHookChecking", String.class);
+            // No-arg overload: hooks a raw TCP connection (thrift / jdbc / ...), not only http.
+            tcpSecurityCheckMethod = clazz.getMethod("startSSRFNetHookChecking");
+            // The SDK's stop is no-arg. Binding it with String.class (then invoking with no argument)
+            // meant stop never fired and the net-hook leaked onto the pooled thread.
+            urlSecurityStopCheckMethod = clazz.getMethod("stopSSRFNetHookChecking");
         } catch (Exception e) {
             LOG.warn("security_checker_class_name:{} exception:", Config.security_checker_class_name, e);
             LogUtils.stderr("Failed to find com.aliyun.securitysdk.SecurityUtil's method");
@@ -61,6 +66,20 @@ public class UrlSecurityChecker extends SecurityChecker {
             return;
         }
         throw new Exception("SecurityUtil.startSSRFNetHookChecking not found");
+    }
+
+    @Override
+    public void startSSRFChecking() throws Exception {
+        if (tcpSecurityCheckMethod != null) {
+            tcpSecurityCheckMethod.invoke(null);
+            return;
+        }
+        throw new Exception("SecurityUtil.startSSRFNetHookChecking (no-arg) not found");
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
     }
 
     @Override

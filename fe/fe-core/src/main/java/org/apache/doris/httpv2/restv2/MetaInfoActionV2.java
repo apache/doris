@@ -295,7 +295,9 @@ public class MetaInfoActionV2 extends RestBaseController {
         } else {
             TableSchema tableSchema = new TableSchema();
             tableSchema.setBaseIndex(false);
-            List<Schema> schema = generateSchame(tbl.getBaseSchema());
+            // The meta REST API reports table metadata, so it shows the nullability the source declares
+            // (same view as DESC / SHOW COLUMNS), not the read nullability execution uses.
+            List<Schema> schema = generateSchame(tbl.getBaseSchemaForDisplay());
             tableSchema.setSchema(schema);
             schemaMap.put(tbl.getName(), tableSchema);
             schemaInfo.setSchemaMap(schemaMap);
@@ -332,7 +334,8 @@ public class MetaInfoActionV2 extends RestBaseController {
         if (tbl.getType() == Table.TableType.OLAP) {
             propMap.put("keyType", ((OlapTable) tbl).getKeysType());
         }
-        propMap.put("schema", generateSchema(tbl.getBaseSchema()));
+        // Metadata endpoint: the display view, like the schema map above.
+        propMap.put("schema", generateSchema(tbl.getBaseSchemaForDisplay()));
     }
 
     List<Map<String, String>> generateSchema(List<Column> columns) throws UserException {

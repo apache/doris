@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_ipv4.h"
@@ -61,6 +62,8 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uint.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -129,11 +132,17 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_INT:
         result = std::make_shared<DataTypeInt32>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
+        result = std::make_shared<DataTypeUInt32>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         result = std::make_shared<DataTypeFloat32>();
         break;
     case FieldType::OLAP_FIELD_TYPE_BIGINT:
         result = std::make_shared<DataTypeInt64>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        result = std::make_shared<DataTypeUInt64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         result = std::make_shared<DataTypeInt128>();
@@ -144,6 +153,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         result = std::make_shared<DataTypeIPv6>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        result = std::make_shared<DataTypeUUID>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<DataTypeDate>();
         break;
@@ -152,6 +164,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = create_datetimev2(scale);
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+        result = std::make_shared<DataTypeTimeV2>(scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
         result = std::make_shared<DataTypeTimeStampNs>();
@@ -199,8 +214,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = create_decimal(precision, scale, false);
         break;
     default:
-        result = nullptr;
-        break;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unsupported FieldType: {}",
+                               static_cast<int>(type));
     }
     return result;
 }
@@ -238,12 +253,16 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::IPV6:
         nested = std::make_shared<DataTypeIPv6>();
         break;
+    case PGenericType::UUID:
+        nested = std::make_shared<DataTypeUUID>();
+        break;
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
         nested = std::make_shared<DataTypeVariantV2>(pcolumn.variant_max_subcolumns_count(),
-                                                     pcolumn.variant_enable_doc_mode());
+                                                     pcolumn.variant_enable_doc_mode(),
+                                                     pcolumn.variant_is_v2());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
@@ -294,7 +313,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeHLL>();
         break;
     case PGenericType::VARBINARY:
-        nested = std::make_shared<DataTypeVarbinary>();
+        nested = std::make_shared<DataTypeVarbinary>(pcolumn.varbinary_length());
         break;
     case PGenericType::LIST:
         DCHECK(pcolumn.children_size() == 1);
@@ -309,6 +328,16 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeMap>(create_data_type(pcolumn.children(0)),
                                                create_data_type(pcolumn.children(1)));
         break;
+    case PGenericType::FILE: {
+        DataTypes children;
+        Strings names;
+        for (const auto& child : pcolumn.children()) {
+            children.push_back(create_data_type(child));
+            names.push_back(child.name());
+        }
+        nested = std::make_shared<DataTypeFile>(children, names);
+        break;
+    }
     case PGenericType::STRUCT: {
         int col_size = pcolumn.children_size();
         DCHECK(col_size >= 1);
@@ -358,12 +387,13 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     DataTypePtr nested = nullptr;
     if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_AGG_STATE)) {
         DataTypes data_types;
-        for (auto child : pcolumn.children_columns()) {
-            auto type = DataTypeFactory::instance().create_data_type(child);
-            // may have length column with OLAP_FIELD_TYPE_UNSIGNED_BIGINT, then type will be nullptr
-            if (type) {
-                data_types.push_back(type);
+        for (const auto& child : pcolumn.children_columns()) {
+            // ARRAY/MAP serialized aggregate states append their physical offset stream after the
+            // logical argument columns. It is storage metadata, not an aggregate argument type.
+            if (child.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)) {
+                continue;
             }
+            data_types.push_back(DataTypeFactory::instance().create_data_type(child));
         }
         nested = std::make_shared<DataTypeAggState>(data_types, pcolumn.result_is_nullable(),
                                                     pcolumn.function_name(),
@@ -429,6 +459,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_IPV6:
         nested = std::make_shared<DataTypeIPv6>();
         break;
+    case TYPE_UUID:
+        nested = std::make_shared<DataTypeUUID>();
+        break;
     case TYPE_DATE:
         nested = std::make_shared<DataTypeDate>();
         break;
@@ -492,6 +525,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::move(temp_nested);
         break;
     }
+    case TYPE_FILE:
+        nested = std::make_shared<DataTypeFile>();
+        break;
     case TYPE_VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
@@ -551,7 +587,22 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                 create_data_type(types, idx, node.contains_nulls[0]));
         break;
     }
+    case TTypeNodeType::FILE:
     case TTypeNodeType::STRUCT: {
+        if (node.type == TTypeNodeType::FILE &&
+            (node.struct_fields.size() != DataTypeFile::FIELD_COUNT ||
+             types.size() - static_cast<size_t>(*idx) <= DataTypeFile::FIELD_COUNT)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE type descriptor");
+        }
+        if (node.type == TTypeNodeType::FILE) {
+            for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+                const auto& child = types[*idx + i + 1];
+                if (child.type != TTypeNodeType::SCALAR || !child.__isset.scalar_type) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "FILE requires its canonical scalar children");
+                }
+            }
+        }
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
         DCHECK(!node.__isset.contains_nulls);
@@ -566,7 +617,11 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             data_types.push_back(create_data_type(types, idx, node.struct_fields[i].contains_null));
             names.push_back(node.struct_fields[i].name);
         }
-        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        if (node.type == TTypeNodeType::FILE) {
+            nested = std::make_shared<DataTypeFile>(data_types, names);
+        } else {
+            nested = std::make_shared<DataTypeStruct>(data_types, names);
+        }
         break;
     }
     case TTypeNodeType::MAP: {
@@ -667,7 +722,22 @@ DataTypePtr DataTypeFactory::create_data_type(
         nested = std::make_shared<DataTypeMap>(data_types[0], data_types[1]);
         break;
     }
+    case TTypeNodeType::FILE:
     case TTypeNodeType::STRUCT: {
+        if (node.type() == TTypeNodeType::FILE &&
+            (node.struct_fields_size() != DataTypeFile::FIELD_COUNT ||
+             types.size() - *idx <= DataTypeFile::FIELD_COUNT)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE protobuf type descriptor");
+        }
+        if (node.type() == TTypeNodeType::FILE) {
+            for (int i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+                const auto& child = types.Get(*idx + i + 1);
+                if (child.type() != TTypeNodeType::SCALAR || !child.has_scalar_type()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "FILE requires its canonical scalar children");
+                }
+            }
+        }
         DataTypes data_types;
         Strings names;
         data_types.reserve(node.struct_fields_size());
@@ -675,10 +745,22 @@ DataTypePtr DataTypeFactory::create_data_type(
         for (size_t i = 0; i < node.struct_fields_size(); i++) {
             const auto& field = node.struct_fields(cast_set<int>(i));
             ++(*idx);
-            data_types.push_back(create_data_type(types, idx, field.contains_null()));
+            if (node.type() == TTypeNodeType::FILE) {
+                const auto& scalar_type = types.Get(*idx).scalar_type();
+                data_types.push_back(create_data_type(
+                        thrift_to_type(static_cast<TPrimitiveType::type>(scalar_type.type())),
+                        field.contains_null(), 0, 0,
+                        scalar_type.has_len() ? scalar_type.len() : -1));
+            } else {
+                data_types.push_back(create_data_type(types, idx, field.contains_null()));
+            }
             names.push_back(field.name());
         }
-        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        if (node.type() == TTypeNodeType::FILE) {
+            nested = std::make_shared<DataTypeFile>(data_types, names);
+        } else {
+            nested = std::make_shared<DataTypeStruct>(data_types, names);
+        }
         break;
     }
     case TTypeNodeType::VARIANT: {

@@ -16,14 +16,19 @@ SCHEMA = "doris-repo-review/v1"
 MAX_BASE_LAG = dt.timedelta(hours=48)
 
 ALLOWED_EFFORTS_BY_MODEL = {
-    "claude-opus-5": frozenset({"xhigh", "max"}),
-    "claude-opus-5[1m]": frozenset({"xhigh", "max"}),
+    "claude-opus-5-5": frozenset({"xhigh", "max"}),
+    "claude-opus-5-5[1m]": frozenset({"xhigh", "max"}),
     "claude-fable-5": frozenset({"xhigh", "max"}),
     "claude-fable-5[1m]": frozenset({"xhigh", "max"}),
     "claude-fable-5-1": frozenset({"xhigh", "max"}),
     "claude-fable-5-1[1m]": frozenset({"xhigh", "max"}),
-    "gpt-5.6-sol": frozenset({"xhigh", "max", "ultra"}),
+    "gpt-6.2-sol": frozenset({"xhigh", "max", "ultra"}),
+    "gpt-6.2-astra": frozenset({"xhigh", "max", "ultra"}),
+    "gpt-6.1-sol": frozenset({"xhigh", "max", "ultra"}),
+    "gpt-6-sol": frozenset({"xhigh", "max", "ultra"}),
     "gpt-6-astra": frozenset({"xhigh", "max", "ultra"}),
+    "gemini-4-carbon": frozenset({"high"}),
+    "gemini-4-neon": frozenset({"xhigh"}),
 }
 ALLOWED_AUTHOR_PERMISSIONS = frozenset({"write", "admin"})
 EXPECTED_FIELDS = (

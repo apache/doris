@@ -23,8 +23,10 @@ import org.apache.doris.foundation.property.ParamRules;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.UnaryOperator;
 
 /**
@@ -121,7 +123,8 @@ public final class JdbcCatalogProperties {
     private static final int MAX_POOL_WAIT_TIME = 30000;
     private static final int MIN_POOL_LIFE_TIME = 150000;
 
-    @ConnectorProperty(names = {JDBC_URL}, description = "the JDBC connection URL")
+    // Driver-specific URL syntax can embed credentials even when the separate password is empty.
+    @ConnectorProperty(names = {JDBC_URL}, sensitive = true, description = "the JDBC connection URL")
     private String jdbcUrl;
 
     @ConnectorProperty(names = {USER}, required = false, description = "remote user name")
@@ -305,6 +308,19 @@ public final class JdbcCatalogProperties {
     }
 
     /**
+     * The names of the properties marked {@code sensitive}, each in both spellings a catalog may use: as
+     * declared and with {@link #JDBC_PROPERTIES_PREFIX}.
+     */
+    public static Set<String> sensitiveKeys() {
+        Set<String> keys = new HashSet<>();
+        for (String key : ConnectorPropertiesUtils.getSensitiveKeys(JdbcCatalogProperties.class)) {
+            keys.add(key);
+            keys.add(JDBC_PROPERTIES_PREFIX + key);
+        }
+        return keys;
+    }
+
+    /**
      * Returns the properties with {@link #JDBC_PROPERTIES_PREFIX} removed from every key that carries
      * it, leaving an unprefixed key already present untouched -- the short spelling wins, as it did in
      * both places that used to resolve these keys.
@@ -390,11 +406,13 @@ public final class JdbcCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     public String getFunctionRules() {

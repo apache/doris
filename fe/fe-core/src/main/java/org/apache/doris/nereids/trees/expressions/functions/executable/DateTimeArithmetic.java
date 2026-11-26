@@ -497,7 +497,7 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(TimeStampNsLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
+        return date.plusMonths(Math.multiplyExact(3L, quarter.getValue()));
     }
 
     /**

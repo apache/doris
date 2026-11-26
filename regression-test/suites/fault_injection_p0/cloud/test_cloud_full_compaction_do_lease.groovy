@@ -16,6 +16,9 @@
 // under the License.
 
 import org.junit.Assert
+import org.awaitility.Awaitility
+
+import java.util.concurrent.TimeUnit
 
 suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
     if (!isCloudMode()) {
@@ -54,18 +57,54 @@ suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
     }
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
+    def getTabletCompactionStatus = {
+        def (code, out, err) = be_show_tablet_status(
+                tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+        assert code == 0: "show tablet status failed, out=${out}, err=${err}"
+        return parseJson(out.trim())
+    }
+
+    def isFullCompactionRunning = {
+        def tasks = sql_return_maparray """
+            SELECT COMPACTION_ID
+            FROM information_schema.be_compaction_tasks
+            WHERE BACKEND_ID = ${tabletBackendId}
+              AND TABLET_ID = ${tabletId}
+              AND COMPACTION_TYPE = 'full'
+              AND TRIGGER_METHOD = 'MANUAL'
+              AND STATUS = 'RUNNING'
+        """
+        return !tasks.isEmpty()
+    }
+
+    def hasActiveCumulativeCompaction = {
+        def tasks = sql_return_maparray """
+            SELECT COMPACTION_ID
+            FROM information_schema.be_compaction_tasks
+            WHERE BACKEND_ID = ${tabletBackendId}
+              AND TABLET_ID = ${tabletId}
+              AND COMPACTION_TYPE = 'cumulative'
+              AND TRIGGER_METHOD = 'MANUAL'
+              AND STATUS IN ('PENDING', 'RUNNING')
+        """
+        return !tasks.isEmpty()
+    }
+
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
 
     def customBeConfig = [
         lease_compaction_interval_seconds : 2
     ]
+    def originalLeaseIntervals = get_be_param("lease_compaction_interval_seconds")
+    int maxOriginalLeaseInterval = originalLeaseIntervals.values()
+            .collect { Integer.parseInt(it.toString()) }
+            .max()
 
     setBeConfigTemporary(customBeConfig) {
-        // the default value of lease_compaction_interval_seconds is 20s, which means
-        // the compaction lease thread will sleep for 20s first, we sleep 20s in case
-        // so that compaction lease thread can be scheduled as we expect(2s)
-        Thread.sleep(20000)
+        // A lease thread that started before the config update may still be sleeping with the old
+        // interval. Wait for that sleep plus one new interval before creating the full compaction.
+        Thread.sleep((maxOriginalLeaseInterval + customBeConfig.lease_compaction_interval_seconds + 1) * 1000L)
         try {
             // block the full compaction
             GetDebugPoint().enableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
@@ -73,48 +112,77 @@ suite("test_cloud_full_compaction_do_lease","nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                     [tablet_id:"${tabletId}", start_version:"2", end_version:"10"]);
 
-            {
-                // trigger full compaction, it will be blokced in modify_rowsets
-                logger.info("trigger full compaction on BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
-                def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                assert  code == 0
-                def compactJson = parseJson(out.trim())
-                assert "success" == compactJson.status.toLowerCase()
-            }
-            
-            // wait until the full compaction job's lease timeout(lease_compaction_interval_seconds * 4)
-            Thread.sleep(10000);
+            def fullStatusBeforeTrigger = getTabletCompactionStatus()
+            def fullSuccessTimeBeforeTrigger = fullStatusBeforeTrigger["last full success time"]
+            def fullFailureTimeBeforeTrigger = fullStatusBeforeTrigger["last full failure time"]
 
-            {
-                // trigger cumu compaction
-                logger.info("trigger cumu compaction on BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
-                def (code, out, err) = be_run_cumulative_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                assert code == 0
-                def compactJson = parseJson(out.trim())
-                // this will fail due to existing full compaction
-                assert "e-2000" == compactJson.status.toLowerCase()
+            // The HTTP API only confirms that the task was queued. RUNNING is set after the worker
+            // has acquired the Meta Service global lock, so it is the correct start of the lease window.
+            logger.info("trigger full compaction on BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
+            def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+            assert code == 0
+            def compactJson = parseJson(out.trim())
+            assert "success" == compactJson.status.toLowerCase()
+
+            Awaitility.await().atMost(60, TimeUnit.SECONDS)
+                    .pollInterval(200, TimeUnit.MILLISECONDS).until {
+                isFullCompactionRunning()
             }
 
-            Thread.sleep(1000);
+            // The initial lease is valid for lease_compaction_interval_seconds * 4 = 8 seconds.
+            // Keep the full compaction blocked for longer so the test depends on periodic renewal.
+            Thread.sleep(10000)
+            assertTrue(isFullCompactionRunning(),
+                    "full compaction should still be running after the initial lease expires")
+
+            // trigger cumu compaction
+            def cumuStatusBeforeTrigger = getTabletCompactionStatus()
+            def cumuFailureTimeBeforeTrigger = cumuStatusBeforeTrigger["last cumulative failure time"]
+            def cumuSuccessTimeBeforeTrigger = cumuStatusBeforeTrigger["last cumulative success time"]
+
+            logger.info("trigger cumu compaction on BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
+            (code, out, err) = be_run_cumulative_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+            assert code == 0
+            compactJson = parseJson(out.trim())
+            // Cloud compaction submission is asynchronous. The submit request succeeds;
+            // the queued cumulative task then observes the existing full compaction.
+            assert "success" == compactJson.status.toLowerCase()
+
+            // A global-lock failure happens before execute_compact(), so it updates the failure
+            // timestamp but not "last cumulative status". Wait until the competing task has
+            // failed and left the active-task list, then verify it did not compact any rowsets.
+            Awaitility.await().atMost(30, TimeUnit.SECONDS)
+                    .pollInterval(200, TimeUnit.MILLISECONDS).until {
+                def tabletStatus = getTabletCompactionStatus()
+                return tabletStatus["last cumulative failure time"] != cumuFailureTimeBeforeTrigger &&
+                        !hasActiveCumulativeCompaction()
+            }
+
+            def cumuStatusAfterTrigger = getTabletCompactionStatus()
+            assertEquals(cumuSuccessTimeBeforeTrigger,
+                    cumuStatusAfterTrigger["last cumulative success time"])
+            assertTrue(isFullCompactionRunning(),
+                    "full compaction should retain the tablet job after cumulative compaction is rejected")
 
             // unblock full compaction
             GetDebugPoint().disableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
 
-            Thread.sleep(3000);
-
-            {
-                def (code, out, err) = be_show_tablet_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-                assert code == 0
-                def compactJson = parseJson(out.trim())
-                assert compactJson["rowsets"].toString().contains("[2-21]")
+            // Full compaction updates its local tablet cache before publishing the success time.
+            // Wait for both signals instead of relying on a fixed sleep or lazy-commit cache refresh.
+            Awaitility.await().atMost(60, TimeUnit.SECONDS)
+                    .pollInterval(200, TimeUnit.MILLISECONDS).until {
+                def tabletStatus = getTabletCompactionStatus()
+                return tabletStatus["last full success time"] != fullSuccessTimeBeforeTrigger &&
+                        tabletStatus["rowsets"].toString().contains("[2-21]")
             }
-            
 
-        } catch (Exception e) {
-            logger.info(e.getMessage())
-            assert false
+            def finalTabletStatus = getTabletCompactionStatus()
+            assertEquals(fullFailureTimeBeforeTrigger,
+                    finalTabletStatus["last full failure time"])
+            assertTrue(finalTabletStatus["rowsets"].toString().contains("[2-21]"))
+
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
             GetDebugPoint().disableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets")

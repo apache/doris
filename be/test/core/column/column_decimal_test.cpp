@@ -238,12 +238,6 @@ TEST_F(ColumnDecimalTest, insert_indices_from) {
     _column_decimal_common_test_with_type(assert_column_vector_insert_indices_from_callback, false);
 }
 
-// decimal, vector, nullable, PredicateColumnType
-TEST_F(ColumnDecimalTest, insert_many_fix_len_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_fix_len_data_callback,
-                                          true);
-}
-
 TEST_F(ColumnDecimalTest, insert_many_raw_data) {
     _column_decimal_common_test_with_type(assert_column_vector_insert_many_raw_data_callback,
                                           false);
@@ -633,44 +627,6 @@ TEST_F(ColumnDecimalTest, get_scale) {
 
 TEST_F(ColumnDecimalTest, sort_column) {
     _column_decimal_common_test_with_type(assert_sort_column_callback, false);
-}
-
-TEST_F(ColumnDecimalTest, ScalaTypeDecimalTesterase) {
-    auto datetype_decimal = create_decimal(10, 2, false);
-    auto column = datetype_decimal->create_column();
-    auto column_res = datetype_decimal->create_column();
-
-    std::vector<double> data = {1.1, 2.2, 3.3, 4.4, 5.5};
-    for (auto d : data) {
-        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-        column_res->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-    column->erase(0, 2);
-    EXPECT_EQ(column->size(), 3);
-    for (int i = 0; i < column->size(); ++i) {
-        EXPECT_EQ(column->get_data_at(i), column_res->get_data_at(i + 2));
-    }
-}
-
-TEST_F(ColumnDecimalTest, ScalaTypeDecimalTest2erase) {
-    auto datetype_decimal = create_decimal(10, 2, false);
-    auto column = datetype_decimal->create_column();
-    auto column_res = datetype_decimal->create_column();
-
-    std::vector<double> data = {1.1, 2.2, 3.3, 4.4, 5.5};
-    for (auto d : data) {
-        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-
-    std::vector<double> res = {1.1, 2.2, 5.5};
-    for (auto d : res) {
-        column_res->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
-    }
-    column->erase(2, 2);
-    EXPECT_EQ(column->size(), 3);
-    for (int i = 0; i < column->size(); ++i) {
-        EXPECT_EQ(column->get_data_at(i), column_res->get_data_at(i));
-    }
 }
 
 } // namespace doris

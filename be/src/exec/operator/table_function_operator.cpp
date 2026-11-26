@@ -80,7 +80,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     RETURN_IF_ERROR(_clone_table_function(state));
     for (auto* fn : _fns) {
-        RETURN_IF_ERROR(fn->open());
+        RETURN_IF_ERROR(fn->open(state));
     }
     _cur_child_offset = -1;
     _reset_block_fast_path_state();
@@ -467,7 +467,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
         }
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                 ._child->operator_row_desc_after_projection()
-                                                .num_materialized_slots());
+                                                .num_slots());
         _reset_block_fast_path_state();
     }
 
@@ -763,7 +763,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
             _child_rows_has_output.clear();
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                     ._child->operator_row_desc_after_projection()
-                                                    .num_materialized_slots());
+                                                    .num_slots());
         }
     }
 
@@ -791,7 +791,7 @@ void TableFunctionLocalState::process_next_child_row() {
         if (!_need_to_handle_outer_conjuncts) {
             _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                     ._child->operator_row_desc_after_projection()
-                                                    .num_materialized_slots());
+                                                    .num_slots());
         }
         _cur_child_offset = -1;
         _reset_block_fast_path_state();

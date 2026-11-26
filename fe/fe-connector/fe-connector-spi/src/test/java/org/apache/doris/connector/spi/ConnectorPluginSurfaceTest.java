@@ -20,7 +20,10 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -85,31 +88,52 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorSession's external-scan-reuse policy requires major 10: an API-9 FE does not
-        // provide the newly added interface method to an independently built connector plugin.
-        Assertions.assertEquals("10.0", version.getProperty("api.version"));
+        // Native encryption requires a new major after API 36 added connector file formats.
+        Assertions.assertEquals("37.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            ConnectorTaskScheduler.class,
+            DiagnosticException.class,
+            ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
+            ConnectorFileSource.class,
+            ConnectorFileSourceOps.class,
+            ConnectorSecuritySurface.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
             ConnectorSession.class,
+            ConnectorStatementScope.class,
+            ConnectorStatementScopes.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
+            ConnectorScanRequest.class,
+            ConnectorScanRequest.Builder.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,
+            ConnectorChangelogMode.class,
+            ConnectorRowLevelDmlRequest.class,
+            org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
-            org.apache.doris.extension.spi.PluginContext.class);
+            org.apache.doris.extension.spi.PluginContext.class,
+            org.apache.doris.connector.spi.scan.ConnectorSplitSource.class);
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class);
+            Arrays.asList(ConnectorCapability.class, ConnectorTaskScheduler.Stage.class,
+                    org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {

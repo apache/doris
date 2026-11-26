@@ -228,7 +228,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
             if (_repeat_id_idx >= _repeat_id_list_size) {
                 _intermediate_block->clear();
                 _child_block.clear_column_data(
-                        _child->operator_row_desc_after_projection().num_materialized_slots());
+                        _child->operator_row_desc_after_projection().num_slots());
                 _repeat_id_idx = 0;
             }
         } else if (local_state._expr_ctxs.empty()) {
@@ -246,7 +246,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
             if (_repeat_id_idx >= _repeat_id_list_size) {
                 _intermediate_block->clear();
                 _child_block.clear_column_data(
-                        _child->operator_row_desc_after_projection().num_materialized_slots());
+                        _child->operator_row_desc_after_projection().num_slots());
                 _repeat_id_idx = 0;
             }
         }

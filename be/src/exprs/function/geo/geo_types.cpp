@@ -37,6 +37,7 @@
 
 #include "core/assert_cast.h"
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -77,15 +78,15 @@ static inline bool is_valid_lng_lat(double lng, double lat) {
     return std::abs(lng) <= 180 && std::abs(lat) <= 90;
 }
 
-// Return GEO_PARSE_OK, if and only if this can be converted to a valid S2Point
+// Return GeoParseStatus::GEO_PARSE_OK, if and only if this can be converted to a valid S2Point
 static inline GeoParseStatus to_s2point(double lng, double lat, S2Point* point) {
     if (!is_valid_lng_lat(lng, lat)) {
-        return GEO_PARSE_COORD_INVALID;
+        return GeoParseStatus::GEO_PARSE_COORD_INVALID;
     }
     S2LatLng ll = S2LatLng::FromDegrees(lat, lng);
     DCHECK(ll.is_valid()) << "invalid point, lng=" << lng << ", lat=" << lat;
     *point = ll.ToPoint();
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 double project_distance(const S2Point& point, const S2Point& lineStart, const S2Point& lineEnd) {
@@ -323,13 +324,13 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);
-        if (res != GEO_PARSE_OK) {
+        if (res != GeoParseStatus::GEO_PARSE_OK) {
             return res;
         }
     }
     // 2. check if it is a closed loop
     if (!is_loop_closed(points)) {
-        return GEO_PARSE_LOOP_NOT_CLOSED;
+        return GeoParseStatus::GEO_PARSE_LOOP_NOT_CLOSED;
     }
     // 3. remove duplicate points
     remove_duplicate_points(&points);
@@ -337,14 +338,14 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr
     points.resize(points.size() - 1);
     // 5. check if there is enough point
     if (points.size() < 3) {
-        return GEO_PARSE_LOOP_LACK_VERTICES;
+        return GeoParseStatus::GEO_PARSE_LOOP_LACK_VERTICES;
     }
     loop->reset(new S2Loop(points));
     if (!(*loop)->IsValid()) {
-        return GEO_PARSE_LOOP_INVALID;
+        return GeoParseStatus::GEO_PARSE_LOOP_INVALID;
     }
     (*loop)->Normalize();
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
@@ -353,7 +354,7 @@ static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);
-        if (res != GEO_PARSE_OK) {
+        if (res != GeoParseStatus::GEO_PARSE_OK) {
             return res;
         }
     }
@@ -361,13 +362,13 @@ static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
     remove_duplicate_points(&points);
     // 3. check if there is enough point
     if (points.size() < 2) {
-        return GEO_PARSE_POLYLINE_LACK_VERTICES;
+        return GeoParseStatus::GEO_PARSE_POLYLINE_LACK_VERTICES;
     }
     polyline->reset(new S2Polyline(points));
     if (!(*polyline)->IsValid()) {
-        return GEO_PARSE_POLYLINE_INVALID;
+        return GeoParseStatus::GEO_PARSE_POLYLINE_INVALID;
     }
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
@@ -375,15 +376,15 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
     std::vector<std::unique_ptr<S2Loop>> loops(coords_list.list.size());
     for (int i = 0; i < coords_list.list.size(); ++i) {
         auto res = to_s2loop(*coords_list.list[i], &loops[i]);
-        if (res != GEO_PARSE_OK) {
+        if (res != GeoParseStatus::GEO_PARSE_OK) {
             return res;
         }
         if (i != 0 && !(loops[0]->Contains(*loops[i]))) {
-            return GEO_PARSE_POLYGON_NOT_HOLE;
+            return GeoParseStatus::GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
     polygon->reset(new S2Polygon(std::move(loops)));
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 bool GeoShape::decode_from(const void* data, size_t size) {
@@ -392,7 +393,7 @@ bool GeoShape::decode_from(const void* data, size_t size) {
     }
     char reserved_byte = ((const char*)data)[0];
     char type_byte = ((const char*)data)[1];
-    if (reserved_byte != 0X00 || type_byte != type()) {
+    if (reserved_byte != 0X00 || type_byte != static_cast<char>(type())) {
         return false;
     }
     return decode((const char*)data + 2, size - 2);
@@ -401,7 +402,7 @@ bool GeoShape::decode_from(const void* data, size_t size) {
 void GeoShape::encode_to(std::string* buf) {
     // reserve a byte for future use
     buf->push_back(0X00);
-    buf->push_back((char)type());
+    buf->push_back(static_cast<char>(type()));
     encode(buf);
 }
 
@@ -433,24 +434,24 @@ std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
         return nullptr;
     }
     std::unique_ptr<GeoShape> shape;
-    switch (((const char*)ptr)[1]) {
-    case GEO_SHAPE_POINT: {
+    switch (static_cast<GeoShapeType>(((const char*)ptr)[1])) {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         shape = GeoPoint::create_unique();
         break;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         shape = GeoLine::create_unique();
         break;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         shape = GeoPolygon::create_unique();
         break;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         shape = GeoCircle::create_unique();
         break;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         shape = GeoMultiPolygon::create_unique();
         break;
     }
@@ -530,24 +531,24 @@ std::vector<std::unique_ptr<GeoCoordinateListList>> GeoMultiPolygon::to_coords()
 
 bool GeoPoint::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         // points and points are considered to intersect when they are equal
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return *_point == *point->point();
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         return line->intersects(this);
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->intersects(this);
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         return multi_polygon->intersects(this);
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
@@ -562,23 +563,23 @@ bool GeoPoint::disjoint(const GeoShape* rhs) const {
 
 bool GeoPoint::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         // always returns false because the point has no boundaries
         return false;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         return line->touches(this);
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         return multi_polygon->touches(this);
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
@@ -693,20 +694,20 @@ GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
 
 bool GeoLine::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return compute_distance_to_line(*point->point(), _polyline.get()) < TOLERANCE;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         return is_segments_intersect(_polyline->vertex(0), _polyline->vertex(1),
                                      line->polyline()->vertex(0), line->polyline()->vertex(1));
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->polygon()->Intersects(*_polyline);
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& polygon : multi_polygon->polygons()) {
             if (polygon->intersects(this)) {
@@ -715,7 +716,7 @@ bool GeoLine::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
@@ -730,7 +731,7 @@ bool GeoLine::disjoint(const GeoShape* rhs) const {
 
 bool GeoLine::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& start = _polyline->vertex(0);
         const S2Point& end = _polyline->vertex(_polyline->num_vertices() - 1);
@@ -740,7 +741,7 @@ bool GeoLine::touches(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* other = assert_cast<const GeoLine*>(rhs);
 
         const S2Point& p1 = _polyline->vertex(0);
@@ -750,15 +751,15 @@ bool GeoLine::touches(const GeoShape* rhs) const {
         const S2Point& p4 = other->polyline()->vertex(1);
         return is_line_touches_line(p1, p2, p3, p4);
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         return multi_polygon->touches(this);
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
@@ -788,6 +789,7 @@ const S2Point* GeoLine::getPoint(int i) const {
 }
 
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
+    _loop_lat_lngs.clear();
     return to_s2polygon(list, &_polygon);
 }
 
@@ -800,6 +802,7 @@ void GeoPolygon::encode(std::string* buf) {
 bool GeoPolygon::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
     _polygon.reset(new S2Polygon());
+    _loop_lat_lngs.clear();
     return _polygon->Decode(&decoder) && _polygon->IsValid();
 }
 
@@ -842,14 +845,14 @@ std::string GeoPolygon::as_wkt() const {
 
 bool GeoPolygon::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         if (is_point_in_polygon(*point->point(), _polygon.get())) {
             return true;
         }
         return polygon_touch_point(_polygon.get(), point->point());
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
@@ -874,7 +877,7 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         // When two polygons intersect only at the boundary, s2geometry may not return the correct result.
         if (!_polygon->Intersects(*other->polygon())) {
@@ -882,7 +885,7 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         }
         return true;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& other : multi_polygon->polygons()) {
             if (this->intersects(other.get())) {
@@ -891,7 +894,7 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
@@ -948,11 +951,11 @@ bool GeoPolygon::polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygo
 
 bool GeoPolygon::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return polygon_touch_point(_polygon.get(), point->point());
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
@@ -1001,7 +1004,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         }
         return true;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         const S2Polygon* polygon1 = _polygon.get();
         const S2Polygon* polygon2 = other->polygon();
@@ -1012,7 +1015,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
                 polygon_touch_polygon(polygon1, polygon2));
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         bool has_touches = false;
         for (const auto& other : multi_polygon->polygons()) {
@@ -1025,7 +1028,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         }
         return has_touches;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
@@ -1036,26 +1039,16 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
 
 bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
         if (!_polygon->Contains(*point->point())) {
             return false;
         }
 
         // Point on the edge of polygon doesn't count as "Contians"
-        for (int i = 0; i < _polygon->num_loops(); ++i) {
-            const S2Loop* loop = _polygon->loop(i);
-            for (int j = 0; j < loop->num_vertices(); ++j) {
-                const S2Point& p1 = loop->vertex(j);
-                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
-                if (compute_distance_to_line(*point->point(), p1, p2) < TOLERANCE) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return !point_on_edge(*point->point());
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
 
         // solve the problem caused by the `Contains(const S2Polyline)` in the S2 library
@@ -1079,11 +1072,11 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
 
         return _polygon->Contains(*line->polyline());
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(*other->polygon());
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
         for (const auto& other : multi_polygon->polygons()) {
             if (!this->contains(other.get())) {
@@ -1095,6 +1088,46 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     default:
         return false;
     }
+}
+
+// Same check as compute_distance_to_line(point, p1, p2) < TOLERANCE over every edge, with the
+// vertices converted to lat/lng once per polygon instead of once per edge and call.
+bool GeoPolygon::point_on_edge(const S2Point& point) const {
+    if (_loop_lat_lngs.empty()) {
+        _loop_lat_lngs.resize(_polygon->num_loops());
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            auto& lat_lngs = _loop_lat_lngs[i];
+            lat_lngs.reserve(loop->num_vertices());
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                S2LatLng vertex(loop->vertex(j));
+                lat_lngs.emplace_back(vertex.lat().degrees(), vertex.lng().degrees(), 0.0);
+            }
+        }
+    }
+
+    S2LatLng point_lat_lng(point);
+    const S2Point query(point_lat_lng.lat().degrees(), point_lat_lng.lng().degrees(), 0.0);
+    // The point can only be within TOLERANCE of an edge if it lies in the edge's bounding box
+    // grown by TOLERANCE. The margin is doubled to stay clear of rounding in project_distance.
+    constexpr double margin = 2 * TOLERANCE;
+    for (const auto& lat_lngs : _loop_lat_lngs) {
+        const size_t num_vertices = lat_lngs.size();
+        for (size_t j = 0; j < num_vertices; ++j) {
+            const S2Point& p1 = lat_lngs[j];
+            const S2Point& p2 = lat_lngs[j + 1 == num_vertices ? 0 : j + 1];
+            if (query.x() < std::min(p1.x(), p2.x()) - margin ||
+                query.x() > std::max(p1.x(), p2.x()) + margin ||
+                query.y() < std::min(p1.y(), p2.y()) - margin ||
+                query.y() > std::max(p1.y(), p2.y()) + margin) {
+                continue;
+            }
+            if (project_distance(query, p1, p2) < TOLERANCE) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 std::double_t GeoPolygon::getArea() const {
@@ -1114,7 +1147,7 @@ GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListL
     for (const auto& coords_list : list) {
         std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
         auto status = polygon->from_coords(coords_list);
-        if (status != GEO_PARSE_OK) {
+        if (status != GeoParseStatus::GEO_PARSE_OK) {
             return status;
         }
         _polygons.push_back(std::move(polygon));
@@ -1128,7 +1161,7 @@ GeoParseStatus GeoMultiPolygon::check_self_intersection() {
         for (int j = i + 1; j < _polygons.size(); ++j) {
             if (_polygons[i]->intersects(_polygons[j].get())) {
                 if (!_polygons[i]->touches(_polygons[j].get())) {
-                    return GEO_PARSE_MULTIPOLYGON_OVERLAP;
+                    return GeoParseStatus::GEO_PARSE_MULTIPOLYGON_OVERLAP;
                 }
             } else {
                 continue;
@@ -1153,7 +1186,7 @@ GeoParseStatus GeoMultiPolygon::check_self_intersection() {
                                  compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
                                  compute_distance_to_line(p4, p1, p2) < TOLERANCE) &&
                                 !is_line_touches_line(p1, p2, p3, p4)) {
-                                return GEO_PARSE_MULTIPOLYGON_OVERLAP;
+                                return GeoParseStatus::GEO_PARSE_MULTIPOLYGON_OVERLAP;
                             }
                         }
                     }
@@ -1161,12 +1194,12 @@ GeoParseStatus GeoMultiPolygon::check_self_intersection() {
             }
         }
     }
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->intersects(point)) {
@@ -1175,7 +1208,7 @@ bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->intersects(line)) {
@@ -1184,7 +1217,7 @@ bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->intersects(other)) {
@@ -1193,7 +1226,7 @@ bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& other : multi_polygon->polygons()) {
             for (const auto& polygon : this->_polygons) {
@@ -1204,7 +1237,7 @@ bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
@@ -1219,7 +1252,7 @@ bool GeoMultiPolygon::disjoint(const GeoShape* rhs) const {
 
 bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->touches(point)) {
@@ -1228,7 +1261,7 @@ bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         bool has_touches = false;
         for (const auto& polygon : this->_polygons) {
@@ -1241,7 +1274,7 @@ bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
         }
         return has_touches;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         bool has_touches = false;
         for (const auto& polygon : this->_polygons) {
@@ -1254,7 +1287,7 @@ bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
         }
         return has_touches;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         bool has_touches = false;
         for (const auto& other : multi_polygon->polygons()) {
@@ -1269,7 +1302,7 @@ bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
         }
         return has_touches;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
@@ -1280,7 +1313,7 @@ bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
 
 bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->contains(point)) {
@@ -1289,7 +1322,7 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->contains(line)) {
@@ -1298,7 +1331,7 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         for (const auto& polygon : this->_polygons) {
             if (polygon->contains(other)) {
@@ -1307,7 +1340,7 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         //All polygons in rhs need to be contained
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& other : multi_polygon->polygons()) {
@@ -1400,20 +1433,20 @@ bool GeoMultiPolygon::decode(const void* data, size_t size) {
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
     S2Point center;
     auto status = to_s2point(lng, lat, &center);
-    if (status != GEO_PARSE_OK) {
+    if (status != GeoParseStatus::GEO_PARSE_OK) {
         return status;
     }
     S1Angle radius = S2Earth::ToAngle(util::units::Meters(radius_meter));
     _cap.reset(new S2Cap(center, radius));
     if (!_cap->is_valid()) {
-        return GEO_PARSE_CIRCLE_INVALID;
+        return GeoParseStatus::GEO_PARSE_CIRCLE_INVALID;
     }
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 
 bool GeoCircle::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1422,7 +1455,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
         return radius + TOLERANCE >= compute_distance_to_point(center, *point->point());
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1431,7 +1464,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         double distance = compute_distance_to_line(center, line->polyline());
         return radius + TOLERANCE >= distance;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1453,7 +1486,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& polygon : multi_polygon->polygons()) {
             if (this->intersects(polygon.get())) {
@@ -1462,7 +1495,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         }
         return false;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         S1ChordAngle radius_angle = _cap->radius();
         S1ChordAngle other_radius_angle = circle->circle()->radius();
@@ -1483,7 +1516,7 @@ bool GeoCircle::disjoint(const GeoShape* rhs) const {
 
 bool GeoCircle::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1491,7 +1524,7 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
         return std::abs(radius - compute_distance_to_point(center, *point->point())) < TOLERANCE;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1500,7 +1533,7 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
         double distance = compute_distance_to_line(center, line->polyline());
         return std::abs(radius - distance) < TOLERANCE;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
@@ -1525,7 +1558,7 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
 
         return false;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         bool has_touches = false;
         for (const auto& polygon : multi_polygon->polygons()) {
@@ -1538,7 +1571,7 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
         }
         return has_touches;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         S1ChordAngle radius_angle = _cap->radius();
         S1ChordAngle other_radius_angle = circle->circle()->radius();
@@ -1555,7 +1588,7 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
 
 bool GeoCircle::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
         return _cap->Contains(*point->point());
     }
@@ -1591,21 +1624,21 @@ double GeoCircle::getArea() const {
 bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit) {
     double steradians;
     switch (rhs->type()) {
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = (const GeoCircle*)rhs;
         steradians = circle->getArea();
         break;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = (const GeoPolygon*)rhs;
         steradians = polygon->getArea();
         break;
     }
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         *area = 0;
         return true;
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         *area = 0;
         return true;
     }
@@ -1757,21 +1790,21 @@ double GeoCircle::Length() const {
 double GeoPoint::Distance(const GeoShape* rhs) const {
     // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         const GeoPoint* point = static_cast<const GeoPoint*>(rhs);
         S2LatLng this_ll = S2LatLng(*_point);
         S2LatLng other_ll = S2LatLng(*point->point());
         return S2Earth::GetDistanceMeters(this_ll, other_ll);
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = static_cast<const GeoLine*>(rhs);
         return distance_point_to_polyline(*_point, line->polyline());
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
         return distance_point_to_polygon(*_point, polygon->polygon());
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = static_cast<const GeoCircle*>(rhs);
         S2LatLng this_ll = S2LatLng(*_point);
         S2LatLng center_ll = S2LatLng(circle->circle()->center());
@@ -1784,7 +1817,7 @@ double GeoPoint::Distance(const GeoShape* rhs) const {
         }
         return dist_to_center - circle_radius;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation
     }
     default:
@@ -1795,10 +1828,10 @@ double GeoPoint::Distance(const GeoShape* rhs) const {
 double GeoLine::Distance(const GeoShape* rhs) const {
     // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         return rhs->Distance(this); // Reuse Point's Distance implementation
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* other_line = static_cast<const GeoLine*>(rhs);
         if (_polyline->Intersects(*other_line->polyline())) {
             return 0.0;
@@ -1824,13 +1857,13 @@ double GeoLine::Distance(const GeoShape* rhs) const {
         }
         return min_distance;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         return rhs->Distance(this); // Delegate to Polygon's implementation
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         return rhs->Distance(this); // Delegate to Circle's implementation
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation
     }
     default:
@@ -1841,10 +1874,10 @@ double GeoLine::Distance(const GeoShape* rhs) const {
 double GeoPolygon::Distance(const GeoShape* rhs) const {
     // rhs is guaranteed to be valid by StDistance (functions_geo.cpp)
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         return rhs->Distance(this); // Reuse Point's Distance implementation
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = static_cast<const GeoLine*>(rhs);
         if (_polygon->Intersects(*line->polyline())) {
             return 0.0;
@@ -1872,7 +1905,7 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
         }
         return min_distance;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = static_cast<const GeoPolygon*>(rhs);
         if (_polygon->Intersects(*other->polygon())) {
             return 0.0;
@@ -1903,10 +1936,10 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
         }
         return min_distance;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         return rhs->Distance(this); // Delegate to Circle's implementation
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation
     }
     default:
@@ -1949,10 +1982,10 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
     double circle_radius = S2Earth::ToMeters(_cap->radius());
 
     switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         return rhs->Distance(this); // Reuse Point's Distance implementation
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = static_cast<const GeoLine*>(rhs);
         double min_distance = std::numeric_limits<double>::max();
 
@@ -1968,7 +2001,7 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         }
         return min_distance - circle_radius;
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
 
         // If center is inside polygon, distance is 0
@@ -1994,7 +2027,7 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         }
         return min_distance - circle_radius;
     }
-    case GEO_SHAPE_CIRCLE: {
+    case GeoShapeType::GEO_SHAPE_CIRCLE: {
         const GeoCircle* other = static_cast<const GeoCircle*>(rhs);
         double other_radius = S2Earth::ToMeters(other->circle()->radius());
         S2LatLng this_center_ll = S2LatLng(_cap->center());
@@ -2008,7 +2041,7 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         }
         return dist_centers - sum_radii;
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         return rhs->Distance(this); // Delegate to MultiPolygon's implementation
     }
     default:

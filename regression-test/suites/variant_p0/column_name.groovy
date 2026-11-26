@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_column_name", "p0, nonConcurrent"){
+suite("regression_test_variant_column_name", "p0"){
     def variantV2Function = "parse_to_variant"
     def table_name = "var_column_name"
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -73,14 +73,11 @@ suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     """
 
     // name with `.`
-    // When parser-side duplicate path deduplication is disabled, dotted keys and nested paths
-    // collide during Variant materialization and should report duplicated entry.
-    setBeConfigTemporary([variant_enable_duplicate_json_path_check: false]) {
-        sql "truncate table var_column_name"
-        test {
-            sql """insert into var_column_name values (7, ${variantV2Function}('{"a.b": "UPPER CASE", "a" : {"b" : 123}}'))"""
-            exception "may contains duplicated entry"
-        }
+    // A dotted key and a nested key collide when the value is stored and fail the write.
+    sql "truncate table var_column_name"
+    test {
+        sql """insert into var_column_name values (7, ${variantV2Function}('{"a.b": "UPPER CASE", "a" : {"b" : 123}}'))"""
+        exception "may contains duplicated entry"
     }
     for (int i = 0; i < 7; i++) {
         sql """insert into var_column_name select * from var_column_name"""

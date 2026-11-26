@@ -139,7 +139,7 @@ public class RowLevelDmlRowIdUtils {
         // unresolvable handle (mirroring fetchSyntheticWriteColumns), so a mid-DML catalog drop is "not a target"
         // rather than an NPE.
         Set<WriteOperation> ops = table.connectorSupportedWriteOperations();
-        return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
+        return RowLevelDmlRegistry.supportsAnyRowLevelDml(ops);
     }
 
     /** Check if a plan tree contains any unbound nodes or expressions. */

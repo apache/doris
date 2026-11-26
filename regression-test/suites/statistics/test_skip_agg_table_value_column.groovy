@@ -31,7 +31,7 @@ suite("test_skip_agg_table_value_column") {
         def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + host + ":" + port
         logger.info("Master url is " + url)
-        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+        connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)

@@ -23,6 +23,7 @@
 #include <arrow/type_fwd.h>
 #include <glog/logging.h>
 
+#include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
@@ -44,13 +45,11 @@
 #include "udf/python/python_env.h"
 #include "udf/python/python_server.h"
 #include "udf/python/python_udf_meta.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 
 PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _timezone_obj);
 
     // Like Java UDTF, FE passes the element type T, and we wrap it into array<T> here
     // This makes the behavior consistent with Java UDTF
@@ -58,7 +57,10 @@ PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(),
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(element_type)));
 }
 
-Status PythonUDTFFunction::open() {
+Status PythonUDTFFunction::open(RuntimeState* state) {
+    _timezone = state->timezone();
+    _timezone_obj = state->timezone_obj();
+
     PythonUDFMeta python_udf_meta;
     python_udf_meta.id = _t_fn.id;
     python_udf_meta.name = _t_fn.name.function_name;
@@ -78,6 +80,8 @@ Status PythonUDTFFunction::open() {
     }
 
     python_udf_meta.client_type = PythonClientType::UDTF;
+    python_udf_meta.datetime_naive = PythonUDFMeta::uses_naive_datetime(_t_fn);
+    python_udf_meta.timezone = _timezone;
 
     if (python_udf_meta.type == PythonUDFLoadType::MODULE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_pypath(
@@ -134,16 +138,16 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
         input_block.insert(block->get_by_position(child_column_idxs[i]));
     }
     int64_t input_rows = block->rows();
-    std::shared_ptr<arrow::Schema> input_schema;
     std::shared_ptr<arrow::RecordBatch> input_batch;
-    RETURN_IF_ERROR(get_arrow_schema_from_block(input_block, &input_schema,
-                                                TimezoneUtils::default_time_zone));
+    PythonArrowBlockConvertor converter(input_block, _timezone, _timezone_obj,
+                                        PythonUDFMeta::uses_naive_datetime(_t_fn));
+    RETURN_IF_ERROR(converter.init());
     if (child_column_idxs.empty()) {
-        RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
+        RETURN_IF_ERROR(
+                make_zero_column_arrow_batch(converter.arrow_schema(), input_rows, &input_batch));
     } else {
-        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
-                                               ExecEnv::GetInstance()->arrow_memory_pool(),
-                                               &input_batch, _timezone_obj));
+        RETURN_IF_ERROR(converter.convert_to_arrow(
+                input_block, ExecEnv::GetInstance()->arrow_memory_pool(), &input_batch));
     }
 
     // Step 3: Call Python UDTF to evaluate all rows at once (similar to Java UDTF's JNI call)

@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -94,12 +95,13 @@ struct ParquetPruningStats {
 };
 
 struct ParquetColumnStatistics {
-    Field min_value;             // column minimum value converted to Doris type
-    Field max_value;             // column maximum value
-    bool has_null = false;       // whether NULL exists
-    bool has_not_null = false;   // whether non-NULL values exist
-    bool has_null_count = false; // whether null_count is valid
-    bool has_min_max = false;    // whether min/max is valid after conversion
+    Field min_value;                 // column minimum value converted to Doris type
+    Field max_value;                 // column maximum value
+    bool has_null = false;           // whether NULL exists
+    bool has_not_null = false;       // whether non-NULL values exist
+    bool has_null_count = false;     // whether null_count is valid
+    bool has_min_max = false;        // whether min/max is valid after conversion
+    bool has_zero_nan_count = false; // validated proof covering this column's statistics
 
     bool has_any_statistics() const { return has_null_count || has_min_max; }
 };
@@ -147,7 +149,8 @@ Status select_row_groups_by_metadata(
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
         const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
         const ParquetColumnReaderProfile& column_reader_profile = {},
-        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
+        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL,
+        const std::unordered_set<int>* requested_leaf_ids = nullptr);
 
 Status select_row_group_ranges_by_native_page_index(
         const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,

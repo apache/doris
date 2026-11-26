@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PasswordPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -46,15 +45,31 @@ public class AlterUserInfo {
     private PasswordOptions passwordOptions;
     private String comment;
     private TlsOptions tlsOptions;
+    // MySQL-compatible dual password clauses on ALTER USER
+    private boolean retainCurrentPassword;
+    private boolean discardOldPassword;
     private Set<AlterUserOpType> ops = Sets.newHashSet();
 
     public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment,
             TlsOptions tlsOptions) {
+        this(ifExist, userDesc, passwordOptions, comment, tlsOptions, false, false);
+    }
+
+    /**
+     * Full constructor carrying the MySQL-compatible dual password clauses:
+     * retainCurrentPassword = "RETAIN CURRENT PASSWORD" (keep the previous
+     * primary password valid as the secondary password), discardOldPassword =
+     * "DISCARD OLD PASSWORD" (drop the retained secondary password).
+     */
+    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment,
+            TlsOptions tlsOptions, boolean retainCurrentPassword, boolean discardOldPassword) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
         this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
+        this.retainCurrentPassword = retainCurrentPassword;
+        this.discardOldPassword = discardOldPassword;
     }
 
     public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
@@ -76,6 +91,14 @@ public class AlterUserInfo {
         return null;
     }
 
+    public String getAuthIntegration() {
+        return userDesc.getAuthIntegration();
+    }
+
+    public String getAuthIdentity() {
+        return userDesc.getAuthIdentity();
+    }
+
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
     }
@@ -93,6 +116,14 @@ public class AlterUserInfo {
         return tlsOptions;
     }
 
+    public boolean isRetainCurrentPassword() {
+        return retainCurrentPassword;
+    }
+
+    public boolean isDiscardOldPassword() {
+        return discardOldPassword;
+    }
+
     /**
      * validate
      */
@@ -100,8 +131,23 @@ public class AlterUserInfo {
         userDesc.getUserIdent().analyze();
         userDesc.getPassVar().analyze();
 
-        if (userDesc.hasPassword()) {
+        if (userDesc.hasPassword() || userDesc.getAuthIntegration() != null) {
             ops.add(AlterUserOpType.SET_PASSWORD);
+        }
+
+        // MySQL-compatible dual password clauses. RETAIN CURRENT PASSWORD is
+        // only meaningful on a password change (MySQL's grammar cannot even
+        // express it without one); DISCARD OLD PASSWORD is a standalone
+        // operation (combining it with a password change is rejected by the
+        // one-operation rule below, matching MySQL). An empty NEW password
+        // with RETAIN is NOT an error — it empties the secondary as well
+        // (MySQL semantics, applied in UserManager.setPassword).
+        if (retainCurrentPassword && !userDesc.hasPassword()) {
+            throw new AnalysisException(
+                    "RETAIN CURRENT PASSWORD requires a password change (IDENTIFIED BY)");
+        }
+        if (discardOldPassword) {
+            ops.add(AlterUserOpType.DISCARD_OLD_PASSWORD);
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
@@ -118,7 +164,7 @@ public class AlterUserInfo {
         // ACCOUNT_LOCK / ACCOUNT_UNLOCK and the password-policy options are independent operations, so a
         // statement carrying both hits the one-operation rule below instead of silently dropping one side.
         if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
-            if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)) {
+            if (userDesc.getUserIdent().isRootUser()) {
                 // like CREATE USER root / DROP USER root: a locked root has no way back
                 throw new AnalysisException("Can not lock root user");
             }
@@ -126,10 +172,7 @@ public class AlterUserInfo {
         } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
         }
-        if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
-                || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
-                || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
-                || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
+        if (passwordOptions.hasPasswordPolicy()) {
             ops.add(AlterUserOpType.SET_PASSWORD_POLICY);
         }
 
@@ -138,9 +181,7 @@ public class AlterUserInfo {
                 + "actual number of type is " + ops.size());
         }
 
-        if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
-                && !ConnectContext.get().getQualifiedUser()
-                .equals(Auth.ROOT_USER)) {
+        if (userDesc.getUserIdent().isRootUser() && !ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
             throw new AnalysisException("Only root user can modify root user");
         }
 

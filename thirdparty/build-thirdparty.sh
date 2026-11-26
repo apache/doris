@@ -87,6 +87,28 @@ unset CMAKE_TOOLCHAIN_FILE \
     VCPKG_DEFAULT_TRIPLET \
     CONDA_PREFIX
 
+# The macOS third-party libraries stay on LLVM 20 while env.sh gives the BE LLVM 22 (the
+# first compiler-rt whose ASAN runtime survives macOS 26.4+). clang 22 turns
+# -Wincompatible-pointer-types into an error and stops at unixODBC 2.3.7
+# (SQLBrowseConnectW.c passes SQLSMALLINT* where int* is expected), and no package after it
+# has been built with clang 22. Every macOS third-party build comes through here - the
+# rebuild build.sh starts on its own, a manual run, the pull request check and the
+# apache/doris-thirdparty job that publishes doris-thirdparty-prebuilt-darwin-*.tar.xz - so
+# this is the one place that decides their compiler. Like the unset above, it has to come
+# after env.sh: custom_env.sh may point DORIS_CLANG_HOME at another LLVM for the BE. CC/CXX
+# carry the compiler and PATH the rest of the LLVM tools, as when env.sh named llvm@20.
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
+    if [[ ! -x "${DORIS_CLANG_HOME}/bin/clang" ]]; then
+        echo "The macOS third-party build needs LLVM 20 (${DORIS_CLANG_HOME}/bin/clang is missing): brew install llvm@20" >&2
+        exit 1
+    fi
+    export DORIS_CLANG_HOME
+    export CC="${DORIS_CLANG_HOME}/bin/clang"
+    export CXX="${DORIS_CLANG_HOME}/bin/clang++"
+    export PATH="${DORIS_CLANG_HOME}/bin:${PATH}"
+fi
+
 # Check args
 usage() {
     echo "
@@ -662,9 +684,14 @@ build_gperftools() {
         ./autogen.sh
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        LD_LIBRARY_PATH="${TP_LIB_DIR}" \
+    local cppflags="-I${TP_INCLUDE_DIR}"
+    if [[ "${KERNEL}" == "Linux" && "$(uname -m)" == "aarch64" ]]; then
+        # --enable-frame-pointers only selects the FP unwinder on x86 in 2.18.1.
+        # Keep ARM64 SIGPROF callbacks out of libgcc and its loader locks.
+        cppflags+=" -DTCMALLOC_DONT_PREFER_LIBUNWIND=1"
+    fi
+
+    CPPFLAGS="${cppflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LD_LIBRARY_PATH="${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}/gperftools" --disable-shared --enable-static --disable-libunwind --with-pic --enable-frame-pointers
@@ -1007,6 +1034,40 @@ build_cyrus_sasl() {
     fi
 }
 
+# MongoDB C Driver: keep libbson and libmongoc at the same release and ABI.
+build_mongo_c_driver() {
+    check_if_source_exist "${MONGO_C_DRIVER_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${MONGO_C_DRIVER_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # Re-root relocatable pkg-config files from prebuilt archives, and exclude host packages.
+    PKG_CONFIG_PATH="${TP_LIB_DIR}/pkgconfig" \
+        PKG_CONFIG_LIBDIR="${TP_LIB_DIR}/pkgconfig" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -C "${TP_DIR}/cmake/mongo-c-driver-cache.cmake" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DPKG_CONFIG_ARGN="--define-variable=prefix=${TP_INSTALL_DIR}" \
+        -DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_PIC=ON \
+        -DENABLE_TESTS=OFF -DENABLE_EXAMPLES=OFF \
+        -DENABLE_MAN_PAGES=OFF -DENABLE_HTML_DOCS=OFF -DENABLE_UNINSTALL=OFF \
+        -DENABLE_SSL=OPENSSL -DENABLE_SASL=CYRUS -DENABLE_SRV=ON \
+        -DENABLE_SNAPPY=ON -DENABLE_ZSTD=ON -DENABLE_ZLIB=SYSTEM \
+        -DUSE_BUNDLED_UTF8PROC=ON \
+        -DENABLE_CLIENT_SIDE_ENCRYPTION=OFF -DENABLE_MONGODB_AWS_AUTH=OFF \
+        -DENABLE_SHM_COUNTERS=OFF -DENABLE_MAINTAINER_FLAGS=OFF \
+        -DBSON_INSTALL_INCLUDEDIR=include/bson-2.0 \
+        -DMONGOC_INSTALL_INCLUDEDIR=include/mongoc-2.0 ..
+    "${CMAKE_CMD}" --build . --parallel "${PARALLEL}"
+    "${CMAKE_CMD}" --install .
+    strip_lib libbson2.a
+    strip_lib libmongoc2.a
+}
+
 # librdkafka
 build_librdkafka() {
     check_if_source_exist "${LIBRDKAFKA_SOURCE}"
@@ -1138,6 +1199,16 @@ build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
+    # CMake otherwise accepts a host OpenSSL when this dependency is missing.
+    # Keep both headers and static libraries in the same Doris third-party prefix.
+    local openssl_file
+    for openssl_file in include/openssl/ssl.h lib/libssl.a lib/libcrypto.a; do
+        if [[ ! -f "${TP_INSTALL_DIR}/${openssl_file}" ]]; then
+            echo "Missing Arrow OpenSSL dependency: ${TP_INSTALL_DIR}/${openssl_file}"
+            exit 1
+        fi
+    done
+
     mkdir -p release
     cd release
 
@@ -1160,10 +1231,17 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
+    # Without this option Parquet links encryption stubs that throw at runtime,
+    # even when the BE itself already links OpenSSL.
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+        -DPARQUET_REQUIRE_ENCRYPTION=ON -DARROW_OPENSSL_USE_SHARED=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
@@ -1213,6 +1291,12 @@ build_arrow() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
+    # Arrow excludes internal headers from installation, but the native Parquet
+    # reader needs these module decryptors instead of replacing its scan path.
+    install -m 644 ../src/parquet/encryption/encryption_internal.h \
+        ../src/parquet/encryption/internal_file_decryptor.h \
+        "${TP_INSTALL_DIR}/include/parquet/encryption/"
+
     #copy dep libs
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
@@ -1225,12 +1309,11 @@ build_arrow() {
 }
 
 # arrow-adbc
-# Produces three artifacts from one source tree:
+# Produces three artifacts from one source tree and installs a binary companion:
 #   libadbc_driver_manager.a  -- statically linked into doris_be
 #   libadbc_driver_jni.so     -- loaded by the FE adbc connector
 #   libadbc_driver_sqlite.so  -- BE unit tests only, not shipped
-# and installs a fourth that is not built here:
-#   libadbc_driver_flightsql.so -- prebuilt, adbc tests only, not shipped
+#   libadbc_driver_flightsql.so -- patched prebuilt driver, adbc tests only, not shipped
 build_arrow_adbc() {
     check_if_source_exist "${ARROW_ADBC_SOURCE}"
 
@@ -1296,14 +1379,22 @@ build_arrow_adbc() {
         -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_jni.so" \
         "${TP_INSTALL_DIR}/lib64/libadbc_driver_manager.a"
 
-    # (3) Flight SQL driver. Not built: upstream implements it in Go, so it comes
-    #     prebuilt out of the release wheel that download-thirdparty.sh unpacked
-    #     (see vars.sh). Nothing links against it; the FE and BE dlopen it at run
-    #     time, and only the adbc tests ask for it.
-    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+    # (3) Installing the patched binary must not require a Go toolchain. Check the extracted
+    # library as well as its archive: a cached source directory may still hold an old release wheel.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
         check_if_source_exist "${ARROW_ADBC_FLIGHTSQL_SOURCE}"
-        cp -f "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}/libadbc_driver_flightsql.so" \
-            "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
+        local flight_src="${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_SHA256}" \
+            "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_NAME}" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL archive checksum failed" >&2
+            exit 1
+        fi
+        if ! printf '%s  %s\n' "${ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256}" \
+            "${flight_src}/libadbc_driver_flightsql.so" | sha256sum -c -; then
+            echo "arrow-adbc: prebuilt Flight SQL library checksum failed" >&2
+            exit 1
+        fi
+        cp -f "${flight_src}/libadbc_driver_flightsql.so" "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so"
     fi
 
     rm -rf "${sqlite_host}"
@@ -1578,6 +1669,22 @@ build_tsan_header() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/sanitizer"
     cp "${TSAN_HEADER_FILE}" "${TP_INSTALL_DIR}/include/sanitizer/"
+}
+
+build_oss_sdk() {
+    check_if_source_exist "${OSS_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OSS_SDK_SOURCE}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_FIND_ROOT_PATH="${TP_INSTALL_DIR}" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DUSE_SYSTEM_CURL=ON -DCURL_NO_CURL_CMAKE=ON -DCURL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DUSE_SYSTEM_OPENSSL=ON \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" -DENABLE_RTTI=ON
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
 }
 
 # aws_sdk
@@ -1885,6 +1992,26 @@ build_simdjson() {
 
     cp "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/${BUILD_DIR}/libsimdjson.a" "${TP_INSTALL_DIR}/lib64"
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
+}
+
+# simdutf
+build_simdutf() {
+    check_if_source_exist "${SIMDUTF_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${SIMDUTF_SOURCE}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DSIMDUTF_CXX_STANDARD="${TP_CXX_STANDARD}" \
+        -DSIMDUTF_TESTS=OFF \
+        -DSIMDUTF_TOOLS=OFF \
+        -DSIMDUTF_BENCHMARKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" --target simdutf -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
 }
 
 # nlohmann_json
@@ -2352,6 +2479,47 @@ build_pugixml() {
 }
 
 # lance-c
+# Publish a complete archive with one rename. Copy/strip must not damage an installed library
+# or expose a partial first installation if either command fails or the build is interrupted.
+install_rust_archive() {
+    (
+        set -e
+        local archive="$1"
+        local destination="${TP_INSTALL_DIR}/lib64/${archive##*/}"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${archive}" "${staged}"
+        if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+            strip --strip-debug --strip-unneeded "${staged}"
+        fi
+        mv -f "${staged}" "${destination}"
+    )
+}
+
+install_paimon_rust() {
+    (
+        set -e
+        local archive="$1"
+        local header="$2"
+        local destination="${TP_INSTALL_DIR}/include/paimon_rust/paimon.h"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.paimon-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${header}" "${staged}"
+        test -s "${staged}"
+        test -s "${archive}"
+        # The two renames cannot be atomic together. Keep this recovery marker until
+        # both succeed so build.sh never reuses a mixed pair after interruption.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        mv -f "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2361,7 +2529,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.91.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.95.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2369,14 +2537,20 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.91.0"
+    local required_rust_version="1.95.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
@@ -2387,7 +2561,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.91.0 is the minimum supported version. Allow newer toolchains when
+    # Use Paimon's Rust 1.95.0 baseline for both static libraries. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2420,11 +2594,129 @@ build_lance_c() {
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
+    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+}
 
-    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
-        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.95.0 or set PAIMON_RUST_CARGO."
+        exit 1
     fi
+
+    local required_rust_version="1.95.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+        "OPENSSL_DIR=${TP_INSTALL_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    # Rust 1.95.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
+    # BE binary; they must be built with the SAME rustc toolchain so the linker
+    # resolves both crates' std references against a single std copy. Mixing
+    # toolchains makes the precompiled std hashes differ and the linker pulls
+    # both std copies in, colliding on the unmangled `rust_eh_personality`
+    # (duplicate symbol). Rebuild both lance_c and paimon_rust whenever the
+    # toolchain changes, using the same RUSTUP_TOOLCHAIN for both builds.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    # cbindgen invokes cargo metadata itself; command-line flags on the build
+    # and install calls do not propagate to that child process.
+    cargo_env+=("CARGO=${cargo_bin}")
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+        cargo_env+=("CARGO_NET_OFFLINE=true")
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    install_paimon_rust "${BUILD_DIR}/release/libpaimon_c.a" "${BUILD_DIR}/release/paimon.h"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2461,6 +2753,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
+        mongo_c_driver # after OpenSSL, zlib, zstd, Snappy and Cyrus SASL
         librdkafka
         flatbuffers
         orc
@@ -2481,6 +2774,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         tsan_header
         mysql
         aws_sdk
+        oss_sdk
         js_and_css
         xml2
         idn
@@ -2488,6 +2782,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         hdfs3
         benchmark
         simdjson
+        simdutf
         nlohmann_json
         google_cloud_cpp
         libbacktrace
@@ -2505,6 +2800,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         icu
         mecab_ipadic
         pugixml
+        paimon_rust
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2557,15 +2853,13 @@ cleanup_package_source() {
         brpc)            src_var="BRPC_SOURCE" ;;
         rocksdb)         src_var="ROCKSDB_SOURCE" ;;
         cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
+        mongo_c_driver)  src_var="MONGO_C_DRIVER_SOURCE" ;;
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;
         arrow_adbc)
-            # arrow_adbc also unpacks the prebuilt flightsql driver, clean both
-            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" && -d "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
-                echo "Cleaning up source: ${ARROW_ADBC_FLIGHTSQL_SOURCE}"
-                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}" \
-                    "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"-*.dist-info
+            if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
+                rm -rf "${TP_SOURCE_DIR}/${ARROW_ADBC_FLIGHTSQL_SOURCE}"
             fi
             src_var="ARROW_ADBC_SOURCE"
             ;;
@@ -2583,6 +2877,7 @@ cleanup_package_source() {
         libunwind)       src_var="LIBUNWIND_SOURCE" ;;
         benchmark)       src_var="BENCHMARK_SOURCE" ;;
         simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        simdutf)         src_var="SIMDUTF_SOURCE" ;;
         nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
         google_cloud_cpp) src_var="GOOGLE_CLOUD_CPP_SOURCE" ;;
         libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
@@ -2614,6 +2909,8 @@ cleanup_package_source() {
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
+        oss_sdk)         src_var="OSS_SDK_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

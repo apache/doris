@@ -79,7 +79,7 @@ suite("doc_array_functions_test") {
 
     test {
         sql ''' SELECT array_concat([[1,2]], [{'k':1}]); '''
-        exception "can not cast"
+        exception "Cannot find"
     }
 
     qt_array_concat_map '''
@@ -98,7 +98,7 @@ suite("doc_array_functions_test") {
 
     test {
         sql ''' SELECT array_concat(array(named_struct('name','Alice','age',20)), array(named_struct('id',1,'score',95.5,'age',10))); '''
-        exception "can not cast"
+        exception "Cannot find"
     }
 
     test {

@@ -17,6 +17,9 @@
 
 #include "storage/segment/column_reader_cache.h"
 
+#include <iterator>
+#include <vector>
+
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -45,49 +48,111 @@ ColumnReaderCache::~ColumnReaderCache() {
 }
 
 std::shared_ptr<ColumnReader> ColumnReaderCache::_lookup(const ColumnReaderCacheKey& key) {
-    std::lock_guard<std::mutex> lock(_cache_mutex);
-    auto it = _cache_map.find(key);
-    if (it == _cache_map.end()) {
+    std::shared_ptr<ColumnReader> reader;
+    {
+        std::unique_lock<std::mutex> lock(_cache_mutex);
+        auto it = _cache_map.find(key);
+        if (it == _cache_map.end()) {
+            g_segment_column_cache_miss_count << 1;
+            return nullptr;
+        }
+        _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
+        reader = it->second->reader;
+    }
+    // Recursive checks can acquire reader locks. Never hold the cache mutex
+    // across them: reader creation paths can access this cache while holding
+    // reader locks in the opposite order.
+    if (!reader->healthy_status().ok()) {
+        _erase_if_same(key, reader);
         g_segment_column_cache_miss_count << 1;
         return nullptr;
     }
-    // Move the accessed node to the front of the linked list
-    _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
-    DCHECK_EQ(it->second->key.first, key.first);
     g_segment_column_cache_hit_count << 1;
-    return it->second->reader;
+    return reader;
 }
 
-void ColumnReaderCache::_insert_locked_nocheck(const ColumnReaderCacheKey& key,
-                                               const std::shared_ptr<ColumnReader>& reader) {
-    // If capacity exceeded, remove least recently used (tail)
-    if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
-        g_segment_column_reader_cache_count << -1;
-        g_segment_column_cache_evict_count << 1;
-        auto last_it = _lru_list.end();
-        --last_it;
-        _cache_map.erase(last_it->key);
-        _lru_list.pop_back();
+void ColumnReaderCache::_erase_if_same(const ColumnReaderCacheKey& key,
+                                       const std::shared_ptr<ColumnReader>& reader) {
+    std::unique_lock<std::mutex> lock(_cache_mutex);
+    auto it = _cache_map.find(key);
+    // Another caller may have replaced this entry while health was checked.
+    // A late failure from the old instance must not remove its replacement.
+    if (it != _cache_map.end() && it->second->reader == reader) {
+        _erase_locked(lock, it->second);
     }
-    g_segment_column_reader_cache_count << 1;
+}
+
+std::list<CacheNode>::iterator ColumnReaderCache::_erase_locked(
+        const std::unique_lock<std::mutex>& lock, std::list<CacheNode>::iterator it) {
+    DCHECK(lock.owns_lock());
+    DCHECK_EQ(lock.mutex(), &_cache_mutex);
+    _cache_map.erase(it->key);
+    g_segment_column_reader_cache_count << -1;
+    g_segment_column_cache_evict_count << 1;
+    return _lru_list.erase(it);
+}
+
+void ColumnReaderCache::_insert_locked_nocheck(const std::unique_lock<std::mutex>& lock,
+                                               const ColumnReaderCacheKey& key,
+                                               const std::shared_ptr<ColumnReader>& reader) {
+    DCHECK(lock.owns_lock());
+    DCHECK_EQ(lock.mutex(), &_cache_mutex);
+    // If capacity exceeded, remove least recently used (tail).
+    if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
+        _erase_locked(lock, std::prev(_lru_list.end()));
+    }
     _lru_list.push_front(CacheNode {
             .key = key, .reader = reader, .last_access = std::chrono::steady_clock::now()});
-    _cache_map[key] = _lru_list.begin();
+    try {
+        _cache_map.emplace(key, _lru_list.begin());
+    } catch (...) {
+        // Map allocation may fail after the list insertion. An orphaned node
+        // could later erase a different reader inserted for the same key.
+        _lru_list.pop_front();
+        throw;
+    }
+    g_segment_column_reader_cache_count << 1;
 }
 
-void ColumnReaderCache::_insert_direct(const ColumnReaderCacheKey& key,
-                                       const std::shared_ptr<ColumnReader>& column_reader) {
-    std::lock_guard<std::mutex> lock(_cache_mutex);
-    _insert_locked_nocheck(key, column_reader);
+std::shared_ptr<ColumnReader> ColumnReaderCache::_insert_direct(
+        const ColumnReaderCacheKey& key, const std::shared_ptr<ColumnReader>& column_reader) {
+    // An existing nested-group child can fail while its path reader is being
+    // resolved. Check it before taking the cache mutex, just as on lookup.
+    if (!column_reader->healthy_status().ok()) {
+        return column_reader;
+    }
+    std::unique_lock<std::mutex> lock(_cache_mutex);
+    auto it = _cache_map.find(key);
+    // Concurrent misses may insert the same key. Replace its reader in place
+    // so the map and LRU list retain exactly one node for that key.
+    if (it != _cache_map.end()) {
+        it->second->reader = column_reader;
+        _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
+    } else {
+        _insert_locked_nocheck(lock, key, column_reader);
+    }
+    return column_reader;
 }
 
 std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_available_readers(
         bool include_subcolumns) {
-    std::lock_guard<std::mutex> lock(_cache_mutex);
+    std::vector<std::pair<ColumnReaderCacheKey, std::shared_ptr<ColumnReader>>> snapshot;
+    {
+        std::unique_lock<std::mutex> lock(_cache_mutex);
+        snapshot.reserve(_lru_list.size());
+        for (const auto& node : _lru_list) {
+            snapshot.emplace_back(node.key, node.reader);
+        }
+    }
     std::map<int32_t, std::shared_ptr<ColumnReader>> readers;
-    for (const auto& node : _lru_list) {
-        if (include_subcolumns || node.key.second.empty()) {
-            readers.insert({node.key.first, node.reader});
+    for (const auto& [key, reader] : snapshot) {
+        // Enumeration, like lookup, checks reader trees without the cache lock.
+        if (!reader->healthy_status().ok()) {
+            _erase_if_same(key, reader);
+            continue;
+        }
+        if (include_subcolumns || key.second.empty()) {
+            readers.insert({key.first, reader});
         }
     }
     return readers;
@@ -96,8 +161,7 @@ std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_availabl
 Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             std::shared_ptr<ColumnReader>* column_reader,
                                             OlapReaderStatistics* stats,
-                                            const io::IOContext* source_io_ctx,
-                                            std::optional<Field> const_value) {
+                                            const io::IOContext* source_io_ctx) {
     // Attempt to find in cache
     if (auto cached = _lookup({col_uid, {}})) {
         *column_reader = cached;
@@ -123,7 +187,6 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
                               .be_exec_version = _be_exec_version,
                               .tablet_schema = _tablet_schema};
-    opts.const_value = std::move(const_value);
 
     std::shared_ptr<ColumnReader> reader;
     if ((FieldType)meta.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
@@ -140,7 +203,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         RETURN_IF_ERROR(ColumnReader::create(opts, meta, _num_rows, _file_reader, &reader));
     }
 
-    _insert_direct({col_uid, {}}, reader);
+    reader = _insert_direct({col_uid, {}}, reader);
+    RETURN_IF_ERROR(reader->healthy_status());
     *column_reader = std::move(reader);
     return Status::OK();
 }
@@ -195,7 +259,8 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     RETURN_IF_ERROR(st);
 
     // Cache and return
-    _insert_direct({col_uid, relative_path}, path_reader);
+    path_reader = _insert_direct({col_uid, relative_path}, path_reader);
+    RETURN_IF_ERROR(path_reader->healthy_status());
     *column_reader = std::move(path_reader);
     return Status::OK();
 }

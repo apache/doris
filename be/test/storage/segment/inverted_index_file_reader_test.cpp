@@ -29,15 +29,16 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/snii/snii_doris_adapter.h"
-#include "storage/index/snii/writer/snii_compound_writer.h"
-#include "storage/index/snii/writer/spimi_term_buffer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/snii/writer/snii_compound_writer.h"
+#include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
@@ -278,7 +279,7 @@ TEST_F(InvertedIndexFileReaderTest, TestEmptyIndexSegmentError) {
 
     Status status = reader.init(4096);
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_BYPASS);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
 
 // Test case for unknown inverted index format error

@@ -103,6 +103,10 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        return Impl::get_arguments_that_are_always_constant();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl_inner(context, block, arguments, result, input_rows_count);
@@ -170,6 +174,8 @@ void execute_result(const char* src_raw, size_t src_size, const char* key_raw, s
 
 template <typename Impl, EncryptionMode mode, bool is_encrypt>
 struct EncryptionAndDecryptTwoImpl {
+    static ColumnNumbers get_arguments_that_are_always_constant() { return {2}; }
+
     static DataTypes get_variadic_argument_types_impl() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeString>()};
@@ -275,6 +281,8 @@ struct EncryptionAndDecryptTwoImpl {
 
 template <typename Impl, EncryptionMode mode, bool is_encrypt, bool is_sm_mode, int arg_num = 4>
 struct EncryptionAndDecryptMultiImpl {
+    static ColumnNumbers get_arguments_that_are_always_constant() { return {3}; }
+
     static DataTypes get_variadic_argument_types_impl() {
         if constexpr (arg_num == 5) {
             return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),

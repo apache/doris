@@ -97,18 +97,19 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.FileSystem getFileSystem(Map<String, String> properties)
             throws IOException {
+        Map<String, String> normalizedProperties = StorageAdapter.withHadoopConfigDir(properties);
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
-            return mgr.createFileSystem(properties);
+            return mgr.createFileSystem(normalizedProperties);
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path)
         List<FileSystemProvider> providers = getProviders();
         List<String> tried = new ArrayList<>();
         for (FileSystemProvider provider : providers) {
-            if (provider.supports(properties)) {
+            if (provider.supports(normalizedProperties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(properties);
+                return provider.create(normalizedProperties);
             }
             tried.add(provider.name());
         }
@@ -135,16 +136,17 @@ public final class FileSystemFactory {
         // fe-core Config, so the HDFS plugin's config-resource loader reads this system property instead. Keep
         // the key in sync with HdfsConfigFileLoader.CONFIG_DIR_PROPERTY ("doris.hadoop.config.dir").
         System.setProperty("doris.hadoop.config.dir", Config.hadoop_config_dir);
+        Map<String, String> normalizedProperties = StorageAdapter.withHadoopConfigDir(properties);
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
-            return new ArrayList<>(mgr.bindAll(properties));
+            return new ArrayList<>(mgr.bindAll(normalizedProperties));
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path), mirroring getFileSystem(Map).
         List<org.apache.doris.filesystem.properties.StorageProperties> result = new ArrayList<>();
         for (FileSystemProvider provider : getProviders()) {
-            if (provider.supports(properties)) {
+            if (provider.supports(normalizedProperties)) {
                 try {
-                    result.add(provider.bind(properties));
+                    result.add(provider.bind(normalizedProperties));
                 } catch (UnsupportedOperationException e) {
                     LOG.debug("FileSystemProvider {} has no typed binding; skipping in "
                             + "bindAllStorageProperties", provider.name());

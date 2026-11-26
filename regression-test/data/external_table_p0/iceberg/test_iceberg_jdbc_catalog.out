@@ -36,7 +36,463 @@ true	3	300000000000	3.5	4.5	345.67	test	2025-01-03	2025-01-03T12:00
 4	Item4	B	2025-01-02
 5	Item5	A	2025-01-03
 
+-- !postgresql_parquet_v2_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v2_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v2_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !postgresql_parquet_v2_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_parquet_v2_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v2_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_orc_v2_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v2_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v2_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !postgresql_orc_v2_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_orc_v2_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v2_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_parquet_v3_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v3_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v3_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !postgresql_parquet_v3_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_parquet_v3_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_parquet_v3_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_orc_v3_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v3_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v3_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !postgresql_orc_v3_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_orc_v3_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !postgresql_orc_v3_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_ctas_schema --
+1	A	100	\N
+4	D	40	\N
+5	C	50	\N
+
+-- !postgresql_schema_write --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
+
+-- !postgresql_reload --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
+
+-- !postgresql_dynamic_overwrite --
+3	B
+4	A
+
+-- !postgresql_static_overwrite --
+5	C
+
+-- !postgresql_partition_add --
+5	C
+6	D
+
+-- !postgresql_partition_drop --
+5	C
+6	D
+7	E
+
+-- !postgresql_partition_filter --
+5	C
+7	E
+
+-- !postgresql_main_before_publish --
+1	base
+
+-- !postgresql_branch --
+1	base
+2	branch
+
+-- !postgresql_main_after_publish --
+1	base
+2	branch
+
+-- !postgresql_snapshot --
+1	base
+
+-- !postgresql_tag --
+1	base
+
+-- !postgresql_rollback --
+1	base
+
+-- !postgresql_refs --
+main	BRANCH
+
+-- !postgresql_expire_snapshot_count --
+1
+
+-- !postgresql_after_expire --
+1	base
+
+-- !postgresql_rewrite_manifests_committed --
+true
+
+-- !postgresql_rewrite_manifests --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_compact_committed --
+true	true
+
+-- !postgresql_compact --
+1	A	100
+4	D	40
+5	C	50
+
+-- !postgresql_v1_unchanged --
+1
+2
+
+-- !postgresql_cow_unchanged --
+1
+2
+
+-- !postgresql_isolated_namespaces --
+information_schema
+mysql
+
+-- !postgresql_restored_namespace --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
+
 -- !mysql_select --
 1	Alice	2025-01-01T10:00
 2	Bob	2025-01-02T11:00
+
+-- !mysql_parquet_v2_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v2_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v2_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !mysql_parquet_v2_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_parquet_v2_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v2_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_orc_v2_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_orc_v2_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !mysql_orc_v2_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !mysql_orc_v2_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_orc_v2_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_orc_v2_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_parquet_v3_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v3_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v3_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !mysql_parquet_v3_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_parquet_v3_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_parquet_v3_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_orc_v3_update --
+1	A	11
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_orc_v3_delete --
+1	A	11
+3	B	30
+4	B	40
+
+-- !mysql_orc_v3_merge --
+1	A	100
+4	B	40
+5	C	50
+
+-- !mysql_orc_v3_partition_move --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_orc_v3_old_tag --
+1	A	10
+2	A	20
+3	B	30
+4	B	40
+
+-- !mysql_orc_v3_no_match --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_ctas_schema --
+1	A	100	\N
+4	D	40	\N
+5	C	50	\N
+
+-- !mysql_schema_write --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
+
+-- !mysql_reload --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
+
+-- !mysql_dynamic_overwrite --
+3	B
+4	A
+
+-- !mysql_static_overwrite --
+5	C
+
+-- !mysql_partition_add --
+5	C
+6	D
+
+-- !mysql_partition_drop --
+5	C
+6	D
+7	E
+
+-- !mysql_partition_filter --
+5	C
+7	E
+
+-- !mysql_main_before_publish --
+1	base
+
+-- !mysql_branch --
+1	base
+2	branch
+
+-- !mysql_main_after_publish --
+1	base
+2	branch
+
+-- !mysql_snapshot --
+1	base
+
+-- !mysql_tag --
+1	base
+
+-- !mysql_rollback --
+1	base
+
+-- !mysql_refs --
+main	BRANCH
+
+-- !mysql_expire_snapshot_count --
+1
+
+-- !mysql_after_expire --
+1	base
+
+-- !mysql_rewrite_manifests_committed --
+true
+
+-- !mysql_rewrite_manifests --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_compact_committed --
+true	true
+
+-- !mysql_compact --
+1	A	100
+4	D	40
+5	C	50
+
+-- !mysql_v1_unchanged --
+1
+2
+
+-- !mysql_cow_unchanged --
+1
+2
+
+-- !mysql_isolated_namespaces --
+information_schema
+mysql
+
+-- !mysql_restored_namespace --
+1	A	100
+4	D	40
+5	C	50
+6	E	6000000000
 

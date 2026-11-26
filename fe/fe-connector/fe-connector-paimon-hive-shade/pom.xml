@@ -108,6 +108,27 @@ under the License.
             </exclusions>
         </dependency>
 
+        <!-- DLF constructs Hive's expression proxy even when only listing databases. Bundle the
+             matching QL implementation, not the full Hive execution dependency graph. Its QL
+             package is relocated below so the FE's Hive 3 implementation cannot win parent-first. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <version>2.3.7</version>
+            <classifier>core</classifier>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Hive's expression proxy deserializes partition expressions through Kryo's pool API. -->
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo-shaded</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- hive-metastore 2.3.7 supplies org.apache.hadoop.hive.metastore.HiveMetaStoreClient,
              whose constructor/method signatures reference the old-package
              org.apache.thrift.transport.TFramedTransport. The relocation rewrites those references
@@ -342,6 +363,22 @@ under the License.
                                 </filter>
                             </filters>
                             <relocations>
+                                <!-- Rewrite the QL implementation and HiveConf's default class-name
+                                     string together; Hadoop FileSystem/Configuration stay shared. -->
+                                <relocation>
+                                    <pattern>org.apache.hadoop.hive.ql</pattern>
+                                    <shadedPattern>org.apache.doris.paimon.shaded.hive.ql</shadedPattern>
+                                    <!-- Format/SerDe names are persisted in HMS for external readers.
+                                         Keep those classes and their string-only descriptor registry
+                                         canonical, including nested classes and service registrations. -->
+                                    <excludes>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*InputFormat*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*OutputFormat*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*Serde*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*SerDe*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.*StorageFormat*</exclude>
+                                    </excludes>
+                                </relocation>
                                 <relocation>
                                     <pattern>org.apache.thrift</pattern>
                                     <shadedPattern>org.apache.doris.paimon.shaded.thrift</shadedPattern>

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
@@ -265,6 +266,18 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         private String evidence() {
             return entrance + "\n" + plan.treeString();
         }
+    }
+
+    @Test
+    public void testTargetVariantTypeParticipatesInTryParseEquality() {
+        StringLiteral json = new StringLiteral("{\"a\":1}");
+        VariantType firstTarget = new VariantType(1);
+        VariantType secondTarget = new VariantType(2);
+
+        TryParseToVariant firstTryParse = new TryParseToVariant(json, firstTarget);
+        TryParseToVariant secondTryParse = new TryParseToVariant(json, secondTarget);
+        Assertions.assertNotEquals(firstTryParse, secondTryParse);
+        Assertions.assertEquals(firstTryParse, new TryParseToVariant(json, new VariantType(1)));
     }
 
     @FunctionalInterface

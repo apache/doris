@@ -70,6 +70,15 @@ suite("test_iceberg_write_default", "p0,external") {
         assertTrue(cRow != null, "column c must exist in DESC: " + descRows.toString())
         assertFalse(cRow.toString().contains("42"),
                 "DESC must not show connector write default 42, got: " + cRow.toString())
+        // information_schema reads the cached catalog Column too, so COLUMN_DEFAULT stays NULL.
+        qt_desc_write_default """
+            SELECT COLUMN_DEFAULT
+            FROM ${catalog_name}.information_schema.columns
+            WHERE TABLE_CATALOG = '${catalog_name}'
+              AND TABLE_SCHEMA = '${db}'
+              AND TABLE_NAME = '${tbl}'
+              AND COLUMN_NAME = 'c'
+        """
 
         // 2) INSERT with column c omitted must apply the write default.
         sql """ INSERT INTO ${tbl} (id) VALUES (1) """
@@ -77,6 +86,16 @@ suite("test_iceberg_write_default", "p0,external") {
         assertEquals(1, rows.size())
         assertEquals("42", rows[0][1].toString(),
                 "an INSERT omitting column c must apply the iceberg write default 42, got: " + rows[0][1])
+
+        // 3) rewrite_data_files binds the cached schema, which has no write default. The stable default must
+        // not be mistaken for a concurrent schema change, and rewritten rows keep their stored values.
+        sql """ INSERT INTO ${tbl} (id, c) VALUES (2, NULL) """
+        def rewriteResult = sql """ ALTER TABLE ${tbl} EXECUTE rewrite_data_files("rewrite-all" = "true") """
+        assertEquals(2, rewriteResult[0][0] as int, "both data files must be rewritten, got: " + rewriteResult)
+        rows = sql """ SELECT id, c FROM ${tbl} ORDER BY id """
+        assertEquals(2, rows.size())
+        assertEquals("42", rows[0][1].toString())
+        assertNull(rows[1][1], "an explicit NULL must survive the rewrite, got: " + rows[1][1])
     } finally {
         sql """drop table if exists ${catalog_name}.${db}.${tbl}"""
         sql """drop database if exists ${catalog_name}.${db} force"""

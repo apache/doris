@@ -59,12 +59,18 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final long length;
     private final long fileSize;
     private final String fileFormat;
+    private final IcebergFileEncryption encryption;
     private final int formatVersion;
     private final Integer partitionSpecId;
     private final String partitionDataJson;
+    // FE-only, set when the file's partition tuple has a value that cannot be serialized (a historical partition
+    // field whose source column was dropped), so partitionDataJson is absent: the raw values identify the
+    // partition for getScannedPartitionKey, and a scan that produces row IDs is rejected
+    // (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData). Ordinary reads need neither.
+    private final String rawPartitionKey;
     private final Long firstRowId;
     private final Long lastUpdatedSequenceNumber;
-    // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
+    // Identity partition column (case-preserved) -> serialized value, already ordered as the path_partition_keys
     // list, filtered to keys this file carries. Drives columns-from-path. Never null (empty when unpartitioned).
     private final Map<String, String> partitionValues;
     // Whether this range counts toward the EXPLAIN `partition=N/M` / sql_block_rule partition_num display
@@ -122,6 +128,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final Long positionDeleteContentOffset;
     private final Long positionDeleteContentSizeInBytes;
 
+    @Override
+    public boolean supportsBeSplitRefinement() {
+        return serializedSplit == null && !positionDeleteSystemTableSplit && deleteFiles.isEmpty();
+    }
+
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
         // Default the raw original path to the (possibly already-raw) path when a caller does not split them
@@ -131,9 +142,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.length = builder.length;
         this.fileSize = builder.fileSize;
         this.fileFormat = builder.fileFormat;
+        this.encryption = builder.encryption;
         this.formatVersion = builder.formatVersion;
         this.partitionSpecId = builder.partitionSpecId;
         this.partitionDataJson = builder.partitionDataJson;
+        this.rawPartitionKey = builder.rawPartitionKey;
         this.firstRowId = builder.firstRowId;
         this.lastUpdatedSequenceNumber = builder.lastUpdatedSequenceNumber;
         this.partitionValues = builder.partitionValues != null
@@ -154,6 +167,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.positionDeleteReferencedDataFilePath = builder.positionDeleteReferencedDataFilePath;
         this.positionDeleteContentOffset = builder.positionDeleteContentOffset;
         this.positionDeleteContentSizeInBytes = builder.positionDeleteContentSizeInBytes;
+    }
+
+    @Override
+    public String getSplitIdentity() {
+        // JNI metadata tasks share a dummy path; native ranges retain their actual file identity.
+        return serializedSplit != null ? serializedSplit : ConnectorScanRange.super.getSplitIdentity();
     }
 
     @Override
@@ -227,17 +246,30 @@ public class IcebergScanRange implements ConnectorScanRange {
      * A distinct-faithful key for the native iceberg partition this file belongs to (FIX-L12), or
      * {@code null} when the file carries no {@code PartitionData} (unpartitioned / current spec
      * unpartitioned). Combines the partition-spec id with the serialized {@code PartitionData}
-     * ({@code partitionDataJson}) so that two files are keyed equal iff they share the same spec and
+     * ({@code partitionDataJson}), or with its raw values when they cannot be serialized
+     * ({@code rawPartitionKey}), so that two files are keyed equal iff they share the same spec and
      * partition tuple — mirroring legacy {@code IcebergScanNode}'s de-dup by
      * {@code (PartitionData) file().partition()}, and disambiguating cross-spec value collisions
      * (e.g. {@code identity(id)=2} vs {@code bucket(id)=2}) that the value-only json would merge.
      * {@code IcebergScanPlanProvider} counts distinct non-null keys for {@code selectedPartitionNum}.
      */
     String getScannedPartitionKey() {
-        if (partitionDataJson == null || !countsAsScannedPartition) {
+        if (!countsAsScannedPartition) {
             return null;
         }
-        return partitionSpecId + "|" + partitionDataJson;
+        if (partitionDataJson != null) {
+            return partitionSpecId + "|" + partitionDataJson;
+        }
+        // The marker keeps a raw tuple apart from a serialized one of the same spec.
+        return rawPartitionKey == null ? null : partitionSpecId + "|raw" + rawPartitionKey;
+    }
+
+    Integer getPartitionSpecId() {
+        return partitionSpecId;
+    }
+
+    boolean isPartitionDataUnavailable() {
+        return rawPartitionKey != null;
     }
 
     /**
@@ -330,6 +362,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
+        boolean nativeEncryption = encryption != null;
         if (positionDeleteSystemTableSplit) {
             // Native $position_deletes sys-table range. Mirrors legacy
             // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135) field for field.
@@ -339,7 +372,7 @@ public class IcebergScanRange implements ConnectorScanRange {
             // (file_scanner.cpp:103-113, file_scanner_v2.cpp:75-125). The top-level content field is otherwise
             // deprecated and unset on ordinary data ranges — which is exactly what keeps them out of this
             // reader. Consequently the data path MUST NEVER set content to 1 or 3.
-            rangeDesc.setFormatType(positionDeleteFileFormat);
+            rangeDesc.setFormatType(nativeEncryption ? TFileFormatType.FORMAT_PARQUET_PME : positionDeleteFileFormat);
             formatDesc.setTableLevelRowCount(-1);
             fileDesc.setContent(positionDeleteContent);
             if (partitionSpecId != null) {
@@ -368,6 +401,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             if (positionDeleteReferencedDataFilePath != null) {
                 deleteFileDesc.setReferencedDataFilePath(positionDeleteReferencedDataFilePath);
             }
+            if (encryption != null) {
+                deleteFileDesc.setEncryptionInfo(encryption.toThrift());
+            }
             fileDesc.setDeleteFiles(Collections.singletonList(deleteFileDesc));
             formatDesc.setIcebergParams(fileDesc);
             // A path-parsed "partition" key would collide with the metadata table's own `partition` slot.
@@ -390,6 +426,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             return;
         }
         fileDesc.setFormatVersion(formatVersion);
+        if (encryption != null) {
+            fileDesc.setEncryptionInfo(encryption.toThrift());
+        }
         // original_file_path = the RAW (un-normalized) data-file path; BE matches position-delete entries
         // against it (legacy setOriginalFilePath:304 uses the raw originalPath, not the normalized location).
         // This stays raw even though the range path (getPath) is scheme-normalized for BE to open.
@@ -416,13 +455,17 @@ public class IcebergScanRange implements ConnectorScanRange {
             // field-ids/DV-offset exactly as legacy built them.
             List<TIcebergDeleteFileDesc> deleteDescs = new ArrayList<>(deleteFiles.size());
             for (DeleteFile delete : deleteFiles) {
+                nativeEncryption |= delete.encryption != null;
                 deleteDescs.add(delete.toThrift());
             }
             fileDesc.setDeleteFiles(deleteDescs);
         }
 
         // native reader format (JNI = system tables, P6.5). Leaves the parent's default (FORMAT_JNI) otherwise.
-        if ("orc".equals(fileFormat)) {
+        if (nativeEncryption) {
+            // Older readers may ignore optional key fields; a distinct physical wire value must stop them.
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        } else if ("orc".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
         } else if ("parquet".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
@@ -468,10 +511,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         // Default empty (NOT "jni", which is not a real iceberg file format). Production callers set the real
         // orc/parquet from the data file's format; mirrors PaimonScanRange.Builder.
         private String fileFormat = "";
+        private IcebergFileEncryption encryption;
         // Default 2 (the iceberg metadata default); production callers set the real table format version.
         private int formatVersion = 2;
         private Integer partitionSpecId;
         private String partitionDataJson;
+        private String rawPartitionKey;
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
@@ -548,6 +593,11 @@ public class IcebergScanRange implements ConnectorScanRange {
             return this;
         }
 
+        Builder encryption(IcebergFileEncryption encryption) {
+            this.encryption = encryption;
+            return this;
+        }
+
         public Builder formatVersion(int formatVersion) {
             this.formatVersion = formatVersion;
             return this;
@@ -560,6 +610,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder partitionDataJson(String partitionDataJson) {
             this.partitionDataJson = partitionDataJson;
+            return this;
+        }
+
+        public Builder rawPartitionKey(String rawPartitionKey) {
+            this.rawPartitionKey = rawPartitionKey;
             return this;
         }
 
@@ -655,10 +710,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         private final Long contentOffset;
         private final Long contentSizeInBytes;
         private final long fileSize;
+        private final IcebergFileEncryption encryption;
 
         private DeleteFile(String path, int content, TFileFormatType fileFormat, Long positionLowerBound,
                 Long positionUpperBound, List<Integer> fieldIds, Long contentOffset, Long contentSizeInBytes,
-                long fileSize) {
+                long fileSize, IcebergFileEncryption encryption) {
             this.path = path;
             this.content = content;
             this.fileFormat = fileFormat;
@@ -668,13 +724,14 @@ public class IcebergScanRange implements ConnectorScanRange {
             this.contentOffset = contentOffset;
             this.contentSizeInBytes = contentSizeInBytes;
             this.fileSize = fileSize;
+            this.encryption = encryption;
         }
 
         /** A position delete file (content 1): row positions to drop, with optional [lower,upper] bounds. */
         public static DeleteFile positionDelete(String path, TFileFormatType fileFormat,
                 Long positionLowerBound, Long positionUpperBound, long fileSize) {
             return new DeleteFile(path, CONTENT_POSITION_DELETE, fileFormat,
-                    positionLowerBound, positionUpperBound, null, null, null, fileSize);
+                    positionLowerBound, positionUpperBound, null, null, null, fileSize, null);
         }
 
         /**
@@ -685,14 +742,22 @@ public class IcebergScanRange implements ConnectorScanRange {
         public static DeleteFile deletionVector(String path, Long positionLowerBound, Long positionUpperBound,
                 long contentOffset, long contentSizeInBytes, long fileSize) {
             return new DeleteFile(path, CONTENT_DELETION_VECTOR, null,
-                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes, fileSize);
+                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes, fileSize, null);
         }
 
         /** An equality delete file (content 2): rows equal on {@code fieldIds} are dropped (BE re-projects). */
         public static DeleteFile equalityDelete(String path, TFileFormatType fileFormat, List<Integer> fieldIds,
                 long fileSize) {
             return new DeleteFile(path, CONTENT_EQUALITY_DELETE, fileFormat, null, null,
-                    fieldIds, null, null, fileSize);
+                    fieldIds, null, null, fileSize, null);
+        }
+
+        DeleteFile withEncryption(IcebergFileEncryption encryption) {
+            if (this.encryption == encryption) {
+                return this;
+            }
+            return new DeleteFile(path, content, fileFormat, positionLowerBound, positionUpperBound,
+                    fieldIds, contentOffset, contentSizeInBytes, fileSize, encryption);
         }
 
         int getContent() {
@@ -719,6 +784,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             }
             if (contentSizeInBytes != null) {
                 desc.setContentSizeInBytes(contentSizeInBytes);
+            }
+            if (encryption != null) {
+                desc.setEncryptionInfo(encryption.toThrift());
             }
             desc.setContent(content);
             desc.setFileSize(fileSize);

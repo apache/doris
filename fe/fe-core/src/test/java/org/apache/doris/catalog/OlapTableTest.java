@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -49,6 +50,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +58,63 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
+
+    @Test
+    public void testInvertedIndexLookupIgnoresColumnNameCase() {
+        Index values = new Index(1, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        Index path = new Index(2, "path_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        Index string = new Index(3, "str_idx", List.of("s"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(values, path, string));
+        for (String name : List.of("V", "v")) {
+            Column column = new Column(name, Type.VARIANT);
+            Assertions.assertTrue(table.hasVariantValuesIndex(column));
+            Assertions.assertSame(values, table.getVariantValuesIndex(column, "english"));
+            Assertions.assertSame(path, table.getInvertedIndex(column, List.of()));
+        }
+        for (String name : List.of("S", "s")) {
+            Assertions.assertSame(string, table.getInvertedIndex(new Column(name, Type.STRING), List.of()));
+        }
+    }
+
+    @Test
+    public void testVariantInvertedIndexLookupEncodesLogicalKeys() {
+        List<List<String>> paths = List.of(List.of("a.b"), List.of("a", "b"),
+                List.of("a%2Eb"), List.of("50%"));
+        List<String> storagePaths = List.of("a%2Eb", "a.b", "a%252Eb", "50%25");
+        ArrayList<VariantField> fields = new ArrayList<>();
+        List<Index> indexes = new ArrayList<>();
+        for (int i = 0; i < storagePaths.size(); ++i) {
+            fields.add(new VariantField(storagePaths.get(i), Type.STRING, "", PatternType.MATCH_NAME));
+            indexes.add(new Index(i + 1, "idx_" + i, List.of("v"), IndexType.INVERTED,
+                    Map.of("field_pattern", storagePaths.get(i), "parser", "english"), ""));
+        }
+        Column column = new Column("v", new VariantType(fields));
+        OlapTable table = new OlapTable();
+        Index values = new Index(100, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        List<Index> allIndexes = new ArrayList<>(indexes);
+        allIndexes.add(0, values);
+        table.setIndexes(allIndexes);
+        table.setVariantEscapeDotsInKeys(true);
+        Assertions.assertSame(values, table.getVariantValuesIndex(column, "english"));
+        for (int i = 0; i < paths.size(); ++i) {
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i)));
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndex(column, paths.get(i), "english"));
+            Assertions.assertSame(indexes.get(i), table.getInvertedIndexByStoragePath(
+                    column, table.toVariantStoragePath(paths.get(i)), "english"));
+        }
+
+        table = new OlapTable();
+        table.setIndexes(indexes);
+        Column legacy = new Column("v", new VariantType(fields));
+        Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, List.of("a", "b")));
+        Assertions.assertSame(indexes.get(1), table.getInvertedIndex(legacy, List.of("a.b")));
+        Assertions.assertSame(indexes.get(0), table.getInvertedIndex(legacy, List.of("a%2Eb")));
+    }
 
     @Test
     public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {
@@ -185,6 +244,26 @@ public class OlapTableTest {
         Assertions.assertEquals(version + 1, olapTable.getPartitionTopologyVersion());
     }
 
+    @Test
+    public void testPartitionNameMapToleratesConcurrentAdd() {
+        OlapTable olapTable = new OlapTable();
+        for (int i = 0; i < 3; i++) {
+            olapTable.addPartition(newPartitionForTopologyVersionTest(10 + i, "p" + i));
+        }
+
+        // getPartitionNames() copies nameToPartition's keys without holding any lock, while a writer
+        // holding the table write lock may add a partition at the same time, so the iteration must be
+        // weakly consistent instead of fail fast.
+        Iterator<String> iterator = olapTable.getNameToPartition().keySet().iterator();
+        Assertions.assertTrue(iterator.hasNext());
+        iterator.next();
+        olapTable.addPartition(newPartitionForTopologyVersionTest(20, "p10"));
+        while (iterator.hasNext()) {
+            iterator.next();
+        }
+        Assertions.assertEquals(4, olapTable.getPartitionNames().size());
+    }
+
     private void addPartitionForTopologyVersionTest(OlapTable olapTable, long partitionId, String partitionName) {
         olapTable.getPartitionInfo().addPartition(partitionId, new DataProperty(TStorageMedium.HDD),
                 new ReplicaAllocation((short) 1), false, true);
@@ -206,6 +285,35 @@ public class OlapTableTest {
         Mockito.when(replica.getLocalInvertedIndexSize()).thenReturn(localIndexSize);
         Mockito.when(replica.getRemoteInvertedIndexSize()).thenReturn(remoteIndexSize);
         return replica;
+    }
+
+    @Test
+    public void testValidateForFlexiblePartialUpdateRejectsIndexWithoutSkipBitmap() throws UserException {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(true).when(table).getEnableUniqueKeyMergeOnWrite();
+        Mockito.doReturn(true).when(table).hasSkipBitmapColumn();
+        Mockito.doReturn(true).when(table).getEnableLightSchemaChange();
+        Mockito.doReturn(false).when(table).hasVariantColumns();
+
+        Mockito.doReturn(Lists.newArrayList()).when(table).getIndexIdListExceptBaseIndex();
+        table.validateForFlexiblePartialUpdate();
+
+        Column skipBitmapColumn = Mockito.mock(Column.class);
+        Mockito.doReturn(true).when(skipBitmapColumn).isSkipBitmapColumn();
+        Mockito.doReturn(Lists.newArrayList(2L)).when(table).getIndexIdListExceptBaseIndex();
+        Mockito.doReturn(Lists.newArrayList(skipBitmapColumn))
+                .when(table).getSchemaByIndexId(2L, true);
+        table.validateForFlexiblePartialUpdate();
+
+        Column valueColumn = Mockito.mock(Column.class);
+        Mockito.doReturn(false).when(valueColumn).isSkipBitmapColumn();
+        Mockito.doReturn(Lists.newArrayList(valueColumn)).when(table).getSchemaByIndexId(2L, true);
+        UserException exception =
+                Assertions.assertThrows(UserException.class, table::validateForFlexiblePartialUpdate);
+        Assertions.assertEquals(
+                "Flexible partial update requires every materialized index"
+                        + " to contain the skip bitmap hidden column.",
+                exception.getDetailMessage());
     }
 
     @Test

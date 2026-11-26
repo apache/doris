@@ -19,30 +19,35 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <vector>
+
 #include "cloud/cloud_storage_engine.h"
+#include "cpp/obj-storage/parser/obj_storage_config.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
-#include "util/s3_util.h"
 
 namespace doris {
 using namespace cloud;
 using namespace std::chrono;
 
-S3Conf create_test_s3_conf() {
-    S3Conf s3_conf;
-    s3_conf.bucket = "test-bucket";
-    s3_conf.prefix = "test-prefix";
-    s3_conf.client_conf.endpoint = "test-endpoint";
-    s3_conf.client_conf.region = "test-region";
-    s3_conf.client_conf.ak = "test-ak";
-    s3_conf.client_conf.sk = "test-sk";
+ObjStorageResourceConfig create_test_s3_conf() {
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "test-bucket",
+            .prefix = "test-prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "test-endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "test-ak",
+                                                                .secret_key = "test-sk"}},
+                    .region = "test-region"}};
     return s3_conf;
 }
 
 class CloudSnapshotMgrTest : public testing::Test {
 protected:
     void SetUp() override {
-        _fs = io::S3FileSystem::create(create_test_s3_conf(), io::FileSystem::TMP_FS_ID).value();
+        _fs = io::ObjStorageFileSystem::create(create_test_s3_conf(), io::FileSystem::TMP_FS_ID)
+                      .value();
         _engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
         _snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*_engine);
     }
@@ -167,6 +172,63 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).resource_id(), storage_resource.fs->id());
     EXPECT_FALSE(file_mapping.empty());
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(CloudSnapshotMgrTest, ConvertRowsetsPreservesCommitTso) {
+    const std::vector<std::optional<TsoRange>> cases = {std::nullopt, TsoRange(-1, -1),
+                                                        TsoRange(100, 100), TsoRange(100, 200)};
+    for (size_t i = 0; i < cases.size(); ++i) {
+        SCOPED_TRACE(i);
+        TabletMetaPB input;
+        input.set_tablet_id(1000);
+        input.set_schema_hash(123456);
+        *input.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
+        auto* schema = input.mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_num_short_key_columns(1);
+        schema->set_num_rows_per_row_block(1024);
+        auto* key = schema->add_column();
+        key->set_unique_id(1);
+        key->set_name("k1");
+        key->set_type("INT");
+        key->set_is_key(true);
+        key->set_aggregation("NONE");
+        auto* source = input.add_rs_metas();
+        source->set_rowset_id(0);
+        source->set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        source->set_tablet_id(1000);
+        source->set_rowset_type(BETA_ROWSET);
+        source->set_rowset_state(VISIBLE);
+        source->set_start_version(7);
+        source->set_end_version(
+                cases[i].has_value() && cases[i]->start_tso() != cases[i]->end_tso() ? 8 : 7);
+        source->set_num_segments(1);
+        source->add_segment_ids(7);
+        source->set_num_rows(10);
+        source->set_newest_write_timestamp(1000);
+        source->mutable_tablet_schema()->CopyFrom(*schema);
+        if (cases[i].has_value()) {
+            source->mutable_commit_tso()->set_start_tso(cases[i]->start_tso());
+            source->mutable_commit_tso()->set_end_tso(cases[i]->end_tso());
+        }
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->init_from_pb(input);
+        auto target = std::make_shared<CloudTablet>(*_engine, tablet_meta);
+        StorageResource resource {_fs};
+        std::unordered_map<std::string, std::string> file_mapping;
+        TabletMetaPB output;
+        auto st = _snapshot_mgr->convert_rowsets(&output, input, 3000, target, resource,
+                                                 file_mapping);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(1, output.rs_metas_size());
+        const auto& converted = output.rs_metas(0);
+        EXPECT_NE(source->rowset_id_v2(), converted.rowset_id_v2());
+        EXPECT_EQ(source->has_commit_tso(), converted.has_commit_tso());
+        EXPECT_EQ(source->commit_tso().SerializeAsString(),
+                  converted.commit_tso().SerializeAsString());
+        EXPECT_EQ(source->start_version(), converted.start_version());
+        EXPECT_EQ(source->end_version(), converted.end_version());
+    }
 }
 
 TEST_F(CloudSnapshotMgrTest, TestRenameIndexIds) {

@@ -17,13 +17,11 @@
 
 #include "cpp/util.h"
 
-#include <aws/core/client/ClientConfiguration.h>
+#include <bthread/countdown_event.h>
 
-#include <chrono>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -31,7 +29,8 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
-#include "cpp/aws_common.h"
+#include "cpp/aws_sdk.h"
+#include "cpp/obj-storage/auth/ca_bundle_cache.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
@@ -141,44 +140,49 @@ TEST(UtilTest, stage_wrapper) {
     ASSERT_EQ(0, f());
 }
 
+template <typename T>
+void test_cancel_after_tasks_started(T normal_value, T cancel_value,
+                                     std::function<bool(const T&)> is_cancel) {
+    auto pool = std::make_shared<SimpleThreadPool>(3);
+    pool->start();
+
+    bthread::CountdownEvent normal_tasks_started(2);
+    bthread::CountdownEvent cancellation_observed(1);
+    SyncExecutor<T> sync_executor(pool, "cancel after tasks started", [&](const T& value) {
+        bool cancelled = is_cancel(value);
+        if (cancelled) {
+            cancellation_observed.signal();
+        }
+        return cancelled;
+    });
+
+    auto normal_task = [&, normal_value]() {
+        normal_tasks_started.signal();
+        cancellation_observed.wait();
+        return normal_value;
+    };
+    auto cancel_task = [&, cancel_value]() {
+        normal_tasks_started.wait();
+        return cancel_value;
+    };
+
+    sync_executor.add(normal_task);
+    sync_executor.add(normal_task);
+    sync_executor.add(cancel_task);
+
+    bool finished = true;
+    auto results = sync_executor.when_all(&finished);
+    ASSERT_FALSE(finished);
+    ASSERT_EQ(3, results.size());
+    EXPECT_EQ(normal_value, results[0]);
+    EXPECT_EQ(normal_value, results[1]);
+    EXPECT_EQ(cancel_value, results[2]);
+}
+
 TEST(UtilTest, delay) {
-    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    s3_producer_pool->start();
-    // test normal execute
-    {
-        SyncExecutor<int> sync_executor(s3_producer_pool, "normal test",
-                                        [](int k) { return k == -1; });
-        auto f1 = []() { return -1; };
-        auto f2 = []() {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            return 1;
-        };
-        sync_executor.add(f2);
-        sync_executor.add(f2);
-        sync_executor.add(f1);
-        bool finished = true;
-        std::vector<int> res = sync_executor.when_all(&finished);
-        ASSERT_EQ(finished, false);
-        ASSERT_EQ(3, res.size());
-    }
-    // test normal execute
-    {
-        SyncExecutor<std::string_view> sync_executor(
-                s3_producer_pool, "normal test",
-                [](const std::string_view k) { return k.empty(); });
-        auto f1 = []() { return ""; };
-        auto f2 = []() {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            return "fake";
-        };
-        sync_executor.add(f2);
-        sync_executor.add(f2);
-        sync_executor.add(f1);
-        bool finished = true;
-        auto res = sync_executor.when_all(&finished);
-        ASSERT_EQ(finished, false);
-        ASSERT_EQ(3, res.size());
-    }
+    test_cancel_after_tasks_started<int>(1, -1, [](const int& value) { return value == -1; });
+    test_cancel_after_tasks_started<std::string_view>(
+            "fake", "", [](const std::string_view value) { return value.empty(); });
 }
 
 TEST(UtilTest, normal) {
@@ -441,31 +445,22 @@ TEST(UtilTest, test_normalize_http_uri) {
               "https://example.com/path?query=value#fragment");
 }
 
-TEST(UtilTest, test_set_s3_client_default_http_scheme) {
-    doris::cloud::S3Environment::getInstance();
-    Aws::Client::ClientConfiguration client_config =
-            doris::cloud::S3Environment::getClientConfiguration();
-
-    client_config.endpointOverride = "example.com:9000";
-    doris::set_s3_client_default_http_scheme(client_config, "http");
-    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
-
-    doris::set_s3_client_default_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
-
-    client_config.endpointOverride = "http://example.com:9000";
-    client_config.scheme = Aws::Http::Scheme::HTTP;
-    doris::set_s3_client_default_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
-
-    client_config.endpointOverride = "https://example.com:9000";
-    client_config.scheme = Aws::Http::Scheme::HTTPS;
-    doris::set_s3_client_default_http_scheme(client_config, "http");
-    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+TEST(UtilTest, RecyclerPreservesExplicitEndpointScheme) {
+    doris::ensure_aws_sdk_initialized(config::aws_log_level);
+    ObjectStoreInfoPB vault;
+    vault.set_provider(ObjectStoreInfoPB::S3);
+    vault.set_bucket("bucket");
+    vault.set_region("us-east-1");
+    for (const std::string endpoint :
+         {"example.com:9000", "http://example.com:9000", "https://example.com:9000"}) {
+        vault.set_endpoint(endpoint);
+        auto resource = parse_recycler_storage_config(vault);
+        ASSERT_TRUE(resource.has_value());
+        const auto expected = endpoint.find("://") == std::string::npos
+                                      ? config::s3_client_http_scheme + "://" + endpoint
+                                      : endpoint;
+        EXPECT_EQ(doris::obj_storage_connection(resource->client).endpoint, expected);
+    }
 }
 
 TEST(UtilTest, test_long_normalize_http_uri) {

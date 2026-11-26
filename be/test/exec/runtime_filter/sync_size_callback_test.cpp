@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/runtime_filter/sync_size_callback.h"
+
 #include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 

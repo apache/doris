@@ -44,6 +44,12 @@ public final class StreamingJdbcUrlNormalizer {
         }
     }
 
+    public static String appendDefaultParam(String jdbcUrl, String param, String value) {
+        StringBuilder result = new StringBuilder(jdbcUrl);
+        setDefaultParam(result, getParams(jdbcUrl), param, value);
+        return result.toString();
+    }
+
     private static String normalizeMysql(String jdbcUrl) {
         String normalizedUrl = jdbcUrl.replace(" ", "");
         Set<String> params = getParams(normalizedUrl);

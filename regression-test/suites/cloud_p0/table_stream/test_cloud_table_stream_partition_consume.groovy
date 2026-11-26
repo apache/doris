@@ -37,8 +37,7 @@ suite("test_cloud_table_stream_partition_consume") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql """

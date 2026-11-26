@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -73,14 +75,15 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.misc.Interval;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -125,18 +128,25 @@ public class BaseViewInfo {
      * Add the full path to the field
      *
      * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced,
-     *         and value is the new string used for replacement.
+     *         and value is the new string used for replacement. The positions are the token positions the
+     *         parser reports for querySql.
      * @param querySql origin query sql
      * @return sql rewritten sql
      */
     public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
+        // The parser counts a supplementary character such as an emoji as one character, while querySql
+        // counts it as two. beg and begTokenPosition are the same place on both scales; the keys ascend,
+        // so each position is converted by scanning forward from the previous one.
         int beg = 0;
+        int begTokenPosition = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
             Pair<Integer, Integer> index = entry.getKey();
-            builder.append(querySql, beg, index.first);
+            int start = querySql.offsetByCodePoints(beg, index.first - begTokenPosition);
+            builder.append(querySql, beg, start);
             builder.append(entry.getValue());
-            beg = index.second + 1;
+            beg = querySql.offsetByCodePoints(start, index.second + 1 - index.first);
+            begTokenPosition = index.second + 1;
         }
         builder.append(querySql, beg, querySql.length());
         return builder.toString();
@@ -164,10 +174,11 @@ public class BaseViewInfo {
         List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
         StringBuilder replaceWithColsBuilder = new StringBuilder();
         for (int i = 0; i < namedExpressionContexts.size(); ++i) {
-            NamedExpressionContext namedExpressionContext = namedExpressionContexts.get(i);
-            int start = namedExpressionContext.expression().start.getStartIndex();
-            int stop = namedExpressionContext.expression().stop.getStopIndex();
-            replaceWithColsBuilder.append(resSql, start, stop + 1);
+            ParserRuleContext expression = namedExpressionContexts.get(i).expression();
+            // Token positions count a supplementary character such as an emoji as one character, so read
+            // the expression from the parser's input instead of cutting resSql.
+            replaceWithColsBuilder.append(expression.start.getInputStream().getText(
+                    Interval.of(expression.start.getStartIndex(), expression.stop.getStopIndex())));
             replaceWithColsBuilder.append(" AS `");
             String escapeBacktick = finalColNames.get(i).replace("`", "``");
             replaceWithColsBuilder.append(escapeBacktick);
@@ -176,9 +187,9 @@ public class BaseViewInfo {
                 replaceWithColsBuilder.append(", ");
             }
         }
-        String replaceWithCols = replaceWithColsBuilder.toString();
-        return StringUtils.overlay(resSql, replaceWithCols, finder.getIndex().first,
-                finder.getIndex().second + 1);
+        TreeMap<Pair<Integer, Integer>, String> selectColumns = new TreeMap<>(new Pair.PairComparator<>());
+        selectColumns.put(finder.getIndex(), replaceWithColsBuilder.toString());
+        return rewriteSql(selectColumns, resSql);
     }
 
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
@@ -220,10 +231,6 @@ public class BaseViewInfo {
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
-            }
-            if (col.getType().isVarbinaryType()) {
-                throw new org.apache.doris.common.AnalysisException(
-                        "View does not support VARBINARY type: " + col.getName());
             }
             try {
                 FeNameFormat.checkColumnName(col.getName());
@@ -291,6 +298,15 @@ public class BaseViewInfo {
         }
 
         public void analyze() {
+            // View SQL is bound before the normal planner runs. Collect nested scans and
+            // obtain the statement's TTL reference before BindRelation needs it.
+            cascadesContext.newTableCollector(true).collect();
+            StatementContext statementContext = cascadesContext.getStatementContext();
+            if (statementContext.isChangelogReferenceTsoRequired()) {
+                statementContext.getOrRegisterChangelogReferenceTso(
+                        () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
+            }
+            cascadesContext.setCteContext(new CTEContext());
             execute();
         }
 
@@ -383,6 +399,14 @@ public class BaseViewInfo {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
             return project.child().accept(this, context);
+        }
+
+        @Override
+        public Void visitLogicalQualify(LogicalQualify<? extends Plan> qualify, StatementContext context) {
+            for (Expression expr : qualify.getConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            return qualify.child().accept(this, context);
         }
 
         @Override

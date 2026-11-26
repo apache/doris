@@ -19,6 +19,7 @@
 
 #include <aws/core/external/cjson/cJSON.h>
 #include <bthread/bthread.h>
+#include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <bthread/unstable.h>
 #include <bvar/bvar.h>
@@ -30,7 +31,6 @@
 #include <cpp/sync_point.h>
 #include <gmock/gmock-actions.h>
 
-#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <map>
@@ -39,6 +39,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/logging.h"
 
@@ -345,17 +346,15 @@ private:
         * @return true if the timer was successfully started, false otherwise
         */
         bool start() {
-            if (!_started.load()) {
-                {
-                    std::lock_guard<bthread::Mutex> l(init_mutex_);
-                    if (!_started.load()) {
-                        if (!schedule()) {
-                            return false;
-                        }
-                        _started.store(true);
-                    }
-                    return true;
-                }
+            std::lock_guard<bthread::Mutex> l(lifecycle_mutex_);
+            if (_started) {
+                return true;
+            }
+
+            _started = true;
+            if (!schedule_locked()) {
+                _started = false;
+                return false;
             }
             return true;
         }
@@ -365,12 +364,14 @@ private:
         * Scheduling a one-time task.
         * This is useful if you want to reset the timer interval.
         */
-        bool schedule() {
+        // lifecycle_mutex_ must be held so stop() cannot race with replacing _timer.
+        bool schedule_locked() {
             if (bthread_timer_add(&_timer, butil::seconds_from_now(_interval_s), update, this) !=
                 0) {
                 LOG(WARNING) << "Failed to add bthread timer for ScheduledLatencyUpdater";
                 return false;
             }
+            _callback_pending = true;
             return true;
         }
 
@@ -384,8 +385,8 @@ private:
         */
         static void update(void* arg) {
             auto* latency_updater = static_cast<ScheduledLatencyUpdater*>(arg);
-            if (!latency_updater || !latency_updater->_started) {
-                LOG(WARNING) << "Invalid ScheduledLatencyUpdater in timer callback";
+            CHECK(latency_updater != nullptr);
+            if (!latency_updater->begin_callback()) {
                 return;
             }
 
@@ -395,53 +396,48 @@ private:
             auto* parent = static_cast<MBvarLatencyRecorderWithStatus*>(latency_updater->_arg);
             if (!parent) {
                 LOG(WARNING) << "Invalid parent container in timer callback";
-                return;
-            }
+            } else {
+                std::list<std::string> current_dim_list;
+                {
+                    std::lock_guard<bthread::Mutex> l(parent->recorder_mutex_);
+                    for (const auto& it : parent->recorder_) {
+                        if (it.second.get() == latency_updater) {
+                            current_dim_list = it.first;
+                            break;
+                        }
+                    }
+                }
 
-            std::list<std::string> current_dim_list;
-            {
-                std::lock_guard<bthread::Mutex> l(parent->recorder_mutex_);
-                for (const auto& it : parent->recorder_) {
-                    if (it.second.get() == latency_updater) {
-                        current_dim_list = it.first;
-                        break;
+                if (current_dim_list.empty()) {
+                    LOG(WARNING) << "Could not find dimension for ScheduledLatencyUpdater";
+                } else {
+                    std::lock_guard<bthread::Mutex> l(parent->timer_mutex_);
+
+                    bvar::Status<int64_t>* max_status =
+                            parent->max_status_.get_stats(current_dim_list);
+                    bvar::Status<int64_t>* avg_status =
+                            parent->avg_status_.get_stats(current_dim_list);
+                    bvar::Status<int64_t>* count_status =
+                            parent->count_status_.get_stats(current_dim_list);
+
+                    VLOG_DEBUG << "Updating latency recorder status for dimension, "
+                               << "max_latency: " << latency_updater->max_latency()
+                               << ", avg_latency: " << latency_updater->latency();
+                    TEST_SYNC_POINT("mBvarLatencyRecorderWithStatus::update");
+
+                    if (max_status) {
+                        max_status->set_value(latency_updater->max_latency());
+                    }
+                    if (avg_status) {
+                        avg_status->set_value(latency_updater->latency());
+                    }
+                    if (count_status) {
+                        count_status->set_value(latency_updater->count());
                     }
                 }
             }
 
-            if (current_dim_list.empty()) {
-                LOG(WARNING) << "Could not find dimension for ScheduledLatencyUpdater";
-                return;
-            }
-
-            {
-                std::lock_guard<bthread::Mutex> l(parent->timer_mutex_);
-
-                bvar::Status<int64_t>* max_status = parent->max_status_.get_stats(current_dim_list);
-                bvar::Status<int64_t>* avg_status = parent->avg_status_.get_stats(current_dim_list);
-                bvar::Status<int64_t>* count_status =
-                        parent->count_status_.get_stats(current_dim_list);
-
-                VLOG_DEBUG << "Updating latency recorder status for dimension, "
-                           << "max_latency: " << latency_updater->max_latency()
-                           << ", avg_latency: " << latency_updater->latency();
-                TEST_SYNC_POINT("mBvarLatencyRecorderWithStatus::update");
-
-                if (max_status) {
-                    max_status->set_value(latency_updater->max_latency());
-                }
-                if (avg_status) {
-                    avg_status->set_value(latency_updater->latency());
-                }
-                if (count_status) {
-                    count_status->set_value(latency_updater->count());
-                }
-            }
-
-            if (latency_updater->_started && !latency_updater->schedule()) {
-                LOG(WARNING) << "Failed to reschedule timer for ScheduledLatencyUpdater";
-                latency_updater->_started = false;
-            }
+            latency_updater->finish_callback();
         }
 
         /**
@@ -451,18 +447,64 @@ private:
         * any pending callbacks from accessing potentially freed resources.
         */
         void stop() {
-            if (_started.load()) {
-                bthread_timer_del(_timer);
-                _started = false;
+            std::unique_lock<bthread::Mutex> l(lifecycle_mutex_);
+            if (!_started && !_callback_pending) {
+                return;
+            }
+
+            // Prevent a running callback from scheduling the next timer before trying to
+            // cancel the current one. bthread_timer_del() returns 1 when the callback is
+            // already running; in that case the updater and its parent must stay alive until
+            // finish_callback() signals that the callback no longer accesses either object.
+            _started = false;
+            if (!_callback_pending) {
+                return;
+            }
+
+            const int timer_state = bthread_timer_del(_timer);
+            if (timer_state == 0) {
+                _callback_pending = false;
+                return;
+            }
+
+            CHECK_EQ(1, timer_state);
+            TEST_SYNC_POINT("mBvarLatencyRecorderWithStatus::stop");
+            while (_callback_pending) {
+                callback_finished_.wait(l);
             }
         }
 
     private:
-        int _interval_s;                   // Timer interval in seconds
-        void* _arg;                        // Argument to pass to the callback
-        bthread_timer_t _timer;            // The bthread timer handle
-        std::atomic_bool _started {false}; // Whether the timer has been started
-        bthread::Mutex init_mutex_;        // Mutex for timer_map_
+        bool begin_callback() {
+            std::lock_guard<bthread::Mutex> l(lifecycle_mutex_);
+            if (_started) {
+                return true;
+            }
+
+            // stop() may observe the timer as running before this function acquires the
+            // lifecycle mutex. Acknowledge the canceled callback so stop() can finish.
+            _callback_pending = false;
+            callback_finished_.notify_all();
+            return false;
+        }
+
+        void finish_callback() {
+            std::lock_guard<bthread::Mutex> l(lifecycle_mutex_);
+            _callback_pending = false;
+            if (_started && !schedule_locked()) {
+                LOG(WARNING) << "Failed to reschedule timer for ScheduledLatencyUpdater";
+                _started = false;
+            }
+            callback_finished_.notify_all();
+        }
+
+        int _interval_s;                // Timer interval in seconds
+        void* _arg;                     // Argument to pass to the callback
+        bthread_timer_t _timer;         // The bthread timer handle
+        bool _started = false;          // Whether callbacks should keep running
+        bool _callback_pending = false; // A timer callback is scheduled or running
+        bthread::Mutex lifecycle_mutex_;
+        bthread::ConditionVariable callback_finished_;
     };
 
 public:
@@ -482,6 +524,24 @@ public:
     MBvarLatencyRecorderWithStatus(const std::string& prefix, const std::string& metric_name,
                                    const std::initializer_list<std::string>& dim_names)
             : MBvarLatencyRecorderWithStatus(prefix + "_" + metric_name, dim_names) {}
+
+    ~MBvarLatencyRecorderWithStatus() {
+        // Members are destroyed in reverse declaration order, so recorder_ (which owns the
+        // timer callbacks) would otherwise be destroyed after the status bvars and mutexes
+        // used by those callbacks. Stop and drain every callback while all parent members are
+        // still alive.
+        std::vector<std::shared_ptr<ScheduledLatencyUpdater>> latency_updaters;
+        {
+            std::lock_guard<bthread::Mutex> l(recorder_mutex_);
+            latency_updaters.reserve(recorder_.size());
+            for (const auto& entry : recorder_) {
+                latency_updaters.push_back(entry.second);
+            }
+        }
+        for (const auto& latency_updater : latency_updaters) {
+            latency_updater->stop();
+        }
+    }
 
     /**
      * @brief Record a latency value
@@ -591,7 +651,6 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_stage;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_stage;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_iam;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_ak_sk;
-extern BvarLatencyRecorderWithTag g_bvar_ms_alter_iam;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_ram_user;
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_copy;
 extern BvarLatencyRecorderWithTag g_bvar_ms_finish_copy;
@@ -668,6 +727,9 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
 extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_scanned;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_expired;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_recycled;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started;
 extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
@@ -771,15 +833,15 @@ extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
 extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned_with_segment;
-extern BvarStatusWithTag<long> g_bvar_checker_num_check_failed;
-extern BvarStatusWithTag<long> g_bvar_checker_check_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
-extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned_with_segment;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_check_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_enqueue_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_last_success_time_ms;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_instance_volume;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed;
 
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
@@ -866,8 +928,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_counter;
-extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_counter;
-extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_get_counter;
@@ -1011,8 +1071,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_bytes;
-extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_bytes;
-extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_get_bytes;

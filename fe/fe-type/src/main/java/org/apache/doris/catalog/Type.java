@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Abstract class describing an Impala data type (scalar/complex type).
@@ -66,6 +67,7 @@ public abstract class Type {
     public static final ScalarType DOUBLE = new ScalarType(PrimitiveType.DOUBLE);
     public static final ScalarType IPV4 = new ScalarType(PrimitiveType.IPV4);
     public static final ScalarType IPV6 = new ScalarType(PrimitiveType.IPV6);
+    public static final ScalarType UUID = new ScalarType(PrimitiveType.UUID);
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
@@ -124,6 +126,7 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
+    public static final FileType FILE = FileType.create();
     // In the past, variant metadata used the ScalarType type.
     // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
     public static final VariantType VARIANT = new VariantType();
@@ -184,6 +187,7 @@ public abstract class Type {
         trivialTypes.add(TIMESTAMP_NS);
         trivialTypes.add(IPV4);
         trivialTypes.add(IPV6);
+        trivialTypes.add(UUID);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
         trivialTypes.add(VARIANT);
@@ -210,6 +214,7 @@ public abstract class Type {
         arraySubTypes.add(TIMESTAMP_TZ);
         arraySubTypes.add(IPV4);
         arraySubTypes.add(IPV6);
+        arraySubTypes.add(UUID);
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
@@ -221,6 +226,7 @@ public abstract class Type {
         arraySubTypes.add(ARRAY);
         arraySubTypes.add(MAP);
         arraySubTypes.add(STRUCT);
+        arraySubTypes.add(FILE);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -241,6 +247,7 @@ public abstract class Type {
         mapSubTypes.add(TIMESTAMP_TZ);
         mapSubTypes.add(IPV4);
         mapSubTypes.add(IPV6);
+        mapSubTypes.add(UUID);
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
@@ -248,6 +255,7 @@ public abstract class Type {
         mapSubTypes.add(ARRAY);
         mapSubTypes.add(MAP);
         mapSubTypes.add(STRUCT);
+        mapSubTypes.add(FILE);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
@@ -268,6 +276,7 @@ public abstract class Type {
         structSubTypes.add(TIMESTAMP_TZ);
         structSubTypes.add(IPV4);
         structSubTypes.add(IPV6);
+        structSubTypes.add(UUID);
         structSubTypes.add(CHAR);
         structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
@@ -275,6 +284,7 @@ public abstract class Type {
         structSubTypes.add(ARRAY);
         structSubTypes.add(MAP);
         structSubTypes.add(STRUCT);
+        structSubTypes.add(FILE);
 
         // Before adding a type here, the BE side must implement these three serde
         // adapters for the type so values falling to the variant sparse path can
@@ -294,9 +304,11 @@ public abstract class Type {
         variantSubTypes.add(DATEV2);
         variantSubTypes.add(DATETIMEV2);
         variantSubTypes.add(TIMESTAMP_NS);
-        variantSubTypes.add(TIMESTAMP_TZ);
+        // TIMESTAMP_TZ is deliberately absent. This list is only checked when a column or
+        // function type is defined, so tables that already declare a TIMESTAMPTZ path keep working.
         variantSubTypes.add(IPV4);
         variantSubTypes.add(IPV6);
+        variantSubTypes.add(UUID);
         variantSubTypes.add(STRING);
         variantSubTypes.add(NULL);
     }
@@ -319,6 +331,7 @@ public abstract class Type {
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.IPV4, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.IPV6, Sets.newHashSet(InetAddress.class))
+                    .put(PrimitiveType.UUID, Sets.newHashSet(UUID.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARBINARY, Sets.newHashSet(Byte[].class, byte[].class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
@@ -462,6 +475,22 @@ public abstract class Type {
             return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
         }
         return false;
+    }
+
+    /** Whether this type or a nested complex type contains FILE. */
+    public boolean typeContainsFile() {
+        if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsFile());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsFile() || mapType.getValueType().typeContainsFile();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsFile();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(Type::typeContainsFile);
+        }
+        return isFileType();
     }
 
     /** Whether this type or a nested complex type contains Variant. */
@@ -736,7 +765,7 @@ public abstract class Type {
     }
 
     public boolean isComplexType() {
-        return isStructType() || isMapType() || isArrayType();
+        return isStructType() || isMapType() || isArrayType() || isFileType();
     }
 
     public boolean isMapType() {
@@ -749,6 +778,10 @@ public abstract class Type {
 
     public boolean isAggStateType() {
         return this instanceof AggStateType;
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
     }
 
     public boolean isStructType() {
@@ -777,6 +810,10 @@ public abstract class Type {
 
     public boolean isIPv6() {
         return isScalarType(PrimitiveType.IPV6);
+    }
+
+    public boolean isUuid() {
+        return isScalarType(PrimitiveType.UUID);
     }
 
     /**
@@ -872,7 +909,7 @@ public abstract class Type {
             }
             return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
-            Preconditions.checkState(isScalarType() || isAggStateType());
+            Preconditions.checkState(isScalarType() || isAggStateType() || isFileType());
         }
         return false;
     }
@@ -899,6 +936,8 @@ public abstract class Type {
                 return Type.IPV4;
             case IPV6:
                 return Type.IPV6;
+            case UUID:
+                return Type.UUID;
             case DATE:
                 return Type.DATE;
             case DATETIME:
@@ -939,6 +978,8 @@ public abstract class Type {
                 return new MapType();
             case STRUCT:
                 return new StructType();
+            case FILE:
+                return FILE;
             case BITMAP:
                 return Type.BITMAP;
             case QUANTILE_STATE:
@@ -1018,6 +1059,11 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
                     type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.TIMESTAMPTZ) {
+                    // Use the declared scale. For example, TIMESTAMPTZ(6) must not become TIMESTAMPTZ(0).
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createTimeStampTzType(scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.TIMESTAMP_NS) {
                     type = ScalarType.createTimeStampNsType();
                 } else if (scalarType.getType() == TPrimitiveType.TIMEV2) {
@@ -1044,6 +1090,28 @@ public abstract class Type {
                 Pair<Type, Integer> valueType = fromThrift(col, keyType.getRight());
                 type = new MapType(keyType.getLeft(), valueType.getLeft());
                 tmpNodeIdx = valueType.getRight();
+                break;
+            }
+            case FILE: {
+                Preconditions.checkArgument(node.getStructFieldsSize() == FileType.FIELD_COUNT
+                                && !node.isSetContainsNulls(),
+                        "FILE requires six named nullable children");
+                List<StructField> fields = new ArrayList<>();
+                ++tmpNodeIdx;
+                for (int i = 0; i < FileType.FIELD_COUNT; i++) {
+                    TStructField field = node.getStructFields().get(i);
+                    Preconditions.checkArgument(field.isSetContainsNull() && field.isContainsNull(),
+                            "FILE children must be nullable");
+                    Pair<Type, Integer> child = fromThrift(col, tmpNodeIdx);
+                    Type childType = child.getLeft();
+                    if (i == FileType.FIELD_COUNT - 1 && childType.isVarbinaryType()) {
+                        TScalarType inlineType = col.getTypes().get(tmpNodeIdx).getScalarType();
+                        childType = ScalarType.createVarbinaryType(inlineType.isSetLen() ? inlineType.getLen() : -1);
+                    }
+                    fields.add(new StructField(field.getName(), childType, null, true));
+                    tmpNodeIdx = child.getRight();
+                }
+                type = new FileType(fields);
                 break;
             }
             case STRUCT: {
@@ -1091,6 +1159,7 @@ public abstract class Type {
             case VARCHAR:
             case STRING:
             case HLL:
+            case VARBINARY:
                 return t.getLength();
             default:
                 return null;
@@ -1233,8 +1302,16 @@ public abstract class Type {
                     return false;
                 }
                 for (int i = 0; i < struct1.getFields().size(); i++) {
-                    if (!matchExactType(struct1.getFields().get(i).getType(),
-                            struct2.getFields().get(i).getType(), ignorePrecision)) {
+                    StructField field1 = struct1.getFields().get(i);
+                    StructField field2 = struct2.getFields().get(i);
+                    // A struct field name is part of the value identity: the cast is defined to
+                    // return the target field names positionally, and BE resolves name based
+                    // access (ELEMENT_AT, nested field references) against the type attached to
+                    // the result column at execution time. Dropping a rename-only cast would let
+                    // those lookups see the source names, so such a cast is not a no-op even when
+                    // the positional field types are identical.
+                    if (!field1.getName().equals(field2.getName())
+                            || !matchExactType(field1.getType(), field2.getType(), ignorePrecision)) {
                         return false;
                     }
                 }

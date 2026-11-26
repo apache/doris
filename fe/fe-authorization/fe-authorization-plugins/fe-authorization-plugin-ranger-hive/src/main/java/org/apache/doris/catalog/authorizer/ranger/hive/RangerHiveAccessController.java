@@ -343,6 +343,9 @@ public class RangerHiveAccessController extends RangerAccessController {
             AccessContext context) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(subject.getUser());
+        // Ranger's groups for the user, out of the user store this service's plugin downloads; a Hive
+        // service's policies are usually kept by group, and Doris has no groups of its own to send.
+        request.setUserGroups(groupsOf(subject));
         request.setUserRoles(roles);
         request.setClientIPAddress(clientAddressOf(subject, context));
         request.setClusterType(CLIENT_TYPE_DORIS);

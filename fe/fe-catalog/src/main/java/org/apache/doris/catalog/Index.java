@@ -75,10 +75,13 @@ public class Index implements Writable {
         this.comment = comment;
         if (indexType == IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
+                String normalizerName = this.properties.get(
+                        InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY);
+                if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(getInvertedIndexParser())
+                        || StringUtils.isNotEmpty(this.properties.get(
+                                InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY))
+                        || (StringUtils.isNotEmpty(normalizerName)
+                                && !"lowercase".equalsIgnoreCase(normalizerName))) {
                     String supportPhraseKey = InvertedIndexProperties
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {
@@ -179,6 +182,9 @@ public class Index implements Writable {
     // local mode supports light add for bf index, inverted index, ann index and ngram_bf index
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (isVariantValuesIndex()) {
+            return enableAddIndexForNewData;
+        }
         if (Config.isCloudMode()) {
             if (indexType == IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
@@ -327,5 +333,11 @@ public class Index implements Writable {
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY));
+    }
+
+    /** A VARIANT values index: whole-column tokens from scalar leaves. */
+    public boolean isVariantValuesIndex() {
+        return indexType == IndexType.INVERTED
+                && InvertedIndexProperties.isVariantValuesIndex(properties);
     }
 }

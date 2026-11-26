@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_const.h"
@@ -309,6 +310,16 @@ TEST_F(FunctionTokenizeTest, InvalidParser) {
 
     auto status = _function->execute(nullptr, block, arguments, result, input_rows_count);
     EXPECT_FALSE(status.ok()) << "Should fail with invalid parser";
+}
+
+// A missing dictionary fails tokenize() with INVERTED_INDEX_ANALYZER_ERROR.
+TEST_F(FunctionTokenizeTest, MissingChineseDictionary) {
+    const std::string saved = config::inverted_index_dict_path;
+    config::inverted_index_dict_path = "./ut_dir/no_such_dictionary";
+    Block block = create_test_block({"中文分词"}, "'parser'='chinese'");
+    const Status status = _function->execute(nullptr, block, {0, 1}, 2, 1);
+    config::inverted_index_dict_path = saved;
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
 } // namespace doris

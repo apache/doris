@@ -29,6 +29,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -42,6 +45,7 @@ import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.ChangelogStatsPB;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictRequest;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CleanTxnLabelRequest;
@@ -68,6 +72,9 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamPartitionUpdatePB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamUpdatePB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -536,6 +543,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
+        // The partitions the rows were loaded into are handed over as well: a report can arrive after those
+        // partitions are gone (a stream load queues its statistics report and can return before the frontend
+        // received it, and a whole table TRUNCATE replaces the partitions while it keeps the table id), and the
+        // rows of such a report are the rows which were removed.
+        Map<Long, List<Long>> reportedPartitions = Maps.newHashMap();
+        for (int idx = 0; idx < commitTxnResponse.getPartitionIdsCount(); ++idx) {
+            reportedPartitions.computeIfAbsent(commitTxnResponse.getTableIds(idx), tableId -> Lists.newArrayList())
+                    .add(commitTxnResponse.getPartitionIds(idx));
+        }
         Map<Long, Long> updatedRows = new HashMap<>();
         for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
             if (tableStats.hasUpdatedRowCount()) {
@@ -545,9 +561,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         Env env = Env.getCurrentEnv();
-        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+        env.getAnalysisManager().updateUpdatedRows(updatedRows, dbId, reportedPartitions);
         // 2. update table and partition version
         Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
+        updateChangelogRowCounts(commitTxnResponse);
         // 3. notify partition first load
         env.getAnalysisManager().setNewPartitionLoaded(
                 tablePartitionMap.keySet().stream().collect(Collectors.toList()));
@@ -587,6 +604,41 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
             LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
+        }
+    }
+
+    void updateChangelogRowCounts(CommitTxnResponse response) {
+        // Lazy commit may return txn_info while its visibility task has not finished. Failed or
+        // incomplete responses must not make uncommitted changelog rows available to estimation.
+        if (response.getStatus().getCode() != MetaServiceCode.OK
+                || response.getTxnInfo().getStatus() != TxnStatusPB.TXN_STATUS_VISIBLE
+                || response.getIsLazyCommitIncomplete() || response.getChangelogStatsCount() == 0) {
+            return;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(response.getTxnInfo().getDbId());
+        if (db == null) {
+            return;
+        }
+        for (ChangelogStatsPB stats : response.getChangelogStatsList()) {
+            Table table = db.getTableNullable(stats.getTableId());
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.writeLock();
+            try {
+                Partition partition = olapTable.getPartition(stats.getPartitionId());
+                MaterializedIndex index = partition == null ? null : partition.getIndex(stats.getIndexId());
+                // Reject the whole aggregate if its tablet list is empty or any listed tablet
+                // no longer belongs to the current changelog index.
+                if (index == null || !index.isChangelog() || stats.getTabletIdsCount() == 0
+                        || stats.getTabletIdsList().stream().anyMatch(id -> index.getTablet(id) == null)) {
+                    continue;
+                }
+                index.addChangelogRows(stats.getVersion(), stats.getUpdatedRowCount());
+            } finally {
+                olapTable.writeUnlock();
+            }
         }
     }
 
@@ -823,6 +875,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long callbackId = 0L;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        prepareStreamUpdates(builder);
         try {
             txnState = commitTxn(builder, tableList, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
@@ -863,6 +916,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
+    private static void prepareStreamUpdates(CommitTxnRequest.Builder builder) {
+        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
+        for (int i = 0; i < builder.getTableStreamUpdatesCount(); i++) {
+            TableStreamUpdatePB update = builder.getTableStreamUpdates(i);
+            Map<Long, Long> offsets = update.getPartitionUpdatesList().stream()
+                    .collect(Collectors.toMap(TableStreamPartitionUpdatePB::getPartitionId,
+                            TableStreamPartitionUpdatePB::getNextOffsetTso));
+            TableStreamIdentityPB identity = update.getIdentity();
+            OlapTableStreamUpdate next = manager.prepareStreamUpdate(
+                    identity.getStreamDbId(), identity.getStreamId(), offsets);
+            TableStreamUpdatePB.Builder serialized = update.toBuilder();
+            for (TableStreamPartitionUpdatePB.Builder partition : serialized.getPartitionUpdatesBuilderList()) {
+                PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).getNextState();
+                partition.setBaseRowCount(state.getBaseRowCount());
+                partition.setChangelogRowCount(state.getChangelogRowCount());
+            }
+            builder.setTableStreamUpdates(i, serialized);
+        }
+    }
+
     private TransactionState commitTxn(CommitTxnRequest.Builder builder, List<Table> tableList,
             long transactionId, boolean is2PC, List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds)
             throws UserException {
@@ -871,7 +944,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // when ready to send, while retaining the existing table locks and callback cleanup scope.
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
-        long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        long commitTso;
+        try {
+            commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        } catch (TransactionCommitFailedException e) {
+            // A previous commit may have succeeded before its response was lost. Recover its TSO
+            // and let the existing commit RPC handle idempotency, lazy publish and 2PC status checks.
+            TransactionState persisted = getTransactionState(builder.getDbId(), transactionId);
+            if (persisted == null || (persisted.getTransactionStatus() != TransactionStatus.COMMITTED
+                    && persisted.getTransactionStatus() != TransactionStatus.VISIBLE)) {
+                throw e;
+            }
+            commitTso = persisted.getCommitTSO();
+        }
         if (commitTso > 0) {
             builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
         }
@@ -1134,8 +1219,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (index == null) {
                 throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
             }
-            if (index.isRowBinlog()) {
-                // Row-binlog delete bitmap is derived and saved by its base tablet.
+            if (index.isChangelog()) {
+                // Changelog delete bitmap is derived and saved by its base tablet.
                 continue;
             }
 
@@ -1180,7 +1265,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!Config.calc_delete_bitmap_get_versions_in_batch) {
             Map<Long, Long> partitionToVersions = Maps.newHashMap();
             partitionMap.forEach((key, value) -> {
-                long visibleVersion = value.getVisibleVersion();
+                long visibleVersion = ((CloudPartition) value).getVisibleVersionFromMs(
+                        Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
                 long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
                 partitionToVersions.put(key, newVersion);
             });
@@ -1636,6 +1722,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
+        return commitAndPublishTransactionWithRetry(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                null, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int retryTimes = 0;
@@ -1644,7 +1739,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             while (true) {
                 try {
                     res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
-                            null);
+                            txnCommitAttachment, streamUpdateInfos);
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",

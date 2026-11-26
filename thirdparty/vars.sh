@@ -105,10 +105,10 @@ SNAPPY_SOURCE=snappy-1.2.1
 SNAPPY_MD5SUM="dd6f9b667e69491e1dbf7419bdf68823"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.10.tar.gz
-GPERFTOOLS_SOURCE=gperftools-2.10
-GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.18.1/gperftools-2.18.1.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.18.1.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.18.1
+GPERFTOOLS_MD5SUM="129c01f6f5297f0482b33d431b5ec555"
 
 # zlib
 ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
@@ -222,11 +222,18 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-2.11.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.11.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-2.11.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-2.11.0
-LIBRDKAFKA_MD5SUM="bc611d0340e269abaa8886d42ff9c558"
+# librdkafka-2.16.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.16.0.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.16.0
+LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
+
+# MongoDB C Driver (libmongoc and libbson are released and built together).
+# 2.5.8 fixes malformed cursor namespaces and compressed-reply buffer leaks.
+MONGO_C_DRIVER_DOWNLOAD="https://github.com/mongodb/mongo-c-driver/releases/download/2.5.8/mongo-c-driver-2.5.8.tar.gz"
+MONGO_C_DRIVER_NAME=mongo-c-driver-2.5.8.tar.gz
+MONGO_C_DRIVER_SOURCE=mongo-c-driver-2.5.8
+MONGO_C_DRIVER_MD5SUM="e088246c56b3de5c658aff8e00f166ed"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
@@ -235,10 +242,12 @@ ZSTD_SOURCE=zstd-1.5.7
 ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
-BROTLI_NAME="brotli-1.0.9.tar.gz"
-BROTLI_SOURCE="brotli-1.0.9"
-BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
+# Arrow builds and BE statically links this decoder, so a system library update
+# cannot replace the vulnerable code fixed in 1.0.10 (CVE-2026-111497).
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.10.tar.gz"
+BROTLI_NAME="brotli-1.0.10.tar.gz"
+BROTLI_SOURCE="brotli-1.0.10"
+BROTLI_MD5SUM="830ce41562b2ec8cbdfe3f70111db0fa"
 
 # flatbuffers
 FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
@@ -273,28 +282,26 @@ ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
-ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
-# arrow-adbc Flight SQL driver, prebuilt.
-# Upstream writes this driver in Go and publishes no bare shared library, so it is
-# taken from the official release wheel (a zip) rather than adding a Go toolchain to
-# the thirdparty build. It must come from the same release as the source tree above
-# (C/Go 1.12.0): partition descriptors are driver-private bytes, so the FE and every
-# BE have to load the very same file. ADBC tests only, not shipped -- same treatment
-# as the SQLite driver. Linux only; the macOS wheels carry a .dylib no test looks for.
+# The test driver includes the connection-info isolation patch and its local capability.
+# Keep normal Doris builds Go-free; the release asset includes the standalone build recipe.
+ARROW_ADBC_FLIGHTSQL_SOURCE=""
 if [[ "$(uname -s)" == 'Linux' ]]; then
-    ARROW_ADBC_FLIGHTSQL_SOURCE="adbc_driver_flightsql"
     if [[ "${MACHINE_TYPE}" == 'x86_64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/2b/5b/f8566aa6d05eb40225f5874f8f5f5e8b8b4a4ce866d817a5ff352f326302/adbc_driver_flightsql-1.12.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-x86_64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="975a283dc72db0c646204e512b396e2a"
-    elif [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://files.pythonhosted.org/packages/57/45/6468fb425f3c0ae868c1ca9ab8e15cba76b59e941edd7e80e892e5476728/adbc_driver_flightsql-1.12.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
-        ARROW_ADBC_FLIGHTSQL_NAME="adbc_driver_flightsql-1.12.0-aarch64.zip"
-        ARROW_ADBC_FLIGHTSQL_MD5SUM="4ab31967910f9d2af20663b06412e6aa"
-    else
-        echo "no prebuilt adbc flightsql driver for ${MACHINE_TYPE}, skipping it"
-        ARROW_ADBC_FLIGHTSQL_SOURCE=""
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-x86_64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="b7a5907dcfb1651fdadbec2a24754217"
+        ARROW_ADBC_FLIGHTSQL_SHA256="d8fce8236ab0888467e779a15c4034788d94fcb4d2ccffbe0ac440e659f43e1c"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="e5bb1894b18b4dc9acfbfe0ae406aafc07cf29b9fc35cbe233b6be790f825805"
+    elif [[ "${MACHINE_TYPE}" == 'aarch64' || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        ARROW_ADBC_FLIGHTSQL_SOURCE="adbc-flightsql-1.12.0-doris-info-v1-linux-aarch64-glibc2.17"
+        ARROW_ADBC_FLIGHTSQL_MD5SUM="87e156c668c078753a923aeb7ef016e1"
+        ARROW_ADBC_FLIGHTSQL_SHA256="8051812339dfaf78733d453eb7c7b2ad18cfcc19c5582082abf0dccae9868439"
+        ARROW_ADBC_FLIGHTSQL_LIBRARY_SHA256="674311b8f64d58e5a77ebbdca251352455fdb7f2be80e0482211401c93bfdcb5"
+    fi
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+        ARROW_ADBC_FLIGHTSQL_NAME="${ARROW_ADBC_FLIGHTSQL_SOURCE}.tar.gz"
+        ARROW_ADBC_FLIGHTSQL_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/adbc-flightsql-1.12.0-doris-info-v1/${ARROW_ADBC_FLIGHTSQL_NAME}"
     fi
 fi
 
@@ -385,6 +392,12 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
+# Alibaba Cloud OSS C++ SDK V2
+OSS_SDK_DOWNLOAD="https://github.com/aliyun/alibabacloud-oss-cpp-sdk-v2/archive/refs/tags/0.2.0.tar.gz"
+OSS_SDK_NAME="alibabacloud-oss-cpp-sdk-v2-0.2.0.tar.gz"
+OSS_SDK_SOURCE="alibabacloud-oss-cpp-sdk-v2-0.2.0"
+OSS_SDK_MD5SUM="56e4c251034670db38e29deff27c0aa3"
+
 # aws sdk
 AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
 AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
@@ -474,6 +487,12 @@ SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.
 SIMDJSON_NAME=simdjson-3.11.6.tar.gz
 SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
+
+# simdutf
+SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
+SIMDUTF_NAME=simdutf-9.2.0.tar.gz
+SIMDUTF_SOURCE=simdutf-9.2.0
+SIMDUTF_MD5SUM="abeae9267c1c1caf183b8d24a39c0147"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
@@ -611,10 +630,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.9"
-LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
+# Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_NAME="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8.tar.gz"
+LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.5.0.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.5.0"
+PAIMON_RUST_MD5SUM="b9288421921d2e018d6c7b1b67285da0"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -645,6 +671,7 @@ export TP_ARCHIVES=(
     'BRPC'
     'ROCKSDB'
     'CYRUS_SASL'
+    'MONGO_C_DRIVER'
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'
@@ -668,6 +695,7 @@ export TP_ARCHIVES=(
     'BOOTSTRAP_TABLE_JS'
     'BOOTSTRAP_TABLE_CSS'
     'TSAN_HEADER'
+    'OSS_SDK'
     'AWS_SDK'
     'LZMA'
     'XML2'
@@ -681,6 +709,7 @@ export TP_ARCHIVES=(
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
+    'SIMDUTF'
     'NLOHMANN_JSON'
     'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
@@ -703,12 +732,11 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
-# Only defined on the platforms upstream ships a prebuilt driver for (see above).
 if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
-    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
-    export TP_ARCHIVES
+    TP_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
 fi
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

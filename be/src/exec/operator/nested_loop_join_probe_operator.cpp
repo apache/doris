@@ -1118,9 +1118,8 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
     for (auto& conjunct : _mark_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
     }
-    _num_probe_side_columns = _child->operator_row_desc_after_projection().num_materialized_slots();
-    _num_build_side_columns =
-            _build_side_child->operator_row_desc_after_projection().num_materialized_slots();
+    _num_probe_side_columns = _child->operator_row_desc_after_projection().num_slots();
+    _num_build_side_columns = _build_side_child->operator_row_desc_after_projection().num_slots();
     for (const auto& conjunct : _join_conjuncts) {
         conjunct->root()->collect_slot_column_ids(_lazy_eval_column_ids);
     }

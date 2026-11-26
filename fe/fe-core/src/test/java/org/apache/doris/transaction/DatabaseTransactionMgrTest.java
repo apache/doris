@@ -17,8 +17,10 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -39,7 +41,15 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.load.DeleteJob;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -62,6 +72,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -75,6 +89,10 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DatabaseTransactionMgrTest {
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgrTest.class);
@@ -500,6 +518,205 @@ public class DatabaseTransactionMgrTest {
         });
         Assertions.assertTrue(e.getMessage().contains("transaction not found"),
                 "unexpected message: " + e.getMessage());
+    }
+
+    private long beginAbortTestTransaction(String label, LoadJobSourceType sourceType, boolean commit)
+            throws UserException {
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table.getId()),
+                label, transactionSource, sourceType, Config.stream_load_default_timeout_second);
+        if (commit) {
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table), txnId,
+                    GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                    null);
+        }
+        return txnId;
+    }
+
+    private static void abortForTest(String mode, long txnId) throws UserException {
+        DatabaseTransactionMgr dbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        if (mode.equals("2pc")) {
+            dbTransMgr.abortTransaction2PC(txnId);
+        } else {
+            dbTransMgr.abortTransaction(txnId, "abort for test", null);
+        }
+    }
+
+    // Registers a real routine load job as the callback of the transaction, whose beforeAborted() takes the job's
+    // write lock and whose afterAborted() releases it. Records whether afterAborted() ran under the txn monitor.
+    private static KafkaRoutineLoadJob addRoutineLoadJobCallback(TransactionState state,
+            AtomicBoolean afterAbortedHoldsMonitor) throws UserException {
+        KafkaRoutineLoadJob job = Mockito.spy(new KafkaRoutineLoadJob(state.getTransactionId(), "abort_test_job",
+                CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, "host:port", "topic", UserIdentity.ADMIN));
+        Mockito.doAnswer(invocation -> {
+            afterAbortedHoldsMonitor.set(Thread.holdsLock(state));
+            return invocation.callRealMethod();
+        }).when(job).afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+        masterTransMgr.getCallbackFactory().addCallback(job);
+        state.setCallbackId(job.getId());
+        return job;
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false", "normal,true", "2pc,false", "2pc,true"})
+    public void testRejectedAbortReleasesRoutineLoadJobLock(String mode, boolean logOutsideLock) throws Exception {
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        ReentrantReadWriteLock jobLock = null;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            FakeEnv.setEnv(masterEnv);
+            long txnId = beginAbortTestTransaction("rejected_abort_" + mode + "_" + logOutsideLock,
+                    LoadJobSourceType.ROUTINE_LOAD_TASK, true);
+            TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+            AtomicBoolean afterAbortedHoldsMonitor = new AtomicBoolean(true);
+            KafkaRoutineLoadJob job = addRoutineLoadJobCallback(state, afterAbortedHoldsMonitor);
+            jobLock = Deencapsulation.getField(job, "lock");
+            Mockito.clearInvocations(masterEnv.getEditLog());
+
+            // A late abort, such as a BE rollback after its commit RPC timed out, is rejected.
+            UserException e = Assertions.assertThrows(UserException.class, () -> abortForTest(mode, txnId));
+            Assertions.assertTrue(e.getMessage().contains("is already COMMITTED, could not abort"), e.getMessage());
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+            Mockito.verifyNoInteractions(masterEnv.getEditLog());
+
+            // The publish thread must still finish the transaction: afterVisible() takes the job's write lock.
+            Map<String, Map<Long, Long>> successTablets = new HashMap<>();
+            setSuccessTablet(successTablets, allBackends, txnId, CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 2);
+            setTransactionFinishPublish(state, allBackends, successTablets);
+            FutureTask<Void> publishTask = new FutureTask<>(() -> {
+                try (FakeEnv threadEnv = new FakeEnv()) {
+                    masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, txnId, Maps.newHashMap(),
+                            Maps.newHashMap());
+                    return null;
+                }
+            });
+            new Thread(publishTask, "publish-after-rejected-abort").start();
+            Assertions.assertDoesNotThrow(() -> publishTask.get(10, TimeUnit.SECONDS),
+                    "publishing the committed transaction waits for the routine load job lock");
+            Assertions.assertEquals(TransactionStatus.VISIBLE, state.getTransactionStatus());
+
+            Mockito.verify(job).beforeAborted(state);
+            Mockito.verify(job).afterAborted(Mockito.eq(state), Mockito.eq(false), Mockito.any());
+            Assertions.assertFalse(afterAbortedHoldsMonitor.get(), "afterAborted() ran under the transaction monitor");
+            Mockito.verify(job).afterVisible(state, true);
+            Assertions.assertFalse(jobLock.isWriteLocked(), "the routine load job lock is still held");
+        } finally {
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+            // Release a lock leaked on this thread so that a blocked publish thread can exit.
+            while (jobLock != null && jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false,false", "normal,true,false", "2pc,false,false", "2pc,true,false",
+            "normal,false,true", "normal,true,true", "2pc,false,true", "2pc,true,true"})
+    public void testAbortReleasesRoutineLoadJobLock(String mode, boolean logOutsideLock, boolean failEditLog)
+            throws Exception {
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        ReentrantReadWriteLock jobLock = null;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            FakeEnv.setEnv(masterEnv);
+            long txnId = beginAbortTestTransaction("abort_" + mode + "_" + logOutsideLock + "_" + failEditLog,
+                    LoadJobSourceType.ROUTINE_LOAD_TASK, false);
+            TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+            AtomicBoolean afterAbortedHoldsMonitor = new AtomicBoolean(true);
+            KafkaRoutineLoadJob job = addRoutineLoadJobCallback(state, afterAbortedHoldsMonitor);
+            jobLock = Deencapsulation.getField(job, "lock");
+
+            if (failEditLog) {
+                // What EditLog throws when it has no edit log stream; the abort is already done in memory.
+                Error editLogFailure = new Error("Fatal Error : no editLog stream");
+                Mockito.doThrow(editLogFailure).when(masterEnv.getEditLog())
+                        .logInsertTransactionState(Mockito.any(TransactionState.class));
+                Mockito.doThrow(editLogFailure).when(masterEnv.getEditLog())
+                        .submitEdit(Mockito.anyShort(), Mockito.any());
+                Error thrown = Assertions.assertThrows(Error.class, () -> abortForTest(mode, txnId));
+                Assertions.assertSame(editLogFailure, thrown);
+            } else {
+                abortForTest(mode, txnId);
+            }
+
+            Assertions.assertFalse(jobLock.isWriteLocked(), "the routine load job lock is still held");
+            Assertions.assertEquals(TransactionStatus.ABORTED, state.getTransactionStatus());
+            Mockito.verify(job).beforeAborted(state);
+            // The transaction is aborted in memory before the edit log write, so txnOperated is true either way.
+            Mockito.verify(job).afterAborted(Mockito.eq(state), Mockito.eq(true), Mockito.any());
+            Assertions.assertFalse(afterAbortedHoldsMonitor.get(), "afterAborted() ran under the transaction monitor");
+        } finally {
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+            while (jobLock != null && jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"normal", "2pc"})
+    public void testAbortSkipsAfterCallbackWhenBeforeCallbackFails(String mode) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        long txnId = beginAbortTestTransaction("before_callback_fails_" + mode, LoadJobSourceType.FRONTEND, false);
+        TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(txnId);
+        TransactionException beforeFailure = new TransactionException("before callback failed");
+        Mockito.doThrow(beforeFailure).when(callback).beforeAborted(state);
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+        state.setCallbackId(txnId);
+
+        TransactionException thrown = Assertions.assertThrows(TransactionException.class,
+                () -> abortForTest(mode, txnId));
+        Assertions.assertSame(beforeFailure, thrown);
+        Assertions.assertEquals(TransactionStatus.PREPARE, state.getTransactionStatus());
+        Mockito.verify(callback, Mockito.never()).afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"normal", "2pc"})
+    public void testRejectedAbortKeepsAbortFailureWhenAfterCallbackFails(String mode) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        long txnId = beginAbortTestTransaction("after_callback_fails_" + mode, LoadJobSourceType.FRONTEND, true);
+        TransactionState state = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(txnId);
+        Mockito.doThrow(new RuntimeException("after callback failed")).when(callback)
+                .afterAborted(Mockito.any(), Mockito.anyBoolean(), Mockito.any());
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+        state.setCallbackId(txnId);
+
+        UserException e = Assertions.assertThrows(UserException.class, () -> abortForTest(mode, txnId));
+        Assertions.assertTrue(e.getMessage().contains("is already COMMITTED, could not abort"), e.getMessage());
+        Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+        Mockito.verify(callback).afterAborted(Mockito.eq(state), Mockito.eq(false), Mockito.any());
+    }
+
+    @Test
+    public void testRejectedAbortKeepsDeleteJobCallback() throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        TxnStateCallbackFactory callbackFactory = masterTransMgr.getCallbackFactory();
+        // DeleteJob.cancel() aborts the transaction; a committed delete still needs afterVisible() to finish.
+        long committedTxnId = beginAbortTestTransaction("delete_committed", LoadJobSourceType.FRONTEND, true);
+        DeleteJob committedJob = new DeleteJob(committedTxnId, committedTxnId, "delete_committed",
+                Maps.newHashMap(), null);
+        callbackFactory.addCallback(committedJob);
+        masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, committedTxnId)
+                .setCallbackId(committedJob.getId());
+        Assertions.assertThrows(UserException.class, () -> abortForTest("normal", committedTxnId));
+        Assertions.assertSame(committedJob, callbackFactory.getCallback(committedJob.getId()));
+
+        long preparedTxnId = beginAbortTestTransaction("delete_prepared", LoadJobSourceType.FRONTEND, false);
+        DeleteJob abortedJob = new DeleteJob(preparedTxnId, preparedTxnId, "delete_prepared", Maps.newHashMap(),
+                null);
+        callbackFactory.addCallback(abortedJob);
+        masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, preparedTxnId)
+                .setCallbackId(abortedJob.getId());
+        abortForTest("normal", preparedTxnId);
+        Assertions.assertNull(callbackFactory.getCallback(abortedJob.getId()));
     }
 
     @Test
@@ -929,26 +1146,199 @@ public class DatabaseTransactionMgrTest {
     }
 
     /**
-     * Sets table binlog format so tests can control table-level TSO without the legacy enable_tso property.
+     * Enables changelog on the table so tests can control table-level TSO without the legacy enable_tso property.
      */
-    private void setTableBinlogFormat(OlapTable table, BinlogConfig.BinlogFormat binlogFormat) {
+    private void enableChangelog(OlapTable table) {
+        table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
+    }
+
+    /**
+     * Enables CCR binlog on the table, which does not give it table-level TSO.
+     */
+    private void enableCcrBinlog(OlapTable table) {
         BinlogConfig binlogConfig = new BinlogConfig(table.getBinlogConfig());
         binlogConfig.setEnable(true);
-        binlogConfig.setBinlogFormat(binlogFormat);
         table.setBinlogConfig(binlogConfig);
     }
 
-    @Test
-    public void testCommitTransactionSetsCommitTSOWhenEnableTso() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+    private void checkAbortDuringCommitTso(List<Table> tables, TransactionState state, Executable commit) throws Exception {
+        long txnId = state.getTransactionId();
+        OlapTable table = (OlapTable) tables.get(0);
+        ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock();
+        MetaLockUtils.writeLockTables(tables);
         try {
-            Config.enable_feature_binlog = true;
+            JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+            JdbcOffset initialOffset = (JdbcOffset) provider.deserializeOffset(
+                    "[{\"splitId\":\"binlog-split\",\"lsn\":\"100\"}]");
+            provider.setCurrentOffset(initialOffset);
+            StreamingInsertJob job = Mockito.spy(new StreamingInsertJob() {});
+            // Supply a collected task offset, retaining the real afterCommitted behavior.
+            Mockito.doAnswer(invocation -> {
+                jobLock.writeLock().lock();
+                state.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
+                        txnId, 1L, 10L, 100L, 0L, 0L, 0L,
+                        "[{\"splitId\":\"binlog-split\",\"lsn\":\"200\"}]"));
+                return null;
+            }).when(job).beforeCommitted(state);
+            Deencapsulation.setField(job, "jobId", txnId);
+            Deencapsulation.setField(job, "lock", jobLock);
+            Deencapsulation.setField(job, "offsetProvider", provider);
+            masterTransMgr.getCallbackFactory().removeCallback(txnId);
+            masterTransMgr.getCallbackFactory().addCallback(job);
+            long nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            long commitTime = state.getCommitTime();
+            int commitInfoCount = state.getIdToTableCommitInfos().size();
+
+            FutureTask<Void> abortTask = new FutureTask<>(() -> {
+                try (FakeEnv threadEnv = new FakeEnv()) {
+                    // The timeout cleaner aborts through DatabaseTransactionMgr without acquiring table locks.
+                    masterTransMgr.getDatabaseTransactionMgr(state.getDbId())
+                            .abortTransaction(txnId, "abort while allocating TSO", null);
+                    return null;
+                }
+            });
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenAnswer(invocation -> {
+                // Start abort only once the committing thread is inside the TSO call.
+                new Thread(abortTask, "abort-during-commit-tso").start();
+                abortTask.get(10, TimeUnit.SECONDS);
+                Mockito.clearInvocations(masterEnv.getEditLog());
+                return 12345L;
+            });
+            setEnvTSOService(masterEnv, tsoService);
+
+            TransactionCommitFailedException failure = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, commit);
+            Assertions.assertTrue(failure.getMessage().contains("abort while allocating TSO"));
+            Assertions.assertEquals(TransactionStatus.ABORTED, state.getTransactionStatus());
+            Assertions.assertEquals(commitTime, state.getCommitTime());
+            Assertions.assertEquals(-1L, state.getCommitTSO());
+            Assertions.assertEquals(commitInfoCount, state.getIdToTableCommitInfos().size());
+            Assertions.assertEquals(nextVersion, table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+            Assertions.assertEquals(Map.of("lsn", "100"),
+                    ((BinlogSplit) provider.getCurrentOffset().getSplits().get(0)).getStartingOffset());
+            Mockito.verify(job).beforeCommitted(state);
+            Mockito.verify(job).afterCommitted(state, false);
+            Assertions.assertFalse(jobLock.isWriteLocked());
+            Mockito.verifyNoInteractions(masterEnv.getEditLog());
+        } finally {
+            MetaLockUtils.writeUnlockTables(tables);
+            if (jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false,false", "normal,true,false", "2pc,false,false", "2pc,true,false",
+            "subtxn,false,false", "subtxn,true,false", "normal,false,true", "normal,true,true",
+            "2pc,false,true", "2pc,true,true", "subtxn,false,true", "subtxn,true,true"})
+    public void testChangelogCommitBoundaries(String mode, boolean logOutsideLock, boolean abortDuringTso)
+            throws Exception {
+        boolean twoPhase = mode.equals("2pc");
+        boolean multiTable = mode.equals("subtxn");
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            Config.enable_feature_changelog = false;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            enableChangelog(table);
+            setEnvTSOService(masterEnv, new TSOService());
+
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "disabled_changelog", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            TransactionState transactionState = masterTransMgr.getTransactionState(db.getId(), txnId);
+            List<Table> tables = Lists.newArrayList(table);
+            List<TabletCommitInfo> tabletCommitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            List<SubTransactionState> subTransactions = new ArrayList<>();
+            if (twoPhase) {
+                masterTransMgr.preCommitTransaction2PC(db, tables, txnId, tabletCommitInfos, 1000, null);
+            }
+            if (multiTable) {
+                OlapTable ccrTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+                enableCcrBinlog(ccrTable);
+                tables.add(ccrTable);
+                subTransactions.addAll(GlobalTransactionMgrTest.generateSubTransactionStates(
+                        masterTransMgr, transactionState, Lists.newArrayList(
+                                new SubTransactionInfo(table, CatalogTestUtil.testTabletId1, allBackends),
+                                new SubTransactionInfo(ccrTable, CatalogTestUtil.testTabletId2, allBackends))));
+            }
+            TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+            Mockito.when(callback.getId()).thenReturn(txnId);
+            masterTransMgr.getCallbackFactory().addCallback(callback);
+            transactionState.setCallbackId(txnId);
+            long nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            long commitTime = transactionState.getCommitTime();
+            int tableCommitInfoCount = transactionState.getIdToTableCommitInfos().size();
+
+            Executable commit = () -> {
+                if (twoPhase) {
+                    masterTransMgr.commitTransaction2PC(db, tables, txnId, 1000);
+                } else if (multiTable) {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId,
+                            subTransactions, 1000);
+                } else {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId, tabletCommitInfos, null);
+                }
+            };
+            TransactionCommitFailedException exception = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, commit);
+
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_changelog"));
+            Mockito.verify(callback, Mockito.never()).beforeCommitted(Mockito.any());
+            Assertions.assertEquals(twoPhase ? TransactionStatus.PRECOMMITTED : TransactionStatus.PREPARE,
+                    transactionState.getTransactionStatus());
+            Assertions.assertEquals(commitTime, transactionState.getCommitTime());
+            Assertions.assertEquals(-1L, transactionState.getCommitTSO());
+            Assertions.assertEquals(tableCommitInfoCount, transactionState.getIdToTableCommitInfos().size());
+            Assertions.assertEquals(nextVersion,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+
+            Config.enable_feature_changelog = true;
+            if (abortDuringTso) {
+                checkAbortDuringCommitTso(tables, transactionState, commit);
+                return;
+            }
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
+            setEnvTSOService(masterEnv, tsoService);
+            Assertions.assertDoesNotThrow(commit);
+            Mockito.verify(callback).beforeCommitted(transactionState);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+            Assertions.assertEquals(12345L, transactionState.getCommitTSO());
+
+            nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            Mockito.clearInvocations(callback, masterEnv.getEditLog(), tsoService);
+            if (twoPhase) {
+                Assertions.assertThrows(TransactionCommitFailedException.class, commit);
+            } else {
+                Assertions.assertDoesNotThrow(commit);
+            }
+            Assertions.assertEquals(nextVersion, table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+            Mockito.verifyNoInteractions(callback, masterEnv.getEditLog(), tsoService);
+        } finally {
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"disabled", "replay"})
+    public void testCommitTransactionSetsCommitTSOWhenEnableTso(String mode) throws Exception {
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        try {
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            enableChangelog(table);
 
             long expectedCommitTSO = 12345L;
             TSOService tsoService = Mockito.mock(TSOService.class);
@@ -971,26 +1361,56 @@ public class DatabaseTransactionMgrTest {
             TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
             Assertions.assertNotNull(tableCommitInfo);
             Assertions.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
+
+            boolean replay = mode.equals("replay");
+            Config.enable_feature_changelog = false;
+            GlobalTransactionMgr transactionMgr = masterTransMgr;
+            Env publishEnv = masterEnv;
+            if (replay) {
+                publishEnv = slaveEnv;
+                transactionMgr = slaveTransMgr;
+                table = (OlapTable) slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                        .getTableOrMetaException(table.getId());
+                enableChangelog(table);
+            }
+            FakeEnv.setEnv(publishEnv);
+            setEnvTSOService(publishEnv, new TSOService());
+            if (replay) {
+                transactionMgr.replayUpsertTransactionState(transactionState);
+            }
+            Map<String, Map<Long, Long>> successTablets = new HashMap<>();
+            setSuccessTablet(successTablets, allBackends, txnId, CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 2);
+            setTransactionFinishPublish(transactionState, allBackends, successTablets);
+            transactionMgr.finishTransaction(CatalogTestUtil.testDbId1, txnId, Maps.newHashMap(), Maps.newHashMap());
+
+            Assertions.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
+            Assertions.assertEquals(12345L, transactionState.getCommitTSO());
+            Assertions.assertEquals(CatalogTestUtil.testStartVersion + 2,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getVisibleVersion());
+            Assertions.assertEquals(12345L, table.getPartition(CatalogTestUtil.testPartitionId1).getTso());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
-    @Test
-    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+    @ParameterizedTest
+    @CsvSource({"true,true", "false,true", "false,false"})
+    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso(boolean changelogFeature, boolean ccrEnabled)
+            throws Exception {
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = changelogFeature;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT);
+            BinlogConfig config = new BinlogConfig();
+            config.setEnable(ccrEnabled);
+            table.setBinlogConfig(config);
 
-            TSOService tsoService = Mockito.mock(TSOService.class);
-            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
-            setEnvTSOService(masterEnv, tsoService);
+            setEnvTSOService(masterEnv, new TSOService());
 
             String label = "commitTSO_tableDisable_test_" + System.nanoTime();
             long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -1004,26 +1424,27 @@ public class DatabaseTransactionMgrTest {
 
             TransactionState transactionState = fakeEditLog.getTransaction(txnId);
             Assertions.assertNotNull(transactionState);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
             Assertions.assertEquals(-1L, transactionState.getCommitTSO());
             TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
             Assertions.assertNotNull(tableCommitInfo);
             Assertions.assertEquals(-1L, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            enableChangelog(table);
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getTSO()).thenReturn(-1L);
@@ -1044,7 +1465,7 @@ public class DatabaseTransactionMgrTest {
                 Assertions.assertTrue(e.getMessage().contains("failed to get TSO"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 

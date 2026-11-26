@@ -77,4 +77,23 @@ suite("test_point_query_light_schema_change", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (3, 300, 3000, 3777, 42) """
     qt_after_load_old_row """ SELECT k, v_default, v_null FROM ${tableName} WHERE k = 1 """
     qt_after_load_new_row """ SELECT k, v_default, v_null FROM ${tableName} WHERE k = 3 """
+
+    // MAP, STRUCT and ARRAY columns added the same way. The column built from the slot needs
+    // their sub columns; the rows written before the alter read NULL for them.
+    sql """
+        ALTER TABLE ${tableName} ADD COLUMN (
+            v_map MAP<STRING, ARRAY<INT>>,
+            v_struct STRUCT<a:INT, b:VARCHAR(10)>,
+            v_array ARRAY<INT>
+        )
+    """
+    waitForSchemaChangeDone({
+        sql schemaChangeStatus
+        time 600
+    })
+    qt_added_complex_columns """ SELECT k, v2, v_map, v_struct, v_array FROM ${tableName} WHERE k = 3 """
+
+    sql """ INSERT INTO ${tableName} VALUES (4, 400, 4000, 4777, 44, {'x': [1, 2]}, {7, 'seven'}, [8, 9]) """
+    qt_complex_after_load_old_row """ SELECT k, v_map, v_struct, v_array FROM ${tableName} WHERE k = 1 """
+    qt_complex_after_load_new_row """ SELECT k, v_map, v_struct, v_array FROM ${tableName} WHERE k = 4 """
 }

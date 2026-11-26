@@ -56,8 +56,7 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
     RETURN_IF_ERROR(_build_inner_sinks());
 
     if (_writes_data_files) {
-        _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
-                                                              nullptr, nullptr);
+        _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs);
         _table_writer->defer_file_cleanup_until_outer_close();
         RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     }
@@ -168,8 +167,9 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
 
-    // A delete-only plan deliberately omits the data writer so Variant target schemas never enter
-    // the unsupported Iceberg data-write path. Reject a mismatched FE plan before dereferencing it.
+    // A delete-only plan omits the data writer, which it does not need and which a BE before Variant
+    // writes could not open for a Variant target schema. Reject a mismatched FE plan before
+    // dereferencing it.
     if (has_insert && !_writes_data_files) {
         return Status::InternalError(
                 "Iceberg delete-only merge sink received a data insert operation");
@@ -409,6 +409,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
     if (merge_sink.__isset.collect_column_stats) {
         table_sink.__set_collect_column_stats(merge_sink.collect_column_stats);
+    }
+    if (merge_sink.__isset.nan_count_field_ids) {
+        table_sink.__set_nan_count_field_ids(merge_sink.nan_count_field_ids);
     }
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);

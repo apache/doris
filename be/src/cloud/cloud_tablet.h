@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <tuple>
 
 #include "storage/partial_update_info.h"
@@ -25,6 +26,7 @@
 #include "storage/tablet/base_tablet.h"
 
 namespace doris {
+class TTabletInfo;
 
 class CloudStorageEngine;
 
@@ -277,6 +279,32 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
+    // Whether this tablet still has an active alter (schema change) job registered
+    // in meta-service. Only meaningful for NOT_READY tablets; refreshed on each
+    // rowset sync (see GetRowsetResponse.has_alter_job). Defaults to true so that
+    // a tablet is treated as alter-in-progress until the first sync tells otherwise
+    // (also keeps behavior unchanged when MS has not been upgraded to fill it).
+    bool has_active_alter_job() const {
+        return _has_active_alter_job.load(std::memory_order_relaxed);
+    }
+    void set_has_active_alter_job(bool v) {
+        _has_active_alter_job.store(v, std::memory_order_relaxed);
+    }
+
+    // A NOT_READY tablet whose schema change job has been cancelled or removed in
+    // meta-service. It will never be converted or compacted, does not serve reads
+    // or writes, and just stays in the local tablet cache until the recycler
+    // permanently deletes its meta. It should be invisible to compaction score
+    // stats, /api/compaction_score and compaction scheduling.
+    bool is_zombie_tablet() const {
+        return tablet_state() == TABLET_NOTREADY && !has_active_alter_job();
+    }
+
+    // Why this tablet is currently not scheduled for compaction, empty if it is
+    // schedulable. Display only (/api/compaction_score, /api/compaction/show),
+    // evaluated on demand, never in the scheduling loop.
+    std::string compaction_not_scheduled_reason();
+
     // Last active cluster info for compaction read-write separation
     std::string last_active_cluster_id() const {
         std::shared_lock lock(_cluster_info_mutex);
@@ -389,16 +417,23 @@ public:
 
     // Add warmup state management
     WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
-    bool add_rowset_warmup_state(
+    std::optional<uint64_t> add_rowset_warmup_state(
             const RowsetMeta& rowset, WarmUpTriggerSource source,
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
     bool update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source, RowsetId rowset_id,
-                                                     int64_t delta);
+                                                     int64_t delta, uint64_t generation);
     bool update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
-                                                              RowsetId rowset_id, int64_t delta);
+                                                              RowsetId rowset_id, int64_t delta,
+                                                              uint64_t generation);
     WarmUpState complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
                                                RowsetId rowset_id, Status status,
-                                               int64_t segment_num, int64_t inverted_idx_num);
+                                               int64_t segment_num, int64_t inverted_idx_num,
+                                               uint64_t generation);
+
+    // Warmup can arrive before metadata sync and never enter the local Rowset GC lifecycle.
+    size_t gc_rowset_warmup_states(
+            std::chrono::seconds grace_period,
+            std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
 
@@ -444,7 +479,7 @@ private:
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
-    bool add_rowset_warmup_state_unlocked(
+    std::optional<uint64_t> add_rowset_warmup_state_unlocked(
             const RowsetMeta& rowset, WarmUpTriggerSource source,
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
 
@@ -458,13 +493,14 @@ private:
 
     // Submit a segment download task for warming up
     void _submit_segment_download_task(const RowsetSharedPtr& rs, io::Path segment_path,
-                                       int64_t segment_file_size, int64_t expiration_time);
+                                       int64_t segment_file_size, int64_t expiration_time,
+                                       uint64_t generation);
 
     // Submit an inverted index download task for warming up
     void _submit_inverted_index_download_task(const RowsetSharedPtr& rs,
                                               const StorageResource* storage_resource,
                                               const io::Path& idx_path, int64_t idx_size,
-                                              int64_t expiration_time);
+                                              int64_t expiration_time, uint64_t generation);
 
     // Add rowsets directly with warmup
     void _add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets, bool warmup_delta_data);
@@ -511,6 +547,7 @@ private:
     int64_t _max_version = -1;
     int64_t _base_size = 0;
     int64_t _alter_version = -1;
+    std::atomic<bool> _has_active_alter_job {true};
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
@@ -527,6 +564,7 @@ private:
     // for warm up states management
     struct RowsetWarmUpInfo {
         WarmUpState state;
+        uint64_t generation = 0;
         int64_t num_segments = 0;
         int64_t num_inverted_idx = 0;
         int64_t num_segments_warmed_up = 0;
@@ -546,6 +584,7 @@ private:
 
         void update_state();
     };
+    uint64_t _next_warmup_generation = 0;
     std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;

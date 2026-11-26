@@ -45,8 +45,9 @@ public:
                            std::vector<TabletReadSource>& read_sources,
                            const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges,
                            const std::shared_ptr<RuntimeProfile>& profile,
-                           const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
+                           const std::vector<const std::vector<OlapScanRange*>*>& tablet_key_ranges,
+                           RuntimeState* state, int64_t limit, bool is_dup_mow_key,
+                           bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
@@ -54,10 +55,11 @@ public:
               _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
-              _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
+              _tablet_key_ranges(tablet_key_ranges),
               _scan_ranges(scan_ranges),
               _read_sources(read_sources) {
         DORIS_CHECK_EQ(_tablets.size(), scan_ranges.size());
+        DORIS_CHECK_EQ(_tablets.size(), tablet_key_ranges.size());
         for (size_t i = 0; i < _tablets.size(); ++i) {
             DORIS_CHECK(scan_ranges[i] != nullptr);
             DORIS_CHECK_EQ(_tablets[i].tablet->tablet_id(), scan_ranges[i]->tablet_id);
@@ -72,6 +74,9 @@ public:
 
     void set_scan_parallelism_by_per_segment(bool v) { _scan_parallelism_by_per_segment = v; }
 
+    // Scanners of one tablet share BM25 statistics collected over the entire tablet.
+    void set_share_tablet_collection_statistics(bool v) { _share_tablet_collection_statistics = v; }
+
     const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
 
 private:
@@ -82,11 +87,14 @@ private:
     // Build scanners so that each segment is handled by its own scanner.
     Status _build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners);
 
-    std::shared_ptr<OlapScanner> _build_scanner(BaseTabletSPtr tablet, int64_t version,
-                                                const std::vector<OlapScanRange*>& key_ranges,
-                                                const TPaloScanRange& scan_range,
-                                                TabletReadSource&& read_source,
-                                                io::FileCacheStatistics&& initial_file_cache_stats);
+    std::shared_ptr<TabletCollectionStatistics> _create_tablet_collection_statistics(
+            const TabletReadSource& entire_read_source) const;
+
+    std::shared_ptr<OlapScanner> _build_scanner(
+            BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
+            const TPaloScanRange& scan_range, TabletReadSource&& read_source,
+            io::FileCacheStatistics&& initial_file_cache_stats,
+            std::shared_ptr<TabletCollectionStatistics> tablet_collection_statistics);
 
     OlapScanLocalState* _parent;
 
@@ -106,6 +114,8 @@ private:
     // Force building one scanner per segment when true.
     bool _scan_parallelism_by_per_segment {false};
 
+    bool _share_tablet_collection_statistics {false};
+
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     OlapReaderStatistics _builder_stats;
     RuntimeState* _state;
@@ -119,7 +129,7 @@ private:
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
-    std::vector<OlapScanRange*> _key_ranges;
+    const std::vector<const std::vector<OlapScanRange*>*>& _tablet_key_ranges;
     const std::vector<std::unique_ptr<TPaloScanRange>>& _scan_ranges;
     std::unordered_map<int64_t, TabletReadSource> _all_read_sources;
     std::vector<TabletReadSource>& _read_sources;

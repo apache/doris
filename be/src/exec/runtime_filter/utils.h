@@ -90,7 +90,7 @@ std::string filter_type_to_string(RuntimeFilterType type);
 RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc);
 
 // PFilterType -> RuntimeFilterType
-RuntimeFilterType get_type(int filter_type);
+RuntimeFilterType get_type(PFilterType filter_type);
 // RuntimeFilterType -> PFilterType
 PFilterType get_type(RuntimeFilterType type);
 

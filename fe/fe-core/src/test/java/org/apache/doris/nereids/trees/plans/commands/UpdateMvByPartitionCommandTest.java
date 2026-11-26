@@ -46,6 +46,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -67,6 +68,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
+        Config.enable_feature_changelog = true;
         createDatabase("test");
         useDatabase("test");
         createTable("create table test.ivm_base (\n"
@@ -74,8 +76,17 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "  value int\n"
                 + ") duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true');");
+        // The row-id assertions below are about the unique-key model, so this MV asks for it: without the
+        // property the same append-only query is a detail MV, which has no row-id at all.
         createMvByNereids("create materialized view test.ivm_mv\n"
+                + "build deferred refresh incremental on manual\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1', 'ivm_force_mow' = 'true')\n"
+                + "as select id, value from test.ivm_base;");
+        // The same query as a detail MV, which is a plain DUP table: its refresh sink carries the MV's own
+        // columns, with no row-id to lay out.
+        createMvByNereids("create materialized view test.ivm_mv_detail\n"
                 + "build deferred refresh incremental on manual\n"
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
@@ -86,8 +97,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "  value int\n"
                 + ") unique key(id, name)\n"
                 + "distributed by hash(id) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true',"
-                + " 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true',"
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true',"
+                + " 'changelog.need_historical_value' = 'true',"
                 + " 'enable_unique_key_merge_on_write' = 'true');");
         createMvByNereids("create materialized view test.ivm_mv_uniq\n"
                 + "build deferred refresh incremental on manual\n"
@@ -159,7 +170,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Test
     void testAnalyzeRefreshCommandBindsSinkAfterRowIdNormalization() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
-        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
                 command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
@@ -173,6 +184,21 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     }
 
     @Test
+    void testAnalyzeRefreshCommandBindsDetailMvSinkWithoutRowId() throws Exception {
+        MTMV mtmv = getMtmv("ivm_mv_detail");
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
+        UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
+        LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
+                command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
+
+        List<String> expectedColumns = ImmutableList.of("id", "value");
+        Assertions.assertEquals(expectedColumns, mtmv.getInsertedColumnNames());
+        Assertions.assertEquals(expectedColumns, getColumnNames(sink.getCols()));
+        Assertions.assertEquals(expectedColumns, getNamedExpressionNames(sink.getOutputExprs()));
+        Assertions.assertEquals(expectedColumns, getSlotNames(sink.getTargetTableSlots()));
+    }
+
+    @Test
     void testPlannerKeepsIvmRowIdAsLargeIntInSinkTupleAndOutputExprs() throws Exception {
         // ivm_base_uniq is a MOW UNIQUE_KEYS table with two key columns, so the IVM row-id is the
         // LARGEINT MurmurHash3_128 of the keys (a single eligible key would become the row-id
@@ -180,7 +206,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv_uniq");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv_uniq");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
@@ -207,12 +233,12 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     @Test
     void testPlannerKeepsIvmRowIdAsBigIntInSinkTupleAndOutputExprs() throws Exception {
-        // ivm_base is a DUP_KEYS table with row binlog, so the IVM row-id is the row-binlog lsn
+        // ivm_base is a DUP_KEYS table with changelog, so the IVM row-id is the changelog lsn
         // (BIGINT) instead of the LARGEINT hash used for tables without a deterministic key.
         MTMV mtmv = getMtmv("ivm_mv");
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
@@ -241,7 +267,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     void testRunRefreshCommandExecutesIncrementalMtmv() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        OriginStatement originStatement = statementContext.getOriginStatement();
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
@@ -256,17 +283,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertNotNull(executor);
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableDmlMaterializedViewRewrite());
-        Assertions.assertEquals(IvmRewriteContext.Mode.FULL,
-                executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        Assertions.assertTrue(executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow()
+                .isCompleteRefresh());
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+        Assertions.assertSame(originStatement, statementContext.getOriginStatement());
+        Assertions.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test
     void testExecuteCommandRebindsTaskStatementContextToExecutionContext() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
-        StatementContext statementContext = new StatementContext();
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
+        OriginStatement originStatement = statementContext.getOriginStatement();
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
@@ -281,6 +311,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+        Assertions.assertSame(originStatement, statementContext.getOriginStatement());
+        Assertions.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test
@@ -330,7 +362,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
     private UpdateMvByPartitionCommand newRefreshCommand(MTMV mtmv) throws Exception {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.complete(mtmv)));
         return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
     }
 

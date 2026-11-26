@@ -19,6 +19,8 @@ suite("infer_intersect_except") {
     sql "set parallel_pipeline_task_num=2"
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
     sql 'set enable_fold_constant_by_be=true'

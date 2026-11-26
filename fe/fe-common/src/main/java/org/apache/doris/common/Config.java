@@ -116,6 +116,12 @@ public class Config extends ConfigBase {
     @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = true, callback = RegexConfHandler.class, description = "Case-insensitive regex searched in "
+            + "data source property names when masking output. Combined with built-in and provider secret rules. "
+            + "Use (?!) to disable only this additional rule. Applies on each FE without changing connection values.")
+    public static volatile String datasource_sensitive_property_pattern =
+            "password|passwd|secret|token|credential|access[._-]?key|api[._-]?key";
+
     @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
 
@@ -980,16 +986,18 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
-     * row binlog replica missing marker timeout.
+     * changelog replica missing marker timeout.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_timeout_second"
     @ConfField(mutable = true, masterOnly = true)
-    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+    public static long tablet_changelog_missing_timeout_second = 20 * 60;
 
     /**
-     * row binlog replica missing marker max times.
+     * changelog replica missing marker max times.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_max_times"
     @ConfField(mutable = true, masterOnly = true)
-    public static int tablet_binlog_missing_max_times = 5;
+    public static int tablet_changelog_missing_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
@@ -1227,6 +1235,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 16;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Maximum snapshot parallelism per FROM TO task; values below 1 are treated as 1")
+    public static int streaming_cdc_max_snapshot_parallelism = 16;
 
     /**
      * the max timeout of get kafka meta.
@@ -1859,6 +1871,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Temporary compatibility switch that allows HLL, "
+            + "QUANTILE_STATE, and AGG_STATE columns in non-aggregate key tables. Disabled by default. This switch "
+            + "is intended only for migration and will be removed after the compatibility transition period.")
+    public static boolean enable_non_aggregate_table_state_types = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -2012,9 +2029,20 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends use branch-4.1 external-sink partition values and routing metadata.
+    public static final int ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION = 16;
+    // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION
+            = ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
+    // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
+    public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
+    // Older backends reject the iceberg_transform external sink partition function.
+    public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
+    // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
+    public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2187,6 +2215,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
+    @ConfField(description = "Workers for fair split production")
+    public static int external_scan_split_threads = 64;
+
+    @ConfField(description = "Workers for independent metadata tasks")
+    public static int external_scan_metadata_threads = 64;
+
+    @ConfField(description = "Maximum queued tasks per query in each external scan scheduler")
+    public static int external_scan_task_queue_capacity = 128;
+
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
@@ -2305,6 +2342,42 @@ public class Config extends ConfigBase {
                     + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
 
+    @ConfField(
+            mutable = true,
+            callback = NonNegativeMtmvCacheNumConfHandler.class,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
+                    + "negative values are rejected. Default 3000.")
+    public static int mtmv_cache_manage_num = 3000;
+
+    public static class NonNegativeMtmvCacheNumConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) {
+                throw new ConfigException(field.getName() + " must not be negative, 0 disables the cache");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static void validateMtmvCacheConfig() throws ConfigException {
+        if (mtmv_cache_manage_num < 0) {
+            throw new ConfigException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
+    }
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Idle expiration in seconds for entries in MTMVCacheManager. Default 86400.")
+    public static long expire_mtmv_cache_in_fe_second = 86400;
+
+    @ConfField(
+            mutable = true,
+            description = "Row cap for SHOW PROC '/mtmv_cache/hot'. Default 500.")
+    public static int mtmv_cache_hot_show_num = 500;
+
     /**
      * HBO plan stats. cache number which can be reused for the next query.
      */
@@ -2335,6 +2408,66 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
+     * Threshold of the "extremely small filter estimate" guard used by pinned entries injected with
+     * {@code TYPE FILTER_SMALL}: such an entry is only applied while the optimizer's own filter
+     * estimate E satisfies {@code E <= 1} or {@code E <= inputRows * hbo_filter_small_ratio}, i.e.
+     * while the pathological regime that motivated the injection still holds. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which "
+            + "the optimizer's own filter estimate counts as 'extremely small' for HBO FILTER_SMALL "
+            + "pinned entries.")
+    public static double hbo_filter_small_ratio = 0.001;
+
+    /**
+     * Tolerance of a hbo entry against data growth. A hbo key no longer contains the visible version
+     * or the row count of its tables, so an entry keeps matching while a table grows; the read side
+     * applies an entry while the row count of the data it was measured on changed by at most this
+     * ratio (|now - recorded| / recorded). Beyond it the entry is not applied and the query falls
+     * back to the optimizer estimation. A non-positive value disables the tolerance, i.e. an entry
+     * is only applied while the recorded data state is exactly the current one. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.1. Relative row count change of the data "
+            + "an injected HBO entry was measured on, up to which the entry may still be applied; 0 or "
+            + "less means the recorded data state has to match exactly.")
+    public static double hbo_row_count_change_ratio = 0.1;
+
+    /**
+     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
+     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
+     * otherwise not expired automatically. A non-positive value disables the LRU bound
+     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
+     */
+    @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
+            + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
+            + "recently used entry; a non-positive value disables the bound (unbounded). Takes "
+            + "effect at FE start (not hot-mutable).")
+    public static int hbo_pinned_stats_cache_num = 5000;
+
+    /**
+     * Persist manually injected (pinned) hbo statistics into the internal database table
+     * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
+     * statistics stay authoritative; changes are written through synchronously (best effort)
+     * and each FE loads the table in the background at start-up (HboPinnedStatisticsLoader).
+     * Persistence applies to SET/DELETE issued
+     * while this config is true: entries SET while it is false are not persisted, and entries
+     * DELETEd while it is false keep their stored rows. A FE loads the table into memory at most
+     * once per process (in the background at start-up, retried until it succeeds), so rows deleted
+     * while it is false reappear only for a FE whose one-time load is still pending (e.g. right after
+     * FE start). On that load, existing in-memory entries win over the stored
+     * snapshot; deletions issued while this config is true during the pending load are honored —
+     * rows of theirs that the load sees are best-effort removed from the table again, and they
+     * reappear after a FE restart only if that removal also fails. In general, rows whose
+     * best-effort removal from the table fails (during or after the one-time load, e.g. because
+     * the internal table is temporarily unreachable) reappear after a FE restart; re-issue the
+     * DELETE once the table is reachable. A FE never refreshes entries SET by other FEs during
+     * its lifetime.
+     */
+    @ConfField(mutable = true, description = "The default setting is true. When true, HBO SET/DELETE STATISTICS "
+            + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
+            + "restart.")
+    public static boolean hbo_persist_pinned_to_internal_db = true;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2363,6 +2496,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static boolean ssl_force_client_auth = false;
+
+    /**
+     * Which MySQL clients that announce caching_sha2_password are authenticated with it (through its
+     * full-authentication exchange, the password is still checked against the stored native hash):
+     * "auto" - clients announcing caching_sha2_password with _client_version 9 or later
+     * (such as mysql / mysqldump 9.x); every other client is switched to mysql_native_password
+     * as before. "all" - every client announcing caching_sha2_password. "none" - no client;
+     * every client is switched to mysql_native_password, the behavior before this option.
+     */
+    @ConfField(mutable = true, masterOnly = false, options = {"auto", "all", "none"},
+            callback = OptionsConfHandler.class)
+    public static String mysql_caching_sha2_password_clients = "auto";
 
     /**
      * ssl connection needs to authenticate client's certificate store type.
@@ -2454,7 +2599,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = true;
+    public static boolean skip_localhost_auth_check = false;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;
@@ -2505,6 +2650,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static long stats_cache_size = 50_0000;
 
+    @ConfField(mutable = false, description = "Maximum queued statistics cache loads. Must be positive. "
+            + "When full, new lookups use unknown statistics. Takes effect after restarting FE.")
+    public static int stats_fetch_queue_size = 100000;
+
     /**
      * This config used for ranger cache data mask/row policy
      */
@@ -2531,6 +2680,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, description = "Whether to enable the binlog feature for databases/tables by default")
     public static boolean force_enable_feature_binlog = false;
+
+    // ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to enable the changelog feature, including the commit TSO")
+    public static boolean enable_feature_changelog = false;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Set the "
             + "maximum " + "byte " + "length " + "of a " + "binlog " + "message")
@@ -3300,8 +3454,9 @@ public class Config extends ConfigBase {
             + "whether to enable the active tablet priority scheduling strategy. " + "Default is true.")
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
-    @ConfField(masterOnly = true, description = "Whether to enable active tablet sliding window access statistics "
-            + "feature. Default is true.")
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether to enable active tablet sliding window access statistics "
+                    + "feature. Default is true.")
     public static boolean enable_active_tablet_sliding_window_access_stats = true;
 
     @ConfField(mutable = true, masterOnly = true, description = "Time window size in seconds for active tablet "
@@ -3312,7 +3467,10 @@ public class Config extends ConfigBase {
             + "partition-level scheduling processes TopN active "
             + "partitions first, then other active partitions, then "
             + "inactive partitions, and internal databases last. "
-            + "Default is 10000. <=0 disables TopN segmentation.")
+            + "Default is 10000. <=0 disables TopN segmentation. "
+            + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+            + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+            + "value; watch the BE bvar report.active_tablet_truncated before raising this one.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "
@@ -3507,15 +3665,30 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
-                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
-                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
-                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+                    + "longer exists, when loading the image, in the tablet rebalancer round, and once per replayed "
+                    + "batch of backend-removal journals (on Followers too, since each FE applies this locally). "
+                    + "Those entries are already ignored at query time (the replica is rehashed), so they only "
+                    + "waste FE memory and image size. Set to false to keep the legacy leaking behavior. "
+                    + "Default is true.")
     public static boolean enable_cloud_replica_stale_route_clean = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. Used with "
+            + "`cloud_tablet_rebalancer_stale_route_clean_end_time` to decide the window. Only gates the "
+            + "rebalancer's own sweep -- image loading and replayed backend-removal batches always clean "
+            + "regardless of this window. If set to the same value as the end time (the default), the "
+            + "rebalancer sweeps any time it would otherwise sweep, i.e. the window is unrestricted.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+
+    @ConfField(mutable = true, masterOnly = true, description = "End time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. See "
+            + "`cloud_tablet_rebalancer_stale_route_clean_start_time`.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
 
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = "Whether to enable the automatic start-stop feature in cloud model, "
             + "default is true.")
@@ -3656,7 +3829,7 @@ public class Config extends ConfigBase {
     public static boolean enable_tso_forward_when_counter_full = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_notify_be_after_load_txn_commit = false;
+    public static boolean enable_notify_be_after_load_txn_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

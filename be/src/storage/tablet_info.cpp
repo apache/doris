@@ -61,8 +61,8 @@
 
 namespace doris {
 
-const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_t index_id) const {
-    for (auto* schema : _row_binlog_index_schemas) {
+const OlapTableIndexSchema* OlapTableSchemaParam::changelog_index_schema(int64_t index_id) const {
+    for (auto* schema : _changelog_index_schemas) {
         if (schema->index_id == index_id) {
             return schema;
         }
@@ -73,8 +73,8 @@ const OlapTableIndexSchema* OlapTableSchemaParam::row_binlog_index_schema(int64_
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
     pindex->set_schema_hash(schema_hash);
-    if (row_binlog_id > 0) {
-        pindex->set_row_binlog_id(row_binlog_id);
+    if (changelog_index_id > 0) {
+        pindex->set_changelog_index_id(changelog_index_id);
     }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
@@ -195,8 +195,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
-        if (p_index.has_row_binlog_id()) {
-            index->row_binlog_id = p_index.row_binlog_id();
+        if (p_index.has_changelog_index_id()) {
+            index->changelog_index_id = p_index.changelog_index_id();
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
@@ -235,12 +235,12 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _indexes.emplace_back(index);
     }
 
-    for (const auto& p_index : pschema.row_binlog_index_schemas()) {
+    for (const auto& p_index : pschema.changelog_index_schemas()) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
-        if (p_index.has_row_binlog_id()) {
-            index->row_binlog_id = p_index.row_binlog_id();
+        if (p_index.has_changelog_index_id()) {
+            index->changelog_index_id = p_index.changelog_index_id();
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
@@ -252,7 +252,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             ti->init_from_pb(pindex_desc);
             index->indexes.emplace_back(ti);
         }
-        _row_binlog_index_schemas.emplace_back(index);
+        _changelog_index_schemas.emplace_back(index);
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
@@ -356,8 +356,8 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto* index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
-        if (t_index.__isset.row_binlog_id) {
-            index->row_binlog_id = t_index.row_binlog_id;
+        if (t_index.__isset.changelog_index_id) {
+            index->changelog_index_id = t_index.changelog_index_id;
         }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
@@ -411,20 +411,20 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _indexes.emplace_back(index);
     }
 
-    if (tschema.__isset.row_binlog_index_schemas) {
-        for (const auto& t_index : tschema.row_binlog_index_schemas) {
+    if (tschema.__isset.changelog_index_schemas) {
+        for (const auto& t_index : tschema.changelog_index_schemas) {
             auto* index = _obj_pool.add(new OlapTableIndexSchema());
             index->index_id = t_index.id;
             index->schema_hash = t_index.schema_hash;
-            if (t_index.__isset.row_binlog_id) {
-                index->row_binlog_id = t_index.row_binlog_id;
+            if (t_index.__isset.changelog_index_id) {
+                index->changelog_index_id = t_index.changelog_index_id;
             }
             for (const auto& tcolumn_desc : t_index.columns_desc) {
                 TabletColumn* tc = _obj_pool.add(new TabletColumn());
                 tc->init_from_thrift(tcolumn_desc);
                 index->columns.emplace_back(tc);
             }
-            _row_binlog_index_schemas.emplace_back(index);
+            _changelog_index_schemas.emplace_back(index);
         }
     }
 
@@ -462,8 +462,8 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     for (auto* index : _indexes) {
         index->to_protobuf(pschema->add_indexes());
     }
-    for (auto* index : _row_binlog_index_schemas) {
-        index->to_protobuf(pschema->add_row_binlog_index_schemas());
+    for (auto* index : _changelog_index_schemas) {
+        index->to_protobuf(pschema->add_changelog_index_schemas());
     }
 }
 
@@ -530,16 +530,16 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 auto& expr_type = _partition_function[it->second]->data_type();
                 _partition_block.insert({expr_type->create_column(), expr_type, slot->col_name()});
             } else {
-                _partition_block.insert({slot->get_empty_mutable_column(),
-                                         slot->get_data_type_ptr(), slot->col_name()});
+                _partition_block.insert(
+                        {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
             }
         }
         VLOG_TRACE << _partition_block.dump_structure();
     } else {
         // we insert all. but not all will be used. it will controlled by _partition_slot_locs
         for (auto* slot : _slots) {
-            _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
-                                     slot->col_name()});
+            _partition_block.insert(
+                    {slot->get_empty_mutable_column(), slot->type(), slot->col_name()});
         }
     }
 }

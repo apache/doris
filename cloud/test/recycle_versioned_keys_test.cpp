@@ -32,6 +32,7 @@
 
 #include "common/defer.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
@@ -48,6 +49,7 @@
 #include "recycler/recycler.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/util.h"
+#include "scoped_legacy_instance_rpc.h"
 
 using namespace doris;
 using namespace doris::cloud;
@@ -101,6 +103,8 @@ void create_and_refresh_instance(
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
     instance_info.set_multi_version_status(multi_version_status);
+    instance_info.add_clusters()->add_nodes()->set_cloud_unique_id(
+            fmt::format("1:{}:0", instance_id));
     auto* obj_info = instance_info.mutable_obj_info()->Add();
     obj_info->set_id(std::string(RESOURCE_ID));
     obj_info->set_ak("mock_ak");
@@ -549,6 +553,18 @@ void get_instance(MetaServiceProxy* meta_service, const std::string& cloud_uniqu
 }
 
 void drop_instance(MetaServiceProxy* meta_service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
+    // An instance with clusters can not be dropped, remove them first.
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(instance_key(instance_id), &val), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance_info;
+    ASSERT_TRUE(instance_info.ParseFromString(val));
+    instance_info.clear_clusters();
+    txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
     brpc::Controller cntl;
     AlterInstanceRequest req;
     AlterInstanceResponse res;
@@ -1535,6 +1551,79 @@ TEST(RecycleVersionedKeysTest, RecycleTabletWithRowsetRefCountConcurrent) {
     for (size_t times = 0; times < 1; ++times) {
         ASSERT_NO_FATAL_FAILURE(recycle_tablet_with_rowset_ref_count_concurrent());
     }
+}
+
+TEST(RecycleVersionedKeysTest, RecycleTabletMetadataAndIndexesAtomically) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "recycle_tablet_metadata_and_indexes";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+    ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                     table_id, index_id));
+    ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, partition_id, index_id));
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                          index_id, partition_id, tablet_id));
+
+    auto check_tablet_keys = [&](bool exists) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& key :
+             {meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}),
+              meta_tablet_idx_key({instance_id, tablet_id}),
+              versioned::tablet_index_key({instance_id, tablet_id}),
+              versioned::tablet_inverted_index_key(
+                      {instance_id, db_id, table_id, index_id, partition_id, tablet_id})}) {
+            std::string value;
+            EXPECT_EQ(txn->get(key, &value),
+                      exists ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << hex(key);
+        }
+        for (const auto& key : {versioned::meta_tablet_key({instance_id, tablet_id}),
+                                versioned::tablet_load_stats_key({instance_id, tablet_id}),
+                                versioned::tablet_compact_stats_key({instance_id, tablet_id})}) {
+            std::vector<std::pair<std::string, Versionstamp>> values;
+            ASSERT_NO_FATAL_FAILURE(versioned_get_all(txn_kv.get(), key, values));
+            EXPECT_EQ(values.size(), exists ? 1 : 0) << hex(key);
+        }
+    };
+    ASSERT_NO_FATAL_FAILURE(check_tablet_keys(true));
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info);
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    bool commit_attempted = false;
+    sp->set_call_back("InstanceRecycler::recycle_tablets.before_commit", [&](auto&& args) {
+        commit_attempted = true;
+        // Force a real commit conflict after data recycling without changing tablet keys.
+        auto* txn = try_any_cast<Transaction*>(args[0]);
+        std::string key = instance_key(instance_id);
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        std::unique_ptr<Transaction> conflicting_txn;
+        ASSERT_EQ(txn_kv->create_txn(&conflicting_txn), TxnErrorCode::TXN_OK);
+        conflicting_txn->put(key, value);
+        ASSERT_EQ(conflicting_txn->commit(), TxnErrorCode::TXN_OK);
+    });
+    sp->enable_processing();
+
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(recycler->recycle_tablets(table_id, index_id, ctx), -1);
+    ASSERT_TRUE(commit_attempted);
+    ASSERT_NO_FATAL_FAILURE(check_tablet_keys(true));
+
+    sp->disable_processing();
+    recycler = get_instance_recycler(meta_service.get(), instance_info);
+    ASSERT_EQ(recycler->recycle_tablets(table_id, index_id, ctx), 0);
+    ASSERT_NO_FATAL_FAILURE(check_tablet_keys(false));
 }
 
 // A test that simulates a drop index operation.

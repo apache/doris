@@ -17,19 +17,23 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class CreateViewTest extends TestWithFeService {
 
@@ -48,6 +52,36 @@ public class CreateViewTest extends TestWithFeService {
         NereidsParser nereidsParser = new NereidsParser();
         AlterViewCommand command = (AlterViewCommand) nereidsParser.parseSingle(sql);
         command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    @Test
+    public void testChangelogTtlViewAnalysis() throws Exception {
+        boolean originalEnableChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
+        try {
+            // @incr resolves its window through the TSO, which the TSO daemon calibrates only after the switch is on.
+            Awaitility.await().atMost(30, TimeUnit.SECONDS)
+                    .until(() -> Env.getCurrentTSOService().getStatusSnapshot().isInitialized());
+            createTable("create table test.view_ttl_base(k int, v int) duplicate key(k)"
+                    + " distributed by hash(k) buckets 1 properties('replication_num'='1',"
+                    + " 'changelog.enable'='true', 'changelog.ttl_seconds'='60')");
+            createView("create view test.view_ttl as select k, v"
+                    + " from test.view_ttl_base@incr('incrementType'='DETAIL')");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl")
+                    .contains("OlapScanNode"));
+
+            createView("create view test.view_ttl_alter as select k from test.view_ttl_base");
+            alterView("alter view test.view_ttl_alter as with changes as (select k, v"
+                    + " from test.view_ttl_base@incr('incrementType'='DETAIL')) select k, v from changes");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl_alter")
+                    .contains("OlapScanNode"));
+
+            createView("create view test.view_ttl_nested as select * from test.view_ttl");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl_nested")
+                    .contains("OlapScanNode"));
+        } finally {
+            Config.enable_feature_changelog = originalEnableChangelog;
+        }
     }
 
     @Test
@@ -235,11 +269,29 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
-    public void testViewRejectVarbinary() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(
-                org.apache.doris.common.AnalysisException.class,
-                "View does not support VARBINARY type: vb",
-                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    public void testCreateViewRewritesAfterSupplementaryCharacters() throws Exception {
+        // The parser counts a supplementary character such as an emoji as one character, while
+        // the Java string of the view definition counts it as two.
+        ExceptionChecker.expectThrowsNoException(() -> createView(
+                "create view test.supplementary_char_view as select '😀😀' as e, k1 from test.tbl1;"));
+        ExceptionChecker.expectThrowsNoException(() -> createView(
+                "create view test.supplementary_char_alias_view(c1, c2) as select '😀😀', k1 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("supplementary_char_view");
+        Assertions.assertEquals(
+                "select '😀😀' as `e`, `internal`.`test`.`tbl1`.`k1` from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+        View aliasView = (View) db.getTableOrDdlException("supplementary_char_alias_view");
+        Assertions.assertEquals(
+                "select '😀😀' AS `c1`, `internal`.`test`.`tbl1`.`k1` AS `c2` from `internal`.`test`.`tbl1`",
+                aliasView.getInlineViewDef());
+    }
+
+    @Test
+    public void testViewPreservesVarbinary() throws Exception {
+        createView("create view test.vb_view as select X'AB' as vb;");
+        PlanChecker.from(connectContext).analyze("select * from test.vb_view").rewrite();
     }
 
     @Test

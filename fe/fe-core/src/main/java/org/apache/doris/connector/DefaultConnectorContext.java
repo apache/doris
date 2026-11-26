@@ -23,8 +23,11 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.cache.ConnectorCacheOwner;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -43,6 +46,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -58,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -65,6 +70,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -90,6 +97,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     private final String catalogName;
     private final long catalogId;
+    private final ConnectorCacheOwner cacheOwner = new ConnectorCacheOwner();
     private final Map<String, String> environment;
     private final Supplier<ExecutionAuthenticator> authSupplier;
     // Lazily supplies the catalog's static storage-properties map for storage-URI normalization
@@ -122,6 +130,12 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             SecurityChecker.getInstance().stopSSRFChecking();
         }
     };
+
+    @Override
+    public <T> RunnableFuture<T> submitMetadataTask(Callable<T> task) {
+        return ThreadPoolManager.submitWithCallerHelp(
+                (ThreadPoolExecutor) Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor(), task);
+    }
 
     public DefaultConnectorContext(String catalogName, long catalogId) {
         this(catalogName, catalogId, () -> NOOP_AUTH);
@@ -177,6 +191,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     @Override
+    public int getClusterId() {
+        return Env.getCurrentEnv().getClusterId();
+    }
+
+    @Override
     public Map<String, String> getEnvironment() {
         return environment;
     }
@@ -184,6 +203,36 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public ConnectorHttpSecurityHook getHttpSecurityHook() {
         return httpSecurityHook;
+    }
+
+    /** Constructs the root connector under the same ownership boundary used by its later siblings. */
+    public Connector createCatalogConnector(String catalogType, Map<String, String> properties) {
+        try {
+            return cacheOwner.create(() -> ConnectorFactory.createStandaloneCatalogConnector(
+                    catalogType, properties, this));
+        } catch (RuntimeException | Error e) {
+            // Lazy initialization retries with a fresh context. Do not strand this failed attempt's caches/FS.
+            try {
+                cacheOwner.retire();
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != e) {
+                    e.addSuppressed(cleanupFailure);
+                }
+            }
+            MetaCacheCleanup.reclaimResource("failed connector context " + catalogName, () -> {
+                try {
+                    close();
+                } catch (IOException failure) {
+                    throw new UncheckedIOException(failure);
+                }
+            });
+            throw e;
+        }
+    }
+
+    /** Retires only this context's cache instances, never another Env's matching catalog ID. */
+    public void retireMetadataCaches() {
+        cacheOwner.retire();
     }
 
     @Override
@@ -195,7 +244,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // Returns null when no provider matches the type (or the plugin manager is not initialized); the
         // gateway caller null-checks and fails loud with its own (connector-specific) message — fe-core stays
         // connector-agnostic and does no property parsing here.
-        return ConnectorFactory.createConnector(catalogType, properties, this);
+        return cacheOwner.create(() -> ConnectorFactory.createConnector(catalogType, properties, this));
     }
 
     @Override
@@ -205,6 +254,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         } catch (Exception e) {
             throw new RuntimeException("JDBC URL security check failed: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public boolean supportsNativeFileEncryption() {
+        return NativeFileEncryptionSupport.supported();
     }
 
     @Override

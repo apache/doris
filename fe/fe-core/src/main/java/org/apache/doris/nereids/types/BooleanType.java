@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * Boolean type in Nereids.
@@ -29,6 +33,11 @@ public class BooleanType extends PrimitiveType {
     private static int WIDTH = 1;
 
     private BooleanType() {
+    }
+
+    @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
     }
 
     @Override
@@ -55,5 +64,10 @@ public class BooleanType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(BooleanLiteral.FALSE);
     }
 }

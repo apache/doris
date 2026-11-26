@@ -17,8 +17,11 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.ConnectorWriteOps;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
@@ -40,7 +43,15 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
@@ -51,6 +62,39 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code executeCommandAllocatesFreshConnectorScopePerExecution}).
  */
 public class ConnectorStatementScopeTest {
+
+    @Test
+    public void activeSplitProducersDeferStatementResourceClosure() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger closes = new AtomicInteger();
+        scope.computeIfAbsent("metadata", () -> (AutoCloseable) closes::incrementAndGet);
+        Runnable releaseFirst = scope.retain();
+        Runnable releaseSecond = scope.retain();
+        scope.closeAll();
+        Assertions.assertEquals(0, closes.get());
+        releaseFirst.run();
+        Assertions.assertEquals(0, closes.get());
+        releaseSecond.run();
+        Assertions.assertEquals(1, closes.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
+    public void lookupDoesNotLoadAndRespectsPlanningAndStatementCleanup() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        Assertions.assertNull(scope.getIfPresent("missing"));
+        Object table = scope.computeIfAbsent("table", Object::new);
+        Object planning = scope.computeIfAbsentForPlanning("planning", Object::new);
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        Assertions.assertSame(planning, scope.getIfPresent("planning"));
+        scope.endPlanning();
+        Assertions.assertNull(scope.getIfPresent("planning"));
+        Assertions.assertSame(table, scope.getIfPresent("table"));
+        scope.closeAll();
+        Assertions.assertNull(scope.getIfPresent("table"));
+        Assertions.assertNull(ConnectorStatementScope.NONE.getIfPresent("table"));
+    }
 
     @Test
     public void noneNeverMemoizes() {
@@ -91,6 +135,106 @@ public class ConnectorStatementScopeTest {
 
         Object b = scope.computeIfAbsent("B", Object::new);
         Assertions.assertNotSame(firstA, b, "different keys are isolated (cross-catalog / cross-table)");
+    }
+
+    @Test
+    public void nonePlanningValuesAreNeverMemoized() {
+        // Under NONE a value only planning reads is loaded on every call too, and ending planning has nothing to do.
+        // MUTATION: NONE memoizing planning values -> one load -> red.
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<Object> loader = () -> {
+            loads.incrementAndGet();
+            return new Object();
+        };
+        ConnectorStatementScope none = ConnectorStatementScope.NONE;
+
+        Assertions.assertNotSame(none.computeIfAbsentForPlanning("k", loader),
+                none.computeIfAbsentForPlanning("k", loader));
+        none.endPlanning();
+        Assertions.assertEquals(2, loads.get(), "NONE must run the loader every time (no memo)");
+    }
+
+    @Test
+    public void endPlanningDropsOnlyThePlanningValues() throws Exception {
+        // Identical scans share their planned ranges only within one plan, so a value only planning reads is dropped
+        // when planning ends, while the values the statement keeps (its tables, metadata, transactions) stay until
+        // closeAll. A later plan of the same statement registers the value again, and the end of that plan drops it.
+        // MUTATION: endPlanning dropping nothing, dropping every value, or forgetting a value registered again -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger memoLoads = new AtomicInteger();
+        Supplier<Object> memoLoader = () -> {
+            memoLoads.incrementAndGet();
+            return new Object();
+        };
+        Object memo = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertSame(memo, scope.computeIfAbsentForPlanning("memo", memoLoader),
+                "within one plan the value is shared");
+        Object table = scope.computeIfAbsent("table", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable metadata = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("metadata", () -> metadata);
+
+        scope.endPlanning();
+
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new), "statement values outlive planning");
+        Object memoOfNextPlan = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertNotSame(memo, memoOfNextPlan, "the next plan of the statement loads the value again");
+        scope.endPlanning();
+        Assertions.assertNotSame(memoOfNextPlan, scope.computeIfAbsentForPlanning("memo", memoLoader));
+        Assertions.assertEquals(3, memoLoads.get());
+
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get(), "closeAll still closes the statement values");
+    }
+
+    @Test
+    public void planningValueMustHoldNothingToClose() {
+        // endPlanning drops a value without closing it, so a closeable one would leak. MUTATION: dropping the check
+        // -> no exception -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AutoCloseable closeable = () -> { };
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> scope.computeIfAbsentForPlanning("closeable", () -> closeable));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsThePlanningOfTheScope() {
+        // NereidsPlanner.planWithLock releases the planner resources when planning is over, which ends connector
+        // planning; a statement no connector has touched has no scope to end. MUTATION: releasePlannerResources not
+        // ending connector planning -> red.
+        StatementContext ctx = new StatementContext();
+        ctx.releasePlannerResources();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        Object table = scope.computeIfAbsent("table", Object::new);
+
+        ctx.releasePlannerResources();
+
+        Assertions.assertSame(scope, ctx.getOrCreateConnectorStatementScope(), "ending planning keeps the scope");
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsPlanningWhenAResourceFailsToClose() {
+        // A table lock that fails to unlock still reaches the caller, after the planning values are gone.
+        // MUTATION: ending connector planning only after the release succeeded -> the memo survives -> red.
+        StatementContext ctx = new StatementContext();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("internal.db.t");
+        IllegalStateException unlockFailure = new IllegalStateException("unlock failed");
+        Mockito.doThrow(unlockFailure).when(table).readUnlock();
+        ctx.getTables().put(Arrays.asList("internal", "db", "t"), table);
+        ctx.lock();
+
+        Assertions.assertSame(unlockFailure,
+                Assertions.assertThrows(IllegalStateException.class, ctx::releasePlannerResources));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
     }
 
     @Test
@@ -163,6 +307,100 @@ public class ConnectorStatementScopeTest {
 
         Assertions.assertEquals(Arrays.asList("txn-rollback", "metadata-close"), order,
                 "the transaction is finalized before the shared metadata is closed");
+    }
+
+    @Test
+    public void closedScopeRefusesToLoadAndHandsOutNothing() {
+        // The statement is over once closeAll() ran. A pump that outlives it (a split producer still listing
+        // files: stopping it only flags it) must not load a value, such as a borrowed table, that nothing would
+        // close any more. MUTATION: dropping the closed check in computeIfAbsent -> the loader runs -> red.
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        scope.computeIfAbsent("plain", Object::new);
+        scope.closeAll();
+
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<AutoCloseable> loader = () -> {
+            loads.incrementAndGet();
+            return () -> { };
+        };
+        Assertions.assertTrue(scope.isClosed());
+        Assertions.assertThrows(CancellationException.class, () -> scope.computeIfAbsent("lease", loader));
+        Assertions.assertThrows(CancellationException.class,
+                () -> scope.computeIfAbsentForPlanning("memo", () -> {
+                    loads.incrementAndGet();
+                    return new Object();
+                }));
+        Assertions.assertEquals(0, loads.get(), "a closed scope never runs a loader");
+        Assertions.assertNull(scope.getIfPresent("plain"), "a closed scope hands out nothing it held");
+    }
+
+    @Test
+    public void valueLoadedWhileTheScopeClosesIsReleasedOnceByItsCaller() throws Exception {
+        // closeAll() can run while a pump is inside a loader. The value is not in the scope yet, so closeAll cannot
+        // release it; it used to land in the closed scope afterwards and never be closed. The caller that loaded it
+        // releases it now and gets CancellationException instead of the value.
+        // MUTATION: dropping the closed check after the load -> closes==0 and the caller gets the value -> red.
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        CountDownLatch loading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger closes = new AtomicInteger();
+        ExecutorService pump = Executors.newSingleThreadExecutor();
+        try {
+            Future<AutoCloseable> load = pump.submit(() -> scope.computeIfAbsent("lease", () -> {
+                loading.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+                return (AutoCloseable) closes::incrementAndGet;
+            }));
+            Assertions.assertTrue(loading.await(5, TimeUnit.SECONDS));
+            scope.closeAll();
+            release.countDown();
+
+            ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
+                    () -> load.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, failure.getCause());
+            Assertions.assertEquals(1, closes.get(), "the caller releases the value closeAll could not see");
+            scope.closeAll();
+            Assertions.assertEquals(1, closes.get(), "and nothing releases it a second time");
+        } finally {
+            release.countDown();
+            pump.shutdownNow();
+        }
+    }
+
+    @Test
+    public void sessionBuiltAfterTheScopeClosesRunsAsOfflineWork() {
+        // What still builds a session on a statement that has ended (the lineage of an INSERT, say) must neither
+        // fail in nor memoize into the closed scope: it captures NONE and the direct scheduler, as offline work
+        // does. A session captured before the close keeps the closed scope and is refused, so a split producer
+        // holding it stops instead of borrowing a table nothing returns.
+        // MUTATION: capturing the closed scope for a new session -> building it throws -> red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            ConnectorSession before = ConnectorSessionBuilder.from(ctx).withCatalogId(1L).build();
+            ConnectorStatementScope live = stmtCtx.getOrCreateConnectorStatementScope();
+            Assertions.assertSame(live, before.getStatementScope());
+
+            live.closeAll();
+
+            ConnectorSession after = ConnectorSessionBuilder.from(ctx).withCatalogId(1L).build();
+            Assertions.assertSame(ConnectorStatementScope.NONE, after.getStatementScope());
+            Assertions.assertSame(ConnectorTaskScheduler.DIRECT,
+                    after.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
+            AtomicInteger loads = new AtomicInteger();
+            Assertions.assertThrows(CancellationException.class, () -> ConnectorStatementScopes.resolveInStatement(
+                    before, "test_table", "db", "tbl", loads::incrementAndGet));
+            Assertions.assertEquals(0, loads.get(), "a session of the ended statement loads nothing");
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

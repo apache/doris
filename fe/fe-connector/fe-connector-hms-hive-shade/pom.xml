@@ -79,6 +79,24 @@ under the License.
             </exclusions>
         </dependency>
 
+        <!-- DLF initializes Hive's QL expression proxy locally. The host's QL classes cannot
+             resolve this plugin's metastore API, so keep the matching core in the private shade. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <version>3.1.3</version>
+            <classifier>core</classifier>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo-shaded</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- hive-standalone-metastore 3.1.3 supplies the REAL metastore implementation:
              org.apache.hadoop.hive.metastore.api.* (ThriftHiveMetastore + ~200 structs),
              IMetaStoreClient / MetastoreConf / MetaStoreUtils / HadoopThriftAuthBridge / txn.TxnUtils,
@@ -350,6 +368,10 @@ under the License.
                                     <include>com.aliyun.datalake:*</include>
                                     <include>com.aliyun:datalake20200710</include>
                                     <include>org.apache.hive:hive-standalone-metastore</include>
+                                    <include>org.apache.hive:hive-exec</include>
+                                    <include>com.esotericsoftware:kryo-shaded</include>
+                                    <include>com.esotericsoftware:minlog</include>
+                                    <include>org.objenesis:objenesis</include>
                                     <include>org.apache.hive:hive-common</include>
                                     <include>org.apache.hive:hive-serde</include>
                                     <include>org.apache.hive:hive-storage-api</include>
@@ -388,7 +410,23 @@ under the License.
                                 </filter>
                             </filters>
                             <relocations>
-                                <!-- The single load-bearing action: give the Hive-3.1.3 metastore client its
+                                <!-- Also rewrite HiveConf's default proxy class-name string; Hadoop
+                                     Configuration and FileSystem keep their existing shared identity. -->
+                                <relocation>
+                                    <pattern>org.apache.hadoop.hive.ql</pattern>
+                                    <shadedPattern>shade.doris.hive.org.apache.hadoop.hive.ql</shadedPattern>
+                                    <!-- Format/SerDe names are persisted in HMS for external readers.
+                                         Keep those classes and their string-only descriptor registry
+                                         canonical, including nested classes and service registrations. -->
+                                    <excludes>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*InputFormat*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*OutputFormat*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*Serde*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.**.*SerDe*</exclude>
+                                        <exclude>org.apache.hadoop.hive.ql.io.*StorageFormat*</exclude>
+                                    </excludes>
+                                </relocation>
+                                <!-- Give the Hive-3.1.3 metastore client its
                                      own thrift namespace so it never collides with the host doris-gen 0.16.0
                                      thrift. REUSED prefix -> zero connector source changes (the vendored patch
                                      client + ThriftHmsClient already import this prefix). -->

@@ -29,6 +29,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
 
@@ -42,6 +43,74 @@ import java.util.List;
 
 public class TVFScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @Test
+    public void testCoarseRangesHonorMaxFileSplitNum() throws Exception {
+        for (TFileFormatType format : List.of(TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_ORC)) {
+            SessionVariable sv = new SessionVariable();
+            sv.setMaxFileSplitNum(1);
+            TBrokerFileStatus file = splittableFile("s3://bucket/large", 2048 * MB);
+            file.setModificationTime(17);
+            TVFScanNode node = fileScanNode(sv, TFileType.FILE_S3, format, file);
+            List<Split> splits = node.getSplits(1);
+            Assertions.assertEquals(1, splits.size());
+            Assertions.assertEquals(2048 * MB, splits.get(0).getLength());
+        }
+    }
+
+    @Test
+    public void testHttpRetainsFineRangesWhileStableStorageUsesCoarseRanges() throws Exception {
+        for (TFileFormatType format : List.of(TFileFormatType.FORMAT_PARQUET, TFileFormatType.FORMAT_ORC)) {
+            for (long explicitSize : new long[] {0, 16 * MB}) {
+                SessionVariable sv = new SessionVariable();
+                sv.setFileSplitSize(explicitSize);
+                TBrokerFileStatus httpFile = splittableFile("http://example.test/data", 256 * MB);
+                TVFScanNode http = fileScanNode(sv, TFileType.FILE_HTTP, format, httpFile);
+                Assertions.assertEquals(explicitSize > 0 ? 16 : 8, http.getSplits(1).size());
+                for (TFileType type : List.of(TFileType.FILE_S3, TFileType.FILE_HDFS)) {
+                    String path = type == TFileType.FILE_S3 ? "s3://bucket/data" : "hdfs://host/data";
+                    TBrokerFileStatus stableFile = splittableFile(path, 256 * MB);
+                    stableFile.setModificationTime(17);
+                    TVFScanNode stable = fileScanNode(sv, type, format, stableFile);
+                    Assertions.assertEquals(1, stable.getSplits(1).size());
+                }
+            }
+        }
+    }
+
+    private static TVFScanNode fileScanNode(SessionVariable sv, TFileType type,
+            TFileFormatType format, TBrokerFileStatus file) throws Exception {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getTFileType()).thenReturn(type);
+        Mockito.when(tvf.getTFileFormatType()).thenReturn(format);
+        Mockito.when(tvf.getFileStatuses()).thenReturn(List.of(file));
+        desc.setTable(table);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        setFileSplitter(node, new FileSplitter(32 * MB, 32 * MB, 0));
+        return node;
+    }
+
+    @Test
+    public void testDetermineTargetFileSplitSizeUsesCoarseSizeForParquet() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getTFileFormatType()).thenReturn(org.apache.doris.thrift.TFileFormatType.FORMAT_PARQUET);
+        desc.setTable(table);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        Method method = TVFScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class);
+        method.setAccessible(true);
+        List<TBrokerFileStatus> statuses = List.of(splittableFile("s3://bucket/large.parquet", 1024 * MB));
+        Assertions.assertEquals(512 * MB, (long) method.invoke(node, statuses));
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(16 * MB, (long) method.invoke(node, statuses));
+    }
 
     @Test
     public void testCountColumnKeepsNormalFileSplitting() throws Exception {

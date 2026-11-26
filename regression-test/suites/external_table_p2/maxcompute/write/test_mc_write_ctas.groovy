@@ -49,7 +49,7 @@ suite("test_mc_write_ctas", "p2,external") {
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Prepare source table

@@ -66,7 +66,7 @@ static void mock_column_size(auto& col, size_t size) {
     }
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
                                                          int batch_size)
         : _parent(parent),
@@ -97,7 +97,7 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
             probe_output_non_lazy_materialized_count >= CONTIGUOUS_INDICES_CHECK_THRESHOLD;
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns& mcol,
                                                                  bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
@@ -156,7 +156,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
     }
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 bool ProcessHashTableProbe<JoinOpType>::can_transfer_probe_columns_to_output(
         bool probe_indices_are_contiguous) const {
     constexpr bool probe_side_type_unchanged =
@@ -175,7 +175,7 @@ bool ProcessHashTableProbe<JoinOpType>::can_transfer_probe_columns_to_output(
            _parent->_probe_index == _parent->_probe_block.rows() && _parent->_build_index == 0;
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
@@ -209,7 +209,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
     }
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
         HashTableType& hash_table_ctx, uint32_t probe_rows, const uint8_t* null_map) {
@@ -225,12 +225,18 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.arena.clear();
-        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_parent->_probe_columns.size() == 1 && null_map) {
-            if (simd::contain_one(null_map, probe_rows)) {
-                const_cast<IColumn*>(_parent->_probe_columns[0])
-                        ->replace_column_null_data(null_map);
-            }
+        // A retained NULL bucket compares key payloads. Keep the normalized probe key alive
+        // across pulls, since the input may also be an output column (e.g. NULLIF(a, 1)).
+        // String keys already produce an empty StringRef for NULL during serialization.
+        if (_parent->_probe_columns.size() == 1 && null_map &&
+            hash_table_ctx.hash_table->keep_null_key() &&
+            !_parent->_probe_columns[0]->is_column_string() &&
+            simd::contain_one(null_map, probe_rows)) {
+            const auto* key = _parent->_probe_columns[0];
+            auto normalized = IColumn::mutate(key->get_ptr());
+            normalized->replace_column_null_data(null_map);
+            _parent->_key_columns_holder.emplace_back(std::move(normalized));
+            _parent->_probe_columns[0] = _parent->_key_columns_holder.back().get();
         }
 
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
@@ -249,11 +255,12 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 // Phase 2: Batch binary search — find ASOF best match for each resolved row.
 // This separation improves cache locality since phase 2 accesses AsofIndexGroup
 // data sequentially without interleaving hash chain walks.
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 template <typename HashTableType>
-uint32_t ProcessHashTableProbe<JoinOpType>::
+Status ProcessHashTableProbe<JoinOpType>::
         _find_batch_asof_optimized( // NOLINT(readability-function-cognitive-complexity)
-                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows) {
+                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows,
+                uint32_t& matched_rows) {
     auto* shared_state = _parent->_shared_state;
     constexpr bool is_outer_join = is_asof_outer_join_op_v<JoinOpType>;
     auto& probe_index = _parent->_probe_index;
@@ -267,10 +274,12 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                 _build_indexs.get_element(matched_cnt) = 0;
                 matched_cnt++;
             }
-            return matched_cnt;
+            matched_rows = matched_cnt;
+            return Status::OK();
         }
         probe_index = probe_rows;
-        return 0;
+        matched_rows = 0;
+        return Status::OK();
     }
 
     // Get ASOF probe expression from operator and execute on probe block.
@@ -281,8 +290,9 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     ColumnPtr probe_col_ptr;
     {
         SCOPED_TIMER(_asof_probe_expr_timer);
-        auto st = asof_probe_expr->execute(&probe_block, probe_col_ptr);
-        DORIS_CHECK(st.ok());
+        // A strict CAST of an out-of-range DATETIMEV2 match key can fail on ordinary input.
+        // Preserve its conversion error instead of treating it as a BE invariant violation.
+        RETURN_IF_ERROR(asof_probe_expr->execute(&probe_block, probe_col_ptr));
     }
     probe_col_ptr = probe_col_ptr->convert_to_full_column_if_const();
 
@@ -482,32 +492,14 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                           return probe_with_index(
                                   groups, assert_cast<const ColumnTimeStampNs*>(probe_col),
                                   [](const auto& value) { return value.to_date_int_val(); });
-                      },
-                      [&](std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>& groups) -> uint32_t {
-                          return asof_column_dispatch(
-                                  probe_col, [&](const auto* typed_col) -> uint32_t {
-                                      using ColType = std::remove_const_t<
-                                              std::remove_pointer_t<decltype(typed_col)>>;
-                                      if constexpr (std::is_same_v<ColType, ColumnDateTimeV2> ||
-                                                    std::is_same_v<ColType, ColumnTimeStampNs>) {
-                                          return probe_with_index(
-                                                  groups, typed_col, [](const auto& value) {
-                                                      return asof_mixed_datetime_key(value);
-                                                  });
-                                      } else {
-                                          throw Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "Mixed TIMESTAMP_NS/DATETIMEV2 ASOF "
-                                                          "index received {}",
-                                                          probe_col->get_name());
-                                      }
-                                  });
                       }},
             shared_state->asof_index_groups);
 
-    return matched_cnt;
+    matched_rows = matched_cnt;
+    return Status::OK();
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 template <typename HashTableType>
 void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& hash_table_ctx,
                                                               MutableBlock& mutable_block,
@@ -524,7 +516,7 @@ void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& has
     output_block->swap(mutable_block.to_block());
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                                                   const uint8_t* null_map,
@@ -549,7 +541,8 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
     if constexpr (is_asof_join) {
         SCOPED_TIMER(_search_hashtable_timer);
-        current_offset = _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows);
+        RETURN_IF_ERROR(
+                _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows, current_offset));
     } else if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                 JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
                _have_other_join_conjunct) {
@@ -645,7 +638,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     return Status::OK();
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t probe_index) {
     const auto rows = _build_block->rows();
 
@@ -669,7 +662,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t pro
     return matched_cnt;
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* output_block,
                                                                      size_t filter_column_id,
                                                                      size_t column_to_keep) {
@@ -755,7 +748,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* outp
      * To avoid using nested loop join, we use the mark join conjunct(`t1.k1 = t2.k1`) as the equal join conjunct.
      * So this query will be a "null aware left anti join", which means the equal conjunct's result should be nullable.
      */
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_block,
                                                                  const uint8_t* null_map) {
     if (JoinOpType != TJoinOp::LEFT_ANTI_JOIN && JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
@@ -909,7 +902,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
     }
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_block,
                                                                   DorisVector<uint8_t>& visited) {
     // dispose the other join conjunct exec
@@ -1025,7 +1018,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     return Status::OK();
 }
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 template <typename HashTableType>
 Status ProcessHashTableProbe<
         JoinOpType>::finish_probing( // NOLINT(readability-function-cognitive-complexity)
@@ -1150,5 +1143,8 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt128>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt256>));          \
-    INSTANTIATION(JoinOpType, (MethodOneString));
+    INSTANTIATION(JoinOpType, (MethodOneString));                            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt32>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt64>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt128>));
 } // namespace doris

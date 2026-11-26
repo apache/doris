@@ -35,6 +35,8 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
@@ -52,7 +54,6 @@ import java.util.Set;
 
 
 public class AlterMTMVTest extends TestWithFeService {
-
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
@@ -150,10 +151,10 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToCompleteRejected() throws Exception {
         createDatabaseAndUse("alter_test2");
-        createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -169,10 +170,10 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToAutoRejected() throws Exception {
         createDatabaseAndUse("alter_test3");
-        createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv3\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -262,11 +263,10 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmWindowLimitUnknownTableRejected() throws Exception {
         // ALTER on an IVM MV with a table that is not a base table is rejected.
         createDatabaseAndUse("alter_ivm_window_unknown_ivm");
-        createTable("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',"
-                + " 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW alter_ivm_window_unknown_ivm.alt_ivm_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -294,6 +294,27 @@ public class AlterMTMVTest extends TestWithFeService {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
                 "ALTER MATERIALIZED VIEW alt_ivm_full_keys_mv"
                         + " SET ('ivm_use_full_keys' = 'true')"));
+        Assertions.assertTrue(exception.getMessage().contains("cannot be altered"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testAlterIvmForceMowRejected() throws Exception {
+        createDatabaseAndUse("alter_ivm_force_mow");
+        createTable("CREATE TABLE alter_ivm_force_mow.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_ivm_force_mow_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        // Which model the MV is built on is fixed at creation, the way ivm_use_full_keys is: an ALTER must
+        // report it rather than move the MV to a model its refresh would contradict.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> alterMv(
+                "ALTER MATERIALIZED VIEW alt_ivm_force_mow_mv"
+                        + " SET ('ivm_force_mow' = 'true')"));
         Assertions.assertTrue(exception.getMessage().contains("cannot be altered"),
                 exception.getMessage());
     }
@@ -379,38 +400,34 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmInfoPersistence() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_ivm_test");
-        createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
-                + " PROPERTIES ('replication_num' = '1')\n"
+                + " PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1')\n"
                 + " AS SELECT k1, v1 FROM ivm_base");
 
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
                 .getDb("alter_ivm_test").get()
                 .getTableOrMetaException("ivm_alter_mv");
 
-        // Incremental MTMV persists plan signature at create time.
         IvmInfo initialInfo = mtmv.getIvmInfo();
-        Assertions.assertNotNull(initialInfo.getPlanSignature());
+        Assertions.assertNull(initialInfo.getPlanSignature());
 
         IvmInfo newInfo = new IvmInfo(initialInfo);
         newInfo.setPlanSignature("sig-1");
-        newInfo.requireCompleteBaselineRebuild();
 
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_IVM_INFO);
         replayAlter.setIvmInfo(newInfo);
         long schemaChangeVersion = mtmv.getSchemaChangeVersion();
-        newInfo.clearBaselineRebuild();
         Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
         IvmInfo updatedInfo = mtmv.getIvmInfo();
         Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
-        Assertions.assertTrue(updatedInfo.isBaselineRebuildRequired());
         Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
     }
 
@@ -418,10 +435,10 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testReplayAlterPartitionStates() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_partition_states_test");
-        createTable("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW states_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -484,6 +501,45 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     /** Replays an alter record the way a restart does: from what the journal wrote, not from memory. */
+    @Test
+    public void testReplayAlterPartitionStatesRemovesSnapshots() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_snapshot_test");
+        createTableWithChangelog("CREATE TABLE alter_partition_states_snapshot_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_snapshot_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_snapshot_test").get()
+                .getTableOrMetaException("states_snapshot_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+        mtmv.getRefreshSnapshot().updateSnapshots(
+                Maps.newHashMap(Map.of(partitionName, new MTMVRefreshPartitionSnapshot())),
+                Sets.newHashSet(partitionName));
+        Assertions.assertEquals(Sets.newHashSet(partitionName),
+                mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
+
+        // The invalidation journaled the raised requirement and the snapshot it dropped together, so a
+        // replay has to apply both: a reader that saw the requirement while the snapshot was still there
+        // could let a transparent rewrite serve rows the rebuild has to replace.
+        AlterMTMV payload = new AlterMTMV(
+                new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()),
+                MTMVAlterOpType.ALTER_PARTITION_STATES);
+        payload.setPartitionStates(Map.of(partitionName, new MTMVPartitionState(1, 2)));
+        payload.setRemovedSnapshotPartitions(Sets.newHashSet(partitionName));
+
+        replayFromJournal(payload);
+
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
     private static void replayFromJournal(AlterMTMV alter) throws Exception {
         AlterMTMV replayed;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(journalBytes(alter)))) {
@@ -495,12 +551,11 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
         createDatabaseAndUse("stream_test");
-        createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
-                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
-                + " 'binlog.format' = 'ROW')");
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW stream_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -598,10 +653,10 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     private void createIvmBaseAndMv(String dbName, String baseTableName, String mvName) throws Exception {
-        createTable("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW " + dbName + "." + mvName + "\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -616,18 +671,16 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
         createDatabaseAndUse("stream_excl_test");
-        createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
-                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
-                + " 'binlog.format' = 'ROW')");
-        createTable("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
+        createTableWithChangelog("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
-                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
-                + " 'binlog.format' = 'ROW')");
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW excl_stream_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -659,10 +712,10 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesAllowsEquivalentScopeChanges() throws Exception {
         createDatabaseAndUse("alter_ivm_excluded_trigger_test");
-        createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithChangelog("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_excluded_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -688,16 +741,16 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerKeepsStreamOwnedByAnotherBaseTable() throws Exception {
         createDatabaseAndUse("alter_ivm_stream_owner_test");
-        createTable("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithChangelog("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
+        createTableWithChangelog("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW owner_mv "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
                 + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
@@ -719,16 +772,16 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesCreateStreamFailureCompensatesAndFails() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_create_fail_test");
-        createTable("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithChangelog("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
+        createTableWithChangelog("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW excl_create_fail_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -772,16 +825,16 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesDropStreamFailureIsBestEffort() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_drop_fail_test");
-        createTable("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithChangelog("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
+        createTableWithChangelog("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
         createMvByNereids("CREATE MATERIALIZED VIEW excl_drop_fail_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"

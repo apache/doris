@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.AggregateUtils;
@@ -69,6 +70,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
@@ -146,6 +148,26 @@ public class StatisticsUtil {
         }
     }
 
+    /**
+     * Like {@link #execStatisticQuery(String)}, but an environment in which the query can not be run
+     * at all (the internal schema database is disabled, or the cloud compute group is unreachable) is
+     * reported as a failure instead of as an empty result. A caller which takes a decision from the
+     * rows - e.g. "there is nothing stored" - must not mistake an unreadable table for an empty one.
+     */
+    public static List<ResultRow> execStatisticQueryOrThrow(String sql) throws Exception {
+        if (!FeConstants.enableInternalSchemaDb) {
+            throw new IllegalStateException("the internal schema database is disabled");
+        }
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            if (Config.isCloudMode()) {
+                // throws ComputeGroupException when no compute group is reachable
+                r.connectContext.getCloudCluster();
+            }
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            return stmtExecutor.executeInternalQuery();
+        }
+    }
+
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
@@ -191,6 +213,11 @@ public class StatisticsUtil {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
+        // every internal statement quotes its values with escapeSQL, which relies on the backslash
+        // escapes of the standard sql mode; the global default may include NO_BACKSLASH_ESCAPES, which
+        // would store the doubled backslashes verbatim (a pinned structure would no longer match its
+        // live query after a restart)
+        sessionVariable.setSqlMode(sessionVariable.getSqlMode() & ~SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1.0);
         sessionVariable.enablePageCache = false;
@@ -272,6 +299,8 @@ public class StatisticsUtil {
                 return new org.apache.doris.analysis.IPv4Literal(columnValue);
             case IPV6:
                 return new org.apache.doris.analysis.IPv6Literal(columnValue);
+            case UUID:
+                return new org.apache.doris.analysis.UuidLiteral(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -332,6 +361,9 @@ public class StatisticsUtil {
                 case IPV6:
                     IPv6Literal ipv6 = new IPv6Literal(columnValue);
                     return ipv6.getDouble();
+                case UUID:
+                    UuidLiteral uuid = new UuidLiteral(columnValue);
+                    return uuid.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -861,9 +893,10 @@ public class StatisticsUtil {
             return false;
         }
 
-        // Support OLAP table
+        // Support OLAP table, except one that still enables changelog through "binlog.format" = "ROW": it can only
+        // be dropped.
         if (table instanceof OlapTable) {
-            return true;
+            return !((OlapTable) table).isLegacyChangelog();
         }
 
         // Support flipped plugin-driven external tables whose connector declares column auto-analyze

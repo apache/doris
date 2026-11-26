@@ -63,8 +63,7 @@ public:
             int n_columns = 0;
             for (const auto slot_desc : slots) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
+                                                    slot_desc->type(), slot_desc->col_name()));
             }
         }
         return ScopedMutableBlock(block);
@@ -74,7 +73,7 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
+                columns_with_type_and_name.emplace_back(nullptr, slot_desc->type(),
                                                         slot_desc->col_name());
             }
         }
@@ -85,7 +84,7 @@ public:
         NameAndTypePairs name_with_types;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
+                name_with_types.emplace_back(slot_desc->col_name(), slot_desc->type());
             }
         }
         return name_with_types;
@@ -95,9 +94,8 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                columns_with_type_and_name.emplace_back(
-                        slot_desc->get_data_type_ptr()->create_column(),
-                        slot_desc->get_data_type_ptr(), slot_desc->col_name());
+                columns_with_type_and_name.emplace_back(slot_desc->type()->create_column(),
+                                                        slot_desc->type(), slot_desc->col_name());
             }
         }
         return columns_with_type_and_name;
@@ -139,7 +137,7 @@ public:
         DataTypes data_types;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                data_types.push_back(slot_desc->get_data_type_ptr());
+                data_types.push_back(slot_desc->type());
             }
         }
         return data_types;

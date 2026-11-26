@@ -22,35 +22,49 @@
 #include <iostream>
 #include <vector>
 
+#ifdef DORIS_BENCHMARK_HEADER
+#include DORIS_BENCHMARK_HEADER
+#else
+#include "benchmark_analyzer.hpp"
 #include "benchmark_array_range.hpp"
+#include "benchmark_arrays_overlap.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_case_expr.hpp"
+#include "benchmark_character_encoding.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
+#include "benchmark_gram_extractor.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
+#include "benchmark_md5.hpp"
+#include "benchmark_relative_day.hpp"
+#include "benchmark_rowid_conversion.hpp"
+#include "benchmark_timestamptz_round.hpp"
+#include "benchmark_variant_assembler.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
-#include "common/config.h"
-#include "core/block/block.h"
-#include "core/column/column_string.h"
-#include "core/data_type/data_type.h"
-#include "core/data_type/data_type_string.h"
 #include "parquet/benchmark_file_scanner_expr.hpp"
 #include "parquet/benchmark_parquet_decoder.hpp"
 #include "parquet/benchmark_parquet_kernels.hpp"
 #include "parquet/benchmark_parquet_reader.hpp"
 #include "parquet/benchmark_parquet_selection.hpp"
+#include "variant/benchmark_variant_segment.hpp"
+#endif
+
+#include "common/config.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
-#include "variant/benchmark_variant_segment.hpp"
 
 namespace doris { // change if need
 
@@ -92,7 +106,7 @@ static void Example1(benchmark::State& state) {
     state.ResumeTiming();
 
     // do test
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
         auto str_col = ColumnString::create();
         for (auto& v : vals) {
             str_col->insert_data(v.data(), v.size());

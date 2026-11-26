@@ -20,18 +20,27 @@
 #include <gen_cpp/types.pb.h>
 
 #include <algorithm>
+#include <cctype>
+#include <ranges>
+#include <unordered_map>
 
 #include "arrow/array/builder_nested.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/string_ref.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -384,7 +393,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                      JsonbWriter& writer) const {
+                                                      JsonbWriter& writer,
+                                                      const FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
 
     if (!writer.writeStartObject()) {
@@ -402,7 +412,7 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
         }
         // write value
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
-                                                                       row_num, writer));
+                                                                       row_num, writer, options));
     }
 
     if (!writer.writeEndObject()) {
@@ -471,6 +481,75 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     return Status::OK();
 }
 
+namespace {
+
+template <typename WriteElement>
+Status write_struct_column_to_target(const IColumn& column, const NullMap* null_map,
+                                     arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                     WriteElement&& write_element) {
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
+        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
+            RETURN_IF_ERROR(write_element(struct_column, builder, element, row));
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeStructSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    // Child indices are meaningful only when the target has the same structural arity.
+    if (field->type()->id() != arrow::Type::STRUCT ||
+        array_builder->type()->id() != arrow::Type::STRUCT ||
+        static_cast<size_t>(field->type()->num_fields()) != struct_type.get_elements().size()) {
+        return Status::InvalidArgument("Paimon struct writer requires matching Arrow fields");
+    }
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_paimon_arrow(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
+}
+
+Status DataTypeStructSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    // Child indices are meaningful only when the target has the same structural arity.
+    if (field->type()->id() != arrow::Type::STRUCT ||
+        array_builder->type()->id() != arrow::Type::STRUCT ||
+        static_cast<size_t>(field->type()->num_fields()) != struct_type.get_elements().size()) {
+        return Status::InvalidArgument("Iceberg struct writer requires matching Arrow fields");
+    }
+    return write_struct_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const ColumnStruct& struct_column, arrow::StructBuilder& builder, size_t element,
+                int64_t row) {
+                return elem_serdes_ptrs[element]->write_column_to_iceberg_arrow(
+                        struct_type.get_element(element), struct_column.get_column(element),
+                        nullptr, field->type()->field(cast_set<int>(element)),
+                        builder.field_builder(cast_set<int>(element)), row, row + 1, ctz);
+            });
+}
+
 Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
@@ -479,10 +558,24 @@ Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow:
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
-    DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
+    // Reject non-STRUCT input before reading its fields, even with buffer validation disabled.
+    if (concrete_struct == nullptr) {
+        return Status::InvalidArgument("Expected Arrow StructArray, got {}",
+                                       arrow_array->type()->ToString());
+    }
+    // A shorter input struct would otherwise index past its children; extra fields lose data.
+    if (struct_column.tuple_size() != concrete_struct->num_fields()) {
+        return Status::InvalidArgument("Expected Arrow StructArray with {} fields, got {}",
+                                       struct_column.tuple_size(), concrete_struct->num_fields());
+    }
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
-                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
+        // The fields of a NULL struct row are unspecified and are not decoded.
+        std::shared_ptr<arrow::Array> field;
+        RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+                *concrete_struct, start, end, concrete_struct->field(i),
+                [](int64_t row) { return std::pair<int64_t, int64_t>(row, row + 1); }, &field));
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(struct_column.get_column(i),
+                                                                    field.get(), start, end, ctz));
     }
     return Status::OK();
 }
@@ -731,6 +824,130 @@ Status DataTypeStructSerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_struct_orc_values(elem_serdes_ptrs, column, view);
+}
+
+Status DataTypeStructSerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                              const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || !context.binding ||
+        context.binding->children.size() < elem_serdes_ptrs.size()) {
+        return Status::InvalidArgument("BSON STRUCT requires pinned field bindings");
+    }
+    const bool timestamp = value.value.value_type == BSON_TYPE_TIMESTAMP;
+    const bool regex = value.value.value_type == BSON_TYPE_REGEX;
+    if (!timestamp && !regex && value.value.value_type != BSON_TYPE_DOCUMENT) {
+        return Status::InvalidArgument("BSON STRUCT requires a document or timestamp source");
+    }
+    auto& target = assert_cast<ColumnStruct&>(column);
+    const size_t before = target.size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            // A failure can occur after an earlier child appended, including an allocation exception.
+            for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
+                auto& child = target.get_column(j);
+                if (child.size() > before) {
+                    child.pop_back(child.size() - before);
+                }
+            }
+        }
+    });
+    for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+        // Nested projection can retain only city from STRUCT<city,rank>; child ordinals then differ.
+        const BsonBinding* binding = context.binding->child(elem_names[i], i);
+        Status status;
+        BsonValueView field;
+        if (!binding) {
+            status = Status::InvalidArgument("BSON STRUCT field differs from the pinned binding");
+        } else if (timestamp || regex) {
+            bson_value_t part {};
+            part.value_type = timestamp ? BSON_TYPE_INT64 : BSON_TYPE_UTF8;
+            bool valid = true;
+            if (regex) {
+                const char* text = nullptr;
+                if (binding->name == "pattern") {
+                    text = value.value.value.v_regex.regex;
+                } else if (binding->name == "options") {
+                    text = value.value.value.v_regex.options;
+                }
+                valid = text != nullptr;
+                if (text) {
+                    part.value.v_utf8.str = const_cast<char*>(text);
+                    part.value.v_utf8.len = static_cast<uint32_t>(strlen(text));
+                }
+            } else if (binding->name == "seconds") {
+                part.value.v_int64 = value.value.value.v_timestamp.timestamp;
+            } else if (binding->name == "increment") {
+                part.value.v_int64 = value.value.value.v_timestamp.increment;
+            } else {
+                valid = false;
+            }
+            field = BsonValueView::of(part);
+            status = valid ? elem_serdes_ptrs[i]->read_one_cell_from_bson(
+                                     target.get_column(i), field, context.child(binding))
+                           : Status::InvalidArgument(
+                                     "Invalid BSON timestamp or regex field binding");
+        } else {
+            field = value.at_path(binding->path);
+            status = elem_serdes_ptrs[i]->read_one_cell_from_bson(target.get_column(i), field,
+                                                                  context.child(binding));
+        }
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    committed = true;
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    if (input.type().value() != simdjson::ondemand::json_type::object) {
+        return Status::DataQualityError("Json value isn't object, but the column `{}` is struct.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnStruct&>(column);
+
+    std::unordered_map<std::string, size_t> field_positions;
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        auto name = elem_names[i];
+        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
+        field_positions.emplace(std::move(name), i);
+    }
+    std::vector<bool> seen(elem_names.size(), false);
+    for (simdjson::ondemand::field member : input.get_object()) {
+        std::string name(context.decoded_key(member));
+        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
+        const auto it = field_positions.find(name);
+        if (it == field_positions.end()) {
+            continue;
+        }
+        const auto index = it->second;
+        auto& child = target.get_column(index);
+        // Preserve nested STRUCT's last-wins behavior, e.g. {"a":1,"A":2}.
+        if (seen[index]) {
+            child.pop_back(1);
+        }
+        auto value = member.value();
+        RETURN_IF_ERROR(elem_serdes_ptrs[index]->deserialize_one_cell_from_simdjson(
+                child, value, options, context, column_name + "." + name));
+        seen[index] = true;
+    }
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        if (seen[i]) {
+            continue;
+        }
+        auto& child = target.get_column(i);
+        if (!child.is_nullable()) {
+            return Status::DataQualityError(
+                    "Json file structColumn miss field {} and this column isn't nullable.",
+                    column_name + "." + elem_names[i]);
+        }
+        child.insert_default();
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris

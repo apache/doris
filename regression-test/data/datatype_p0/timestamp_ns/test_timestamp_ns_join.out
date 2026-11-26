@@ -77,3 +77,56 @@
 -- !datetimev2_asof_timestamp_ns --
 1	\N
 
+-- !asof_after_conversion_errors --
+3	1
+4	\N
+
+-- !asof_nullable_build_after_conversion_errors --
+1	3
+
+-- !asof_not_null_derived_inner_ge --
+1	13	2202-01-01T00:00
+2	12	2201-01-01T00:00
+
+-- !asof_not_null_derived_inner_gt --
+1	13	2202-01-01T00:00
+2	11	2200-01-01T00:00
+
+-- !asof_not_null_derived_inner_le --
+2	12	2201-01-01T00:00
+
+-- !asof_not_null_derived_inner_lt --
+2	13	2202-01-01T00:00
+
+-- !asof_not_null_derived_empty_inner --
+
+-- !asof_not_null_derived_left_ge --
+1	13	2202-01-01T00:00
+2	12	2201-01-01T00:00
+3	\N	\N
+4	\N	\N
+
+-- !asof_not_null_derived_left_gt --
+1	13	2202-01-01T00:00
+2	11	2200-01-01T00:00
+3	\N	\N
+4	\N	\N
+
+-- !asof_not_null_derived_left_le --
+1	\N	\N
+2	12	2201-01-01T00:00
+3	\N	\N
+4	\N	\N
+
+-- !asof_not_null_derived_left_lt --
+1	\N	\N
+2	13	2202-01-01T00:00
+3	\N	\N
+4	\N	\N
+
+-- !asof_not_null_derived_empty_left --
+1	\N
+2	\N
+3	\N
+4	\N
+

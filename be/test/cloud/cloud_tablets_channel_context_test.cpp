@@ -124,7 +124,7 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
                           tracker.get());
                 EXPECT_EQ(thread_context()->resource_ctx()->task_controller()->task_id(), task_id);
                 auto token = engine.calc_delete_bitmap_executor()->create_load_token(
-                        req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
+                        req.txn_id, req.load_cancel_status, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
                 EXPECT_EQ(token->_thread_token->_pool, wg->get_memtable_flush_pool());
                 EXPECT_EQ(token->_thread_token->_load_id, req.txn_id);
                 RETURN_IF_ERROR(token->submit_func([&] {

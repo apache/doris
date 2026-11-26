@@ -53,7 +53,12 @@ using rocksdb::Iterator;
 using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
-using namespace ErrorCode;
+using ErrorCode::META_DELETE_ERROR;
+using ErrorCode::META_GET_ERROR;
+using ErrorCode::META_ITERATOR_ERROR;
+using ErrorCode::META_KEY_NOT_FOUND;
+using ErrorCode::META_OPEN_DB_ERROR;
+using ErrorCode::META_PUT_ERROR;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
@@ -121,8 +126,9 @@ Status OlapMeta::init() {
     return Status::OK();
 }
 
-Status OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
-    auto& handle = _handles[column_family_index];
+Status OlapMeta::get(ColumnFamilyIndex column_family_index, const std::string& key,
+                     std::string* value) {
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     int64_t duration_ns = 0;
     rocksdb::Status s;
     {
@@ -139,9 +145,9 @@ Status OlapMeta::get(const int column_family_index, const std::string& key, std:
     return Status::OK();
 }
 
-bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
+bool OlapMeta::key_may_exist(ColumnFamilyIndex column_family_index, const std::string& key,
                              std::string* value) {
-    auto& handle = _handles[column_family_index];
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     int64_t duration_ns = 0;
     bool is_exist = false;
     {
@@ -153,13 +159,13 @@ bool OlapMeta::key_may_exist(const int column_family_index, const std::string& k
     return is_exist;
 }
 
-Status OlapMeta::put(const int column_family_index, const std::string& key,
+Status OlapMeta::put(ColumnFamilyIndex column_family_index, const std::string& key,
                      const std::string& value) {
     // log all params
-    VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << key
-               << ", value: " << value;
+    VLOG_DEBUG << "column_family_index: " << static_cast<int>(column_family_index)
+               << ", key: " << key << ", value: " << value;
 
-    auto& handle = _handles[column_family_index];
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     rocksdb::Status s;
     {
         int64_t duration_ns = 0;
@@ -178,8 +184,9 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
     return Status::OK();
 }
 
-Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry>& entries) {
-    auto* handle = _handles[column_family_index].get();
+Status OlapMeta::put(ColumnFamilyIndex column_family_index,
+                     const std::vector<BatchEntry>& entries) {
+    auto* handle = _handles[static_cast<size_t>(column_family_index)].get();
     rocksdb::Status s;
     {
         int64_t duration_ns = 0;
@@ -189,8 +196,8 @@ Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry
         // construct write batch
         rocksdb::WriteBatch write_batch;
         for (auto entry : entries) {
-            VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << entry.key
-                       << ", value: " << entry.value;
+            VLOG_DEBUG << "column_family_index: " << static_cast<int>(column_family_index)
+                       << ", key: " << entry.key << ", value: " << entry.value;
             write_batch.Put(handle, rocksdb::Slice(entry.key), rocksdb::Slice(entry.value));
         }
 
@@ -224,8 +231,8 @@ Status OlapMeta::put(rocksdb::WriteBatch* batch) {
     return Status::OK();
 }
 
-Status OlapMeta::remove(const int column_family_index, const std::string& key) {
-    auto& handle = _handles[column_family_index];
+Status OlapMeta::remove(ColumnFamilyIndex column_family_index, const std::string& key) {
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     rocksdb::Status s;
     int64_t duration_ns = 0;
     {
@@ -242,8 +249,9 @@ Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     return Status::OK();
 }
 
-Status OlapMeta::remove(const int column_family_index, const std::vector<std::string>& keys) {
-    auto& handle = _handles[column_family_index];
+Status OlapMeta::remove(ColumnFamilyIndex column_family_index,
+                        const std::vector<std::string>& keys) {
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     rocksdb::Status s;
     int64_t duration_ns = 0;
     {
@@ -264,15 +272,15 @@ Status OlapMeta::remove(const int column_family_index, const std::vector<std::st
     return Status::OK();
 }
 
-Status OlapMeta::iterate(const int column_family_index, std::string_view prefix,
+Status OlapMeta::iterate(ColumnFamilyIndex column_family_index, std::string_view prefix,
                          std::function<bool(std::string_view, std::string_view)> const& func) {
     return iterate(column_family_index, prefix, prefix, func);
 }
 
-Status OlapMeta::iterate(const int column_family_index, std::string_view seek_key,
+Status OlapMeta::iterate(ColumnFamilyIndex column_family_index, std::string_view seek_key,
                          std::string_view prefix,
                          std::function<bool(std::string_view, std::string_view)> const& func) {
-    auto& handle = _handles[column_family_index];
+    auto& handle = _handles[static_cast<size_t>(column_family_index)];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle.get()));
     if (seek_key.empty()) {
         it->SeekToFirst();

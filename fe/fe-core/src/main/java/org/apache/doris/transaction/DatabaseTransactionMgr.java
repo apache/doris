@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -792,8 +794,8 @@ public class DatabaseTransactionMgr {
     /**
      * @return true if the transaction need to commit, otherwise false
      */
-    private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
-            boolean is2PC, TransactionState transactionState) throws UserException {
+    private boolean checkTransactionStatusBeforeCommit(long transactionId, boolean is2PC,
+            TransactionState transactionState) throws TransactionCommitFailedException {
         if (transactionState == null) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("transaction not found: {}", transactionId);
@@ -836,6 +838,20 @@ public class DatabaseTransactionMgr {
             }
             throw new TransactionCommitFailedException("transaction [" + transactionId
                     + "] is prepare, not pre-committed.");
+        }
+
+        TransactionStatus expectedStatus = is2PC ? TransactionStatus.PRECOMMITTED : TransactionStatus.PREPARE;
+        if (transactionState.getTransactionStatus() != expectedStatus) {
+            throw new TransactionCommitFailedException("transaction [" + transactionId + "] is "
+                    + transactionState.getTransactionStatus() + ", expected " + expectedStatus);
+        }
+        return true;
+    }
+
+    private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
+            boolean is2PC, TransactionState transactionState) throws UserException {
+        if (!checkTransactionStatusBeforeCommit(transactionId, is2PC, transactionState)) {
+            return false;
         }
 
         if (transactionState.isPartialUpdate()) {
@@ -911,30 +927,41 @@ public class DatabaseTransactionMgr {
             checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                     tableToPartition, totalInvolvedBackends);
         }
+        // Fetch before callbacks can acquire job locks or mark a job as committing. A disabled or
+        // unavailable TSO service must fail without leaving callback state behind.
+        long commitTSO = TransactionUtil.getCommitTSO(transactionId, db, is2PC
+                ? transactionState.getIdToTableCommitInfos().keySet() : tableToPartition.keySet());
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            if (is2PC) {
-                unprotectedCommitTransaction2PC(transactionState, db);
-            } else {
-                unprotectedCommitTransaction(transactionState, errorReplicaIds,
-                        tableToPartition, totalInvolvedBackends, db);
-            }
-            if (Config.enable_txn_log_outside_lock) {
-                logItem = enqueueTransactionState(transactionState);
-            } else {
-                persistTransactionState(transactionState);
-            }
-            txnOperated = true;
-        }
-        // after state transform
         try {
-            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-        } catch (Throwable e) {
-            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            synchronized (transactionState) {
+                // Recheck under the same monitor as the transition: TSO allocation may race with abort.
+                if (!checkTransactionStatusBeforeCommit(transactionId, is2PC, transactionState)) {
+                    return;
+                }
+                if (is2PC) {
+                    unprotectedCommitTransaction2PC(transactionState, db, commitTSO);
+                } else {
+                    unprotectedCommitTransaction(transactionState, errorReplicaIds,
+                            tableToPartition, totalInvolvedBackends, db, commitTSO);
+                }
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = enqueueTransactionState(transactionState);
+                } else {
+                    persistTransactionState(transactionState);
+                }
+                txnOperated = true;
+            }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor.
+            try {
+                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
@@ -984,26 +1011,35 @@ public class DatabaseTransactionMgr {
             }
         }
 
+        // As in the single-transaction path, allocate TSO before invoking job callbacks.
+        Set<Long> tableIds = subTransactionStates.stream()
+                .map(subTransactionState -> subTransactionState.getTable().getId()).collect(Collectors.toSet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionId, db, tableIds);
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            unprotectedCommitTransaction(transactionState, errorReplicaIds, subTxnToPartition, totalInvolvedBackends,
-                    subTransactionStates, db);
-            if (Config.enable_txn_log_outside_lock) {
-                logItem = enqueueTransactionState(transactionState);
-            } else {
-                persistTransactionState(transactionState);
-            }
-            txnOperated = true;
-        }
-        // after state transform
         try {
-            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
-        } catch (Throwable e) {
-            LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            synchronized (transactionState) {
+                if (!checkTransactionStatusBeforeCommit(transactionId, false, transactionState)) {
+                    return;
+                }
+                unprotectedCommitTransaction(transactionState, errorReplicaIds, subTxnToPartition,
+                        totalInvolvedBackends, subTransactionStates, db, commitTSO);
+                if (Config.enable_txn_log_outside_lock) {
+                    logItem = enqueueTransactionState(transactionState);
+                } else {
+                    persistTransactionState(transactionState);
+                }
+                txnOperated = true;
+            }
+        } finally {
+            try {
+                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
@@ -1690,7 +1726,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) throws TransactionCommitFailedException {
+                                                Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1698,8 +1734,6 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
-                tableToPartition.keySet());
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1709,13 +1743,13 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.addPartitionCommitInfo(
                             generatePartitionCommitInfo(table, partitionId, partition.getNextVersion(), commitTSO));
                 } else {
@@ -1736,7 +1770,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
             Map<Long, Set<Long>> subTxnToPartition, Set<Long> totalInvolvedBackends,
-            List<SubTransactionState> subTransactionStates, Database db) throws TransactionCommitFailedException {
+            List<SubTransactionState> subTransactionStates, Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1744,12 +1778,6 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        Set<Long> tableIds = new HashSet<>();
-        for (SubTransactionState subTransactionState : subTransactionStates) {
-            long tableId = subTransactionState.getTable().getId();
-            tableIds.add(tableId);
-        }
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db, tableIds);
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1779,7 +1807,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1791,7 +1819,7 @@ public class DatabaseTransactionMgr {
                     partitionToVersion.put(partitionId, partitionNextVersion);
 
                     PartitionCommitInfo partitionCommitInfo;
-                    if (Config.enable_feature_binlog && table.enableTso()) {
+                    if (Config.enable_feature_changelog && table.enableTso()) {
                         partitionCommitInfo = generatePartitionCommitInfo(table, partitionId,
                                 partitionNextVersion, commitTSO);
                     } else {
@@ -1815,8 +1843,7 @@ public class DatabaseTransactionMgr {
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
-    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db)
-            throws TransactionCommitFailedException {
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
             LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
@@ -1825,8 +1852,6 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
-                transactionState.getIdToTableCommitInfos().keySet());
         transactionState.setCommitTSO(commitTSO);
 
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
@@ -1845,7 +1870,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -1864,7 +1889,7 @@ public class DatabaseTransactionMgr {
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     partitionCommitInfo.setTso(commitTSO);
                 }
             }
@@ -2027,17 +2052,26 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, reason);
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, reason);
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, also when the abort
+            // is rejected or its edit log fails: a routine load job releases the lock taken in beforeAborted here.
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, reason);
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -2077,17 +2111,25 @@ public class DatabaseTransactionMgr {
         transactionState.beforeStateTransform(TransactionStatus.ABORTED);
         boolean txnOperated = false;
         EditLog.EditLogItem logItem = null;
-        synchronized (transactionState) {
-            txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
-            if (txnOperated) {
-                if (Config.enable_txn_log_outside_lock) {
-                    logItem = enqueueTransactionState(transactionState);
-                } else {
-                    persistTransactionState(transactionState);
+        try {
+            synchronized (transactionState) {
+                txnOperated = unprotectAbortTransaction(transactionId, "User Abort");
+                if (txnOperated) {
+                    if (Config.enable_txn_log_outside_lock) {
+                        logItem = enqueueTransactionState(transactionState);
+                    } else {
+                        persistTransactionState(transactionState);
+                    }
                 }
             }
+        } finally {
+            // Always pair a successful before callback outside the transaction monitor, as in abortTransaction().
+            try {
+                transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
-        transactionState.afterStateTransform(TransactionStatus.ABORTED, txnOperated, "User Abort");
         if (txnOperated) {
             awaitTransactionState(logItem, transactionState);
         }
@@ -3253,6 +3295,9 @@ public class DatabaseTransactionMgr {
             Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
             TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
             ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedPrepareStreamUpdate((OlapTableStreamUpdate) info.getUpdate());
+            }
         }
     }
 

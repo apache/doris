@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.MatchPredicate.Operator;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -48,15 +50,13 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
      * Constructor with analyzer parameter.
      * @param children child expressions
      * @param symbol the match operator symbol
-     * @param analyzer the analyzer name (will be normalized to lowercase)
+     * @param analyzer the analyzer name, retaining the exact spelling of legacy policies
      */
     public Match(List<Expression> children, String symbol, String analyzer) {
         super(children, symbol);
-        // Normalize analyzer name to lowercase for case-insensitive matching
         this.analyzer = Optional.ofNullable(analyzer)
                 .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(String::toLowerCase);
+                .filter(s -> !s.isEmpty());
     }
 
     /**
@@ -133,6 +133,23 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
 
     public Optional<String> getAnalyzer() {
         return analyzer;
+    }
+
+    /** A direct VARIANT slot without a subpath, even if its source metadata was lost. */
+    public static boolean isVariantRootSlot(Expression input) {
+        return input instanceof SlotReference && input.getDataType().isVariantType()
+                && !((SlotReference) input).hasSubColPath();
+    }
+
+    /** Whether the input can use root MATCH semantics with a values index. */
+    public static boolean hasVariantValuesIndex(Expression input) {
+        if (!isVariantRootSlot(input)) {
+            return false;
+        }
+        SlotReference slot = (SlotReference) input;
+        TableIf table = slot.getOriginalTable().orElse(null);
+        return table instanceof OlapTable && slot.getOriginalColumn().isPresent()
+                && ((OlapTable) table).hasVariantValuesIndex(slot.getOriginalColumn().get());
     }
 
     protected Optional<String> analyzer() {

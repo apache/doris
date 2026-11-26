@@ -27,9 +27,7 @@ import java.util.function.Consumer;
 
 /**
  * This is a utility class for limit related operations.
- * Because current there are 2 places need to check limit rows, so put the logic here for unification.
- *  - Coordinator.getNext();
- *  - QueryProcessor.getNext();
+ * QueryProcessor uses it to stop backend execution once the result limit is reached.
  */
 public class LimitUtils {
     private static final Logger LOG = LogManager.getLogger(LimitUtils.class);

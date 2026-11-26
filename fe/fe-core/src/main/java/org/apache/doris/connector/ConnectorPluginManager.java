@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
@@ -49,6 +53,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages lifecycle of ConnectorProvider plugins.
@@ -122,9 +127,10 @@ public class ConnectorPluginManager {
     // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
+    // Kerberos setup failure state must share Hadoop's loader so another plugin can retry partial setup.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.",
-                    "org.apache.hadoop.");
+                    "org.apache.doris.kerberos.", "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";
@@ -143,6 +149,12 @@ public class ConnectorPluginManager {
     private final Set<String> claimedTypes = ConcurrentHashMap.newKeySet();
     /** Lower-cased create-table engine names already claimed. Same uniqueness rule as {@link #claimedTypes}. */
     private final Set<String> claimedEngineNames = ConcurrentHashMap.newKeySet();
+    /** Lower-cased file formats claimed by a provider ({@link ConnectorProvider#getFileFormats()}), with it. */
+    private final Map<String, ConnectorProvider> fileFormatProviders = new ConcurrentHashMap<>();
+    /** The reader of each claimed file format, built when a statement first reads it; see {@link #getFileFormat}. */
+    private final Map<String, PluginFileFormat> fileFormats = new ConcurrentHashMap<>();
+    /** The catalog id of the next file format's connector: negative, as no catalog's is. */
+    private final AtomicLong nextFileFormatCatalogId = new AtomicLong(-100);
     private final DirectoryPluginRuntimeManager<ConnectorProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
     private final ClassLoadingPolicy classLoadingPolicy =
@@ -187,19 +199,24 @@ public class ConnectorPluginManager {
                         providerClass.getName(), e);
                 continue;
             }
+            ConnectorSecuritySurface securitySurface;
+            Set<String> formats;
             try {
-                // Snapshot self-reported metadata before publishing the provider
-                // so one throwing implementation is rejected cleanly instead of
-                // aborting startup or being active without an inventory row.
+                // Snapshot self-reported metadata (the security surface and the file formats included) before
+                // publishing the provider so one throwing implementation is rejected cleanly instead of
+                // aborting startup or being active without an inventory row. A surface built through the
+                // provider's own ServiceLoader fails with ServiceConfigurationError, as construction can.
+                securitySurface = provider.securitySurface();
+                formats = provider.getFileFormats();
                 PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
-            } catch (RuntimeException e) {
+            } catch (ServiceConfigurationError | RuntimeException e) {
                 LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
                         providerClass.getName(), e);
                 continue;
             }
             // Deliberately outside that catch: registerDiscovered's fail-loud
             // IllegalStateException reports a build error, not a "skip this one" condition.
-            if (registerDiscovered(provider, true)) {
+            if (registerDiscovered(provider, securitySurface, formats, true)) {
                 LOG.info("Registered built-in connector provider: {}", provider.getType());
             }
         }
@@ -211,20 +228,28 @@ public class ConnectorPluginManager {
      * {@link ConnectorProvider#supports} matches case-insensitively and catalog types are lower-cased before
      * routing). Refusing a reserved name here is what makes it impossible for a plugin to shadow a catalog type
      * the engine implements itself — routing order then cannot matter. The engine names it claims for
-     * {@code CREATE TABLE ... ENGINE=} go through the same two checks.
+     * {@code CREATE TABLE ... ENGINE=} go through the same two checks. An admitted provider's declared secrets
+     * (the keys and key namespaces on its {@code securitySurface()}) join the engine's masking list.
      *
+     * @param securitySurface the provider's {@code securitySurface()}, which the caller reads before it
+     *                 publishes anything: it is plugin code that may throw
+     * @param formats the provider's {@code getFileFormats()}, which the caller reads the same way
      * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
      *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
      *                 deployment accident, so the offender is skipped and logged, preserving
      *                 {@link #loadPlugins}'s partial-success contract (one bad plugin dir must not stop FE).
      * @return true if the provider was admitted
      */
-    boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
+    boolean registerDiscovered(ConnectorProvider provider, ConnectorSecuritySurface securitySurface,
+            Set<String> formats, boolean failFast) {
         String type = provider.getType();
         Set<String> engineNames = provider.acceptedCreateTableEngineNames();
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
+        }
+        if (problem == null) {
+            problem = fileFormatProblem(formats);
         }
         // Claim last, and only once nothing else can reject: a failed claim must not leave a name taken.
         if (problem == null && !claimedTypes.add(type.toLowerCase())) {
@@ -241,8 +266,20 @@ public class ConnectorPluginManager {
         for (String engineName : engineNames) {
             claimedEngineNames.add(engineName.toLowerCase());
         }
+        for (String format : formats) {
+            fileFormatProviders.put(format.toLowerCase(), provider);
+        }
+        registerSecrets(securitySurface);
         providers.add(provider);
         return true;
+    }
+
+    /** Adds the secret keys and key namespaces a provider declares to the engine's masking list. */
+    private static void registerSecrets(ConnectorSecuritySurface securitySurface) {
+        DatasourcePrintableMap.registerSensitiveKeys(securitySurface.sensitiveKeys());
+        for (SensitiveKeyPrefix keyPrefix : securitySurface.sensitiveKeyPrefixes()) {
+            DatasourcePrintableMap.registerSensitiveKeyPrefix(keyPrefix);
+        }
     }
 
     private static String typeNameProblem(String type) {
@@ -280,6 +317,46 @@ public class ConnectorPluginManager {
     }
 
     /**
+     * Same uniqueness rule as the type name, applied to the file formats a provider claims for the file table
+     * functions, so that a format means one reader whatever the load order. The formats the engine reads itself
+     * are reserved: a plugin answering to one would change what existing statements read.
+     */
+    private String fileFormatProblem(Set<String> formats) {
+        for (String format : formats) {
+            if (format == null || format.trim().isEmpty()) {
+                return "getFileFormats() returned a blank format name";
+            }
+            String lower = format.toLowerCase();
+            if (FileFormatProperties.ENGINE_FORMATS.contains(lower)) {
+                return "file format '" + format + "' is reserved for a format the engine reads itself";
+            }
+            if (fileFormatProviders.containsKey(lower)) {
+                return "file format '" + format + "' is already claimed by another registered connector provider";
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The reader of {@code format} for the file table functions, or empty when no plugin claims the format. Its
+     * connector is built through {@link ConnectorProvider#createFileFormatConnector} when a statement first reads
+     * the format, with the plugin's own conf and no storage, and kept for the life of the FE.
+     */
+    public Optional<PluginFileFormat> getFileFormat(String format) {
+        String key = format.toLowerCase();
+        ConnectorProvider provider = fileFormatProviders.get(key);
+        if (provider == null) {
+            return Optional.empty();
+        }
+        return Optional.of(fileFormats.computeIfAbsent(key, claimed -> {
+            long catalogId = nextFileFormatCatalogId.getAndDecrement();
+            ConnectorContext context = withConnectorConfig(new DefaultConnectorContext(claimed, catalogId), provider);
+            LOG.info("Creating the file format connector of '{}' via provider '{}'", claimed, provider.getType());
+            return new PluginFileFormat(claimed, provider.createFileFormatConnector(claimed, context), catalogId);
+        }));
+    }
+
+    /**
      * Loads connector provider plugins from plugin root directories.
      * Failures are logged as warnings; partial success is allowed.
      *
@@ -313,9 +390,25 @@ public class ConnectorPluginManager {
                 runtimeManager.discard(handle.getPluginName());
                 continue;
             }
+            ConnectorProvider provider = handle.getFactory();
+            // Snapshot the security surface and the file formats before publishing anything: they are plugin
+            // code, and one bad plugin dir must not stop FE. A connector may build its surface through its own
+            // ServiceLoader, as Hive, Iceberg and Paimon do for their metastore backends, and a descriptor naming
+            // a backend that cannot be loaded fails that with ServiceConfigurationError, an Error.
+            ConnectorSecuritySurface securitySurface;
+            Set<String> formats;
+            try {
+                securitySurface = provider.securitySurface();
+                formats = provider.getFileFormats();
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+                runtimeManager.discard(handle.getPluginName());
+                LOG.warn("Skip connector plugin '{}' from {}: securitySurface() or getFileFormats() failed",
+                        handle.getPluginName(), handle.getPluginDir(), e);
+                continue;
+            }
             // The inventory row is written only for a provider that was actually admitted, so
             // information_schema.extensions never lists a connector the routing table cannot reach.
-            if (registerDiscovered(handle.getFactory(), false)) {
+            if (registerDiscovered(provider, securitySurface, formats, false)) {
                 PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
                 loadConnectorConfig(handle);
                 LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
@@ -547,6 +640,7 @@ public class ConnectorPluginManager {
      */
     public void registerProvider(ConnectorProvider provider) {
         providers.add(0, provider);
+        registerSecrets(provider.securitySurface());
     }
 
     private List<String> providerNames() {

@@ -51,7 +51,7 @@ suite("test_stream_load_fe_redirect_chunked_e2e", "p0") {
     String originalDrainMaxIdleTimeMs = getFrontendConfigValue("stream_load_redirect_bounded_drain_max_idle_time_ms")
 
     // Treat common client-side disconnects as the reproduced historical failure signal.
-    def reproducedExceptionTypes = ["BrokenPipeError", "ConnectionResetError"] as Set
+    def reproducedExceptionTypes = ["BrokenPipeError", "ConnectionResetError", "SSLEOFError"] as Set
 
     // Keep the helper single-shot and let the regression test control retries and assertions.
     def runChunkedStreamLoad = {
@@ -68,6 +68,14 @@ suite("test_stream_load_fe_redirect_chunked_e2e", "p0") {
             "--chunk-kb", "8",
             "--sleep-ms", "10"
         ]
+        if (isDorisTlsEnabled()) {
+            command.addAll([
+                "--tls",
+                "--tls-ca", getConf("trustCACert"),
+                "--tls-cert", getConf("trustCert"),
+                "--tls-key", getConf("trustCAKey")
+            ])
+        }
         def process = command.execute()
         def code = process.waitFor()
         def out = process.in.text.trim()

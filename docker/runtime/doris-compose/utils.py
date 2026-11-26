@@ -21,6 +21,7 @@ import jsonpickle
 import logging
 import os
 import pwd
+import re
 import socket
 import subprocess
 import sys
@@ -145,24 +146,46 @@ def is_container_running(container):
 
 # return all doris containers when cluster_names is empty
 def get_doris_containers(cluster_names):
-    if cluster_names:
-        if type(cluster_names) == type(""):
-            filter_names = "{}{}-*".format(DORIS_PREFIX, cluster_names)
-        else:
-            filter_names = "|".join([
-                "{}{}-*".format(DORIS_PREFIX, name) for name in cluster_names
-            ])
+    import cluster
+    if isinstance(cluster_names, str):
+        requested_names = {cluster_names} if cluster_names else set()
     else:
-        filter_names = "{}*".format(DORIS_PREFIX)
+        requested_names = set(cluster_names or [])
+
+    # Docker's name filter matches substrings, so anchor the complete service
+    # name before the SDK inspects each matching container. Otherwise a lookup
+    # for "test_vcg" also inspects "test_vcg_warmup..." containers.
+    name_pattern = ("|".join(re.escape(name) for name in sorted(requested_names))
+                    if requested_names else ".+")
+    node_pattern = "|".join(re.escape(node_type)
+                            for node_type in cluster.Node.TYPE_ALL)
+    filter_names = r"^/{}({})-({})-[0-9]+$".format(
+        re.escape(DORIS_PREFIX), name_pattern, node_pattern)
 
     clusters = {}
     client = docker.client.from_env()
-    containers = client.containers.list(filters={"name": filter_names})
+    max_list_attempts = 3
+    for attempt in range(1, max_list_attempts + 1):
+        try:
+            # A container may be removed between Docker's list and inspect.
+            containers = client.containers.list(filters={"name": filter_names},
+                                                ignore_removed=True)
+            break
+        except docker.errors.NotFound as err:
+            if attempt == max_list_attempts:
+                raise
+            LOG.warning(
+                "Docker returned 404 while listing Doris containers; "
+                "retrying enumeration (%d/%d): %s",
+                attempt,
+                max_list_attempts,
+                err,
+            )
     for container in containers:
         cluster_name, _, _ = parse_service_name(container.name)
         if not cluster_name:
             continue
-        if cluster_names and cluster_name not in cluster_names:
+        if requested_names and cluster_name not in requested_names:
             continue
         if cluster_name not in clusters:
             clusters[cluster_name] = []

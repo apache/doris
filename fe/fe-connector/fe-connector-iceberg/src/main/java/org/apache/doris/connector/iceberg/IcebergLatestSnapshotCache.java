@@ -47,10 +47,11 @@ import java.util.function.Supplier;
  * an empty scan expose live partition metadata.
  *
  * <p>Backed by the shared {@link MetaCache} framework (independent-copy meta-cache migration): a
- * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
- * {@code meta.cache.iceberg.table.ttl-second}: {@code <= 0} disables caching (every read goes live, matching
- * the legacy "no-cache" catalog); a positive value is Caffeine {@code expireAfterAccess} with a
- * {@code maxSize} capacity (real LRU eviction, replacing the former clear-on-overflow). Manual miss-load is
+ * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. The connector builds it
+ * with the table entry's {@code meta.cache.iceberg.table.(enable|ttl-second|capacity)}: {@code enable=false},
+ * {@code ttl-second <= 0} or {@code capacity=0} disables caching (every read goes live, matching the legacy
+ * "no-cache" catalog); otherwise the TTL is Caffeine {@code expireAfterAccess} with the capacity as its
+ * {@code maxSize} (real LRU eviction, replacing the former clear-on-overflow). Manual miss-load is
  * on so the loader runs OUTSIDE Caffeine's compute lock (single-flight per key). Lives on the long-lived
  * per-catalog {@link IcebergConnector}; a REFRESH CATALOG rebuilds the connector and thus the cache.
  */
@@ -78,13 +79,12 @@ final class IcebergLatestSnapshotCache {
     private final MetaCache<TableIdentifier, CachedSnapshot> entry;
 
     IcebergLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
+        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
+        this(CatalogMetaCache.unmanaged(), CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
     }
 
-    IcebergLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+    IcebergLatestSnapshotCache(CatalogMetaCache owner, CacheSpec spec) {
         this.owner = owner;
-        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = owner.create(MetaCacheDefinition
                 .<TableIdentifier, CachedSnapshot>builder(
                         "iceberg-latest-snapshot", spec, IcebergLatestSnapshotCache::scope)
@@ -92,7 +92,7 @@ final class IcebergLatestSnapshotCache {
                 .build());
     }
 
-    /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
+    /** Caching is on unless the spec disables it; a disabled cache means "always read live". */
     boolean isEnabled() {
         return entry.isEnabled();
     }
@@ -131,6 +131,11 @@ final class IcebergLatestSnapshotCache {
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
         return Math.toIntExact(entry.size());
+    }
+
+    /** Test-only: the enable / TTL / capacity / weight spec this cache was built with. */
+    CacheSpec cacheSpecForTest() {
+        return entry.cacheSpec();
     }
 
     private static ScopePath scope(TableIdentifier identifier) {

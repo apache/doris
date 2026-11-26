@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -37,7 +39,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** Neutral engine helpers for request-scoped connector writer schemas and DEFAULT expressions. */
-final class ConnectorWriteSchemaUtils {
+public final class ConnectorWriteSchemaUtils {
 
     private ConnectorWriteSchemaUtils() {
     }
@@ -69,7 +71,8 @@ final class ConnectorWriteSchemaUtils {
         return ImmutableList.copyOf(writerColumns);
     }
 
-    static Expression resolveDefaultReferences(Expression expression, List<Column> columns,
+    /** Resolve DEFAULT(column) references against the request-scoped connector writer schema. */
+    public static Expression resolveDefaultReferences(Expression expression, List<Column> columns,
             ExternalTable targetTable, ConnectContext context,
             List<String> targetNameParts, String targetAlias) {
         return expression.rewriteDownShortCircuit(candidate -> {
@@ -100,11 +103,14 @@ final class ConnectorWriteSchemaUtils {
                 throw new AnalysisException("Cannot find column information for DEFAULT("
                         + reference.toSql() + ")");
             }
-            return resolveDefault(column);
+            // The parsed default takes the literal's own type (-1 is a TINYINT); the expression around DEFAULT(column)
+            // must bind against the column's type, as the bound DEFAULT rewrite does.
+            return TypeCoercionUtils.castUnbound(resolveDefault(column), DataType.fromCatalogType(column.getType()));
         });
     }
 
-    static Expression resolveDefault(Column column) {
+    /** Parse the catalog default expression for a connector write column. */
+    public static Expression resolveDefault(Column column) {
         String defaultSql = column.getDefaultValueSql();
         if (defaultSql == null) {
             throw new AnalysisException(
@@ -114,7 +120,8 @@ final class ConnectorWriteSchemaUtils {
         return expression instanceof UnboundAlias ? expression.child(0) : expression;
     }
 
-    static Expression resolveExplicitDefault(Expression expression, Column column) {
+    /** Replace an explicit DEFAULT placeholder with the column's catalog default expression. */
+    public static Expression resolveExplicitDefault(Expression expression, Column column) {
         return expression instanceof DefaultValueSlot ? resolveDefault(column) : expression;
     }
 

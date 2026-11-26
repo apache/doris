@@ -62,26 +62,31 @@ static void check_array_trim_case(const DataSet& data_set, bool const_array, boo
             "trim_array", block.get_columns_with_type_and_name(), array_type);
     ASSERT_NE(function, nullptr);
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
     if (const_array) {
-        constant_columns[0] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column);
+        constant_columns[0] = std::make_shared<ConstantExprResult>(block.get_by_position(0).column);
     }
     if (const_size) {
-        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column);
+        constant_columns[1] = std::make_shared<ConstantExprResult>(block.get_by_position(1).column);
     }
 
     FunctionUtils function_utils(array_type, {array_type, size_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
     function_context->set_constant_cols(constant_columns);
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
 
     block.insert({nullptr, array_type, "result"});
     const auto result = block.columns() - 1;
     ASSERT_TRUE(function->execute(function_context, block, {0, 1}, result, row_size).ok());
 
-    static_cast<void>(function->close(function_context, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(function->close(function_context, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(
+            function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     MutableColumnPtr expected_column = array_type->create_column();
     for (const auto& row : data_set) {

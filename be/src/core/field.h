@@ -27,6 +27,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -68,6 +69,10 @@ struct Array : public FieldVector {
 };
 
 struct Struct : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+struct File : public FieldVector {
     using FieldVector::FieldVector;
 };
 
@@ -204,29 +209,6 @@ public:
         return f;
     }
 
-    template <PrimitiveType PType, typename ValType = std::conditional_t<
-                                           doris::is_string_type(PType), StringRef,
-                                           typename PrimitiveTypeTraits<PType>::StorageFieldType>>
-    static Field create_field_from_olap_value(const ValType& data) {
-        auto f = Field(PType);
-        typename PrimitiveTypeTraits<PType>::CppType cpp_value;
-        if constexpr (is_string_type(PType)) {
-            cpp_value = String(data.data, data.size);
-        } else if constexpr (is_date_or_datetime(PType)) {
-            if constexpr (PType == TYPE_DATE) {
-                cpp_value.from_olap_date(data);
-            } else {
-                cpp_value.from_olap_datetime(data);
-            }
-        } else if constexpr (is_decimalv2(PType)) {
-            cpp_value = DecimalV2Value(data.integer, data.fraction);
-        } else {
-            cpp_value = typename PrimitiveTypeTraits<PType>::CppType(data);
-        }
-        f.template create_concrete<PType>(std::move(cpp_value));
-        return f;
-    }
-
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
@@ -238,7 +220,8 @@ public:
 
     bool is_complex_field() const {
         return type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
-               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT;
+               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT ||
+               type == PrimitiveType::TYPE_FILE;
     }
 
     Field& operator=(Field&& rhs) {
@@ -297,8 +280,8 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
-                         VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, File,
+                         Map, VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
                          Decimal256, BitmapValue, HyperLogLog, QuantileState>
             storage;
 

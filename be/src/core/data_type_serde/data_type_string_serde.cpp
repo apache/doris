@@ -17,19 +17,25 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include "common/config.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -208,6 +214,14 @@ private:
 } // namespace
 
 namespace {
+
+bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
+    if (!field->HasMetadata()) {
+        return false;
+    }
+    const auto value = field->metadata()->Get("originalType");
+    return value.ok() && value.ValueUnsafe() == "uuid";
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -550,6 +564,88 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
 }
 
 template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (!is_iceberg_uuid_field(field)) {
+        // Iceberg fixed(N) is a byte binding, so text padding must not change its physical value.
+        if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+            return Status::InvalidArgument(
+                    "Iceberg fixed writer requires Doris VARBINARY, got {} for Arrow field {}",
+                    type->get_name(), field->ToString());
+        }
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    if (!is_string_type(type->get_primitive_type()) ||
+        array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg UUID writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+    const int byte_width =
+            assert_cast<const arrow::FixedSizeBinaryType&>(*builder.type()).byte_width();
+    if (byte_width != 16) {
+        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
+    }
+    const auto& strings = assert_cast<const ColumnType&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(strings.get_data_at(row), &bytes));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+    }
+    return Status::OK();
+}
+
+// Appends values [start, end) of a string array with one copy when they lie back to back in its data buffer:
+// the array is not a slice, its offsets rise and stay inside the buffer, and every null is empty, which is how
+// writers lay nulls out. Returns false having appended nothing otherwise, and the caller copies value by value,
+// which also reports bad input precisely.
+template <typename ColumnType>
+static bool insert_contiguous_binary(ColumnType& column, const arrow::BinaryArray& array,
+                                     int64_t start, int64_t end, const uint8_t* data,
+                                     size_t data_size) {
+    if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                  std::is_same_v<ColumnType, ColumnString64>) {
+        if (array.offset() != 0) {
+            return false;
+        }
+        if (start >= end) {
+            return true;
+        }
+        const int32_t* offsets = array.raw_value_offsets();
+        // Python UDF Arrow buffers can start at an unaligned byte (for example, base + 1).
+        // Both the checks below and the bulk column insertion dereference typed offsets;
+        // keep such input on the fallback path, which reads offsets with unaligned_load.
+        if (reinterpret_cast<uintptr_t>(offsets) % alignof(int32_t) != 0) {
+            return false;
+        }
+        if (offsets[start] < 0 || std::cmp_greater(offsets[end], data_size)) {
+            return false;
+        }
+        const bool has_nulls = array.null_count() > 0;
+        for (int64_t i = start; i < end; ++i) {
+            if (offsets[i + 1] < offsets[i] ||
+                (has_nulls && array.IsNull(i) && offsets[i + 1] != offsets[i])) {
+                return false;
+            }
+        }
+        column.insert_many_continuous_binary_data(
+                reinterpret_cast<const char*>(data),
+                reinterpret_cast<const uint32_t*>(offsets + start), end - start);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
         const cctz::time_zone& ctz) const {
@@ -564,7 +660,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
-
+        if (insert_contiguous_binary(assert_cast<ColumnType&>(column), *concrete_array, start, end,
+                                     buffer ? buffer->data() : nullptr, buffer_size)) {
+            return Status::OK();
+        }
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
@@ -590,7 +689,6 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                                            static_cast<size_t>(concrete_array->byte_width()));
         }
         uint32_t width = concrete_array->byte_width();
-
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 const auto* raw_data = concrete_array->GetValue(offset_i);
@@ -714,9 +812,9 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                                      int64_t row_num,
-                                                                      JsonbWriter& writer) const {
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(
+        const IColumn& from_column, int64_t row_num, JsonbWriter& writer,
+        const FormatOptions& options) const {
     if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
         return Status::NotSupported(
                 "DataTypeStringSerDeBase only supports ColumnString for serialize_column_to_jsonb");
@@ -766,8 +864,8 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& col_from_json,
-        CastParameters& castParms) const {
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
         return Status::NotSupported(
                 "DataTypeStringSerDeBase only supports ColumnString for "
@@ -784,6 +882,11 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector
     col_str.get_chars().reserve(col_from_json.get_chars().size());
 
     for (size_t i = 0; i < size; ++i) {
+        if (source_null_map && source_null_map[i]) {
+            null_map[i] = true;
+            col_str.insert_default();
+            continue;
+        }
         const auto& val = col_from_json.get_data_at(i);
         auto* jsonb_value = handle_jsonb_value(val);
         if (!jsonb_value) {
@@ -872,6 +975,21 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
         return Status::OK();
     }
     return decode_string_orc_values(*this, column, view);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::decode_bson_value(
+        IColumn& column, const BsonValueView& value, const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_UTF8) {
+        return Status::InvalidArgument("BSON STRING requires a UTF-8 string source");
+    }
+    const auto& v = value.value.value.v_utf8;
+    if (!bson_utf8_validate(v.str, v.len, true)) {
+        return Status::InvalidArgument("BSON string contains invalid UTF-8");
+    }
+    assert_cast<ColumnType&>(column).insert_data(v.str, v.len);
+    return Status::OK();
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

@@ -18,13 +18,18 @@
 package org.apache.doris.cloud.alter;
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -54,6 +59,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class CloudSchemaChangeHandlerTest {
@@ -160,8 +170,8 @@ public class CloudSchemaChangeHandlerTest {
     public void testUpdateBinlogConfigUsesCloudTabletMeta() throws Exception {
         CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
         Database db = createMockDatabaseWithThreeTablets();
-        BinlogConfig binlogConfig = new BinlogConfig(true, 3600L, 4096L, 7L,
-                BinlogConfig.BinlogFormat.ROW, true);
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 4096L, 7L), new ChangelogConfig(true, 3600L, true));
 
         MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
         Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
@@ -188,16 +198,16 @@ public class CloudSchemaChangeHandlerTest {
             Assertions.assertEquals(3600L, tabletMetaInfo.getBinlogConfig().getTtlSeconds());
             Assertions.assertEquals(4096L, tabletMetaInfo.getBinlogConfig().getMaxBytes());
             Assertions.assertEquals(7L, tabletMetaInfo.getBinlogConfig().getMaxHistoryNums());
-            Assertions.assertEquals(org.apache.doris.proto.OlapFile.BinlogFormatPB.ROW,
+            Assertions.assertEquals(org.apache.doris.proto.OlapFile.BinlogFormatPB.CHANGELOG,
                     tabletMetaInfo.getBinlogConfig().getBinlogFormat());
             Assertions.assertTrue(tabletMetaInfo.getBinlogConfig().getNeedHistoricalValue());
         }
     }
 
     @Test
-    public void testUpdateCompactionPolicyExcludesRowBinlogTablets() throws Exception {
+    public void testUpdateCompactionPolicyExcludesChangelogTablets() throws Exception {
         CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
-        Database db = createMockDatabaseWithRowBinlogTablet();
+        Database db = createMockDatabaseWithChangelogTablet();
         Env env = Mockito.mock(Env.class);
         MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
         Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
@@ -226,9 +236,9 @@ public class CloudSchemaChangeHandlerTest {
     }
 
     @Test
-    public void testUpdateTtlIncludesRowBinlogTablets() throws Exception {
+    public void testUpdateTtlIncludesChangelogTablets() throws Exception {
         CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
-        Database db = createMockDatabaseWithRowBinlogTablet();
+        Database db = createMockDatabaseWithChangelogTablet();
         Env env = Mockito.mock(Env.class);
         MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
         Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
@@ -296,6 +306,81 @@ public class CloudSchemaChangeHandlerTest {
                     () -> handler.updateTableProperties(db, "tbl", properties));
             Assertions.assertTrue(exception.getMessage().contains("meta service rejected"));
         }
+    }
+
+    @Test
+    public void testUpdateBinlogConfigPersistsToCloudTabletMeta() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 1024, 10), new ChangelogConfig(true, 60, false));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+            Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            handler.updatePartitionProperties(db, "tbl", "p1", -1, -1, binlogConfig,
+                    null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> captor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(captor.capture());
+        captor.getAllValues().stream()
+                .flatMap(request -> request.getTabletMetaInfosList().stream())
+                .forEach(info -> {
+                    Assertions.assertTrue(info.hasBinlogConfig());
+                    Assertions.assertEquals(60, info.getBinlogConfig().getTtlSeconds());
+                });
+    }
+
+    @Test
+    public void testUpdateBinlogConfigIncludesBaseAndChangelogTablets() throws Exception {
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex changelogIndex = Mockito.mock(MaterializedIndex.class);
+        Tablet baseTablet = Mockito.mock(Tablet.class);
+        Tablet changelogTablet = Mockito.mock(Tablet.class);
+        Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getPartition("p1")).thenReturn(partition);
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Arrays.asList(baseIndex, changelogIndex));
+        Mockito.when(baseIndex.getTablets()).thenReturn(Arrays.asList(baseTablet));
+        Mockito.when(changelogIndex.isChangelog()).thenReturn(true);
+        Mockito.when(changelogIndex.getTablets()).thenReturn(Arrays.asList(changelogTablet));
+        Mockito.when(baseTablet.getId()).thenReturn(101L);
+        Mockito.when(changelogTablet.getId()).thenReturn(102L);
+
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 1024, 10), new ChangelogConfig(true, 60, false));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            new CloudSchemaChangeHandler().updatePartitionProperties(db, "tbl", "p1",
+                    -1, -1, binlogConfig, null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> captor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTablet(captor.capture());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), captor.getValue().getTabletMetaInfosList().stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        captor.getValue().getTabletMetaInfosList().forEach(info -> {
+            Assertions.assertTrue(info.hasBinlogConfig());
+            Assertions.assertEquals(60, info.getBinlogConfig().getTtlSeconds());
+        });
     }
 
     @Test
@@ -569,6 +654,128 @@ public class CloudSchemaChangeHandlerTest {
     }
 
     @Test
+    public void testValuesIndexRequiresSniiForFuturePartitions() throws Exception {
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Env env = Mockito.mock(Env.class);
+        Index index = new Index(72L, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "");
+        Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getIndexes()).thenReturn(List.of(index));
+        Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                .thenReturn(TInvertedIndexFileStorageFormat.SNII);
+
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<DynamicPartitionUtil> dynamicPartitionUtil =
+                        Mockito.mockStatic(DynamicPartitionUtil.class)) {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            config.when(Config::isCloudMode).thenReturn(true);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+            for (String format : List.of("V2", "V3")) {
+                Map<String, String> properties = new HashMap<>();
+                properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, format);
+                UserException error = Assertions.assertThrows(UserException.class,
+                        () -> handler.updateTableProperties(database, "tbl", properties));
+                Assertions.assertTrue(error.getMessage().contains(
+                        "VARIANT values index requires partition.inverted_index_storage_format=SNII"));
+            }
+            Mockito.verify(env, Mockito.never()).modifyTableProperties(
+                    Mockito.any(), Mockito.any(), Mockito.any());
+            // Returning a previously switched table to SNII must remain possible.
+            Mockito.when(table.getPartitionInvertedIndexFileStorageFormat())
+                    .thenReturn(TInvertedIndexFileStorageFormat.V2);
+            Map<String, String> properties = new HashMap<>();
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
+            handler.updateTableProperties(database, "tbl", properties);
+            Mockito.verify(env).modifyTableProperties(database, table, properties);
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
+    public void testPartitionFormatChangeRechecksConcurrentValuesIndexAdd() throws Exception {
+        boolean previousRollout = Config.enable_partition_inverted_index_storage_format_rollout;
+        try {
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            for (String format : List.of("V2", "V3")) {
+                Database database = Mockito.mock(Database.class);
+                OlapTable table = Mockito.spy(new OlapTable());
+                table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+                table.setIndexes(List.of());
+                Env env = Mockito.mock(Env.class);
+                Map<String, String> properties = new HashMap<>();
+                properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, format);
+                Mockito.when(database.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+
+                CountDownLatch formatChecked = new CountDownLatch(1);
+                CountDownLatch indexAdded = new CountDownLatch(1);
+                Mockito.doAnswer(invocation -> {
+                    invocation.callRealMethod();
+                    // Let ADD publish only after the format change releases its initial read lock.
+                    formatChecked.countDown();
+                    Assertions.assertTrue(indexAdded.await(30, TimeUnit.SECONDS));
+                    return null;
+                }).when(table).readUnlock();
+                Mockito.doAnswer(invocation -> {
+                    Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
+                    table.setPartitionInvertedIndexFileStorageFormat(
+                            TInvertedIndexFileStorageFormat.valueOf(format));
+                    return null;
+                }).when(env).modifyTableProperties(database, table, properties);
+
+                ExecutorService executor = Executors.newSingleThreadExecutor();
+                try {
+                    Future<UserException> change = executor.submit(() -> {
+                        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                                MockedStatic<DynamicPartitionUtil> dynamicPartitionUtil =
+                                        Mockito.mockStatic(DynamicPartitionUtil.class)) {
+                            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+                            try {
+                                new CloudSchemaChangeHandler().updateTableProperties(database, "tbl", properties);
+                                return null;
+                            } catch (UserException error) {
+                                return error;
+                            }
+                        }
+                    });
+                    Assertions.assertTrue(formatChecked.await(30, TimeUnit.SECONDS));
+                    table.writeLockOrDdlException();
+                    try {
+                        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                                table.getPartitionInvertedIndexFileStorageFormat());
+                        table.setIndexes(List.of(new Index(72L, "values_idx", List.of("v"), IndexType.INVERTED,
+                                Map.of("variant_index_scope", "values", "parser", "english"), "")));
+                    } finally {
+                        table.writeUnlock();
+                        indexAdded.countDown();
+                    }
+                    UserException error = change.get(30, TimeUnit.SECONDS);
+                    Assertions.assertNotNull(error, "Format change succeeded after a concurrent values-index ADD: "
+                            + table.getPartitionInvertedIndexFileStorageFormat());
+                    Assertions.assertTrue(error.getMessage().contains(
+                            "VARIANT values index requires partition.inverted_index_storage_format=SNII"));
+                    Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+                            table.getPartitionInvertedIndexFileStorageFormat());
+                    Assertions.assertEquals(1, table.getIndexes().size());
+                    Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
+                    Assertions.assertTrue(table.tryWriteLock(30, TimeUnit.SECONDS));
+                    table.writeUnlock();
+                } finally {
+                    indexAdded.countDown();
+                    executor.shutdownNow();
+                    Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+                }
+            }
+        } finally {
+            Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
+        }
+    }
+
+    @Test
     public void testUpdatePartitionInvertedIndexStorageFormatReturnsWhenFormatUnchanged() throws Exception {
         Database database = Mockito.mock(Database.class);
         OlapTable table = Mockito.mock(OlapTable.class);
@@ -660,14 +867,14 @@ public class CloudSchemaChangeHandlerTest {
         return db;
     }
 
-    private Database createMockDatabaseWithRowBinlogTablet() throws Exception {
+    private Database createMockDatabaseWithChangelogTablet() throws Exception {
         Database db = Mockito.mock(Database.class);
         OlapTable table = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
         MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
-        MaterializedIndex rowBinlogIndex = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex changelogIndex = Mockito.mock(MaterializedIndex.class);
         org.apache.doris.catalog.Tablet baseTablet = Mockito.mock(org.apache.doris.catalog.Tablet.class);
-        org.apache.doris.catalog.Tablet rowBinlogTablet = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+        org.apache.doris.catalog.Tablet changelogTablet = Mockito.mock(org.apache.doris.catalog.Tablet.class);
 
         Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
         Mockito.when(table.getName()).thenReturn("tbl");
@@ -677,13 +884,13 @@ public class CloudSchemaChangeHandlerTest {
         Mockito.when(table.getPartition("p1")).thenReturn(partition);
         Mockito.when(partition.getName()).thenReturn("p1");
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
-                .thenReturn(Arrays.asList(baseIndex, rowBinlogIndex));
+                .thenReturn(Arrays.asList(baseIndex, changelogIndex));
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, false))
                 .thenReturn(Arrays.asList(baseIndex));
         Mockito.when(baseIndex.getTablets()).thenReturn(Arrays.asList(baseTablet));
-        Mockito.when(rowBinlogIndex.getTablets()).thenReturn(Arrays.asList(rowBinlogTablet));
+        Mockito.when(changelogIndex.getTablets()).thenReturn(Arrays.asList(changelogTablet));
         Mockito.when(baseTablet.getId()).thenReturn(101L);
-        Mockito.when(rowBinlogTablet.getId()).thenReturn(201L);
+        Mockito.when(changelogTablet.getId()).thenReturn(201L);
         return db;
     }
 

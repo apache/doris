@@ -27,6 +27,7 @@ suite('test_schema_change_with_compaction6', 'docker') {
     options.beConfigs += [ "enable_java_support=false" ]
     options.beConfigs += [ "disable_auto_compaction=true" ]
     options.beConfigs += [ "enable_new_tablet_do_compaction=true" ]
+    options.beConfigs += [ "tablet_sync_interval_s=1", "schedule_sync_tablets_interval_s=1" ]
     options.beNum = 1
     docker(options) {
         def getJobState = { tableName ->
@@ -81,44 +82,9 @@ suite('test_schema_change_with_compaction6', 'docker') {
         injectBe = backends.stream().filter(be -> be.BackendId == injectBeId).findFirst().orElse(null)
         assertNotNull(injectBe)
 
-        def load_delete_compaction = {
-            load_date_once("date");
-            sql "delete from date where d_datekey < 19900000"
-            sql "select count(*) from date"
-            // cu compaction
-            trigger_and_wait_compaction("date", "cumulative")
-        }
-
-        def triggerAndWaitCumulativeCompaction = { tabletId, latestVersionRange, expectedVersionRange ->
-            awaitUntil(60, 1) {
-                def (showCode, showOut, showErr) =
-                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
-                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
-                def tabletStatus = parseJson(showOut.trim())
-                assertTrue(tabletStatus.rowsets instanceof List)
-                return tabletStatus.rowsets.any { it.contains(latestVersionRange) }
-            }
-
-            logger.info("run compaction:" + tabletId)
-            def (triggerCode, triggerOut, triggerErr) =
-                    be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
-            logger.info("Run compaction: code=" + triggerCode + ", out=" + triggerOut + ", err=" + triggerErr)
-            assertEquals(0, triggerCode, "Failed to trigger cumulative compaction: ${triggerErr}")
-            def triggerResult = parseJson(triggerOut.trim())
-            assertEquals("success", triggerResult.status.toString().toLowerCase(),
-                    "Unexpected cumulative compaction response: ${triggerOut}")
-
-            def tabletRowsets = []
-            awaitUntil(60, 1) {
-                def (showCode, showOut, showErr) =
-                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
-                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
-                def tabletStatus = parseJson(showOut.trim())
-                assertTrue(tabletStatus.rowsets instanceof List)
-                tabletRowsets = tabletStatus.rowsets
-                return tabletRowsets.any { it.contains(expectedVersionRange) }
-            }
-            return tabletRowsets
+        def triggerAndWaitTabletCompaction = { tabletId, compactionType, retryableErrors=[] ->
+            trigger_and_wait_compaction("date", compactionType, 300, [] as String[],
+                    [tabletId], retryableErrors as String[])
         }
 
         def restartBackendAndRearmDebugPoint = {
@@ -140,6 +106,38 @@ suite('test_schema_change_with_compaction6', 'docker') {
             }
             cluster.startBackends()
             rearmFuture.get()
+        }
+
+        def load_delete_compaction = {
+            load_date_once("date");
+            sql "delete from date where d_datekey < 19900000"
+            sql "select count(*) from date"
+            triggerAndWaitTabletCompaction(originTabletId, "cumulative")
+        }
+
+        def triggerAndWaitCumulativeCompaction = { tabletId, latestVersionRange, expectedVersionRange ->
+            awaitUntil(60, 1) {
+                def (showCode, showOut, showErr) =
+                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
+                def tabletStatus = parseJson(showOut.trim())
+                assertTrue(tabletStatus.rowsets instanceof List)
+                return tabletStatus.rowsets.any { it.contains(latestVersionRange) }
+            }
+
+            triggerAndWaitTabletCompaction(tabletId, "cumulative", ["e-2000"])
+
+            def tabletRowsets = []
+            awaitUntil(60, 1) {
+                def (showCode, showOut, showErr) =
+                        be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                assertEquals(0, showCode, "Failed to show tablet status: ${showErr}")
+                def tabletStatus = parseJson(showOut.trim())
+                assertTrue(tabletStatus.rowsets instanceof List)
+                tabletRowsets = tabletStatus.rowsets
+                return tabletRowsets.any { it.contains(expectedVersionRange) }
+            }
+            return tabletRowsets
         }
 
         def newTabletId = null
@@ -167,14 +165,12 @@ suite('test_schema_change_with_compaction6', 'docker') {
             assertEquals("RUNNING", getJobState("date"),
                     "Schema change finished before the debug point was re-enabled")
 
-            // base compaction
-            trigger_and_wait_compaction("date", "base")
+            triggerAndWaitTabletCompaction(originTabletId, "base")
             newTabletId = array[1].TabletId
             logger.info("run compaction:" + newTabletId)
             def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
-            
 
             triggerAndWaitCumulativeCompaction(originTabletId, "[24-24]", "[9-24]")
             def notReadyTabletRowsets =
@@ -222,8 +218,7 @@ suite('test_schema_change_with_compaction6', 'docker') {
             assertTrue(out.contains("[8-8]"))
             assertTrue(out.contains("[9-14]"))
             
-            // base compaction
-            trigger_and_wait_compaction("date", "base")
+            triggerAndWaitTabletCompaction(newTabletId, "base")
 
             logger.info("run show:" + newTabletId)
             (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, newTabletId)

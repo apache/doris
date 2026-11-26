@@ -58,6 +58,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
@@ -68,6 +69,7 @@ import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -107,6 +109,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
+            .registerSubtype(FileType.class, FileType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())
@@ -135,6 +138,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(TimeStampNsLiteral.class, TimeStampNsLiteral.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(UuidLiteral.class, UuidLiteral.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())

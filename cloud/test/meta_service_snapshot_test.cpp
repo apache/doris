@@ -28,12 +28,14 @@
 #include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "scoped_legacy_instance_rpc.h"
 
 namespace doris::cloud {
 
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
 
 TEST(MetaServiceSnapshotTest, DISABLED_BeginSnapshotTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service(true);
     const char* const cloud_unique_id = "test_cloud_unique_id";
 

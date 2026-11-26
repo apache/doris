@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.util;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,14 +27,22 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -54,6 +63,122 @@ public class StreamingJobUtilsTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "MYSQL | jdbc:mysql://localhost/test | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test? | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useSSL=false"
+                    + " | jdbc:mysql://localhost/test?useSSL=false&useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useSSL=false&"
+                    + " | jdbc:mysql://localhost/test?useSSL=false&useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useInformationSchema=true"
+                    + " | jdbc:mysql://localhost/test?useInformationSchema=true",
+            "MYSQL | jdbc:mysql://localhost/test?useInformationSchema=false"
+                    + " | jdbc:mysql://localhost/test?useInformationSchema=false",
+            "MYSQL | jdbc:mysql://localhost/test?custom=useInformationSchema=false"
+                    + " | jdbc:mysql://localhost/test?custom=useInformationSchema=false&useInformationSchema=true",
+            "OCEANBASE | jdbc:mysql://localhost/test | jdbc:mysql://localhost/test",
+            "POSTGRES | jdbc:postgresql://localhost/test | jdbc:postgresql://localhost/test"
+    })
+    public void testMetadataJdbcUrlDoesNotChangeSourceProperties(
+            DataSourceType sourceType, String sourceUrl, String metadataUrl) {
+        Map<String, String> properties = Map.of(DataSourceConfigKeys.JDBC_URL, sourceUrl);
+        JdbcClient expectedClient = sourceType == DataSourceType.MYSQL
+                ? Mockito.mock(JdbcMySQLClient.class) : jdbcClient;
+        try (MockedStatic<JdbcClient> factory = Mockito.mockStatic(JdbcClient.class)) {
+            factory.when(() -> JdbcClient.createJdbcClient(ArgumentMatchers.any(JdbcClientConfig.class)))
+                    .thenAnswer(invocation -> {
+                        JdbcClientConfig config = invocation.getArgument(0);
+                        Assertions.assertEquals(metadataUrl, config.getJdbcUrl());
+                        return expectedClient;
+                    });
+
+            Assertions.assertSame(expectedClient, StreamingJobUtils.getJdbcClient(sourceType, properties));
+            Assertions.assertEquals(sourceUrl, properties.get(DataSourceConfigKeys.JDBC_URL));
+            if (sourceType == DataSourceType.MYSQL) {
+                Mockito.verify((JdbcMySQLClient) expectedClient).enableVectorMapping();
+            }
+        }
+    }
+
+    @Test
+    public void testCdcDriverPrivilege() {
+        Env env = Mockito.mock(Env.class);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            List<String> remoteDrivers = List.of("http://example.invalid/driver.jar",
+                    "https://example.invalid/driver.jar");
+            for (String driver : remoteDrivers) {
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+                Assertions.assertTrue(error.getMessage().contains("ADMIN"));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(true);
+            for (String driver : remoteDrivers) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(false);
+            for (String driver : Arrays.asList(null, "driver.jar", "file:///opt/doris/driver.jar")) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+        }
+    }
+
+    @Test
+    public void testBinarySourceColumnsUseSupportedOlapTypes() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payload", ScalarType.createType(PrimitiveType.VARBINARY)));
+        columns.add(new Column("id", ScalarType.createType(PrimitiveType.VARBINARY)));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("id"));
+
+        Assertions.assertEquals("id", result.get(0).getName());
+        Assertions.assertEquals(PrimitiveType.VARCHAR, result.get(0).getDataType());
+        Assertions.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, result.get(0).getType().getLength());
+        Assertions.assertEquals(PrimitiveType.STRING, result.get(1).getDataType());
+    }
+
+    @Test
+    public void testNestedBinaryColumnsMatchCdcJsonCarrier() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payloads", new ArrayType(ScalarType.createVarbinaryType(16))));
+        columns.add(new Column("nested", new ArrayType(new ArrayType(ScalarType.createVarbinaryType(16)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", new ArrayList<>());
+
+        Assertions.assertEquals(new ArrayType(ScalarType.createStringType()), result.get(0).getType());
+        Assertions.assertEquals(new ArrayType(new ArrayType(ScalarType.createStringType())), result.get(1).getType());
+    }
+
+    @Test
+    public void testCdcRetainsTimestampCarrierIndependentlyOfJdbcCatalogMapping() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        columns.add(new Column("millis", ScalarType.createTimeStampTzType(3)));
+        columns.add(new Column("seconds", ScalarType.createTimeStampTzType(0)));
+        columns.add(new Column("local_time", ScalarType.createDatetimeV2Type(6)));
+        columns.add(new Column("events", new ArrayType(new ArrayType(ScalarType.createTimeStampTzType(6)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("event_time"));
+
+        // CDC emits wall-clock carriers for both snapshots and binlog records, including keys.
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(0).getType());
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(3), result.get(1).getType());
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(0), result.get(2).getType());
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(3).getType());
+        Assertions.assertEquals(new ArrayType(new ArrayType(ScalarType.createDatetimeV2Type(6))),
+                result.get(4).getType());
     }
 
     @Test

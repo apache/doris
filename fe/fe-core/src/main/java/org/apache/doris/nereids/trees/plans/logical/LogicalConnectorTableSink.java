@@ -57,6 +57,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     // can force single-node GATHER output for a rewrite_data_files INSERT-SELECT. Part of plan identity
     // (equals/hashCode) so the memo never collapses a rewrite sink onto a non-rewrite one. Defaults false.
     private final boolean rewrite;
+    private final boolean hasRowOperationColumn;
 
     /**
      * constructor
@@ -106,6 +107,25 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                                      Optional<GroupExpression> groupExpression,
                                      Optional<LogicalProperties> logicalProperties,
                                      CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs, dmlCommandType, rewrite,
+                false, groupExpression, logicalProperties, child);
+    }
+
+    /** Builds a connector sink whose child optionally starts with a row-operation column. */
+    public LogicalConnectorTableSink(ExternalDatabase database,
+                                     ExternalTable targetTable,
+                                     List<Column> boundTargetSchema,
+                                     List<Column> boundPartitionColumns,
+                                     String boundWriteMetadataIdentity,
+                                     List<Column> cols,
+                                     List<NamedExpression> outputExprs,
+                                     DMLCommandType dmlCommandType,
+                                     boolean rewrite,
+                                     boolean hasRowOperationColumn,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child) {
         super(PlanType.LOGICAL_CONNECTOR_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalConnectorTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalConnectorTableSink");
@@ -114,6 +134,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
         this.dmlCommandType = dmlCommandType;
         this.rewrite = rewrite;
+        this.hasRowOperationColumn = hasRowOperationColumn;
     }
 
     /** Update output expressions based on child output and replace child. */
@@ -124,7 +145,8 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, output,
-                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child));
+                dmlCommandType, rewrite, hasRowOperationColumn,
+                Optional.empty(), Optional.empty(), child));
     }
 
     @Override
@@ -133,14 +155,16 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, outputExprs,
-                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), children.get(0)));
+                dmlCommandType, rewrite, hasRowOperationColumn,
+                Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     public LogicalConnectorTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, outputExprs,
-                dmlCommandType, rewrite, Optional.empty(), Optional.empty(), child()));
+                dmlCommandType, rewrite, hasRowOperationColumn,
+                Optional.empty(), Optional.empty(), child()));
     }
 
     public ExternalDatabase getDatabase() {
@@ -171,6 +195,10 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return rewrite;
     }
 
+    public boolean hasRowOperationColumn() {
+        return hasRowOperationColumn;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -185,6 +213,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         LogicalConnectorTableSink<?> that = (LogicalConnectorTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
                 && rewrite == that.rewrite
+                && hasRowOperationColumn == that.hasRowOperationColumn
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(boundTargetSchema, that.boundTargetSchema)
@@ -196,7 +225,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, boundTargetSchema, boundPartitionColumns,
-                boundWriteMetadataIdentity, cols, dmlCommandType, rewrite);
+                boundWriteMetadataIdentity, cols, dmlCommandType, rewrite, hasRowOperationColumn);
     }
 
     @Override
@@ -209,7 +238,8 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
                 "boundPartitionColumns", boundPartitionColumns,
                 "cols", cols,
                 "dmlCommandType", dmlCommandType,
-                "rewrite", rewrite
+                "rewrite", rewrite,
+                "hasRowOperationColumn", hasRowOperationColumn
         );
     }
 
@@ -223,7 +253,8 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, outputExprs,
-                dmlCommandType, rewrite, groupExpression, Optional.of(getLogicalProperties()), child()));
+                dmlCommandType, rewrite, hasRowOperationColumn,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
@@ -232,6 +263,7 @@ public class LogicalConnectorTableSink<CHILD_TYPE extends Plan> extends LogicalT
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalConnectorTableSink<>(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, outputExprs,
-                dmlCommandType, rewrite, groupExpression, logicalProperties, children.get(0)));
+                dmlCommandType, rewrite, hasRowOperationColumn,
+                groupExpression, logicalProperties, children.get(0)));
     }
 }

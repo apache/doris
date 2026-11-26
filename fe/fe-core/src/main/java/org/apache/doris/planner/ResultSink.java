@@ -33,7 +33,7 @@ public class ResultSink extends DataSink {
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     public ResultSink(PlanNodeId exchNodeId) {
-        this.exchNodeId = exchNodeId;
+        this(exchNodeId, TResultSinkType.MYSQL_PROTOCOL);
     }
 
     public ResultSink(PlanNodeId exchNodeId, TResultSinkType resultSinkType) {
@@ -56,6 +56,9 @@ public class ResultSink extends DataSink {
         TDataSink result = new TDataSink(TDataSinkType.RESULT_SINK);
         TResultSink tResultSink = new TResultSink();
         tResultSink.setType(resultSinkType);
+        if (resultSinkType == TResultSinkType.ARROW_FLIGHT_PROTOCOL) {
+            tResultSink.setEnableArrowTypeMetadata(true);
+        }
         result.setResultSink(tResultSink);
         return result;
     }

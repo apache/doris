@@ -445,6 +445,7 @@ protected:
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
+    bool _enable_condition_cache = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 

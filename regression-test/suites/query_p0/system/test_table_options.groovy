@@ -146,7 +146,53 @@ suite("test_table_options") {
 	"replication_allocation" = "tag.location.default: 1"
 	);
         """
-	
+
+    // A RANGE or LIST table has no partition until one is added, such as an AUTO PARTITION
+    // table before its first load. Each of these tables still has one row.
+    sql """
+        CREATE TABLE IF NOT EXISTS auto_range_table_no_partition
+        (
+            `dt` DATETIME NOT NULL COMMENT "Event time",
+            `user_id` LARGEINT NOT NULL COMMENT "User id",
+            `cost` BIGINT COMMENT "Cost"
+        )
+        UNIQUE KEY(`dt`, `user_id`)
+        AUTO PARTITION BY RANGE (date_trunc(`dt`, 'day'))
+        ()
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+    sql """
+        CREATE TABLE IF NOT EXISTS auto_list_table_no_partition
+        (
+            `city` VARCHAR(20) NOT NULL COMMENT "City",
+            `user_id` LARGEINT NOT NULL COMMENT "User id",
+            `cost` BIGINT SUM DEFAULT "0" COMMENT "Total cost"
+        )
+        AGGREGATE KEY(`city`, `user_id`)
+        AUTO PARTITION BY LIST (`city`)
+        ()
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+    sql """
+        CREATE TABLE IF NOT EXISTS range_table_no_partition
+        (
+            `k1` INT NOT NULL COMMENT "Key",
+            `v1` VARCHAR(20) COMMENT "Value"
+        )
+        DUPLICATE KEY(`k1`)
+        PARTITION BY RANGE(`k1`) ()
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
     // test row column page size
     sql """
         CREATE TABLE IF NOT EXISTS test_row_column_page_size1 (
@@ -199,17 +245,17 @@ suite("test_table_options") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_3 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
 
     sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_4 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
     
     sql "REVOKE SELECT_PRIV ON ${dbName}.duplicate_table  FROM ${user}"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_5 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
 

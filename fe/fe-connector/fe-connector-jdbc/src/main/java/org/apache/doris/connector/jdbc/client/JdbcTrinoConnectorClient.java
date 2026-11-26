@@ -50,7 +50,7 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
         if (trinoType.startsWith("char(")) {
             return parseChar(trinoType);
         }
-        if (trinoType.startsWith("timestamp(")) {
+        if (trinoType.startsWith("timestamp")) {
             return parseTimestamp(trinoType);
         }
         if (trinoType.startsWith("array(")) {
@@ -74,6 +74,8 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("DOUBLE");
             case "date":
                 return ConnectorType.of("DATEV2");
+            case "uuid":
+                return ConnectorType.of("UUID");
             case "json":
                 return ConnectorType.of("STRING");
             default:
@@ -100,10 +102,12 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
     }
 
     private ConnectorType parseTimestamp(String type) {
-        String inner = type.substring(10, type.length() - 1);
-        int scale = Integer.parseInt(inner.trim());
+        // Query metadata puts precision after the zone suffix, unlike DatabaseMetaData.getColumns().
+        int precisionStart = type.indexOf('(');
+        int scale = precisionStart >= 0
+                ? Integer.parseInt(type.substring(precisionStart + 1, type.indexOf(')')).trim()) : JDBC_DATETIME_SCALE;
         scale = Math.min(scale, JDBC_DATETIME_SCALE);
-        return ConnectorType.of("DATETIMEV2", scale, -1);
+        return ConnectorType.of(type.contains("with time zone") ? "TIMESTAMPTZ" : "DATETIMEV2", scale, -1);
     }
 
     private ConnectorType parseArray(String type, JdbcFieldInfo fieldInfo) {

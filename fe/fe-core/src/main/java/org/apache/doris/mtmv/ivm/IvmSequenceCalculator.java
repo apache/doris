@@ -34,18 +34,18 @@ import java.math.BigInteger;
  * Encodes IVM delta ordering into the MTMV sequence column.
  *
  * <p>BIGINT encodes {@code (sequence prefix, delta index, op)}. LARGEINT additionally encodes
- * a 64-bit binlog sequence: {@code (sequence prefix, delta index, binlog sequence, op)}.
+ * a 64-bit changelog sequence: {@code (sequence prefix, delta index, changelog sequence, op)}.
  */
 abstract class IvmSequenceCalculator {
     static final int DELTA_INDEX_BITS = 10;
     private static final int BIGINT_LOW_BITS = DELTA_INDEX_BITS + 1;
-    private static final int LARGEINT_BINLOG_BITS = 64;
-    private static final int LARGEINT_DELTA_INDEX_SHIFT = LARGEINT_BINLOG_BITS + 1;
+    private static final int LARGEINT_CHANGELOG_BITS = 64;
+    private static final int LARGEINT_DELTA_INDEX_SHIFT = LARGEINT_CHANGELOG_BITS + 1;
     private static final int LARGEINT_SEQUENCE_PREFIX_SHIFT =
             LARGEINT_DELTA_INDEX_SHIFT + DELTA_INDEX_BITS;
     private static final int MAX_DELTA_INDEX = 1 << DELTA_INDEX_BITS;
-    private static final BigInteger MAX_BINLOG_SEQUENCE =
-            BigInteger.ONE.shiftLeft(LARGEINT_BINLOG_BITS).subtract(BigInteger.ONE);
+    private static final BigInteger MAX_CHANGELOG_SEQUENCE =
+            BigInteger.ONE.shiftLeft(LARGEINT_CHANGELOG_BITS).subtract(BigInteger.ONE);
 
     final long sequencePrefix;
 
@@ -70,7 +70,7 @@ abstract class IvmSequenceCalculator {
                 encode(deltaIndex, BigInteger.ZERO, false));
     }
 
-    abstract Literal encode(int deltaIndex, BigInteger binlogSequence, boolean positive);
+    abstract Literal encode(int deltaIndex, BigInteger changelogSequence, boolean positive);
 
     final void checkDeltaIndex(int deltaIndex) {
         if (deltaIndex < 0 || deltaIndex >= MAX_DELTA_INDEX) {
@@ -79,10 +79,10 @@ abstract class IvmSequenceCalculator {
         }
     }
 
-    final void checkBinlogSequence(BigInteger binlogSequence) {
-        if (binlogSequence.signum() < 0 || binlogSequence.compareTo(MAX_BINLOG_SEQUENCE) > 0) {
+    final void checkChangelogSequence(BigInteger changelogSequence) {
+        if (changelogSequence.signum() < 0 || changelogSequence.compareTo(MAX_CHANGELOG_SEQUENCE) > 0) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "IVM binlog sequence exceeds the LARGEINT encoding range: " + binlogSequence);
+                    "IVM changelog sequence exceeds the LARGEINT encoding range: " + changelogSequence);
         }
     }
 
@@ -96,11 +96,11 @@ abstract class IvmSequenceCalculator {
         }
 
         @Override
-        Literal encode(int deltaIndex, BigInteger binlogSequence, boolean positive) {
+        Literal encode(int deltaIndex, BigInteger changelogSequence, boolean positive) {
             checkDeltaIndex(deltaIndex);
-            if (!binlogSequence.equals(BigInteger.ZERO)) {
+            if (!changelogSequence.equals(BigInteger.ZERO)) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                        "BIGINT IVM sequence does not support binlog sequence");
+                        "BIGINT IVM sequence does not support changelog sequence");
             }
             long sequence = (sequencePrefix << BIGINT_LOW_BITS)
                     | ((long) deltaIndex << 1) | (positive ? 1 : 0);
@@ -118,12 +118,12 @@ abstract class IvmSequenceCalculator {
         }
 
         @Override
-        Literal encode(int deltaIndex, BigInteger binlogSequence, boolean positive) {
+        Literal encode(int deltaIndex, BigInteger changelogSequence, boolean positive) {
             checkDeltaIndex(deltaIndex);
-            checkBinlogSequence(binlogSequence);
+            checkChangelogSequence(changelogSequence);
             BigInteger sequence = BigInteger.valueOf(sequencePrefix).shiftLeft(LARGEINT_SEQUENCE_PREFIX_SHIFT)
                     .or(BigInteger.valueOf(deltaIndex).shiftLeft(LARGEINT_DELTA_INDEX_SHIFT))
-                    .or(binlogSequence.shiftLeft(1));
+                    .or(changelogSequence.shiftLeft(1));
             if (positive) {
                 sequence = sequence.or(BigInteger.ONE);
             }

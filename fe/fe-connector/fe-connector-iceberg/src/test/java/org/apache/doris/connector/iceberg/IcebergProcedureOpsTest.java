@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -73,6 +74,22 @@ public class IcebergProcedureOpsTest {
         // be null here; the catalog-backed path is exercised below with an InMemoryCatalog. The (IcebergCatalogOps)
         // cast selects the ops constructor over the session-aware resolver overload (a bare null matches both).
         return new IcebergProcedureOps(Collections.emptyMap(), (IcebergCatalogOps) null, null);
+    }
+
+    @Test
+    public void rewriteRejectsUnknownBeforeEmptyTableShortcut() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        catalog.createTable(TableIdentifier.of("db1", "t"),
+                new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get())),
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> procedures.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                        "rewrite_data_files", Collections.emptyMap(), null, Collections.emptyList()));
     }
 
     @Test
@@ -170,6 +187,34 @@ public class IcebergProcedureOpsTest {
         // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
         Assertions.assertEquals(1, ops.tableCleanupCount, "rewrite planning releases its operation-owned table");
+    }
+
+    @Test
+    public void planRewriteKeepsOneOversizedFileBelowGroupLimit() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        catalog.createTable(TableIdentifier.of("db1", "t"), schema, PartitionSpec.unpartitioned());
+        append(catalog, "oversized", 100L);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        List<ConnectorRewriteGroup> groups = procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                "rewrite_data_files", ImmutableMap.of("target-file-size-bytes", "512",
+                        "min-file-size-bytes", "384", "max-file-size-bytes", "900",
+                        "max-file-group-size-bytes", "100000"), null, Collections.emptyList());
+
+        Assertions.assertEquals(1, groups.size());
+        ConnectorRewriteGroup group = groups.get(0);
+        Assertions.assertEquals(ImmutableSet.of("s3://b/db1/oversized.parquet"), group.getDataFilePaths());
+        Assertions.assertEquals(1, group.getDataFileCount());
+        Assertions.assertEquals(1024L, group.getTotalSizeBytes());
+        Assertions.assertEquals(0, group.getDeleteFileCount());
+        Assertions.assertEquals(1, ctx.authCount);
+        Assertions.assertEquals(1, ops.tableCleanupCount);
     }
 
     @Test
@@ -296,6 +341,27 @@ public class IcebergProcedureOpsTest {
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
         Assertions.assertEquals(1, ops.tableCleanupCount, "procedure execution releases its operation-owned table");
+    }
+
+    @Test
+    public void commitsTheProcedureInsideTheAuthScope() {
+        // On a Kerberized catalog the metadata commit must run under the catalog's identity, so the procedure has
+        // committed before the auth scope ends, not after the scope hands the loaded table back.
+        // MUTATION: loading the table inside executeAuthenticated but running the body outside it -> red.
+        InMemoryCatalog catalog = catalogWithTwoSnapshots();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        long snap1 = catalog.loadTable(id).history().get(0).snapshotId();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(id);
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        AtomicLong snapshotAtScopeExit = new AtomicLong();
+        ctx.beforeScopeExit = () -> snapshotAtScopeExit.set(catalog.loadTable(id).currentSnapshot().snapshotId());
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        procOps.execute(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                ImmutableMap.of("snapshot_id", String.valueOf(snap1)), null, Collections.emptyList());
+
+        Assertions.assertEquals(snap1, snapshotAtScopeExit.get(), "the rollback is committed inside the auth scope");
     }
 
     @Test

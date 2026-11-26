@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.StatementContext.CteEnvironmentSnapshot;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.rules.RuleType;
@@ -46,6 +47,11 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
         if (!PreMaterializedViewRewriter.needRecordTmpPlanForRewrite(cascadesContext)) {
             return plan;
         }
+        // The temporary rewrite below shares this StatementContext, so snapshot the CTE environment
+        // and restore it afterwards. Otherwise the CTE producers/consumers rewritten here would be
+        // reused by the regular RewriteCteChildren pass, which would then skip its CTE children job
+        // list for those CTEs (for example RewriteSearchToSlots in the before-push-down list).
+        CteEnvironmentSnapshot cteEnvironmentSnapshot = statementContext.cacheCteEnvironment();
         // plan pre normalize
         Plan finalPlan;
         try {
@@ -63,6 +69,8 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
         } catch (Exception e) {
             LOG.error("mv rewrite in rbo rewrite pre normalize fail, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier(), e);
+        } finally {
+            statementContext.restoreCteEnvironment(cteEnvironmentSnapshot);
         }
         return plan;
     }

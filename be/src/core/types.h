@@ -44,6 +44,7 @@ struct StringRef;
 
 using IPv4 = uint32_t;
 using IPv6 = uint128_t;
+using UUIDValueType = uint128_t;
 
 /// Data types for representing elementary values from a database in RAM.
 
@@ -573,7 +574,6 @@ struct NativeType<Decimal256> {
     using Type = wide::Int256;
 };
 
-// NOLINTEND(readability-function-size)
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.

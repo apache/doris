@@ -17,8 +17,17 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
-#include "storage/index/inverted/inverted_index_common.h"
+#include "storage/index/index_common.h"
+
+namespace lucene::store {
+class IndexOutput;
+} // namespace lucene::store
 
 namespace doris::segment_v2 {
 

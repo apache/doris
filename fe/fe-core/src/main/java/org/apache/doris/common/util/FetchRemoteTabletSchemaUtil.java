@@ -108,6 +108,7 @@ public class FetchRemoteTabletSchemaUtil {
         typeMap.put("ARRAY", Type.ARRAY);
         typeMap.put("IPV4", Type.IPV4);
         typeMap.put("IPV6", Type.IPV6);
+        typeMap.put("UUID", Type.UUID);
         typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
     }
 

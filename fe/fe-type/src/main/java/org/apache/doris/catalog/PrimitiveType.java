@@ -46,6 +46,7 @@ public enum PrimitiveType {
     DATETIME("DATETIME", 16, TPrimitiveType.DATETIME, true),
     IPV4("IPV4", 4, TPrimitiveType.IPV4, true),
     IPV6("IPV6", 16, TPrimitiveType.IPV6, true),
+    UUID("UUID", 16, TPrimitiveType.UUID, true),
     // Fixed length char array.
     CHAR("CHAR", 16, TPrimitiveType.CHAR, true),
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
@@ -78,6 +79,7 @@ public enum PrimitiveType {
     // 8-byte pointer and 4-byte size and 1 bytes has_null (13 bytes total)
     // Aligning to 16 bytes total.
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT, false),
+    FILE("FILE", 16, TPrimitiveType.FILE, true),
     STRING("STRING", 16, TPrimitiveType.STRING, true),
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
@@ -141,6 +143,7 @@ public enum PrimitiveType {
         supportedTypes.add(TIMESTAMPTZ);
         supportedTypes.add(IPV4);
         supportedTypes.add(IPV6);
+        supportedTypes.add(UUID);
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(DECIMAL32);
         supportedTypes.add(DECIMAL64);
@@ -221,6 +224,8 @@ public enum PrimitiveType {
                 return IPV4;
             case IPV6:
                 return IPV6;
+            case UUID:
+                return UUID;
             case BINARY:
                 return BINARY;
             case DECIMALV2:
@@ -259,6 +264,8 @@ public enum PrimitiveType {
                 return MAP;
             case STRUCT:
                 return STRUCT;
+            case FILE:
+                return FILE;
             case VARIANT:
                 return VARIANT;
             case VARBINARY:
@@ -362,7 +369,7 @@ public enum PrimitiveType {
     }
 
     public boolean isComplexType() {
-        return this == ARRAY || this == MAP || this == STRUCT;
+        return this == ARRAY || this == MAP || this == STRUCT || this == FILE;
     }
 
     public boolean isHllType() {
@@ -403,6 +410,10 @@ public enum PrimitiveType {
 
     public boolean isIPv6Type() {
         return (this == IPV6);
+    }
+
+    public boolean isUuidType() {
+        return this == UUID;
     }
 
     public boolean isVarbinaryType() {
@@ -461,6 +472,8 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_JSON;
             case VARBINARY:
                 return MysqlColType.MYSQL_TYPE_VARSTRING;
+            case FILE:
+                return MysqlColType.MYSQL_TYPE_STRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

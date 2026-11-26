@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -54,7 +56,10 @@ import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -76,8 +81,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -86,8 +93,16 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Except;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Intersect;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -135,6 +150,44 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /**
+     * Date arithmetic can throw for values outside its valid range. Keep it above a lower
+     * condition, join, limit, rejecting set operation, generate, or CTE consumer so rejected
+     * rows are not evaluated early.
+     * A date add/subtract with literal zero is an identity and remains safe to push through.
+     */
+    public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
+                && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof Except || plan instanceof Intersect || plan instanceof Generate
+                        || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
+    }
+
+    private static boolean isUnsafeDateArithmetic(Expression expression) {
+        if (expression instanceof DateCeilFloorMonotonic) {
+            return true;
+        }
+        if (!(expression instanceof DateAddSubMonotonic)) {
+            return false;
+        }
+        DateAddSubMonotonic dateArithmetic = (DateAddSubMonotonic) expression;
+        int dateChildIndex = dateArithmetic.getMonotonicFunctionChildIndex();
+        for (int i = 0; i < expression.children().size(); i++) {
+            if (i != dateChildIndex && !(expression.child(i) instanceof IntegerLikeLiteral
+                    && ((IntegerLikeLiteral) expression.child(i)).compareTo(new IntegerLiteral(0)) == 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether evaluating these expressions can produce results unsuitable for reuse across queries. */
+    public static boolean containsNonCacheableExpression(Collection<? extends Expression> expressions) {
+        return expressions.stream().anyMatch(expression ->
+                expression.containsType(AliasFunction.class, Udf.class, UniqueFunction.class)
+                        || expression.containsNondeterministic());
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -1129,10 +1182,10 @@ public class ExpressionUtils {
     }
 
     /** deapAnyMatch */
-    public static boolean deapAnyMatch(
+    public static boolean deepAnyMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return true;
             }
         }
@@ -1140,10 +1193,10 @@ public class ExpressionUtils {
     }
 
     /** deapNoneMatch */
-    public static boolean deapNoneMatch(
+    public static boolean deepNoneMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return false;
             }
         }
@@ -1207,9 +1260,27 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    /**
+     * Whether this aggregate preserves the uniqueness of its argument for single-row groups.
+     *
+     * <p>The argument must trace back to one slot through injective casts only. MIN and MAX then
+     * return that argument value unchanged. SUM and AVG can additionally coerce the argument to
+     * their result type, so that conversion must also be injective over the original slot type.</p>
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+
+        Expression source = getExpressionCoveredBySafetyCast(agg.child(0));
+        if (!(source instanceof Slot)) {
+            return false;
+        }
+
+        if (agg instanceof Max || agg instanceof Min) {
+            return true;
+        }
+        return source.getDataType().isInjectiveCastTo(agg.getDataType());
     }
 
     /**
@@ -1495,6 +1566,20 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Fold a constant function argument to the literal it evaluates to on FE, for a function that needs the
+     * value of the argument before the rewrite phase folds it: to compute its signature in
+     * prepareBeforeTypeCoercion, or to validate the value in checkLegalityBeforeTypeCoercion.
+     * An argument that is not constant, or that FE cannot fold, is returned unchanged.
+     */
+    public static Expression foldConstantArgument(Expression argument) {
+        if (argument instanceof Literal || !argument.isConstant()) {
+            return argument;
+        }
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
+        return folded instanceof Literal ? folded : argument;
     }
 
     public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {

@@ -26,8 +26,10 @@
 
 #include <ostream>
 #include <utility>
+#include <variant>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -44,22 +46,22 @@
 #include "exprs/vexpr_context.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
+#include "io/object_storage/be_obj_storage_config_parser.h"
 #include "runtime/descriptors.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -137,7 +139,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->with_bom, _file_opts->compression_type));
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _vfile_writer.reset(new VParquetTransformer(
+        _vfile_writer.reset(new VParquetWriter(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _output_object_data,
                 {_file_opts->parquet_commpression_type, _file_opts->parquet_version,
@@ -162,10 +164,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
 Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
     std::string suffix =
             _file_opts->file_suffix.empty() ? _file_format_to_name() : _file_opts->file_suffix;
-    std::stringstream ss;
-    ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
-       << suffix;
-    *file_name = ss.str();
+    // Padding is a minimum width: larger indices must retain every digit.
+    const int padding = _file_opts->file_name_padding;
+    *file_name =
+            fmt::format("{}{}_{:0{}}.{}", _file_opts->file_path, print_id(_fragment_instance_id),
+                        _file_idx++, padding < 0 ? 0 : padding, suffix);
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
         // Here we do a simple security verification by checking whether the file exists.
@@ -444,11 +447,10 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::S3: {
         S3URI s3_uri(dir);
         RETURN_IF_ERROR(s3_uri.parse());
-        S3Conf s3_conf;
-        std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
-        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
-                _file_opts->broker_properties, s3_uri, &s3_conf));
-        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, io::FileSystem::TMP_FS_ID));
+        auto storage_config = DORIS_TRY(
+                parse_be_obj_storage_config(_file_opts->broker_properties, s3_uri.get_bucket()));
+        auto fs = DORIS_TRY(
+                io::ObjStorageFileSystem::create(storage_config, io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     default:

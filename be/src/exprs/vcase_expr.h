@@ -25,9 +25,11 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -81,15 +83,18 @@ private:
         auto result_column_ptr = data_type()->create_column();
         result_column_ptr->reserve(rows_count);
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                      std::is_same_v<ColumnType, ColumnVarbinary> ||
                       std::is_same_v<ColumnType, ColumnBitmap> ||
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
+                      std::is_same_v<ColumnType, ColumnFile> ||
                       std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
-                      std::is_same_v<ColumnType, ColumnIPv6>) {
+                      std::is_same_v<ColumnType, ColumnIPv6> ||
+                      std::is_same_v<ColumnType, ColumnUUID>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             if (data_type()->is_nullable()) {
@@ -136,6 +141,7 @@ private:
             CASE_TYPE(TYPE_CHAR, ColumnString)
             CASE_TYPE(TYPE_VARCHAR, ColumnString)
             CASE_TYPE(TYPE_JSONB, ColumnString)
+            CASE_TYPE(TYPE_VARBINARY, ColumnVarbinary)
             CASE_TYPE(TYPE_DATE, ColumnDate)
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)
@@ -143,10 +149,12 @@ private:
             CASE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
+            CASE_TYPE(TYPE_UUID, ColumnUUID)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
             CASE_TYPE(TYPE_STRUCT, ColumnStruct)
+            CASE_TYPE(TYPE_FILE, ColumnFile)
             CASE_TYPE(TYPE_BITMAP, ColumnBitmap)
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)

@@ -51,6 +51,9 @@ public:
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)),
               _parquet_predicate_values(0, static_cast<UInt32>(scale)) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return type_to_string(T); }
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
@@ -90,17 +93,19 @@ public:
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
-    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                            ColumnString& to_column) const override;
+    Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,

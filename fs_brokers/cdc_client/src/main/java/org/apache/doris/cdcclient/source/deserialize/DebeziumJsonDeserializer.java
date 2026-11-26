@@ -115,6 +115,14 @@ public class DebeziumJsonDeserializer
                 context.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
     }
 
+    protected boolean isSchemaChangeIgnored(Map<String, String> context) {
+        return "ignore"
+                .equalsIgnoreCase(
+                        context.getOrDefault(
+                                DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR,
+                                DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR_DEFAULT));
+    }
+
     @Override
     public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
@@ -252,6 +260,8 @@ public class DebeziumJsonDeserializer
             }
         } else {
             switch (name) {
+                case "io.debezium.data.FloatVector":
+                    return convertToArray(fieldSchema, dbzObj);
                 case Time.SCHEMA_NAME:
                 case MicroTime.SCHEMA_NAME:
                 case NanoTime.SCHEMA_NAME:

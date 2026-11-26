@@ -84,7 +84,7 @@ public:
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<FormatState> state = std::make_shared<FormatState>();
@@ -108,7 +108,7 @@ public:
                     "The second parameter of the function {} must be a constant.", get_name());
         }
 
-        auto string_vale = column_string->column_ptr->get_data_at(0);
+        auto string_vale = column_string->column().get_data_at(0);
         if (string_vale.data == nullptr) {
             // func(col , null);
             state->is_valid = false;
@@ -160,7 +160,7 @@ public:
                            ColumnString::Chars& res_data,
                            ColumnString::Offsets& res_offsets) const {
         auto* format_state = reinterpret_cast<FormatState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!format_state) {
             return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
                                         get_name());

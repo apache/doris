@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -45,6 +46,12 @@ import java.util.stream.Collectors;
  */
 public class FrontendConjunctsUtils {
     private static final Logger LOG = LogManager.getLogger(FrontendConjunctsUtils.class);
+    private static final ExprToSqlVisitor FRONTEND_CONJUNCTS_TO_SQL_VISITOR = new ExprToSqlVisitor() {
+        @Override
+        public String visitIntLiteral(IntLiteral expr, ToSqlParams context) {
+            return "CAST(" + expr.getStringValue() + " AS " + expr.getType().toSql() + ")";
+        }
+    };
     private static List<String> nameParts;
 
     public static List<Expression> convertToExpression(String conjuncts) {
@@ -57,7 +64,7 @@ public class FrontendConjunctsUtils {
 
     public static Expression exprToExpression(Expr expr) {
         NereidsParser nereidsParser = new NereidsParser();
-        return nereidsParser.parseExpression(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+        return nereidsParser.parseExpression(expr.accept(FRONTEND_CONJUNCTS_TO_SQL_VISITOR, ToSqlParams.WITH_TABLE));
     }
 
     /**
@@ -117,10 +124,11 @@ public class FrontendConjunctsUtils {
      *
      * @param expression expression
      * @param values case insensitive map
-     * @return isFiltered
+     * @return true if the candidate can be proven not to match the expression
      */
     public static boolean isFiltered(Expression expression, TreeMap<String, Object> values) {
         try {
+            // Bind referenced slots to this candidate's values, producing a temporary constant expression.
             AtomicBoolean containsAllColumn = new AtomicBoolean(true);
             Expression rewrittenExpr = expression.rewriteUp(expr -> {
                 if (expr instanceof UnboundSlot) {
@@ -137,12 +145,11 @@ public class FrontendConjunctsUtils {
                 }
                 return expr;
             });
-            // expression is: c1=v1 or c2=v2,
-            // if values is {c1=v3}
-            // we should not return true, because c2 may equals v2
+            // Missing values make the predicate undecidable here, so preserve the candidate for downstream filtering.
             if (!containsAllColumn.get()) {
                 return false;
             }
+            // SQL WHERE rejects FALSE and NULL; any other result keeps the candidate.
             Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr, null);
             if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
                 return true;

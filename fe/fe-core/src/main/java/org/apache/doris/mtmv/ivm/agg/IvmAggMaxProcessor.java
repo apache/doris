@@ -19,18 +19,15 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 
-/** MAX-specific extreme comparisons and merge expression. */
+/** MAX-specific top-K state, delta and merge. */
 class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     IvmAggMaxProcessor() {
-        super(IvmAggFunctionKind.MAX, "DELMAX");
+        super(IvmAggFunctionKind.MAX, IvmAggStateKey.MAX_TOPK,
+                IvmAggStateKey.MAX_TOPK_BOUND, "DELMAX");
     }
 
     @Override
@@ -39,21 +36,18 @@ class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression buildExtremeAggregate(Expression input) {
+    protected AggregateFunction buildExtremeAggregate(Expression input) {
         return new Max(input);
     }
 
     @Override
-    protected Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme,
-            Slot oldExtreme, Expression deltaInsertExtreme) {
-        return new Or(
-                new LessThan(deltaDeletedExtreme, oldExtreme),
-                new GreaterThanEqual(deltaInsertExtreme, oldExtreme));
+    protected AggregateFunction buildExtremeCountAggregate(Expression input) {
+        return new CountAtMax(input);
     }
 
     @Override
-    protected Expression mergeOldAndInsertedExtreme(Slot oldExtreme, Expression deltaInsertExtreme) {
-        return new Greatest(oldExtreme, deltaInsertExtreme);
+    protected boolean isTopKAscending() {
+        return false;
     }
 
     @Override

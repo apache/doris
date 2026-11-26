@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <functional>
 #include <iosfwd>
 #include <memory>
 #include <shared_mutex>
@@ -50,14 +51,17 @@ enum RowsetTypePB : int;
 class CalcDeleteBitmapToken {
 public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token,
+                                   std::shared_ptr<AtomicStatus> load_cancel_status = nullptr,
                                    std::shared_ptr<WorkloadGroup> workload_group = nullptr,
                                    bool help_while_wait = false)
             : _workload_group(std::move(workload_group)),
               _thread_token(std::move(thread_token)),
+              _load_cancel_status(std::move(load_cancel_status)),
               _help_while_wait(help_while_wait),
               _status(Status::OK()) {}
 
-    ~CalcDeleteBitmapToken() { cancel(); }
+    // Drain callbacks before destroying the status and lock they access.
+    ~CalcDeleteBitmapToken() { _thread_token->shutdown(); }
 
     // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
@@ -74,17 +78,15 @@ public:
     // submit a generic function to the thread pool
     template <typename Func>
     Status submit_func(Func&& func) {
-        {
-            std::shared_lock rlock(_lock);
-            RETURN_IF_ERROR(_status);
-        }
+        RETURN_IF_ERROR(_get_status());
         return _submit_func([this, func = std::forward<Func>(func)]() {
-            auto st = func();
+            // Publication does not remove queued tasks. Skip their calculation when dispatched.
+            auto st = _get_status();
+            if (st.ok()) {
+                st = func();
+            }
             if (!st.ok()) {
-                std::lock_guard wlock(_lock);
-                if (_status.ok()) {
-                    _status = st;
-                }
+                _set_status(st);
             }
         });
     }
@@ -92,14 +94,18 @@ public:
     // wait all tasks in token to be completed.
     Status wait();
 
-    void cancel() { _thread_token->shutdown(); }
+    // Teardown only: discard pending callbacks and wait for running callbacks.
+    void cancel(const Status& st = Status::Cancelled("delete bitmap calculation cancelled"));
 
 private:
     Status _submit_func(std::function<void()> func);
+    Status _get_status();
+    void _set_status(const Status& st);
 
     // Keep the selected workload-group pool alive until the token is destroyed.
     std::shared_ptr<WorkloadGroup> _workload_group;
     std::unique_ptr<ThreadPoolToken> _thread_token;
+    const std::shared_ptr<AtomicStatus> _load_cancel_status;
     const bool _help_while_wait;
 
     std::shared_mutex _lock;
@@ -120,15 +126,16 @@ public:
     // init should be called after storage engine is opened,
     void init(const std::string& name, int max_threads, ThreadPool* load_pool);
 
-    std::unique_ptr<CalcDeleteBitmapToken> create_token();
+    std::unique_ptr<CalcDeleteBitmapToken> create_token(
+            std::shared_ptr<AtomicStatus> load_cancel_status = nullptr);
 
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(int64_t load_id,
-                                                             LoadTaskPriority priority,
-                                                             LoadTaskType type);
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(int64_t load_id,
-                                                             LoadTaskPriority priority,
-                                                             LoadTaskType type,
-                                                             std::shared_ptr<WorkloadGroup> wg);
+    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(
+            int64_t load_id, std::shared_ptr<AtomicStatus> load_cancel_status,
+            LoadTaskPriority priority, LoadTaskType type);
+    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(
+            int64_t load_id, LoadTaskPriority priority, LoadTaskType type,
+            std::shared_ptr<WorkloadGroup> wg,
+            std::shared_ptr<AtomicStatus> load_cancel_status = nullptr);
 
 private:
     std::unique_ptr<ThreadPool> _thread_pool;

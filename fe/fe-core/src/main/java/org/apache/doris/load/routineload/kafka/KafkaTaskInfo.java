@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -86,6 +87,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     public TRoutineLoadTask createRoutineLoadTask() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
 
+        // The declared compute group is re-checked before every task, but that happens earlier, in
+        // RoutineLoadTaskScheduler#scheduleOneTask: it has to run before backend allocation and
+        // before beginTxn, neither of which has happened by the time this method is called.
+
         // init tRoutineLoadTask and create plan fragment
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();
         TUniqueId queryId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
@@ -100,7 +105,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         String label = Joiner.on("-").join(routineLoadJob.getName(),
                 routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
-        tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
+        // Required by older BE task readers; new BEs use the heartbeat token.
+        tRoutineLoadTask.setAuthCode(0);
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
         tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
         tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
@@ -187,6 +193,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
                 Table.TableType.OLAP), taskInfo);
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
+        StreamLoadHandler.assignAdaptiveRandomBucket(tExecPlanFragmentParams, beId,
+                routineLoadJob.getDbFullName(), routineLoadJob.getTableName());
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 

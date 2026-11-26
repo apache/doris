@@ -26,10 +26,13 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -45,19 +48,28 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPropertyUtil {
+    /** The properties a partition_sync_limit window is built from; see MTMV#alterMvProperties. */
+    private static final List<String> PARTITION_SYNC_WINDOW_KEYS = Lists.newArrayList(
+            PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT);
+
     public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
             PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
+            PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
             PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
             PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
-            PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
+            PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW,
+            PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT,
+            PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -77,6 +89,9 @@ public class MTMVPropertyUtil {
             case PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP:
                 analyzeWorkloadGroup(value);
                 break;
+            case PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP:
+                analyzeComputeGroup(value);
+                break;
             case PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT:
                 analyzePartitionTimeUnit(value);
                 break;
@@ -95,8 +110,14 @@ public class MTMVPropertyUtil {
             case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
                 break;
+            case PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW);
+                break;
             case PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT:
                 analyzePartitionWindowLimit(value);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK:
+                analyzeMinMaxTopK(value);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -127,6 +148,17 @@ public class MTMVPropertyUtil {
                 .fromString(value);
         if (!mtmvPartitionSyncTimeUnit.isPresent()) {
             throw new AnalysisException("valid partition_sync_time_unit: " + value);
+        }
+    }
+
+    private static void analyzeComputeGroup(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
+        try {
+            ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), value);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 
@@ -231,6 +263,56 @@ public class MTMVPropertyUtil {
         return !StringUtils.isEmpty(value) && Integer.parseInt(value) > 0;
     }
 
+    /** Whether the given (altered) properties touch the partition_sync_limit window. */
+    public static boolean containsPartitionSyncWindow(Map<String, String> properties) {
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            if (properties.containsKey(property)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the change from {@code oldWindowProperties} to {@code newWindowProperties} can bring base
+     * partitions back into the window the MV maintains: a limit that is removed, or a wider one. Those
+     * partitions' deltas were skipped while they were outside, so nothing incremental can repair them.
+     *
+     * <p>A window that starts applying is not such a change -- it only takes partitions out of what the MV
+     * maintains, and partition sync drops those before the refresh plans -- and neither is a narrower one.
+     * Windows in different units or date formats are not comparable without a clock, so a change to either
+     * is treated as one that may widen.
+     */
+    public static boolean partitionSyncWindowWidens(Map<String, String> oldWindowProperties,
+            Map<String, String> newWindowProperties) {
+        MTMVPartitionSyncConfig oldWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(oldWindowProperties);
+        if (oldWindow.getSyncLimit() <= 0) {
+            return false;
+        }
+        MTMVPartitionSyncConfig newWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(newWindowProperties);
+        if (newWindow.getSyncLimit() <= 0) {
+            return true;
+        }
+        return !oldWindow.getTimeUnit().equals(newWindow.getTimeUnit())
+                || !oldWindow.getDateFormat().equals(newWindow.getDateFormat())
+                || newWindow.getSyncLimit() > oldWindow.getSyncLimit();
+    }
+
+    /**
+     * The window the given properties describe, for comparing it across an ALTER. Only the properties the
+     * window is built from are read, and the values are compared as they are stored: setting the same
+     * window again changes nothing about which rows the MV owes and must not force a rebuild.
+     */
+    public static Map<String, String> partitionSyncWindowOf(Map<String, String> properties) {
+        Map<String, String> res = Maps.newHashMap();
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            res.put(property, properties.get(property));
+        }
+        return res;
+    }
+
     /**
      * Look up the window limit configured for a base table, mirroring the
      * excluded_trigger_tables name-matching semantics (empty db/ctl wildcard).
@@ -332,6 +414,52 @@ public class MTMVPropertyUtil {
         }
     }
 
+    private static void analyzeMinMaxTopK(String value) {
+        if (StringUtils.isEmpty(value)) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        long topK;
+        try {
+            topK = Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
+        }
+    }
+
+    /**
+     * The configured MIN/MAX top-K capacity, or empty when the property is not set.
+     *
+     * <p>An explicit 0 is meaningful (extreme-only mode) and is therefore not the same as an
+     * absent property: the caller resolves the absent case from the plan shape at creation time.
+     */
+    public static Optional<Long> getIvmMinMaxTopK(Map<String, String> mvProperties) {
+        if (mvProperties == null) {
+            return Optional.empty();
+        }
+        String value = mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK);
+        if (StringUtils.isEmpty(value)) {
+            return Optional.empty();
+        }
+        long topK;
+        try {
+            topK = Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected an integer");
+        }
+        if (topK < 0 || topK > IvmUtil.MAX_IVM_MINMAX_TOP_K) {
+            throw new AnalysisException("valid " + PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK
+                    + ": " + value + ", expected 0 <= K <= " + IvmUtil.MAX_IVM_MINMAX_TOP_K);
+        }
+        return Optional.of(topK);
+    }
+
     private static void analyzeBooleanProperty(String propertyValue, String propertyName) {
         if (StringUtils.isEmpty(propertyValue)) {
             return;
@@ -344,5 +472,10 @@ public class MTMVPropertyUtil {
     public static boolean isIvmUseFullKeys(Map<String, String> mvProperties) {
         return mvProperties != null && "true".equalsIgnoreCase(
                 mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS));
+    }
+
+    public static boolean isIvmForceMow(Map<String, String> mvProperties) {
+        return mvProperties != null && "true".equalsIgnoreCase(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW));
     }
 }

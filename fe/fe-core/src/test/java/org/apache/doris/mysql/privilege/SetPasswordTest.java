@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -53,6 +54,7 @@ public class SetPasswordTest {
 
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(new AuthenticationIntegrationMgr());
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         mockedMysqlPassword.when(() -> MysqlPassword.checkPassword(Mockito.anyString())).thenReturn(new byte[10]);
     }

@@ -24,6 +24,9 @@
 #include <memory>
 
 #include "common/exception.h"
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "runtime/descriptors.h"
 #include "testutil/desc_tbl_builder.h"
@@ -88,6 +91,37 @@ TEST_F(SlotDescriptorTest, BasicConstructor) {
         EXPECT_FALSE(slot_desc.is_key());
         EXPECT_EQ(slot_desc.get_virtual_column_expr(), nullptr);
     });
+}
+
+TEST_F(SlotDescriptorTest, CanonicalTypesWithoutPostConstructionConversion) {
+    auto tdesc = create_basic_slot_descriptor();
+    auto& scalar = tdesc.slotType.types[0].scalar_type;
+    scalar.__set_type(TPrimitiveType::DECIMALV2);
+    scalar.__set_precision(18);
+    scalar.__set_scale(2);
+    SlotDescriptor slot(tdesc);
+    auto type = slot.type();
+    ASSERT_TRUE(type->is_nullable());
+    const auto& decimal = assert_cast<const DataTypeDecimalV2&>(*remove_nullable(type));
+    EXPECT_EQ(decimal.get_precision(), 27);
+    EXPECT_EQ(decimal.get_scale(), 9);
+    EXPECT_EQ(decimal.get_original_precision(), 18);
+    EXPECT_EQ(decimal.get_original_scale(), 2);
+
+    PSlotDescriptor pdesc;
+    slot.to_protobuf(&pdesc);
+    SlotDescriptor restored(pdesc);
+    EXPECT_TRUE(restored.type()->equals(*type));
+
+    scalar.__set_type(TPrimitiveType::BINARY);
+    SlotDescriptor binary(tdesc);
+    EXPECT_EQ(binary.type()->get_primitive_type(), TYPE_STRING);
+    EXPECT_TRUE(binary.type()->is_nullable());
+
+    scalar.__set_type(TPrimitiveType::VARBINARY);
+    scalar.__set_len(32);
+    SlotDescriptor varbinary(tdesc);
+    EXPECT_EQ(varbinary.type()->get_primitive_type(), TYPE_VARBINARY);
 }
 
 TEST_F(SlotDescriptorTest, VirtualColumnExprValid) {
@@ -214,6 +248,30 @@ TEST(TupleDescriptorTest, GetColumnId) {
     EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[0]->id()), 0);
     EXPECT_EQ(tuple_desc->get_column_id(tuple_desc->slots()[1]->id()), 1);
     EXPECT_EQ(tuple_desc->get_column_id(100), -1);
+}
+
+TEST(RowDescriptorTest, MultiTupleLayoutAndSingleTupleCount) {
+    ObjectPool pool;
+    DescriptorTblBuilder builder(&pool);
+    builder.declare_tuple() << std::make_shared<DataTypeInt32>();
+    builder.declare_tuple() << std::make_shared<DataTypeInt64>()
+                            << std::make_shared<DataTypeInt32>();
+    auto* desc_tbl = builder.build();
+
+    RowDescriptor single(desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(single.num_slots(), 2);
+
+    RowDescriptor row(*desc_tbl, {0, 1});
+    EXPECT_EQ(row.num_slots(), 3);
+    ASSERT_EQ(row.tuple_descriptors().size(), 2);
+    EXPECT_EQ(row.tuple_descriptors()[0], desc_tbl->get_tuple_descriptor(0));
+    EXPECT_EQ(row.tuple_descriptors()[1], desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[0]->id()), 1);
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[1]->id()), 2);
+
+    RowDescriptor copied(row);
+    EXPECT_EQ(copied.num_slots(), row.num_slots());
+    EXPECT_EQ(copied.tuple_descriptors(), row.tuple_descriptors());
 }
 
 TEST_F(SlotDescriptorTest, AccessPathsPreservedThroughProtobuf) {

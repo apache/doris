@@ -125,12 +125,12 @@ RowsetId BaseStorageEngine::next_rowset_id() {
 }
 
 StorageEngine& BaseStorageEngine::to_local() {
-    CHECK_EQ(_type, Type::LOCAL);
+    CHECK(_type == Type::LOCAL);
     return *static_cast<StorageEngine*>(this);
 }
 
 CloudStorageEngine& BaseStorageEngine::to_cloud() {
-    CHECK_EQ(_type, Type::CLOUD);
+    CHECK(_type == Type::CLOUD);
     return *static_cast<CloudStorageEngine*>(this);
 }
 
@@ -145,9 +145,9 @@ void BaseStorageEngine::_start_adaptive_thread_controller() {
     }
 
     auto* system_metrics = DorisMetrics::instance()->system_metrics();
-    auto* s3_upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* obj_storage_upload_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
 
-    _adaptive_thread_controller.init(system_metrics, s3_upload_pool);
+    _adaptive_thread_controller.init(system_metrics, obj_storage_upload_pool);
 
     if (_memtable_flush_executor) {
         auto* flush_pool = _memtable_flush_executor->flush_pool();
@@ -733,13 +733,14 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
+    _stop_changelog_ttl_scanner();
 #define THREAD_JOIN(thread) \
     if (thread) {           \
         thread->join();     \
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
+    THREAD_JOIN(_changelog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -767,8 +768,8 @@ void StorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_binlog_compaction_thread_pool) {
-        _binlog_compaction_thread_pool->shutdown();
+    if (_changelog_compaction_thread_pool) {
+        _changelog_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {

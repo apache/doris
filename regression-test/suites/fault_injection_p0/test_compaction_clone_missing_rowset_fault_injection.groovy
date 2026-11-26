@@ -29,6 +29,10 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
     options.beNum = 3
     docker(options) {
 
+        def versionRanges = { rowsets ->
+            rowsets.collect { it.split(" ")[0] } as Set
+        }
+
         def injectBe = null
         def normalBe = null
         def backends = sql_return_maparray('show backends')
@@ -68,11 +72,10 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
             logger.info("1st show:" + tabletId)
             def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("1st show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-2]"))
-            // missing rowset [3-5]
-            assertTrue(out.contains("[3-5]"))
-            assertTrue(out.contains("[6-6]"))
+            def tabletStatus = parseJson(out)
+            assertEquals(["[0-1]", "[2-2]", "[6-6]"] as Set,
+                    versionRanges(tabletStatus.rowsets))
+            assertEquals(["[3-5]"] as Set, tabletStatus.missing_rowsets as Set)
 
             logger.info("1st run cumu compaction:" + tabletId)
             (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
@@ -84,12 +87,10 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
             logger.info("2nd show:" + tabletId)
             (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("2nd show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-2]"))
-            assertTrue(out.contains("[3-3]"))
-            assertTrue(out.contains("[4-4]"))
-            assertTrue(out.contains("[5-5]"))
-            assertTrue(out.contains("[6-6]"))
+            tabletStatus = parseJson(out)
+            assertEquals(["[0-1]", "[2-2]", "[3-3]", "[4-4]", "[5-5]", "[6-6]"] as Set,
+                    versionRanges(tabletStatus.rowsets))
+            assertTrue(tabletStatus.missing_rowsets.isEmpty())
 
             logger.info("2nd cumu compaction:" + tabletId)
             (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
@@ -99,9 +100,9 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
             logger.info("3rd show:" + tabletId)
             (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("3rd show: code=" + code + ", out=" + out + ", err=" + err)
-            assertTrue(out.contains("[0-1]"))
-            assertTrue(out.contains("[2-2]"))
-            assertTrue(out.contains("[3-6]"))
+            tabletStatus = parseJson(out)
+            assertEquals(["[0-1]", "[2-6]"] as Set, versionRanges(tabletStatus.rowsets))
+            assertTrue(tabletStatus.missing_rowsets.isEmpty())
 
         } finally {
             if (injectBe != null) {

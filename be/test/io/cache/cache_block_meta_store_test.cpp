@@ -27,14 +27,17 @@
 #include <vector>
 
 #include "common/status.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::io {
 
 class CacheBlockMetaStoreTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"cache_block_meta_store_test"};
+
     void SetUp() override {
         // Create a temporary directory for test database
-        test_db_path_ = std::filesystem::temp_directory_path() / "cache_block_meta_store_test";
+        test_db_path_ = scoped_temp_dir_.path() / "cache_block_meta_store_test";
         std::filesystem::remove_all(test_db_path_);
         std::filesystem::create_directories(test_db_path_);
 
@@ -148,6 +151,41 @@ TEST_F(CacheBlockMetaStoreTest, RangeQuery) {
     auto iterator = meta_store_->range_get(999);
     ASSERT_NE(iterator, nullptr) << "Failed to create iterator for non-existent tablet";
     EXPECT_FALSE(iterator->valid());
+}
+
+TEST_F(CacheBlockMetaStoreTest, RangeQueryByFile) {
+    const UInt128Wrapper hash((static_cast<uint128_t>(123) << 64) | 456);
+    const UInt128Wrapper next_hash((static_cast<uint128_t>(123) << 64) | 457);
+    const UInt128Wrapper next_high_hash((static_cast<uint128_t>(124) << 64) | 456);
+    const std::vector<BlockMetaKey> keys = {{47, hash, 4096},
+                                            {47, hash, 8192},
+                                            {47, next_hash, 4096},
+                                            {47, next_high_hash, 4096},
+                                            {48, hash, 4096}};
+    const BlockMeta meta(FileCacheType::NORMAL, 4096, 0);
+    for (const auto& key : keys) {
+        meta_store_->put(key, meta);
+    }
+    // Closing drains the asynchronous queue without a timing-dependent wait.
+    meta_store_.reset();
+    meta_store_ = std::make_unique<CacheBlockMetaStore>(test_db_path_.string());
+
+    auto iterator = meta_store_->range_get(47, hash);
+    ASSERT_NE(iterator, nullptr);
+    for (size_t offset : {4096, 8192}) {
+        ASSERT_TRUE(iterator->valid());
+        EXPECT_EQ(iterator->key(), BlockMetaKey(47, hash, offset));
+        EXPECT_EQ(iterator->value(), meta);
+        iterator->next();
+    }
+    EXPECT_FALSE(iterator->valid());
+
+    auto missing = meta_store_->range_get(49, hash);
+    ASSERT_NE(missing, nullptr);
+    EXPECT_FALSE(missing->valid());
+    missing = meta_store_->range_get(47, UInt128Wrapper(static_cast<uint128_t>(0)));
+    ASSERT_NE(missing, nullptr);
+    EXPECT_FALSE(missing->valid());
 }
 
 TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {

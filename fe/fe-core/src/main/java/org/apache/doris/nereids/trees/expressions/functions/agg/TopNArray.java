@@ -41,9 +41,9 @@ public class TopNArray extends NullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(new AnyDataType(0), IntegerType.INSTANCE),
+                    .args(AnyDataType.ordering(0), IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(new AnyDataType(0), IntegerType.INSTANCE, IntegerType.INSTANCE)
+                    .args(AnyDataType.ordering(0), IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
@@ -107,7 +107,9 @@ public class TopNArray extends NullableAggregateFunction
         if (topNCount.isNullLiteral()) {
             return;
         }
-        if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
+        // the rewrite has folded a constant FE can evaluate; one FE cannot fold is validated by BE
+        if (!topNCount.isConstant()
+                || (topNCount instanceof Literal && ((Literal) topNCount).getDouble() <= 0)) {
             throw new AnalysisException(
                     "topn_array requires second parameter must be a constant positive integer: "
                             + this.toSql());

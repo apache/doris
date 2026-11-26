@@ -26,5 +26,5 @@ typedef void* yyscan_t;
 struct WktParseContext {
     yyscan_t scaninfo;
     std::unique_ptr<doris::GeoShape> shape = nullptr;
-    doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
+    doris::GeoParseStatus parse_status = doris::GeoParseStatus::GEO_PARSE_OK;
 };

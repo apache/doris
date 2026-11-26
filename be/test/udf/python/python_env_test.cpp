@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "testutil/scoped_temp_dir.h"
+
 namespace doris {
 
 namespace fs = std::filesystem;
@@ -49,6 +51,8 @@ static PythonVersion create_fake_python_version_for_pip_list(const std::string& 
 
 class PythonEnvTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"python_env_test"};
+
     std::string test_dir_;
     // Some test frameworks set SIGCHLD to SIG_IGN,
     // which causes pclose() to get ECHILD because the kernel auto-reaps children.
@@ -59,8 +63,7 @@ protected:
     void (*old_sigchld_)(int) = SIG_DFL;
 
     void SetUp() override {
-        test_dir_ = fs::temp_directory_path().string() + "/python_env_test_" +
-                    std::to_string(getpid()) + "_" + std::to_string(rand());
+        test_dir_ = (scoped_temp_dir_.path() / "env").string();
         fs::create_directories(test_dir_);
         old_sigchld_ = signal(SIGCHLD, SIG_DFL);
     }
@@ -186,8 +189,9 @@ TEST_F(PythonEnvTest, ScanFromVenvRootPathNonExistentInterpreter) {
 }
 
 TEST_F(PythonEnvTest, ScanFromVenvRootPathCreatesAndValidatesEnvironment) {
-    const std::string root_path = test_dir_ + "/venv_root";
-    const std::string interpreter_path = test_dir_ + "/python3.11";
+    // One environment is sufficient to test version discovery and creation with literal paths.
+    const std::string root_path = test_dir_ + "/venv 'root' $(printf injected)";
+    const std::string interpreter_path = test_dir_ + "/python '3.11' $(printf injected)";
     fs::create_directories(root_path);
 
     // Model the two interpreter operations used by the production VENV path: version discovery
@@ -578,6 +582,15 @@ TEST_F(PythonEnvTest, PythonVersionManagerInitCondaSuccess) {
 // ============================================================================
 // list_installed_packages tests
 // ============================================================================
+
+TEST_F(PythonEnvTest, ListInstalledPackagesKeepsPathLiteral) {
+    const auto version = create_fake_python_version_for_pip_list(
+            test_dir_ + "/python 'path' $(printf injected)", "printf '[]'\n", "3.11.9");
+    std::vector<std::pair<std::string, std::string>> packages;
+    const auto status = list_installed_packages(version, &packages);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(packages.empty());
+}
 
 TEST_F(PythonEnvTest, ListInstalledPackagesInvalidPythonVersion) {
     PythonVersion invalid_version;

@@ -17,8 +17,15 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrow.DorisArrowTypeMapping;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -31,22 +38,17 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
-import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ZeroVector;
-import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
-import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
-import org.apache.arrow.vector.types.DateUnit;
-import org.apache.arrow.vector.types.FloatingPointPrecision;
-import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -62,21 +64,30 @@ import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FlightSqlSchemaHelper {
     private static final Logger LOG = LogManager.getLogger(FlightSqlSchemaHelper.class);
+    private static final List<String> TABLE_TYPES = Arrays.stream(TableType.values())
+            .map(TableType::toMysqlType)
+            .filter(Objects::nonNull)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
     private final ConnectContext ctx;
     private final FrontendServiceImpl impl;
     private boolean includeSchema;
     private String catalogFilterPattern = null;
     private String dbSchemaFilterPattern = null;
     private String tableNameFilterPattern = null;
-    private List<String> tableTypesList = null;
+    private Set<String> tableTypeFilter = null;
 
     public FlightSqlSchemaHelper(ConnectContext context) {
         ctx = context;
@@ -85,106 +96,54 @@ public class FlightSqlSchemaHelper {
 
     private static final byte[] EMPTY_SERIALIZED_SCHEMA = getSerializedSchema(Collections.emptyList());
 
-    /**
-     * Convert Doris data type to an arrowType.
-     * <p>
-     * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
-     * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
-     */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
-        switch (primitiveType) {
-            case BOOLEAN:
-                return new ArrowType.Bool();
-            case TINYINT:
-                return new ArrowType.Int(8, true);
-            case SMALLINT:
-                return new ArrowType.Int(16, true);
-            case INT:
-            case IPV4:
-                return new ArrowType.Int(32, true);
-            case BIGINT:
-                return new ArrowType.Int(64, true);
-            case FLOAT:
-                return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
-            case DOUBLE:
-                return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
+    static Field withDorisTypeMetadata(Field field, Type type) {
+        if (type.isVariantType()) {
+            if (field.getMetadata() == null
+                    || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "Backend returned a non-native Variant schema; use Variant V2 "
+                                + "or cast the result to STRING").toRuntimeException();
+            }
+        }
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (type.isArrayType()) {
+            children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
+        } else if (type.isMapType()) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            pair.set(0, withDorisTypeMetadata(pair.get(0), ((MapType) type).getKeyType()));
+            pair.set(1, withDorisTypeMetadata(pair.get(1), ((MapType) type).getValueType()));
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (type.isStructType()) {
+            StructType struct = (StructType) type;
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withDorisTypeMetadata(children.get(i), struct.getFields().get(i).getType()));
+            }
+        }
+        String marker = null;
+        switch (type.getPrimitiveType()) {
             case LARGEINT:
-            case VARCHAR:
-            case STRING:
-            case CHAR:
-            case DATETIME:
-            case DATE:
-            case JSONB:
+            case IPV4:
             case IPV6:
+            case UUID:
             case VARIANT:
-                return new ArrowType.Utf8();
-            case DATEV2:
-                // DAY, not MILLISECOND: BE writes a DATEV2 column as arrow::Date32Type (a day number),
-                // so a MILLISECOND unit here describes the metadata as date64 while the data that
-                // follows is date32. A client that trusts this schema -- one reading through the ADBC
-                // Flight SQL driver does -- then types the column as a datetime and fails the read.
-                return new ArrowType.Date(DateUnit.DAY);
-            case DATETIMEV2:
-                if (scale > 3) {
-                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, null);
-                } else if (scale > 0) {
-                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
-                } else {
-                    return new ArrowType.Timestamp(TimeUnit.SECOND, null);
-                }
-            case TIMESTAMP_NS:
-                return new ArrowType.Timestamp(TimeUnit.NANOSECOND, null);
-            case TIMESTAMPTZ:
-                if (scale > 3) {
-                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");
-                } else if (scale > 0) {
-                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC");
-                } else {
-                    return new ArrowType.Timestamp(TimeUnit.SECOND, "UTC");
-                }
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-                return new ArrowType.Decimal(precision, scale, 128);
-            case DECIMAL256:
-                return new ArrowType.Decimal(precision, scale, 256);
-            case DECIMALV2:
-                return new ArrowType.Decimal(27, 9, 128);
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-                return new ArrowType.Binary();
-            case MAP:
-                return new ArrowType.Map(false);
-            case ARRAY:
-                return new ArrowType.List();
-            case STRUCT:
-                return new ArrowType.Struct();
+                marker = type.getPrimitiveType().name();
+                break;
+            case JSONB:
+                marker = "JSON";
+                break;
             default:
-                return new ArrowType.Null();
+                break;
         }
-    }
-
-    private static ArrowType columnDescToArrowType(final TColumnDesc desc) {
-        PrimitiveType primitiveType = PrimitiveType.fromThrift(desc.getColumnType());
-        Integer precision = desc.isSetColumnPrecision() ? desc.getColumnPrecision() : null;
-        Integer scale = desc.isSetColumnScale() ? desc.getColumnScale() : null;
-        return getArrowType(primitiveType, precision, scale);
-    }
-
-    private static Map<String, String> createFlightSqlColumnMetadata(final String dbName, final String tableName,
-            final TColumnDesc desc) {
-        final FlightSqlColumnMetadata.Builder columnMetadataBuilder = new FlightSqlColumnMetadata.Builder().schemaName(
-                        dbName).tableName(tableName).typeName(PrimitiveType.fromThrift(desc.getColumnType()).toString())
-                .isAutoIncrement(false).isCaseSensitive(false).isReadOnly(true).isSearchable(true);
-
-        if (desc.isSetColumnPrecision()) {
-            columnMetadataBuilder.precision(desc.getColumnPrecision());
+        FieldType fieldType = field.getFieldType();
+        if (marker != null && !field.getMetadata().containsKey("doris_type")) {
+            Map<String, String> metadata = new HashMap<>(field.getMetadata());
+            metadata.put("doris_type", marker);
+            fieldType = new FieldType(field.isNullable(), field.getType(), field.getDictionary(), metadata);
         }
-        if (desc.isSetColumnScale()) {
-            columnMetadataBuilder.scale(desc.getColumnScale());
-        }
-        return columnMetadataBuilder.build().getMetadataMap();
+        // Old BEs omit these markers. Fill only missing ones from the planned Doris type;
+        // preserve conflicting markers and all physical properties for the strict schema comparison.
+        return new Field(field.getName(), fieldType, children);
     }
 
     protected static byte[] getSerializedSchema(List<Field> fields) {
@@ -211,17 +170,38 @@ public class FlightSqlSchemaHelper {
      */
     public void setParameterForGetTables(CommandGetTables command) {
         includeSchema = command.getIncludeSchema();
-        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
+        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : null;
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
         tableNameFilterPattern = command.hasTableNameFilterPattern() ? command.getTableNameFilterPattern() : null;
-        tableTypesList = command.getTableTypesList().isEmpty() ? null : command.getTableTypesList();
+        tableTypeFilter = command.getTableTypesList().isEmpty() ? null
+                : command.getTableTypesList().stream().map(FlightSqlSchemaHelper::toDorisTableType)
+                        .collect(Collectors.toSet());
+    }
+
+    /**
+     * Maps a type a GetTables request filters on to the name GetTableTypes advertises. Flight SQL leaves the
+     * names to the server but calls TABLE, VIEW and SYSTEM TABLE the commonly supported ones, and clients send
+     * those in either case: the ADBC Flight SQL driver asks for "table", JDBC tools for "TABLE". So a type
+     * matches case-insensitively, and TABLE and SYSTEM TABLE select BASE TABLE and SYSTEM VIEW. Any other name
+     * matches only a type of that name.
+     */
+    private static String toDorisTableType(String requestedType) {
+        String type = requestedType.toUpperCase(Locale.ROOT);
+        switch (type) {
+            case "TABLE":
+                return "BASE TABLE";
+            case "SYSTEM TABLE":
+                return "SYSTEM VIEW";
+            default:
+                return type;
+        }
     }
 
     /**
      * Set in the Schemas request object the parameter that user passed via CommandGetDbSchemas.
      */
     public void setParameterForGetDbSchemas(CommandGetDbSchemas command) {
-        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
+        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : null;
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
     }
 
@@ -229,15 +209,23 @@ public class FlightSqlSchemaHelper {
      * Call FrontendServiceImpl->getDbNames.
      */
     private TGetDbsResult getDbNames() throws TException {
+        // Flight SQL uses "" for objects without a catalog, but every Doris database has one.
+        // Do not pass "" to Thrift, where it would mean all catalogs, just like an omitted filter.
+        if ("".equals(catalogFilterPattern)) {
+            return new TGetDbsResult().setDbs(Collections.emptyList());
+        }
         TGetDbsParams getDbsParams = new TGetDbsParams();
+        // Discovery only needs names; avoid materializing every database across external catalogs.
+        getDbsParams.setIncludeDbIds(false);
         if (catalogFilterPattern != null) {
             getDbsParams.setCatalog(catalogFilterPattern);
         }
         if (dbSchemaFilterPattern != null) {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
-        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        return impl.getDbNames(getDbsParams);
+        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
+        // Flight carries the catalog separately, so both filtering and output must use raw schema names.
+        return impl.getDbNames(getDbsParams, false);
     }
 
     /**
@@ -252,11 +240,10 @@ public class FlightSqlSchemaHelper {
         if (tableNameFilterPattern != null) {
             getTablesParams.setPattern(tableNameFilterPattern);
         }
-        if (tableTypesList != null) {
-            getTablesParams.setType(tableTypesList.get(0)); // currently only one type is supported.
-        }
-        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        return impl.listTableStatus(getTablesParams);
+        // Flight SQL only consumes names and types, not the potentially expensive table statistics.
+        getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
+        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
+        return impl.listTableStatus(getTablesParams, false);
     }
 
     /**
@@ -270,8 +257,8 @@ public class FlightSqlSchemaHelper {
             describeTablesParams.setCatalog(catalogName);
         }
         describeTablesParams.setTablesName(tablesName);
-        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        return impl.describeTables(describeTablesParams);
+        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
+        return impl.describeTables(describeTablesParams, false);
     }
 
     /**
@@ -294,71 +281,44 @@ public class FlightSqlSchemaHelper {
         return tableToFields;
     }
 
-    /** One column, with its nested types described down to the leaves. */
     private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
-        ArrowType arrowType = columnDescToArrowType(desc);
-        return new Field(desc.getColumnName(),
-                new FieldType(desc.isIsAllowNull(), arrowType, null,
-                        createFlightSqlColumnMetadata(dbName, tableName, desc)),
-                arrowChildren(dbName, tableName, desc, arrowType));
+        return withNativeVariant(DorisArrowTypeMapping.toField(dbName, tableName, desc), desc);
     }
 
-    /**
-     * The Arrow children of a complex column, built from the descriptor's own children.
-     *
-     * <p>These are not decoration. An Arrow ARRAY/MAP/STRUCT type carries its element types in its
-     * children and nowhere else, so a placeholder child says the column is an array OF NOTHING --
-     * and BE emits the real element type in the data ({@code convert_to_arrow_type}: ListType(item),
-     * MapType(key, value), StructType(fields)), which leaves the schema describing one thing and the
-     * batch carrying another. A client that types its columns from this schema (one reading through
-     * the ADBC Flight SQL driver does) then rejects the column outright.
-     *
-     * <p>{@code describeTables} already reports the tree -- {@code Column.createChildrenColumn} names
-     * an array's element "item" and a map's pair "key"/"value", which is what Arrow calls them too.
-     * When it reports none, the old placeholders are kept rather than an empty child list: a source
-     * that cannot describe its nested types is no worse off than before.
-     */
-    private static List<Field> arrowChildren(String dbName, String tableName, TColumnDesc desc,
-            ArrowType arrowType) {
-        List<TColumnDesc> children = desc.isSetChildren() ? desc.getChildren() : Collections.emptyList();
-        switch (arrowType.getTypeID()) {
-            case List:
-            case LargeList:
-            case FixedSizeList:
-                if (children.size() != 1) {
-                    return Collections.singletonList(
-                            Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
-                                    ZeroVector.INSTANCE.getField().getType()));
-                }
-                return Collections.singletonList(buildField(dbName, tableName, children.get(0)));
-            case Map:
-                // Arrow spells a map as list<entries: struct<key, value>>, with the entries struct and
-                // the key both non-nullable -- the descriptor's key nullability is not carried over,
-                // because an Arrow map with a nullable key is not a valid schema.
-                if (children.size() != 2) {
-                    return Collections.singletonList(
-                            Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
-                }
-                Field key = buildField(dbName, tableName, children.get(0));
-                Field value = buildField(dbName, tableName, children.get(1));
-                Field entries = new Field(MapVector.DATA_VECTOR_NAME,
-                        new FieldType(false, new ArrowType.Struct(), null),
-                        Arrays.asList(new Field(key.getName(),
-                                        new FieldType(false, key.getType(), null), key.getChildren()),
-                                value));
-                return Collections.singletonList(entries);
-            case Struct:
-                if (children.isEmpty()) {
-                    return Collections.emptyList();
-                }
-                List<Field> structFields = new ArrayList<>(children.size());
-                for (TColumnDesc child : children) {
-                    structFields.add(buildField(dbName, tableName, child));
-                }
-                return structFields;
-            default:
-                return null;
+    private static Field withNativeVariant(Field field, TColumnDesc desc) {
+        if (desc.getColumnType() == TPrimitiveType.VARIANT) {
+            return nativeVariantField(field.getName(), field.isNullable(), field.getMetadata());
         }
+        if (!desc.isSetChildren() || desc.getChildren().isEmpty()) {
+            return field;
+        }
+        // Preserve the shared mapper's physical types, nullability and column metadata.
+        // Only Variant leaves need the Flight-specific native storage representation.
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (desc.getColumnType() == TPrimitiveType.MAP && desc.getChildrenSize() == 2) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            for (int i = 0; i < pair.size(); i++) {
+                pair.set(i, withNativeVariant(pair.get(i), desc.getChildren().get(i)));
+            }
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (desc.getColumnType() == TPrimitiveType.STRUCT
+                || (desc.getColumnType() == TPrimitiveType.ARRAY && desc.getChildrenSize() == 1)) {
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withNativeVariant(children.get(i), desc.getChildren().get(i)));
+            }
+        }
+        return new Field(field.getName(), field.getFieldType(), children);
+    }
+
+    static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        Map<String, String> metadata = new HashMap<>(columnMetadata);
+        // Discovery and execution must share the extension metadata as well as its storage type.
+        metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+        metadata.put("ARROW:extension:metadata", "");
+        return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null, metadata),
+                Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                        Field.notNullable("value", new ArrowType.Binary())));
     }
 
     /**
@@ -367,18 +327,28 @@ public class FlightSqlSchemaHelper {
     public void getCatalogs(VectorSchemaRoot vectorSchemaRoot) throws TException {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
 
-        Set<String> catalogsSet = new LinkedHashSet<>();
-        catalogsSet.add("internal"); // An ordered Set with "internal" first.
-        for (CatalogIf catalog : Env.getCurrentEnv().getCatalogMgr().listCatalogs()) {
-            catalogsSet.add(catalog.getName());
-        }
+        // Use SHOW CATALOGS visibility with the session's authenticated roles, without initializing catalogs.
+        List<String> catalogs = Env.getCurrentEnv().getCatalogMgr()
+                .listCatalogsWithCheckPriv(UserIdentity.fromThrift(ctx.getCurrentUserIdentityForRpc())).stream()
+                .map(CatalogIf::getName).sorted().collect(Collectors.toList());
 
         int catalogIndex = 0;
-        for (String catalog : catalogsSet) {
+        for (String catalog : catalogs) {
             catalogNameVector.setSafe(catalogIndex, new Text(catalog));
             catalogIndex++;
         }
         vectorSchemaRoot.setRowCount(catalogIndex);
+    }
+
+    private List<Pair<String, String>> getSortedDbs() throws TException {
+        TGetDbsResult result = getDbNames();
+        List<Pair<String, String>> databases = new ArrayList<>(result.getDbsSize());
+        for (int i = 0; i < result.getDbsSize(); i++) {
+            databases.add(Pair.of(result.isSetCatalogs() ? result.getCatalogs().get(i) : "", result.getDbs().get(i)));
+        }
+        // Keep catalog/schema pairs together: the service returns them as parallel lists.
+        databases.sort(Comparator.comparing((Pair<String, String> db) -> db.first).thenComparing(db -> db.second));
+        return databases;
     }
 
     /**
@@ -388,14 +358,24 @@ public class FlightSqlSchemaHelper {
         VarCharVector catalogNameVector = (VarCharVector) vectorSchemaRoot.getVector("catalog_name");
         VarCharVector schemaNameVector = (VarCharVector) vectorSchemaRoot.getVector("db_schema_name");
 
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            catalogNameVector.setSafe(dbIndex, new Text(catalogName));
-            schemaNameVector.setSafe(dbIndex, new Text(dbName));
+        List<Pair<String, String>> databases = getSortedDbs();
+        for (int dbIndex = 0; dbIndex < databases.size(); dbIndex++) {
+            Pair<String, String> database = databases.get(dbIndex);
+            catalogNameVector.setSafe(dbIndex, new Text(database.first));
+            schemaNameVector.setSafe(dbIndex, new Text(database.second));
         }
-        vectorSchemaRoot.setRowCount(getDbsResult.getDbs().size());
+        vectorSchemaRoot.setRowCount(databases.size());
+    }
+
+    /**
+     * for FlightSqlProducer Schemas.GET_TABLE_TYPES_SCHEMA
+     */
+    public static void getTableTypes(VectorSchemaRoot vectorSchemaRoot) {
+        VarCharVector tableTypeVector = (VarCharVector) vectorSchemaRoot.getVector("table_type");
+        for (int i = 0; i < TABLE_TYPES.size(); i++) {
+            tableTypeVector.setSafe(i, new Text(TABLE_TYPES.get(i)));
+        }
+        vectorSchemaRoot.setRowCount(TABLE_TYPES.size());
     }
 
     /**
@@ -409,16 +389,22 @@ public class FlightSqlSchemaHelper {
         VarBinaryVector schemaVector = (VarBinaryVector) vectorSchemaRoot.getVector("table_schema");
 
         int tablesCount = 0;
-        TGetDbsResult getDbsResult = getDbNames();
-        for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
-            String dbName = getDbsResult.getDbs().get(dbIndex);
-            String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            TListTableStatusResult listTableStatusResult = listTableStatus(dbName, catalogName);
+        for (Pair<String, String> database : getSortedDbs()) {
+            String catalogName = database.first;
+            String dbName = database.second;
+            // Filter authorized tables and order them before collecting their optional schemas.
+            List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables().stream()
+                    .filter(table -> tableTypeFilter == null || tableTypeFilter.contains(table.getType()))
+                    .sorted(Comparator.comparing(TTableStatus::getName).thenComparing(TTableStatus::getType))
+                    .collect(Collectors.toList());
+            if (tables.isEmpty()) {
+                continue;
+            }
 
             Map<String, List<Field>> tableToFields;
             if (includeSchema) {
                 List<String> tablesName = new ArrayList<>();
-                for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+                for (TTableStatus tableStatus : tables) {
                     tablesName.add(tableStatus.getName());
                 }
                 TDescribeTablesResult describeTablesResult = describeTables(dbName, catalogName, tablesName);
@@ -427,7 +413,7 @@ public class FlightSqlSchemaHelper {
                 tableToFields = null;
             }
 
-            for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+            for (TTableStatus tableStatus : tables) {
                 catalogNameVector.setSafe(tablesCount, new Text(catalogName));
                 schemaNameVector.setSafe(tablesCount, new Text(dbName));
                 tableNameVector.setSafe(tablesCount, new Text(tableStatus.getName()));

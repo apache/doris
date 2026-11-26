@@ -24,6 +24,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
+#include <limits>
 #include <memory>
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -118,9 +119,21 @@ protected:
 
     Status prepare_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
 
+    // Select storage once, before any source segment registers its rows.
+    void prepare_rowid_conversion(const RowsetWriterContext& ctx);
+    bool should_compress_rowid_conversion() const;
+
     Status execute_merge_input_rowsets(MergeInputRowsetsContext* context);
 
     Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
+    void snapshot_changelog_ttl();
+    void snapshot_row_ttl();
+    bool pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates);
+    void filter_changelog_ttl_rowsets();
+    // Whether the rowset is expired changelog, which this compaction drops instead of merging it.
+    bool is_expired_changelog_rowset(const RowsetSharedPtr& rowset) const;
+    // Counts this compaction in the changelog TTL cleanup metrics as it finishes, if it drops expired changelog.
+    void record_changelog_ttl_cleanup(bool succeeded) const;
 
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
@@ -151,6 +164,12 @@ protected:
                                     const std::function<void(int64_t, int64_t)>& error_handler);
 
     void construct_index_compaction_columns(RowsetWriterContext& ctx);
+    bool _should_compact_indexes() const {
+        return _changelog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+               ((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                 _tablet->enable_unique_key_merge_on_write()) ||
+                _tablet->keys_type() == KeysType::DUP_KEYS);
+    }
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
@@ -177,6 +196,11 @@ protected:
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
+    std::vector<RowsetSharedPtr> _data_input_rowsets;
+    int64_t _changelog_ttl_cutoff_tso {-1};
+    int64_t _changelog_ttl_seconds {0};
+    int64_t _changelog_ttl_visible_version {std::numeric_limits<int64_t>::max()};
+    int64_t _changelog_ttl_filtered_rows {0};
     int64_t _input_rowsets_data_size {0};
     int64_t _input_rowsets_index_size {0};
     int64_t _input_rowsets_total_size {0};
@@ -194,12 +218,12 @@ protected:
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
-    enum CompactionState : uint8_t { INITED = 0, SUCCESS = 1 };
+    enum class CompactionState : uint8_t { INITED = 0, SUCCESS = 1 };
     CompactionState _state {CompactionState::INITED};
 
     bool _is_vertical;
     bool _is_ordered_data_compaction {false};
-    bool _trigger_quick_merge_by_binlog {false};
+    bool _trigger_quick_merge_by_changelog {false};
     bool _allow_delete_in_cumu_compaction;
     bool _enable_vertical_compact_variant_subcolumns;
 

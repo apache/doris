@@ -56,7 +56,7 @@ public:
     Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
             RuntimeProfile* profile);
 
-    //only used for FileScanner read one line.
+    // Standalone scanner context used by external row fetches and reader tests.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
             : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
@@ -138,6 +138,15 @@ protected:
             RETURN_IF_ERROR(mutable_block.merge(_origin_block));
         }
         return Status::OK();
+    }
+
+    // True once scanners of this operator have produced the whole shared LIMIT. The scanner then
+    // stops reading but does not report EOS for it: EOS means the underlying read is exhausted,
+    // while the LIMIT is applied by the scan operator, which stops the scanners once it holds
+    // enough rows.
+    bool _shared_scan_limit_exhausted() const {
+        return _shared_scan_limit != nullptr &&
+               _shared_scan_limit->load(std::memory_order_acquire) <= 0;
     }
 
     // Update the counters before closing this scanner
@@ -309,7 +318,7 @@ protected:
     int64_t _per_scanner_open_timer = 0;
     int64_t _projection_timer = 0;
 
-    bool _should_stop = false;
+    std::atomic_bool _should_stop = false;
 
     // Cached pointer to ScanOperator's remaining-limit counter. Null when
     // this scanner is on the topn path or the query has no LIMIT.

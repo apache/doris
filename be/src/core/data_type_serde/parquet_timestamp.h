@@ -46,6 +46,37 @@ inline Status validate_parquet_timestamp_micros(int64_t timestamp_micros) {
     return Status::OK();
 }
 
+inline Status parquet_timestamp_nanos(ParquetTimeUnit unit, int64_t value, int64_t* result) {
+    int64_t factor = 1000;
+    if (unit == ParquetTimeUnit::MILLIS) {
+        factor = 1000000;
+    } else if (unit == ParquetTimeUnit::NANOS) {
+        factor = 1;
+    }
+    if (__builtin_mul_overflow(value, factor, result)) {
+        return Status::DataQualityError("Parquet timestamp is outside the TIMESTAMP_NS range");
+    }
+    return Status::OK();
+}
+
+inline Status parquet_int96_timestamp_nanos(const ParquetInt96Timestamp& value, int64_t* result) {
+    static constexpr int64_t NANOS_IN_DAY = 86400000000000LL;
+    if (value.nanos_of_day < 0 || value.nanos_of_day >= NANOS_IN_DAY) {
+        return Status::DataQualityError("Invalid Parquet INT96 nanos-of-day: {}",
+                                        value.nanos_of_day);
+    }
+    // Widen before multiplying: the first representable day's midnight is outside Int64.
+    const __int128 nanos =
+            (static_cast<__int128>(value.julian_day) - 2440588) * NANOS_IN_DAY + value.nanos_of_day;
+    if (nanos < std::numeric_limits<int64_t>::min() ||
+        nanos > std::numeric_limits<int64_t>::max()) {
+        return Status::DataQualityError(
+                "Parquet INT96 timestamp is outside the TIMESTAMP_NS range");
+    }
+    *result = static_cast<int64_t>(nanos);
+    return Status::OK();
+}
+
 inline Status parquet_timestamp_micros(ParquetTimeUnit unit, int64_t value, int64_t* result) {
     if (unit == ParquetTimeUnit::MILLIS) {
         // Validate in the source unit before scaling; signed overflow could otherwise turn an

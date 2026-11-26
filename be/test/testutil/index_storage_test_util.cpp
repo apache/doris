@@ -48,7 +48,7 @@
 #include "storage/compaction/full_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -231,6 +231,8 @@ TQueryOptions make_read_query_options(const IndexReadOptions& options) {
     query_options.__set_enable_inverted_index_query(options.enable_inverted_index_query);
     query_options.__set_enable_fallback_on_missing_inverted_index(
             options.enable_fallback_on_missing_inverted_index);
+    query_options.__set_enable_match_without_inverted_index(
+            options.enable_match_without_inverted_index);
     query_options.__set_enable_no_need_read_data_opt(options.enable_no_need_read_data_opt);
     query_options.__set_enable_common_expr_pushdown(options.enable_common_expr_pushdown);
     query_options.__set_enable_inverted_index_query_cache(
@@ -406,9 +408,7 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
     auto variant_column = ColumnVariantV2::create();
-    JsonStringToVariantEncoder encoder(
-            {.throw_on_invalid_json = true,
-             .check_duplicate_json_path = batch.check_duplicate_json_path});
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
         encoder.add_json({json.data(), json.size()});
     }
@@ -514,6 +514,10 @@ Status fill_block(const TabletSchema& schema, const IndexTabletOptions& tablet_o
         columns[column_pos] = std::move(variant_column);
     }
 
+    if (schema.delete_sign_idx() >= 0) {
+        CHECK_EQ(column_pos, schema.delete_sign_idx());
+        columns[column_pos++]->insert_many_defaults(rows);
+    }
     CHECK_EQ(column_pos, schema.num_columns());
     block->set_columns(std::move(columns));
     return Status::OK();
@@ -617,7 +621,11 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto seg_pos = rowset->rowset_meta()->position_of(segment_id);
+    if (!seg_pos.has_value()) {
+        return ResultError(seg_pos.error());
+    }
+    auto seg = rowset->segment(seg_pos.value());
     auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
@@ -830,7 +838,8 @@ bool IndexReadResult::inverted_index_used() const {
 
 TabletSchemaPB build_tablet_schema_pb(const IndexTabletOptions& options) {
     TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_keys_type(options.enable_unique_key_merge_on_write ? KeysType::UNIQUE_KEYS
+                                                                     : KeysType::DUP_KEYS);
     schema_pb.set_num_short_key_columns(options.include_key_column ? 1 : 0);
     schema_pb.set_num_rows_per_row_block(1024);
     schema_pb.set_compress_kind(COMPRESS_NONE);
@@ -1116,7 +1125,11 @@ Status IndexStorageTestFixture::create_tablet(const IndexTabletOptions& options)
     _tablet_schema = build_tablet_schema(options);
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->set_enable_unique_key_merge_on_write(options.enable_unique_key_merge_on_write);
     tablet_meta->_tablet_id = options.tablet_id;
+    if (options.enable_unique_key_merge_on_write) {
+        tablet_meta->_delete_bitmap = std::make_shared<DeleteBitmap>(options.tablet_id);
+    }
     tablet_meta->set_tablet_uid(TabletUid(options.tablet_id, options.tablet_id + 1));
     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
     RETURN_IF_ERROR(_tablet->init());
@@ -1153,6 +1166,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
     context.segments_overlap = NONOVERLAPPING;
     context.max_rows_per_segment = spec.max_rows_per_segment;
     context.write_type = spec.write_type;
+    context.enable_unique_key_merge_on_write = _tablet->enable_unique_key_merge_on_write();
 
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine_ref, context, false);
     if (!writer_result.has_value()) {
@@ -1308,7 +1322,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*_tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         context.predicates = &predicates;
         context.stats = &result.stats;

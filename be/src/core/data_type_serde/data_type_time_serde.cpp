@@ -20,6 +20,7 @@
 #include <arrow/array.h>
 #include <arrow/type.h>
 
+#include <cmath>
 #include <limits>
 
 #include "common/config.h"
@@ -293,6 +294,44 @@ Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         check_arrow_array_range(*arrow_array, start, end);
     }
     auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
+    if (arrow_array->type_id() == arrow::Type::DOUBLE) {
+        constexpr int64_t max_micros = TimeValue::MAX_TIME + TimeValue::ONE_SECOND_MICROSECONDS - 1;
+        const auto* time_array = dynamic_cast<const arrow::DoubleArray*>(arrow_array);
+        if (time_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow DoubleArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_fixed_width_buffer(*time_array, sizeof(arrow::DoubleArray::value_type));
+        }
+        for (int64_t row = start; row < end; ++row) {
+            if (time_array->IsNull(row)) {
+                data.emplace_back(0);
+                continue;
+            }
+            const double micros = time_array->Value(row);
+            if (!std::isfinite(micros) || std::abs(micros) > max_micros) {
+                return Status::InvalidArgument(
+                        "Arrow TIMEV2 microseconds must be finite and within the Doris TIME range: "
+                        "row={}, value={}",
+                        row, micros);
+            }
+            if (std::trunc(micros) != micros) {
+                return Status::InvalidArgument(
+                        "Arrow TIMEV2 value must contain whole microseconds: row={}, value={}", row,
+                        micros);
+            }
+            const int64_t rounded = TimeValue::round_time(micros, _scale);
+            if (std::abs(rounded) > max_micros) {
+                return Status::InvalidArgument(
+                        "Arrow TIMEV2 value exceeds the Doris TIME range after rounding: "
+                        "row={}, value={}, scale={}",
+                        row, micros, _scale);
+            }
+            data.emplace_back(rounded);
+        }
+        return Status::OK();
+    }
     if (arrow_array->type_id() == arrow::Type::TIME32) {
         const auto* time_array = dynamic_cast<const arrow::Time32Array*>(arrow_array);
         if (time_array == nullptr) {
@@ -371,7 +410,7 @@ Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
         return Status::OK();
     }
 
-    return Status::InvalidArgument("Expected Arrow Time32Array or Time64Array, got {}",
+    return Status::InvalidArgument("Expected Arrow DoubleArray, Time32Array or Time64Array, got {}",
                                    arrow_array->type()->name());
 }
 
@@ -476,12 +515,16 @@ Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnTyp
 
 template <typename IntDataType>
 Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(
-        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(int_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         TimeValue::TimeType val = 0;
         CastToTimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val, params);
         if (!params.status.ok()) [[unlikely]] {
@@ -519,12 +562,16 @@ Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::Colum
 
 template <typename FloatDataType>
 Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(
-        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(float_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         TimeValue::TimeType val = 0;
         CastToTimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val, _scale,
                                                             params);
@@ -565,12 +612,16 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(
 
 template <typename DecimalDataType>
 Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
-        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(decimal_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         TimeValue::TimeType val = 0;
         CastToTimeV2::from_decimal<DatelikeParseMode::STRICT>(
                 decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
@@ -601,23 +652,30 @@ template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt64>(
 template Status DataTypeTimeV2SerDe::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
 template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
-        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
-        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
-        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
-        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
-        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeTimeV2SerDe::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
-        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
-        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal64>(
@@ -629,14 +687,19 @@ template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal128>(
 template Status DataTypeTimeV2SerDe::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
-        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
-        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
-        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
-        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
-        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 
 } // namespace doris

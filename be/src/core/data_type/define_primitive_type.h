@@ -74,7 +74,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_FIXED_LENGTH_OBJECT,            /* 40, represent fixed-length object on BE */
     TYPE_VARBINARY,                      /* 41, varbinary */
     TYPE_TIMESTAMPTZ,                    /* 42, timestamptz */
-    TYPE_TIMESTAMP_NS                    /* 43, signed Int64 epoch nanoseconds */
+    TYPE_TIMESTAMP_NS,                   /* 43, signed Int64 epoch nanoseconds */
+    TYPE_UUID,                           /* 44, uuid */
+    TYPE_FILE /* 45, file value with a URI reference and/or inline content */
 };
 
 } // namespace doris

@@ -24,8 +24,8 @@ package org.apache.doris.connector.spi.ddl;
  * <p>The retention fields are nullable ({@code null} = not specified in the SQL, so the connector leaves the
  * corresponding setting untouched), mirroring the {@code Optional<>} fields of the source {@code BranchOptions}.
  * They are named after the snapshot-management knobs they drive, so a connector applies them 1:1:
- * {@code maxSnapshotAgeMs} (SQL {@code RETAIN}), {@code minSnapshotsToKeep} (SQL {@code WITH SNAPSHOT RETENTION
- * n SNAPSHOTS}), {@code maxRefAgeMs} (SQL {@code WITH SNAPSHOT RETENTION ... MINUTES}). A {@code null}
+ * {@code maxRefAgeMs} (SQL {@code RETAIN}), {@code minSnapshotsToKeep} (SQL {@code WITH SNAPSHOT RETENTION
+ * n SNAPSHOTS}), {@code maxSnapshotAgeMs} (SQL {@code WITH SNAPSHOT RETENTION ... MINUTES}). A {@code null}
  * {@code snapshotId} means "use the table's current snapshot", resolved by the connector against the live table.</p>
  */
 public final class BranchChange {
@@ -72,7 +72,7 @@ public final class BranchChange {
         return snapshotId;
     }
 
-    /** SQL {@code RETAIN} in ms, or {@code null} when unset. */
+    /** SQL {@code WITH SNAPSHOT RETENTION ... MINUTES} in ms, or {@code null} when unset. */
     public Long getMaxSnapshotAgeMs() {
         return maxSnapshotAgeMs;
     }
@@ -82,7 +82,7 @@ public final class BranchChange {
         return minSnapshotsToKeep;
     }
 
-    /** SQL {@code WITH SNAPSHOT RETENTION ... MINUTES} in ms, or {@code null} when unset. */
+    /** SQL {@code RETAIN} in ms, or {@code null} when unset. */
     public Long getMaxRefAgeMs() {
         return maxRefAgeMs;
     }

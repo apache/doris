@@ -50,12 +50,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -64,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Backend implements Writable {
     private static final Logger LOG = LogManager.getLogger(Backend.class);
+    private static final long PROCESS_START_TIME_MS = ManagementFactory.getRuntimeMXBean().getStartTime();
 
     // Represent a meaningless IP
     public static final String DUMMY_IP = "0.0.0.0";
@@ -119,6 +123,9 @@ public class Backend implements Writable {
     // the max tablet compaction score of this backend.
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private volatile long tabletMaxCompactionScore = 0;
+    // Bytes of query spill this BE currently holds in object storage, from its latest disk report
+    // (cloud mode, spill_storage_type=s3). Like the disk capacity, only the master FE keeps it.
+    private volatile long remoteSpillBytes = 0;
 
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
@@ -145,6 +152,10 @@ public class Backend implements Writable {
     // The physical memory available for use by BE.
     @SerializedName("beMemory")
     private long beMemory = 0;
+    @SerializedName("supportsPaimonRustReader")
+    private volatile boolean supportsPaimonRustReader;
+    // Images cannot prove the current process or transport. Only a fresh runtime heartbeat can grant a lease.
+    private transient volatile long fileEncryptionHeartbeatTimeMs;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -255,6 +266,25 @@ public class Backend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public boolean isPaimonRustReaderSupported() {
+        return supportsPaimonRustReader;
+    }
+
+    public boolean isNativeFileEncryptionSupported() {
+        long heartbeatTimeMs = fileEncryptionHeartbeatTimeMs;
+        if (!isAlive() || heartbeatTimeMs < PROCESS_START_TIME_MS) {
+            return false;
+        }
+        long age = Math.abs(System.currentTimeMillis() - heartbeatTimeMs);
+        return age <= 3_000L * Config.heartbeat_interval_second;
+    }
+
+    /** Connector-facing capabilities reported by this backend. */
+    public Set<String> getConnectorCapabilities() {
+        return supportsPaimonRustReader
+                ? Collections.singleton("paimon-rust-reader") : Collections.emptySet();
     }
 
     public int getBePort() {
@@ -869,8 +899,18 @@ public class Backend implements Writable {
      * return true if any port changed, or alive state is changed.
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
-        boolean isChanged = false;
+        long previousCapabilityTime = fileEncryptionHeartbeatTimeMs;
+        fileEncryptionHeartbeatTimeMs = hbResponse.getStatus() == HbStatus.OK
+                && hbResponse.isNativeFileEncryptionSupported() ? hbResponse.getHbTime() : 0;
+        // Positive leases must reach followers every round. Missing/failed heartbeats must revoke them
+        // immediately, even while the usual liveness grace still considers the backend alive.
+        boolean isChanged = previousCapabilityTime != 0 || fileEncryptionHeartbeatTimeMs != 0;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            // An absent capability also clears support after a downgrade or legacy heartbeat replay.
+            if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
+                isChanged = true;
+                supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -912,6 +952,10 @@ public class Backend implements Writable {
                 this.beMemory = hbResponse.getBeMemory();
             }
 
+            if (hbResponse.getBeStartTime() > 0 && this.lastStartTime != hbResponse.getBeStartTime()) {
+                // A restarted BE no longer holds the spill of its previous run.
+                this.remoteSpillBytes = 0;
+            }
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
@@ -971,12 +1015,35 @@ public class Backend implements Writable {
         return isChanged;
     }
 
+    BackendHbResponse heartbeatForJournal(BackendHbResponse response) {
+        if (response.getStatus() == HbStatus.BAD && isAlive()) {
+            // BAD replay bypasses liveness grace, including on older FEs. Replicate the resulting alive
+            // state with capability zero; retain the original failure for leader-side eviction/diagnostics.
+            BackendHbResponse snapshot = new BackendHbResponse(id, bePort, httpPort, brpcPort,
+                    lastUpdateMs, lastStartTime, version, nodeRoleTag.value,
+                    backendStatus.currentFragmentNum, backendStatus.lastFragmentUpdateTime,
+                    backendStatus.isShutdown, arrowFlightSqlPort, beMemory);
+            snapshot.setPaimonRustReaderSupported(supportsPaimonRustReader);
+            snapshot.setNativeFileEncryptionSupported(false);
+            return snapshot;
+        }
+        return response;
+    }
+
     public void setTabletMaxCompactionScore(long compactionScore) {
         tabletMaxCompactionScore = compactionScore;
     }
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore;
+    }
+
+    public void setRemoteSpillBytes(long remoteSpillBytes) {
+        this.remoteSpillBytes = remoteSpillBytes;
+    }
+
+    public long getRemoteSpillBytes() {
+        return remoteSpillBytes;
     }
 
     private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
@@ -1136,5 +1203,4 @@ public class Backend implements Writable {
         result.setAlive(backend.isIsAlive());
         return result;
     }
-
 }

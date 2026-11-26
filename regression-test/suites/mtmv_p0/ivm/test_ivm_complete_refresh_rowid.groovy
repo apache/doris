@@ -33,8 +33,7 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -45,6 +44,8 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
             (3, 30, 'ccc');
     """
 
+    // The aggregate is what keeps this MV on the unique-key model, whose row-id is what the assertions below
+    // are about: the base table stays an append-only detail table, whose scan row-id is its changelog lsn.
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
@@ -52,7 +53,7 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         PROPERTIES (
             'replication_num' = '1'
         )
-        AS SELECT * FROM ${tableName};
+        AS SELECT k1, v1, v2, COUNT(*) AS cnt FROM ${tableName} GROUP BY k1, v1, v2;
     """
 
     def queryMvRowsWithHiddenRowId = {
@@ -86,9 +87,9 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         assertEquals(firstRow[1], secondRow[1])
         assertEquals(firstRow[2], secondRow[2])
         assertEquals(firstRow[3], secondRow[3])
-        // DUP_KEYS row-id is the base table's row lsn, so it is stable across refreshes.
+        // The row-id is derived from the group's keys, so it is stable across refreshes.
         assertEquals(firstRow[0].toString(), secondRow[0].toString(),
-                "row id should be stable (row lsn) after complete refresh for row: ${firstRow}")
+                "row id should be stable across complete refreshes for row: ${firstRow}")
     }
 
 }

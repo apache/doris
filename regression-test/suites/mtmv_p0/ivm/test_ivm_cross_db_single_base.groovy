@@ -30,9 +30,8 @@ suite("test_ivm_cross_db_single_base") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """INSERT INTO ivm_cross_db_src.ivm_cross_db_base VALUES (1, 10), (2, 20)"""

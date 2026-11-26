@@ -20,6 +20,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "storage/storage_engine.h"
@@ -182,4 +183,94 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     res = _engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
 }
+
+class CancelledMemTableMemoryLimiterTest : public MemTableMemoryLimiterTest,
+                                           public testing::WithParamInterface<bool> {};
+
+TEST_P(CancelledMemTableMemoryLimiterTest, ReclaimActiveMemoryWhileWriterIsRetained) {
+    RuntimeProfile profile("CancelledMemTableWriter");
+    TCreateTabletReq tablet_request;
+    create_tablet_request(10001, 270068373, &tablet_request);
+    ASSERT_TRUE(_engine_ref->create_tablet(tablet_request, &profile).ok());
+
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl).ok());
+    auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    auto cancel_status = std::make_shared<AtomicStatus>();
+    WriteRequest write_req;
+    write_req.tablet_id = tablet_request.tablet_id;
+    write_req.schema_hash = tablet_request.tablet_schema.schema_hash;
+    write_req.txn_id = 20003;
+    write_req.partition_id = tablet_request.partition_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &tuple_desc->slots();
+    write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
+    write_req.load_cancel_status = cancel_status;
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine_ref, write_req, &profile, TUniqueId {});
+    Block block;
+    for (const auto* slot : tuple_desc->slots()) {
+        block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
+                                           slot->col_name()));
+    }
+    auto columns = std::move(block).mutate_columns();
+    for (auto& column : columns) {
+        column->insert_default();
+    }
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}}).ok());
+    auto writer = delta_writer->_memtable_writer;
+    std::weak_ptr<MemTable> memtable = writer->_mem_table;
+    auto token = writer->_flush_token;
+    auto active_memory = writer->active_memtable_mem_consumption();
+    ASSERT_GT(active_memory, 0);
+    auto segment_num = writer->_segment_num;
+
+    // add_batch failures can publish a non-CANCELLED status to the shared load.
+    const auto failure = Status::InternalError("load failed");
+    ASSERT_TRUE(cancel_status->update(failure));
+    EXPECT_FALSE(writer->_is_cancelled);
+
+    auto* limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    ASSERT_TRUE(limiter->init(100).ok());
+    limiter->refresh_mem_tracker();
+    ASSERT_GT(limiter->mem_usage(), limiter->_load_hard_mem_limit);
+    if (GetParam()) {
+        // An unrelated load must leave the hard-limit wait after reclaiming the
+        // cancelled load's memory, without waiting for its retained writer.
+        // Bound retries so a regression fails instead of hanging the test.
+        int cancel_checks = 0;
+        limiter->handle_memtable_flush([&]() { return ++cancel_checks > 1; });
+        EXPECT_EQ(cancel_checks, 1);
+    } else {
+        // Discarded memory must not be reported as flushed memory.
+        EXPECT_EQ(limiter->_flush_active_memtables(active_memory), 0);
+    }
+    EXPECT_TRUE(memtable.expired());
+    EXPECT_EQ(writer->_mem_table, nullptr);
+    EXPECT_FALSE(writer->_is_cancelled);
+    EXPECT_FALSE(token->_is_shutdown());
+    EXPECT_EQ(writer->_segment_num, segment_num);
+    EXPECT_TRUE(writer->_freezed_mem_tables.empty());
+    EXPECT_EQ(writer->active_memtable_mem_consumption(), 0);
+    EXPECT_EQ(limiter->mem_usage(), 0);
+    EXPECT_TRUE(limiter->_active_writers.empty());
+
+    // An RPC may have passed DeltaWriter's cancellation check before reclamation.
+    // The memtable-level checks must reject it before dereferencing _mem_table.
+    EXPECT_EQ(writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}}, nullptr), failure);
+    EXPECT_EQ(writer->close(), failure);
+    EXPECT_TRUE(writer->flush_async().is<ErrorCode::CANCELLED>());
+    EXPECT_EQ(writer->_segment_num, segment_num);
+    EXPECT_EQ(writer->_mem_table, nullptr);
+
+    // Reclaiming active memory must not suppress the final owner's token cleanup.
+    delta_writer.reset();
+    EXPECT_TRUE(writer->_is_cancelled);
+    EXPECT_TRUE(token->_is_shutdown());
+}
+
+INSTANTIATE_TEST_SUITE_P(PressureFlush, CancelledMemTableMemoryLimiterTest, testing::Bool());
 } // namespace doris

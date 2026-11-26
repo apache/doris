@@ -103,7 +103,9 @@ enum TPrimitiveType {
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
   TIMESTAMPTZ = 44, // timestamp with time zone
-  TIMESTAMP_NS = 45 // signed nanoseconds since the Unix epoch
+  TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
+  UUID = 46,
+  FILE = 47
 }
 
 enum TTypeNodeType {
@@ -112,6 +114,7 @@ enum TTypeNodeType {
     MAP = 2,
     STRUCT = 3,
     VARIANT = 4,
+    FILE = 5,
 }
 
 enum TStorageBackendType {
@@ -166,7 +169,7 @@ struct TTypeNode {
     // only set for scalar types
     2: optional TScalarType scalar_type
 
-    // only used for structs; has struct_fields.size() corresponding child types
+    // used for STRUCT and FILE; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
 
     // old version used for array
@@ -419,6 +422,10 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+
+  // New FE sends true for Python functions; absent fields preserve the legacy DATETIME mapping.
+  // Keep this field id reserved after removing the compatibility option.
+  2000: optional bool enable_python_udf_arrow_time_v2 = false
 }
 
 enum TJdbcOperation {
@@ -555,7 +562,7 @@ enum TTableType {
     JDBC_TABLE = 10,
     TEST_EXTERNAL_TABLE = 11,
     MAX_COMPUTE_TABLE = 12,
-    LAKESOUL_TABLE = 13,
+    LAKESOUL_TABLE = 13, // Deprecated: reading this format is no longer supported.
     TRINO_CONNECTOR_TABLE = 14,
     DICTIONARY_TABLE = 15,
     REMOTE_DORIS_TABLE = 16
@@ -670,6 +677,7 @@ enum TMetadataType {
   // Also assigned on branch-4.1 for Lance physical index entries inspection.
   // Keep the value aligned across maintained branches. Do not renumber.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated
@@ -687,6 +695,8 @@ struct TUserIdentity {
     1: optional string username
     2: optional string host
     3: optional bool is_domain
+    // Session roles supplied by authentication / role mapping, in addition to persistent grants.
+    4: optional set<string> authenticated_roles
 }
 
 struct TColumnGroup {

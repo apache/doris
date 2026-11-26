@@ -45,8 +45,10 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/index_query_context.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/segment/segment.h"
 
 namespace doris {
 class RowDescriptor;
@@ -58,8 +60,10 @@ namespace doris {
 using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
-    const auto resolved = AnalyzerConfigParser::parse(node.match_predicate.analyzer_name,
-                                                      node.match_predicate.parser_type);
+    const auto resolved = AnalyzerConfigParser::parse(
+            node.match_predicate.analyzer_name, node.match_predicate.parser_type,
+            node.match_predicate.parser_mode, node.match_predicate.parser_lowercase,
+            node.match_predicate.char_filter_map);
 
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = resolved.provider_name;
@@ -81,9 +85,29 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->parser_type = resolved.parser_type;
 
     if (_analyzer_ctx->requires_analysis()) {
-        _analyzer_provider =
-                inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+        std::string bound_name;
+        std::string legacy_name;
+        _analyzer_provider = inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
+                &config, &bound_name, &legacy_name);
         _analyzer = _analyzer_provider->get_analyzer();
+        if (!legacy_name.empty() && legacy_name != bound_name) {
+            _analyzer_ctx->legacy_analyzer_key =
+                    AnalyzerConfigParser::parse(legacy_name, node.match_predicate.parser_type,
+                                                node.match_predicate.parser_mode,
+                                                node.match_predicate.parser_lowercase,
+                                                node.match_predicate.char_filter_map)
+                            .analyzer_key;
+        }
+        if (bound_name != resolved.provider_name) {
+            // Reader selection and query tokenization must use the same policy binding.
+            _analyzer_ctx->analyzer_key =
+                    AnalyzerConfigParser::parse(bound_name, node.match_predicate.parser_type,
+                                                node.match_predicate.parser_mode,
+                                                node.match_predicate.parser_lowercase,
+                                                node.match_predicate.char_filter_map)
+                            .analyzer_key;
+            _analyzer_ctx->analyzer_name = std::move(bound_name);
+        }
     }
 
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
@@ -132,10 +156,11 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
-    if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL ||
+        scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _analyzer_ctx);
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;
@@ -149,10 +174,34 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
-    if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
-        context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
+    auto index_context = context != nullptr ? context->get_index_context() : nullptr;
+    if (index_context != nullptr && _analyzer_ctx != nullptr) {
+        index_context->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
     }
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    auto status = _evaluate_inverted_index(context, _function, segment_num_rows);
+
+    const auto& input = get_child(0);
+    if (index_context != nullptr && input->is_slot_ref() && input->result_type() == TYPE_VARIANT) {
+        const auto column_id = assert_cast<const VSlotRef*>(input.get())->column_id();
+        const auto& query_context = index_context->get_index_query_context();
+        const auto* segment = index_context->segment();
+        if (query_context != nullptr && query_context->stats != nullptr && segment != nullptr &&
+            (index_context->get_inverted_index_iterator(column_id) == nullptr ||
+             status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())) {
+            const auto format = segment->tablet_schema()->get_inverted_index_storage_format();
+            auto diagnostic = fmt::format(
+                    "[VariantValuesIndex] phase=query_index reason={} format={} rowset_id={} "
+                    "segment_id={} column={}",
+                    format == InvertedIndexStorageFormatPB::SNII ? "missing_index"
+                                                                 : "legacy_storage_format",
+                    InvertedIndexStorageFormatPB_Name(format), segment->rowset_id().to_string(),
+                    segment->id(), input->expr_name());
+            VLOG_DEBUG << diagnostic;
+            query_context->stats->inverted_index_stats.add_binding_diagnostic(
+                    std::move(diagnostic));
+        }
+    }
+    return status;
 }
 
 const std::string& VMatchPredicate::get_analyzer_key() const {

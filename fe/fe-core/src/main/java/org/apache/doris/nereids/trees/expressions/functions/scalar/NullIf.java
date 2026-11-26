@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
@@ -63,11 +62,6 @@ public class NullIf extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
-        DataType firstType = child(0).getDataType();
-        DataType secondType = child(1).getDataType();
-        if (isTimeStampNsAndDateLikePair(firstType, secondType)) {
-            return FunctionSignature.ret(firstType).args(firstType, secondType);
-        }
         Optional<DataType> commonType;
         try {
             commonType = TypeCoercionUtils.findWiderTypeForTwoByVariable(
@@ -76,17 +70,12 @@ public class NullIf extends ScalarFunction
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
         }
-        if (commonType.isPresent()) {
+        if (commonType.isPresent() && commonType.get().allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
             return FunctionSignature.ret(commonType.get()).varArgs(commonType.get());
         } else {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
         }
-    }
-
-    private static boolean isTimeStampNsAndDateLikePair(DataType firstType, DataType secondType) {
-        return firstType instanceof TimeStampNsType && secondType.isDateLikeType()
-                || secondType instanceof TimeStampNsType && firstType.isDateLikeType();
     }
 
     @Override

@@ -34,6 +34,9 @@ import java.util.Map;
  * <p>Those files were produced by real 4.1.3 bytecode, not written by hand; see the PROVENANCE.txt
  * next to them for how to regenerate and for the five wire-format details that make hand-authored
  * fixtures wrong.
+ *
+ * <p>The package-private overloads taking a resource root are shared with the fixture families of later
+ * releases that persisted new labels ({@link Legacy415Fixtures}), which are generated the same way.
  */
 public final class Legacy413Fixtures {
 
@@ -56,7 +59,11 @@ public final class Legacy413Fixtures {
     }
 
     private static CatalogMgr loadCatalogMgr(String fileName) throws IOException {
-        try (InputStream in = open(fileName);
+        return loadCatalogMgr(ROOT, fileName);
+    }
+
+    static CatalogMgr loadCatalogMgr(String root, String fileName) throws IOException {
+        try (InputStream in = open(root, fileName);
                 DataInputStream dis = new DataInputStream(in)) {
             return CatalogMgr.read(dis);
         }
@@ -64,32 +71,34 @@ public final class Legacy413Fixtures {
 
     /** Raw bytes of one edit-log entry, in JournalEntity wire form (opCode short + Text-framed JSON). */
     public static byte[] journalEntry(String fileName) throws IOException {
-        try (InputStream in = open("editlog/" + fileName)) {
-            return readAll(in);
-        }
+        return resource(ROOT, "editlog/" + fileName);
     }
 
     /** Names of every edit-log fixture with the given op code, e.g. {@code 320}. */
     public static List<String> journalEntryNames(int opCode) {
+        return journalEntryNames(ROOT, opCode);
+    }
+
+    static List<String> journalEntryNames(String root, int opCode) {
         List<String> names = new ArrayList<>();
-        for (String name : listEditLogFixtures()) {
+        for (String name : listEditLogFixtures(root)) {
             if (name.startsWith("op" + opCode + "-")) {
                 names.add(name);
             }
         }
         if (names.isEmpty()) {
             throw new IllegalStateException("no edit-log fixture for op " + opCode
-                    + "; the resource index at " + ROOT + "editlog.index is stale");
+                    + "; the resource index at " + root + "editlog.index is stale");
         }
         return names;
     }
 
-    private static List<String> listEditLogFixtures() {
+    private static List<String> listEditLogFixtures(String root) {
         // Resource directories are not enumerable from a jar, and surefire may well run these classes off one.
         // The generator writes a flat index next to the fixtures precisely so this does not need directory
         // listing; keeping it in one place means a fixture added without regenerating the index fails loudly
         // in journalEntryNames() rather than silently reducing coverage.
-        try (InputStream in = open("editlog.index")) {
+        try (InputStream in = open(root, "editlog.index")) {
             String text = new String(readAll(in), StandardCharsets.UTF_8);
             List<String> names = new ArrayList<>();
             for (String line : text.split("\n")) {
@@ -111,8 +120,12 @@ public final class Legacy413Fixtures {
      * @return label to the fully-qualified name of the class 4.1.3 mapped it to, in file order
      */
     public static Map<String, LegacyLabel> legacyLabels(String which) throws IOException {
+        return legacyLabels(ROOT, which);
+    }
+
+    static Map<String, LegacyLabel> legacyLabels(String root, String which) throws IOException {
         Map<String, LegacyLabel> labels = new LinkedHashMap<>();
-        try (InputStream in = open("labels." + which + ".txt")) {
+        try (InputStream in = open(root, "labels." + which + ".txt")) {
             String text = new String(readAll(in), StandardCharsets.UTF_8);
             for (String line : text.split("\n")) {
                 if (line.trim().isEmpty() || line.startsWith("#")) {
@@ -148,11 +161,18 @@ public final class Legacy413Fixtures {
         }
     }
 
-    private static InputStream open(String relative) throws IOException {
-        InputStream in = Legacy413Fixtures.class.getResourceAsStream(ROOT + relative);
+    /** All bytes of one fixture file under the release directory {@code root}. */
+    static byte[] resource(String root, String relative) throws IOException {
+        try (InputStream in = open(root, relative)) {
+            return readAll(in);
+        }
+    }
+
+    private static InputStream open(String root, String relative) throws IOException {
+        InputStream in = Legacy413Fixtures.class.getResourceAsStream(root + relative);
         if (in == null) {
-            throw new IOException("missing 4.1.3 fixture: " + ROOT + relative
-                    + " -- see src/test/resources/upgrade/413/PROVENANCE.txt");
+            throw new IOException("missing upgrade fixture: " + root + relative
+                    + " -- see src/test/resources" + root + "PROVENANCE.txt");
         }
         return in;
     }

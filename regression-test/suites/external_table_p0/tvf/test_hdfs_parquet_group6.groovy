@@ -25,7 +25,12 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
+            // Pin the display timezone so the golden results do not depend on the FE default.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/upcase_field.parquet"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -557,6 +562,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "format" = "parquet") limit 10; """
 
 
+            // V2 schema discovery honors logical annotations instead of exposing raw BYTE_ARRAY.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/byte_array.parquet"
             order_qt_test_74 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -725,11 +731,20 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "format" = "parquet") limit 10; """
 
 
+            // The first field is FIXED_LEN_BYTE_ARRAY(16) with a UUID logical annotation.
+            // Its UUID annotation takes precedence over binary mapping and produces canonical UUID text.
+            // test_107 verifies that explicitly enabling binary mapping still preserves the UUID type.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
             order_qt_test_98 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet") order by 1,2,3 limit 10; """
+
+
+            order_qt_test_98_desc """ desc function HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet"); """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/int64.parquet"
@@ -805,6 +820,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "format" = "parquet"); """
 
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

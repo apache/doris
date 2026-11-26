@@ -1,0 +1,199 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.scan;
+
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.rpc.FileScanEncryption;
+import org.apache.doris.thrift.TFileEncryptionInfo;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
+import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+
+import java.util.List;
+import java.util.Map;
+import java.util.function.BooleanSupplier;
+
+/** Last checks before serializing file keys, including lazy split responses and replanned retries. */
+public final class FileScanEncryptionGuard {
+    private FileScanEncryptionGuard() {
+    }
+
+    public static void checkFragments(TPipelineFragmentParamsList fragments) {
+        checkFragments(fragments, () -> false);
+    }
+
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, BooleanSupplier supportsEncryption) {
+        return checkFragments(fragments, supportsEncryption, true);
+    }
+
+    public static void checkFragments(TPipelineFragmentParamsList fragments, boolean internalRpc) {
+        checkFragments(fragments, () -> false, internalRpc);
+    }
+
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, BooleanSupplier supportsEncryption,
+            boolean internalRpc) {
+        Checker checker = new Checker(supportsEncryption, true, internalRpc);
+        if (fragments.isSetParamsList()) {
+            Map<Integer, TFileScanRangeParams> paramsByNode = Map.of();
+            for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
+                // Later simplified fragments reuse the query-wide params sent in the first fragment.
+                if (fragment.isSetFileScanParams()) {
+                    paramsByNode = fragment.getFileScanParams();
+                    for (TFileScanRangeParams params : paramsByNode.values()) {
+                        // Every worker receives this query-wide map. Unused markers carry no keys, but
+                        // actual key descriptors anywhere in the serialized payload must remain protected.
+                        checker.checkParams(params, false);
+                    }
+                }
+                if (fragment.isSetFragment() && fragment.getFragment().isSetPlan()) {
+                    for (TPlanNode node : fragment.getFragment().getPlan().getNodes()) {
+                        TFileScanRangeParams params = paramsByNode.get(node.getNodeId());
+                        if (params != null) {
+                            checker.checkParams(params);
+                        }
+                    }
+                }
+                if (fragment.isSetLocalParams()) {
+                    for (TPipelineInstanceParams instance : fragment.getLocalParams()) {
+                        if (instance.isSetPerNodeScanRanges()) {
+                            for (Map.Entry<Integer, List<TScanRangeParams>> node
+                                    : instance.getPerNodeScanRanges().entrySet()) {
+                                TFileScanRangeParams inherited = paramsByNode.get(node.getKey());
+                                // A lazy scan can start with no ranges; its assigned marker still selects a reader.
+                                if (node.getValue().isEmpty() && inherited != null) {
+                                    checker.checkParams(inherited);
+                                }
+                                for (TScanRangeParams range : node.getValue()) {
+                                    checker.checkRange(range.getScanRange(), inherited);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return checker.needsCapability;
+    }
+
+    public static void checkBatch(List<TScanRangeLocations> ranges) {
+        checkBatch(ranges, () -> false);
+    }
+
+    public static boolean checkBatch(List<TScanRangeLocations> ranges, BooleanSupplier supportsEncryption) {
+        Checker checker = new Checker(supportsEncryption, false, true);
+        for (TScanRangeLocations range : ranges) {
+            checker.checkRange(range.getScanRange(), null);
+        }
+        return checker.needsCapability;
+    }
+
+    private static final class Checker {
+        private final BooleanSupplier supportsEncryption;
+        private final boolean initialDispatch;
+        private final boolean internalRpc;
+        private boolean needsCapability;
+
+        private Checker(BooleanSupplier supportsEncryption, boolean initialDispatch,
+                boolean internalRpc) {
+            this.internalRpc = internalRpc;
+            this.initialDispatch = initialDispatch;
+            this.supportsEncryption = supportsEncryption;
+        }
+
+        private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table, boolean markerUsed) {
+            boolean encrypted = table != null && FileScanEncryption.validate(table);
+            boolean nativeMarker = markerUsed && format == TFileFormatType.FORMAT_PARQUET_PME;
+            // Remote clusters do not share the local authenticated key-transport contract.
+            if ((encrypted || nativeMarker) && !internalRpc) {
+                throw new IllegalStateException("File encryption [KEY_TRANSPORT_UNAVAILABLE]");
+            }
+            if (encrypted && format != TFileFormatType.FORMAT_PARQUET_PME) {
+                throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+            }
+            if ((encrypted || nativeMarker) && !needsCapability) {
+                // A marker-only first batch still requires a verified reader and protected key transport.
+                if (!supportsEncryption.getAsBoolean()) {
+                    throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+                }
+                needsCapability = true;
+            }
+        }
+
+        private void checkParams(TFileScanRangeParams params) {
+            checkParams(params, true);
+        }
+
+        private void checkParams(TFileScanRangeParams params, boolean markerUsed) {
+            checkDescriptor(params.getFormatType(), params.getTableFormatParams(), markerUsed);
+        }
+
+        private void checkRange(TScanRange range, TFileScanRangeParams inheritedParams) {
+            if (!range.isSetExtScanRange() || !range.getExtScanRange().isSetFileScanRange()) {
+                return;
+            }
+            TFileScanRange fileScan = range.getExtScanRange().getFileScanRange();
+            TFileScanRangeParams params = fileScan.isSetParams() ? fileScan.getParams() : inheritedParams;
+            if (params != null) {
+                checkParams(params);
+            }
+            if (fileScan.isSetRanges()) {
+                DebugPoint injection = DebugPointUtil.getDebugPoint("FileScanEncryptionGuard.inject");
+                for (TFileRangeDesc file : fileScan.getRanges()) {
+                    TTableFormatFileDesc table = file.getTableFormatParams();
+                    if (injection != null && file.isSetPath()
+                            && file.getPath().contains(
+                                    injection.param("path_contains", "iceberg_encryption_wire_db"))) {
+                        table = injectedDescriptor(injection);
+                    }
+                    TFileFormatType format = file.isSetFormatType() ? file.getFormatType()
+                            : (params == null ? null : params.getFormatType());
+                    if (initialDispatch && format == TFileFormatType.FORMAT_PARQUET_PME
+                            && (params == null || params.getFormatType() != TFileFormatType.FORMAT_PARQUET_PME)) {
+                        // Shared params select the reader and COUNT handling for every range in a mixed scan.
+                        throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+                    }
+                    checkDescriptor(format, table, true);
+                }
+            }
+        }
+    }
+
+    private static TTableFormatFileDesc injectedDescriptor(DebugPoint point) {
+        TFileEncryptionInfo info = new TFileEncryptionInfo().setVersion(point.param("version", 1))
+                .setKey(new byte[point.param("invalid_key", false) ? 0 : 16]).setAadPrefix(new byte[] {0, (byte) 255});
+        TIcebergFileDesc file = new TIcebergFileDesc();
+        if (point.param("delete", false)) {
+            file.setDeleteFiles(List.of(new TIcebergDeleteFileDesc().setEncryptionInfo(info)));
+        } else {
+            file.setEncryptionInfo(info);
+        }
+        return new TTableFormatFileDesc().setIcebergParams(file);
+    }
+}

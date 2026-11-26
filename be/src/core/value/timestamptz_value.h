@@ -63,6 +63,9 @@ public:
     // Outputs a string representation with timezone information in the format +03:00
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
 
+    // Caller is responsible for ensuring that buffer has enough space.
+    int to_buffer(char* buffer, const cctz::time_zone& local_time_zone, int scale = 6) const;
+
     // Parses a string, CastParameters can control whether strict mode is used
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                      CastParameters& params, uint32_t to_scale);
@@ -131,6 +134,9 @@ public:
         return _utc_dt.date_add_interval<unit, need_check>(interval);
     }
 
+    // Add session-local calendar days, preserving the input offset in a DST overlap.
+    bool date_add_days(int64_t days, const cctz::time_zone& local_time_zone);
+
     // truncate datetime to specified unit
     template <TimeUnit unit>
     bool datetime_trunc() {
@@ -149,9 +155,9 @@ public:
 
     std::string debug_string() const { return _utc_dt.debug_string(); }
 
-    // Convert UTC time to local time based on the given timezone
-    void convert_utc_to_local(const cctz::time_zone& local_time_zone,
-                              DateV2Value<DateTimeV2ValueType>& dt) const;
+    // Convert UTC to local time and return the UTC offset in seconds from the same lookup.
+    int convert_utc_to_local(const cctz::time_zone& local_time_zone,
+                             DateV2Value<DateTimeV2ValueType>& dt) const;
 
     // Convert local time to UTC time based on the given timezone
     void convert_local_to_utc(const cctz::time_zone& local_time_zone,

@@ -43,9 +43,11 @@
 #include "service/http/http_method.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
+#include "util/debug_points.h"
 #include "util/md5.h"
 #include "util/path_util.h"
 #include "util/security.h"
+#include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -88,8 +90,6 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     // deprecated, removed in 3.1, use AUTH_TOKEN
     const auto& token = req.header("token");
-    // deprecated, removed in 3.1, use AUTH_TOKEN
-    const auto& auth_code = req.header(HTTP_AUTH_CODE);
     const auto& auth_token = req.header(HttpHeaders::AUTH_TOKEN);
 
     std::tuple<std::string, std::string, std::string> tmp;
@@ -110,8 +110,6 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
         auth->token = token; // deprecated
     } else if (!auth_token.empty()) {
         auth->token = auth_token;
-    } else if (!auth_code.empty()) {
-        auth->auth_code = std::stoll(auth_code); // deprecated
     } else if (!valid_basic_auth) {
         return false;
     }

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -199,6 +201,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(UuidType.class);
         allowedTypes.add(VarBinaryType.class);
         allowedTypes.add(TimeStampTzType.class);
         allowedTypes.add(TimeStampNsType.class);
@@ -224,6 +227,13 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(IPv6Type.class, allowedTypes);
+
+        // UUID
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(UuidType.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        strictCastWhiteList.put(UuidType.class, allowedTypes);
 
         // bitmap
         allowedTypes = Sets.newHashSet();
@@ -288,6 +298,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.add(UuidType.class);
         allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(VariantType.class, allowedTypes);
 
@@ -355,20 +366,18 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Cast.class).thenApply(ctx -> {
-                    Cast cast = ctx.expr;
-                    DataType originalType = cast.child().getDataType();
-                    DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
-                        if (requiresExactAggStateMatch(originalType, targetType)) {
-                            throw new AnalysisException(exactAggStateMatchError(originalType, targetType));
-                        }
-                        throw new AnalysisException("cannot cast " + originalType.toSql()
-                                + " to " + targetType.toSql());
-                    }
-                    return cast;
-                }).toRule(ExpressionRuleType.CHECK_CAST)
+                matchesType(Cast.class).then(CheckCast::validate).toRule(ExpressionRuleType.CHECK_CAST)
         );
+    }
+
+    /** Validate a bound cast after expression rewrites. */
+    public static Cast validate(Cast cast) {
+        DataType source = cast.child().getDataType();
+        DataType target = cast.getDataType();
+        if (!check(source, target, SessionVariable.enableStrictCast())) {
+            throw new AnalysisException("cannot cast " + source.toSql() + " to " + target.toSql());
+        }
+        return cast;
     }
 
     public static boolean checkWithLooseAggState(DataType originalType, DataType targetType, boolean isStrictMode) {
@@ -384,6 +393,17 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType.typeContainsFile() || targetType.typeContainsFile()) {
+            return false;
+        }
+        if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
+            // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
+            // marker to cross the sink boundary without relaxing casts between stored Variant layouts.
+            return true;
+        }
+        if (targetType instanceof ConnectorComputeVariantType) {
+            return VariantType.isSupportedComputeV2CastSource(originalType);
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -399,8 +419,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.isLooseTypeCoercionAllowed()
-                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }
@@ -463,20 +482,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
-    }
-
-    /** Whether the source AggState only allows an exact target type. */
-    public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
-        return originalType instanceof AggStateType
-                && targetType instanceof AggStateType
-                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
-                && !originalType.equals(targetType);
-    }
-
-    /** Build the analysis error for a non-exact aggregate combine state cast. */
-    public static String exactAggStateMatchError(DataType originalType, DataType targetType) {
-        return "Aggregate combine state requires an exact AggState type match: cannot cast "
-                + originalType.toSql() + " to " + targetType.toSql();
     }
 
     /**

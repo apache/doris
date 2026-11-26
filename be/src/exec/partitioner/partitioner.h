@@ -55,6 +55,11 @@ protected:
     const HashValType _partition_count;
 };
 
+enum class ShuffleHashMethod {
+    CRC32,
+    CRC32C,
+};
+
 class PartitionFunction {
 public:
     using HashValType = PartitionerBase::HashValType;
@@ -78,9 +83,25 @@ public:
                          std::unique_ptr<PartitionFunction>& function) const = 0;
 };
 
-enum class ShuffleHashMethod {
-    CRC32,
-    CRC32C,
+// Adapts the standard Doris expression hash partitioner to the composable
+// PartitionFunction interface used by sink routing.
+class HashPartitionFunction final : public PartitionFunction {
+public:
+    HashPartitionFunction(HashValType partition_count, ShuffleHashMethod hash_method);
+
+    Status init(const std::vector<TExpr>& texprs) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
+    Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
+                          std::vector<HashValType>& partitions) const override;
+    HashValType partition_count() const override { return _partition_count; }
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
+
+private:
+    HashValType _partition_count;
+    ShuffleHashMethod _hash_method;
+    std::unique_ptr<PartitionerBase> _partitioner;
 };
 
 template <typename ChannelIds>

@@ -61,11 +61,12 @@ namespace doris {
 
 class VExpr;
 class VExprContext;
-struct RowLocation;
+class SharedPredicate;
 
 namespace segment_v2 {
 
 class ColumnIterator;
+struct ColumnReadAheadResources;
 class RowRanges;
 class IndexIterator;
 
@@ -73,18 +74,13 @@ class SegmentIterator : public RowwiseIterator {
 public:
     // Within SegmentIterator, ColumnId means an ordinal in the read schema.
     // Storage UIDs and caller-visible Block positions are named explicitly.
-    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                    const StorageReadOptions& opts);
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(Block* block) override;
-
-    // Get current block row locations. This function should be called
-    // after the `next_batch` function.
-    // Only vectorized version is supported.
-    [[nodiscard]] Status current_block_row_locations(
-            std::vector<RowLocation>* block_row_locations) override;
 
     const ReadSchema& schema() const override { return *_schema; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -125,8 +121,12 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Bind shared query services before initializing the per-column read-ahead controllers.
+    [[nodiscard]] Status _init_query_read_ahead();
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
+    // Pass the pruned row selection and dependency role to every independently planned column.
+    void _prepare_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -144,6 +144,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
@@ -154,7 +155,16 @@ private:
             std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates,
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
+
+    Status _update_topn_runtime_filter_ranges();
+    void _reset_range_iterator();
     [[nodiscard]] Status _apply_index_expr();
+    // Publish _row_bitmap as IndexQueryContext::candidate_rows when it is
+    // below the configured engage ratio; refreshed at conjunct boundaries as
+    // earlier index conjuncts shrink the bitmap. No-op once engaged.
+    void _refresh_candidate_pushdown();
+    // Intersect an approximate result and keep its expression for row evaluation.
+    bool _apply_approx_index_result(VExprContext* expr_ctx);
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
@@ -190,6 +200,7 @@ private:
     void _init_column_states();
     void _rebuild_scan_predicate_states();
     void _mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated);
+    void _mark_common_expr_column(ColumnId ordinal, bool runtime_generated);
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -197,8 +208,6 @@ private:
 
     [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& read_ordinals,
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read);
-    void _replace_version_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
-    void _update_tso_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -368,8 +377,19 @@ private:
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
+    // Cardinality cached when the range iterator is created or rebuilt after TopN pruning.
+    uint64_t _row_bitmap_cardinality = 0;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
+    struct TopNRuntimeFilter {
+        std::shared_ptr<SharedPredicate> predicate;
+        uint64_t applied_version;
+        uint64_t last_update_rows = 0;
+    };
+    std::vector<TopNRuntimeFilter> _topn_runtime_filters;
+    uint64_t _topn_rows_read = 0;
+    // Forward: first unread rowid. Reverse: exclusive upper bound of unread rowids.
+    uint64_t _topn_read_position = 0;
     // the next rowid to read
     rowid_t _cur_rowid;
     // members related to lazy materialization read
@@ -437,9 +457,11 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _owned_seek_column_iterators;
 
     io::FileReaderSPtr _file_reader;
+    std::shared_ptr<const ColumnReadAheadResources> _read_ahead_resources;
 
-    // used for compaction, record selectd rowids of current batch
+    // Number of selected rows in the current batch.
     uint16_t _selected_size;
+    // Positions of selected rows within the current batch.
     std::vector<uint16_t> _sel_rowid_idx;
 
     // Rows already produced by this iterator. Used together with

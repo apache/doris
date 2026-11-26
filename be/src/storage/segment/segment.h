@@ -22,10 +22,12 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 
@@ -34,6 +36,7 @@
 #include "common/status.h" // Status
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "io/cache/file_cache_common.h" // io::UInt128Wrapper returned by value
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -57,6 +60,10 @@ class PrimaryKeyIndexReader;
 class RowwiseIterator;
 struct RowLocation;
 
+namespace io {
+class FileRangeReadContext;
+}
+
 namespace segment_v2 {
 
 class Segment;
@@ -67,6 +74,13 @@ class ColumnReader;
 class ColumnIterator;
 class ColumnReaderCache;
 class ColumnMetaAccessor;
+class VariantColumnReader;
+
+// Logical input to Segment::read_columns_by_rowids(). Segment owns the temporary iterators.
+struct RowIdColumnRead {
+    SlotDescriptor* slot {nullptr};
+    MutableColumnPtr* result {nullptr};
+};
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 
@@ -113,8 +127,40 @@ public:
     Status new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
-    static Status new_default_iterator(const TabletColumn& tablet_column,
-                                       std::unique_ptr<ColumnIterator>* iter);
+    static Status get_default_value_field(const TabletColumn& tablet_column, Field* field);
+    static Status new_constant_iterator(const TabletColumn& tablet_column,
+                                        std::unique_ptr<ColumnIterator>* iter);
+
+    // Reader resolution is intentionally split by the capability required by each caller:
+    // 1. _get_column_reader_for_read() resolves logical row values and may synthesize a
+    //    ConstantColumnReader for an ALTER-added column or a read-time system value.
+    // 2. get_variant_root_reader() requires physical VARIANT metadata and therefore never returns
+    //    a ConstantColumnReader.
+    // 3. get_column_reader_for_pruning() resolves the reader whose metadata exactly describes the
+    //    predicate column, including a physical VARIANT leaf when one exists.
+    // Keeping these contracts separate prevents callers from treating a logical constant as a
+    // VariantColumnReader, or from using a VARIANT root's metadata to prune on one of its paths.
+
+    // Resolve the physical VARIANT root that owns path metadata. A nullable/defaulted root absent
+    // from an old segment returns NOT_FOUND; a present root returns a VariantColumnReader. For
+    // example, metadata collection for an ALTER-added `v` skips old segments on NOT_FOUND, while
+    // value reads through new_column_iterator() still produce v's NULL/default rows. An extracted
+    // path resolves through parent_unique_id; a root whose parent uid is -1 uses its own uid.
+    // A root uid absent from the segment schema returns NOT_FOUND regardless of the caller's
+    // column type or nullability. On success, column_reader is non-null.
+    Status get_variant_root_reader(const TabletColumn& col, const StorageReadOptions& read_options,
+                                   std::shared_ptr<VariantColumnReader>* column_reader);
+
+    // Resolve the reader whose metadata can be used for pruning or index lookup. An ALTER-added
+    // scalar/default column may return a ConstantColumnReader so its constant zonemap can prune the
+    // segment. A VARIANT path returns its physical leaf reader instead of the root reader. If, for
+    // example, `v.user.id` exists only in the sparse binary column, no physical leaf zonemap exists;
+    // this returns NOT_FOUND and the caller must conservatively keep the segment. This missing
+    // VARIANT leaf is the only expected NOT_FOUND result; an ordinary missing column is resolved to
+    // a ConstantColumnReader or reported as an error. On success, column_reader is always non-null.
+    Status get_column_reader_for_pruning(const TabletColumn& col,
+                                         const StorageReadOptions& read_options,
+                                         std::shared_ptr<ColumnReader>* column_reader);
 
     uint32_t id() const { return _segment_id; }
 
@@ -156,6 +202,19 @@ public:
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
+    // Prepare all eligible columns before decoding any of them. A null context selects ordinary
+    // reads; all columns share the caller's rowset constants, statistics and query admission.
+    Status read_columns_by_rowids(
+            const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+            std::span<const RowIdColumnRead> columns, StorageReadOptions& read_options,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
+
+    // Read a known physical scalar, such as the row-store column, without slot/type conversion.
+    Status read_column_by_rowids(
+            const TabletColumn& column, const std::vector<uint32_t>& row_ids,
+            MutableColumnPtr& result, StorageReadOptions& read_options,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
+
     Status load_index(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     Status load_pk_index_and_bf(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
@@ -181,7 +240,21 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Variant paths use segment metadata; other columns use `read_type`.
+    // PK pages are tracked by PKIndexPageCache, but their pinned bytes must also
+    // count toward SegmentCache eviction. Do not add these bytes to metadata tracking.
+    size_t cache_charge() const {
+        return _meta_mem_usage + _pk_index_cache_bytes.load(std::memory_order_relaxed);
+    }
+
+    // Install before publishing this segment in SegmentCache; immutable afterwards.
+    void set_cache_charge_callback(std::function<void(size_t)> callback) {
+        DCHECK(!_cache_charge_callback);
+        _cache_charge_callback = std::move(callback);
+    }
+
+    // Variant paths infer their storage type from the physical root reader. If an ALTER-added root
+    // is absent from an old segment, use the path's declared schema type. Other columns use
+    // read_type directly.
     std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& read_column,
                                                       const DataTypePtr& read_type,
                                                       const StorageReadOptions& read_options);
@@ -208,25 +281,7 @@ public:
         }
     }
 
-    // The tso column (__DORIS_BINLOG_TSO__) is a NULL placeholder on disk on a
-    // single-version binlog segment, replaced with the real commit_tso at read time
-    // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
-    // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
-    // Returns false for range (compaction) segments whose on-disk value is real.
-    bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
-                                const StorageReadOptions& read_options) const;
-
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
-
-    // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
-    Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
-
-    // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
-    Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 
@@ -254,19 +309,32 @@ private:
     Status _open(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                          OlapReaderStatistics* stats = nullptr,
-                         const io::IOContext* io_ctx = nullptr);
+                         const io::IOContext* io_ctx = nullptr) const;
     Status _create_column_meta(const SegmentFooterPB& footer, OlapReaderStatistics* stats = nullptr,
                                const io::IOContext* io_ctx = nullptr);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats,
                                  const io::IOContext* io_ctx = nullptr);
-
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
-                             io::IOContext& io_ctx);
+                             io::IOContext& io_ctx) const;
 
     Status _open_index_file_reader();
 
     Status _create_column_meta_once(OlapReaderStatistics* stats,
                                     const io::IOContext* io_ctx = nullptr);
+
+    // Resolve the reader used to produce a column's logical row values. A physical column returns
+    // its cached reader, while a read-time system value or a schema default returns a
+    // request-scoped ConstantColumnReader. For example, a nullable VARIANT root added after an old
+    // segment was written returns ConstantColumnReader(NULL, VARIANT), not VariantColumnReader.
+    // This is private because the returned reader guarantees value materialization only; it does
+    // not guarantee physical capabilities such as VARIANT metadata, leaf zonemaps, or indexes.
+    // Value consumers enter through new_column_iterator(), while capability-specific callers use
+    // get_variant_root_reader() or get_column_reader_for_pruning(). A persisted column uses its own
+    // uid; only a BE-generated path whose uid is -1 resolves through its parent. On success,
+    // column_reader is always non-null.
+    Status _get_column_reader_for_read(const TabletColumn& col,
+                                       const StorageReadOptions& read_options,
+                                       std::shared_ptr<ColumnReader>* column_reader);
 
     virtual Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&,
                                        OlapReaderStatistics* stats,
@@ -292,6 +360,8 @@ private:
     // The memory consumed by querying is tracked in segment iterator.
     int64_t _meta_mem_usage;
     int64_t _tracked_meta_mem_usage = 0;
+    std::atomic<size_t> _pk_index_cache_bytes {0};
+    std::function<void(size_t)> _cache_charge_callback;
 
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;
@@ -315,8 +385,6 @@ private:
     DorisCallOnce<Status> _load_pk_bf_once;
 
     DorisCallOnce<Status> _create_column_meta_once_call;
-
-    std::weak_ptr<SegmentFooterPB> _footer_pb;
 
     // Cached raw_data_bytes per column unique id, populated once in _create_column_meta().
     std::unordered_map<int32_t, uint64_t> _column_uid_to_raw_bytes;

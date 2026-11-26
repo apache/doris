@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import unittest
+from unittest.mock import patch
 
 from resolve_code_review_status import ResolutionError, resolve_status
 
@@ -109,6 +110,99 @@ class ResolveCodeReviewStatusTest(unittest.TestCase):
     def test_returns_pending_without_an_open_pr(self) -> None:
         result = resolve_status([], [], head_sha=HEAD_SHA)
         self.assertEqual("pending", result.state)
+
+    def test_completed_blocking_review_is_failure(self) -> None:
+        result = resolve_status([pull(123)], [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+        self.assertIn("P0/P1", result.description)
+
+    def test_nonconverged_result_blocks_with_an_explicit_description(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds for PR #123: P0=0, P1=0.")
+        result = resolve_status([pull(123)], [incomplete], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+        self.assertIn("did not converge", result.description)
+        self.assertNotIn("P0/P1", result.description)
+
+    def test_description_does_not_decide_whether_review_passes(self) -> None:
+        for state in ("success", "pending", "failure"):
+            with self.subTest(state=state):
+                source = dict(status(1, source="automated", state=state),
+                              description="Review did not converge after 3 rounds")
+                self.assertEqual(state, resolve_status([pull(123)], [source], head_sha=HEAD_SHA).state)
+
+    def test_incomplete_result_can_be_replaced_or_explicitly_overridden(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds")
+        for source in ("automated", "local", "skip"):
+            with self.subTest(source=source):
+                result = resolve_status([pull(123)], [incomplete, status(2, source=source)], head_sha=HEAD_SHA)
+                self.assertEqual("success", result.state)
+
+    def test_incomplete_result_does_not_follow_other_heads_or_bases(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds")
+        for pulls in ([pull(124)], [pull(123, base=OTHER_BASE_SHA)], [pull(123, head=OTHER_HEAD_SHA)]):
+            with self.subTest(pulls=pulls):
+                self.assertEqual("pending", resolve_status(pulls, [incomplete], head_sha=HEAD_SHA).state)
+
+    def test_local_or_skip_success_can_override_blocking_review(self) -> None:
+        for source in ("local", "skip"):
+            with self.subTest(source=source):
+                result = resolve_status([pull(123)], [status(1, source="automated", state="failure"),
+                    status(2, source=source)], head_sha=HEAD_SHA)
+                self.assertEqual("success", result.state)
+
+    def test_stale_blocking_result_is_not_reused(self) -> None:
+        for pulls in ([pull(123, base=OTHER_BASE_SHA)], [pull(124)], [pull(123, head=OTHER_HEAD_SHA)]):
+            with self.subTest(pulls=pulls):
+                result = resolve_status(pulls, [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+                self.assertEqual("pending", result.state)
+
+    def test_latest_automated_result_replaces_blocker(self) -> None:
+        result = resolve_status([pull(123)], [status(1, source="automated", state="failure"),
+            status(2, source="automated")], head_sha=HEAD_SHA)
+        self.assertEqual("success", result.state)
+
+    def test_shared_head_blocker_takes_precedence_over_pending(self) -> None:
+        result = resolve_status([pull(123), pull(124)], [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+
+    @patch.dict("os.environ", DORIS_REVIEW_APP_BOT="cloud[bot]")
+    def test_late_cloud_blocker_survives_poll_loss_and_reconciles_dismissal(self):
+        repo = "https://github.com/apache/doris"
+        url = repo + "/pull/123#pullrequestreview-89"
+        actor = {"login": "cloud[bot]"}
+        receipt = dict(id=4, state="failure", creator=actor, target_url=url,
+                       context=f"code-review/cloud/27/pr-123/base-{BASE_SHA}",
+                       description="Review completed for PR #123: P0=0, P1=1.")
+        passed = status(3, source="automated")
+        late_poll = dict(status(5, source="automated", state="pending"),
+                         target_url=repo + "/actions/runs/27")
+        dismissal = dict(id=6, state="success", creator={"login": "github-actions[bot]"},
+                         target_url=url, context="code-review/dismissal/pr-123/review-89")
+        review = dict(commit_id=HEAD_SHA, user=actor, body="<!-- code-review-completion:t -->",
+                      id=89, state="DISMISSED")
+
+        def resolve(*entries):
+            return resolve_status([pull(123)], list(entries), head_sha=HEAD_SHA, repo_url=repo,
+                                  reviews_for_pr=lambda number: [review]).state
+
+        self.assertEqual("success", resolve(passed))
+        self.assertEqual("failure", resolve(passed, receipt))
+        self.assertEqual("failure", resolve(late_poll, receipt, passed))
+        self.assertEqual("success", resolve(late_poll, receipt, passed, dismissal))
+        self.assertEqual("success", resolve(receipt, status(7, source="automated"), dict(receipt, id=8)))
+        self.assertEqual("success", resolve(receipt, status(7, source="skip")))
+        clean = dict(receipt, state="success", description="Review completed for PR #123: P0=0, P1=0.")
+        self.assertEqual("success", resolve(clean))
+        self.assertEqual("pending", resolve(dict(clean, description=receipt["description"])))
+        incomplete = dict(receipt, description="Review did not converge after 3 rounds for PR #123: P0=0, P1=0.")
+        self.assertEqual("failure", resolve(incomplete, dismissal))
+        self.assertEqual("failure", resolve(receipt, dict(dismissal, creator=actor)))
+        for fields in (dict(creator={"login": "unrelated[bot]"}), dict(target_url=repo + "/pull/124"),
+                       dict(context=receipt["context"].replace(BASE_SHA, OTHER_BASE_SHA))):
+            self.assertEqual("success", resolve(passed, dict(receipt, **fields)))
 
     def test_rejects_malformed_api_data(self) -> None:
         with self.assertRaisesRegex(ResolutionError, "base SHA"):

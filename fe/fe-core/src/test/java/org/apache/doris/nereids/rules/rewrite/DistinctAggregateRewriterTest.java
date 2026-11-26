@@ -21,16 +21,24 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateRewriter.Strategy;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.SessionVariable;
@@ -243,6 +251,27 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                                 && agg.getAggregateFunctions().stream().anyMatch(f -> f instanceof MultiDistinctCount)
                         ));
         connectContext.getSessionVariable().setAggPhase(0);
+    }
+
+    @Test
+    void testPercentileApproxArrayDistinctArgumentGroups() {
+        SlotReference value = SlotReference.of("value", DoubleType.INSTANCE);
+        SlotReference other = SlotReference.of("other", DoubleType.INSTANCE);
+        LogicalOneRowRelation relation = new LogicalOneRowRelation(
+                new RelationId(1), ImmutableList.of(value, other));
+        PercentileApproxArray first = new PercentileApproxArray(true, value,
+                new ArrayLiteral(ImmutableList.of(new DoubleLiteral(0.25))));
+        PercentileApproxArray sameValueOtherParameters = new PercentileApproxArray(true, value,
+                new ArrayLiteral(ImmutableList.of(new DoubleLiteral(0.75))), new DoubleLiteral(2048));
+        LogicalAggregate<LogicalOneRowRelation> sameValue = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(first, "p25"), new Alias(sameValueOtherParameters, "p75")), relation);
+        Assertions.assertEquals(1, AggregateUtils.distinctArgumentGroupCountUpToTwo(sameValue));
+
+        PercentileApproxArray otherValue = new PercentileApproxArray(true, other,
+                new ArrayLiteral(ImmutableList.of(new DoubleLiteral(0.75))), new DoubleLiteral(2048));
+        LogicalAggregate<LogicalOneRowRelation> differentValues = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(first, "p25"), new Alias(otherValue, "p75")), relation);
+        Assertions.assertEquals(2, AggregateUtils.distinctArgumentGroupCountUpToTwo(differentValues));
     }
 
     @Test

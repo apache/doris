@@ -40,6 +40,9 @@ suite('test_compaction_with_visible_version', 'docker') {
         def E_FULL_MISS_VERSION = 'E-2009'
 
         sql 'SET GLOBAL insert_visible_timeout_ms = 3000'
+        // Queries in this suite must reach BE to verify whether the requested visible version
+        // is still readable after compaction instead of returning a cached result from FE.
+        sql 'SET enable_sql_cache = false'
 
         def tableName = 'test_compaction_with_visible_version'
         def backendId_to_backendIP = [:]

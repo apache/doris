@@ -17,21 +17,13 @@
 
 suite("test_config_prune_delete_sign", "nonConcurrent") {
 
-    def inspectRows = { sqlStr ->
-        sql "set skip_delete_sign=true;"
-        sql "set skip_delete_bitmap=true;"
-        sql "sync"
-        qt_inspect sqlStr
-        sql "set skip_delete_sign=false;"
-        sql "set skip_delete_bitmap=false;"
-        sql "sync"
-    }
-
-    def custoBeConfig = [
-        enable_prune_delete_sign_when_base_compaction : false
+    def customBeConfig = [
+        enable_prune_delete_sign_when_base_compaction: false,
+        compaction_promotion_version_count: 5,
+        base_compaction_min_rowset_num: 1
     ]
 
-    setBeConfigTemporary(custoBeConfig) {
+    setBeConfigTemporary(customBeConfig) {
         def table1 = "test_config_prune_delete_sign"
         sql "DROP TABLE IF EXISTS ${table1} FORCE;"
         sql """ CREATE TABLE IF NOT EXISTS ${table1} (
@@ -47,19 +39,72 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
                 "replication_num" = "1"); """
 
         def getDeleteSignCnt = {
-            sql "set skip_delete_sign=true;"
-            sql "set skip_delete_bitmap=true;"
-            sql "sync"
-            qt_del_cnt "select count() from ${table1} where __DORIS_DELETE_SIGN__=1;"
-            sql "set skip_delete_sign=false;"
-            sql "set skip_delete_bitmap=false;"
-            sql "sync"
+            def original = sql('select @@skip_delete_sign, @@skip_delete_bitmap')[0]
+            try {
+                sql "set skip_delete_sign=true;"
+                sql "set skip_delete_bitmap=true;"
+                qt_del_cnt "select count() from ${table1} where __DORIS_DELETE_SIGN__=1;"
+            } finally {
+                try {
+                    sql "set skip_delete_sign=${original[0]};"
+                } finally {
+                    sql "set skip_delete_bitmap=${original[1]};"
+                }
+            }
+        }
+
+        def tabletKey = { tablet -> "${tablet.TabletId}@${tablet.BackendId}".toString() }
+        def readTablet = { tablet ->
+            def (code, out, err) = curl('GET', tablet.CompactionStatus.toString(), null, 5, '', '', 1)
+            assertEquals(0, code, "cannot read tablet ${tabletKey(tablet)}: ${err}")
+            parseJson(out)
+        }
+        def rowsetRanges = { state ->
+            assertTrue(state.rowsets instanceof List, "missing rowsets: ${state}")
+            state.rowsets.collect { it.toString().split(/\s+/)[0] }.sort()
+        }
+        def assertLayout = { state, ranges, point ->
+            assertEquals(ranges.sort(false), rowsetRanges(state))
+            assertTrue(state.missing_rowsets instanceof List && state.missing_rowsets.isEmpty(),
+                    "tablet has a version gap: ${state}")
+            assertEquals(point as long, state['cumulative point'] as long)
+        }
+        def compactAndCheck = { tablets, type, ranges, point ->
+            def before = tablets.collectEntries { [(tabletKey(it)): readTablet(it)] }
+            trigger_and_wait_compaction(table1, type)
+            tablets.each { tablet ->
+                def old = before[tabletKey(tablet)]
+                def state = [:]
+                try {
+                    awaitUntil(60, 0.5) {
+                        state = readTablet(tablet)
+                        if (state["last ${type} failure time"] != old["last ${type} failure time"]) {
+                            assertEquals('[OK]', state["last ${type} status"],
+                                    "${type} compaction failed for ${tabletKey(tablet)}: ${state}")
+                        }
+                        // The shared helper may ignore E-2000/E-2010. Require this attempt
+                        // to succeed and produce the intended physical rowsets on every BE.
+                        state["last ${type} success time"] != old["last ${type} success time"] &&
+                                state["last ${type} status"] == '[OK]' &&
+                                rowsetRanges(state) == ranges.sort(false) &&
+                                (state['cumulative point'] as long) == point
+                    }
+                } catch (Throwable t) {
+                    throw new AssertionError("${type} compaction did not produce ${ranges} on " +
+                            "${tabletKey(tablet)}: ${state}", t)
+                }
+                assertLayout(state, ranges, point)
+            }
         }
 
         (1..30).each {
             sql "insert into ${table1} values($it,$it,$it);"
         }
-        trigger_and_wait_compaction(table1, "cumulative")
+        // The first 30 INSERTs advance the tablet from version 1 to version 31. Make that
+        // version visible on the serving BE before cumulative compaction is triggered.
+        def tablets = sql_return_maparray("show tablets from ${table1};")
+        syncAndWaitTabletVersion(tablets, 31)
+        compactAndCheck(tablets, 'cumulative', ['[0-1]', '[2-31]'], 32)
 
         sql "delete from ${table1} where k1<=20;"
         sql "sync;"
@@ -69,37 +114,25 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         (31..59).each {
             sql "insert into ${table1} values($it,$it,$it);"
         }
-        trigger_and_wait_compaction(table1, "cumulative")
+        // The DELETE consumes version 32 and these 29 INSERTs consume versions 33 through 61.
+        tablets = sql_return_maparray("show tablets from ${table1};")
+        syncAndWaitTabletVersion(tablets, 61)
+        compactAndCheck(tablets, 'cumulative', ['[0-1]', '[2-31]', '[32-61]'], 62)
 
-        // cloud base compaction does not include [0,1], after last cumulative compaction,
-        // the base compacton would report -808, which means the base compaction is not triggered.
-        // so we need to insert a row to make sure the base compaction happens.
+        // Both cumulative outputs are promoted. Keep a newer rowset outside the base
+        // inputs; its visibility does not require compacting it or moving the point again.
         sql "insert into ${table1} values(60,60,60);"
+        tablets = sql_return_maparray("show tablets from ${table1};")
+        syncAndWaitTabletVersion(tablets, 62)
+        tablets.each { tablet ->
+            assertLayout(readTablet(tablet), ['[0-1]', '[2-31]', '[32-61]', '[62-62]'], 62)
+        }
 
-        def tablets = sql_return_maparray """ show tablets from ${table1}; """
-        logger.info("tablets: ${tablets}")
-        String compactionUrl = tablets[0]["CompactionStatus"]
-        def (code, out, err) = curl("GET", compactionUrl)
-        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-
-        trigger_and_wait_compaction(table1, "base")
+        // Cloud excludes the empty [0-1] rowset. In either mode, base must consume the
+        // two promoted data rowsets and leave version 62 in the cumulative layer.
+        def baseRanges = isCloudMode() ? ['[0-1]', '[2-61]', '[62-62]'] : ['[0-61]', '[62-62]']
+        compactAndCheck(tablets, 'base', baseRanges, 62)
         qt_sql "select count() from ${table1};"
         getDeleteSignCnt()
-
-        tablets = sql_return_maparray """ show tablets from ${table1}; """
-        logger.info("tablets: ${tablets}")
-        compactionUrl = tablets[0]["CompactionStatus"]
-        (code, out, err) = curl("GET", compactionUrl)
-        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-        assert code == 0
-        def tabletJson = parseJson(out.trim())
-        if (isCloudMode()) {
-            assert tabletJson.rowsets.size() == 2
-            assert tabletJson.rowsets[0].contains("[0-1]")
-            assert tabletJson.rowsets[1].contains("[2-62]")
-        } else {
-            assert tabletJson.rowsets.size() == 2
-            assert tabletJson.rowsets[0].contains("[0-61]")
-        }
     }
 }

@@ -201,6 +201,18 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresWriteOnlyDefaultsCapability() {
+        // WHY: an iceberg write-default is carried by the writer schema only, so the read schema's columns have no
+        // default. fe-core resolves DEFAULT(column) against the pinned writer schema (and rejects it in a plain
+        // SELECT) ONLY under this capability. MUTATION: dropping the capability -> INSERT ... SELECT DEFAULT(c)
+        // writes NULL and UPDATE ... WHERE c = DEFAULT(c) silently matches nothing -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS),
+                "iceberg must declare SUPPORTS_WRITE_ONLY_DEFAULTS so DEFAULT(column) resolves to the write default");
+    }
+
+    @Test
     public void declaresShowCreateDdlCapability() {
         // WHY: legacy IcebergExternalTable rendered LOCATION + PROPERTIES + PARTITION BY + ORDER BY in SHOW
         // CREATE TABLE, and IcebergExternalDatabase rendered LOCATION in SHOW CREATE DATABASE. Post-cutover the
@@ -365,7 +377,7 @@ public class IcebergConnectorTest {
         Assertions.assertNotNull(writeProvider, "iceberg connector must expose a write plan provider");
         Assertions.assertEquals(
                 EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.DELETE,
-                        WriteOperation.MERGE, WriteOperation.REWRITE),
+                        WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE),
                 writeProvider.supportedOperations());
         Assertions.assertTrue(writeProvider.supportsWriteBranch());
         Assertions.assertTrue(writeProvider.requiresParallelWrite());

@@ -81,6 +81,7 @@ public abstract class AbstractInsertExecutor {
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
+    protected final boolean loadJobRegistered;
     protected long txnId = INVALID_TXN_ID;
     protected List<TableStreamUpdateInfo> streamUpdateInfos = Collections.emptyList();
 
@@ -138,6 +139,7 @@ public abstract class AbstractInsertExecutor {
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
         this.jobId = jobId;
+        this.loadJobRegistered = needRegister;
     }
 
     public void registerListener(InsertExecutorListener listener) {
@@ -201,6 +203,13 @@ public abstract class AbstractInsertExecutor {
      * Do something after exec
      */
     protected abstract void afterExec(StmtExecutor executor);
+
+    /**
+     * Called instead of executeSingleInsert when the insert needs no transaction, i.e. the planner proved the
+     * source empty. Must close any bookkeeping opened in the constructor, such as a registered load job.
+     */
+    public void onSkipExecution() {
+    }
 
     protected final void execImpl(StmtExecutor executor) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
@@ -272,6 +281,16 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
         try {
+            // Every statement-owned insert coordinator is published at the common execution boundary.
+            // Cancellation retained during planning is replayed before any executor-specific setup or dispatch.
+            executor.setCoord(coordinator);
+            // Publication synchronously replays any cancellation retained during planning. Fence on that
+            // terminal status before executor-specific setup runs, so a later setup failure cannot mask the
+            // original timeout/cancel reason.
+            Status execStatus = coordinator.getExecStatus();
+            if (!execStatus.ok()) {
+                throw new UserException(execStatus.getErrorMsg());
+            }
             // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
             beforeExec();
             executor.updateProfile(false);
@@ -285,6 +304,14 @@ public abstract class AbstractInsertExecutor {
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }
+            // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
+            // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
+            // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
+            // cancellation listener of its own.
+            Status preCommitStatus = coordinator.getExecStatus();
+            if (!preCommitStatus.ok()) {
+                throw new UserException(preCommitStatus.getErrorMsg());
+            }
             onComplete();
             for (InsertExecutorListener listener : listeners) {
                 try {
@@ -294,6 +321,7 @@ public abstract class AbstractInsertExecutor {
                 }
             }
         } catch (Throwable t) {
+            executor.getSummaryProfile().recordFailedAttempt(ctx.queryId());
             onFail(t);
             if (ctx.getStatementContext().isIvmMTMVRewrite()) {
                 for (Throwable cause : ExceptionUtils.getThrowableList(t)) {
@@ -335,6 +363,17 @@ public abstract class AbstractInsertExecutor {
      */
     public boolean requiresTransaction() {
         return !emptyInsert || !streamUpdateInfos.isEmpty();
+    }
+
+    /**
+     * Records on the insert context that what this insert wrote is durable: its transaction has committed,
+     * whether or not its publication has finished. Each executor calls this where its own commit happens,
+     * because the response the client gets is a different question -- a publication timeout that follows a
+     * commit is reported as an error while the rows are committed. See
+     * {@link InsertCommandContext#setCommitted}.
+     */
+    protected void markCommitted() {
+        insertCtx.ifPresent(insertCommandContext -> insertCommandContext.setCommitted(true));
     }
 
     public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {

@@ -18,7 +18,6 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
-import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -31,7 +30,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * M-11 (rereview2 #6) read-path Kerberos doAs tests: every remote metadata READ RPC must run INSIDE
@@ -156,8 +154,8 @@ public class PaimonConnectorMetadataReadAuthTest {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        Optional<ConnectorTableHandle> result = metadata(ops, ctx).getTableHandle(null, "db1", "t1");
-        Assertions.assertFalse(result.isPresent());
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).getTableHandle(null, "db1", "t1"));
         Assertions.assertTrue(ops.log.isEmpty(),
                 "auth failure must abort BEFORE the getTable seam runs");
         Assertions.assertEquals(1, ctx.authCount);
@@ -211,7 +209,8 @@ public class PaimonConnectorMetadataReadAuthTest {
         Map<String, String> spec = new LinkedHashMap<>();
         spec.put("region", "cn");
         ops.partitions = Collections.singletonList(
-                new Partition(spec, 1L, 1L, /*fileCount*/ 1, 1L, /*done*/ true));
+                new Partition(spec, 1L, 1L, /*fileCount*/ 1, 1L,
+                        /*totalBuckets*/ 1, /*done*/ true));
         RecordingConnectorContext ctx = new RecordingConnectorContext();
 
         PaimonTableHandle handle = new PaimonTableHandle(

@@ -84,7 +84,7 @@ public class IvmPlanSignatureGenerator {
         if (!debugSalt.isEmpty()) {
             canonical = canonical + "\nDEBUG_SIGNATURE_SALT=" + debugSalt;
         }
-        return new IvmPlanSignature(canonical, sha256(canonical));
+        return new IvmPlanSignature(canonical, sha256(canonical), normalizedPlan.treeString());
     }
 
     private CanonicalNode canonicalPlan(Plan plan) {
@@ -92,34 +92,9 @@ public class IvmPlanSignatureGenerator {
     }
 
     private CanonicalNode canonicalProject(LogicalProject<?> project) {
-        if (isPassthroughProject(project)) {
-            return canonicalPlan(project.child());
-        }
         return CanonicalNode.node("PROJECT")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(project.getProjects()))
                 .field("child", canonicalPlan(project.child()));
-    }
-
-    private boolean isPassthroughProject(LogicalProject<?> project) {
-        return project.getProjects().stream().allMatch(this::isSignatureNeutralProjection);
-    }
-
-    private boolean isSignatureNeutralProjection(NamedExpression expression) {
-        return isPassthroughExpression(expression) || isIgnorableSinkHiddenProjection(expression);
-    }
-
-    private boolean isPassthroughExpression(NamedExpression expression) {
-        if (expression instanceof SlotReference) {
-            return true;
-        }
-        if (expression instanceof Alias && ((Alias) expression).child() instanceof SlotReference) {
-            return expression.getName().equals(((SlotReference) ((Alias) expression).child()).getName());
-        }
-        return false;
-    }
-
-    private boolean isIgnorableSinkHiddenProjection(NamedExpression expression) {
-        return IvmUtil.isCommonHiddenSlot(expression.getName());
     }
 
     private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg) {
@@ -417,7 +392,15 @@ public class IvmPlanSignatureGenerator {
 
         @Override
         public CanonicalNode visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink, Void context) {
-            return sink.child().accept(this, context);
+            CanonicalList columns = CanonicalList.list();
+            for (Slot slot : sink.getTargetTableSlots()) {
+                columns.add(CanonicalNode.node("COLUMN")
+                        .field("name", slot.getName())
+                        .field("type", slot.getDataType().toSql()));
+            }
+            return CanonicalNode.node("TABLE_SINK")
+                    .field("columns", columns)
+                    .field("child", canonicalPlan(sink.child()));
         }
 
         @Override

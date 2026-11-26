@@ -37,8 +37,10 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -234,6 +236,12 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
+    {
+        std::lock_guard lock(_file_range_read_context_mutex);
+        if (_file_range_read_context != nullptr) {
+            _file_range_read_context->cancel();
+        }
+    }
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
@@ -309,6 +317,12 @@ void QueryContext::cancel(Status new_status) {
     if (!_exec_status.update(new_status)) {
         return;
     }
+    {
+        std::lock_guard lock(_file_range_read_context_mutex);
+        if (_file_range_read_context != nullptr) {
+            _file_range_read_context->cancel();
+        }
+    }
     // Tasks should be always runnable.
     _execution_dependency->set_always_ready();
     _memory_sufficient_dependency->set_always_ready();
@@ -360,6 +374,22 @@ void QueryContext::cancel(Status new_status) {
     }
 }
 
+std::shared_ptr<io::FileRangeReadContext> QueryContext::get_or_create_file_range_read_context(
+        io::FileRangeReadScheduler* scheduler) {
+    DORIS_CHECK(scheduler != nullptr);
+    std::lock_guard lock(_file_range_read_context_mutex);
+    if (_file_range_read_context == nullptr) {
+        _file_range_read_scheduler = scheduler;
+        _file_range_read_context = scheduler->create_context();
+        if (is_cancelled()) {
+            _file_range_read_context->cancel();
+        }
+    } else {
+        DORIS_CHECK(_file_range_read_scheduler == scheduler);
+    }
+    return _file_range_read_context;
+}
+
 void QueryContext::set_load_error_url(std::string error_url) {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     _load_error_url = error_url;
@@ -405,6 +435,21 @@ std::string QueryContext::print_all_pipeline_context() {
         }
     }
     return fmt::to_string(debug_string_buffer);
+}
+
+std::shared_ptr<AIExecutionStatistics> QueryContext::get_ai_statistics(int fragment_id) {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto& statistics = _ai_statistics[fragment_id];
+    if (!statistics) {
+        statistics = std::make_shared<AIExecutionStatistics>();
+    }
+    return statistics;
+}
+
+std::shared_ptr<AIExecutionStatistics> QueryContext::find_ai_statistics(int fragment_id) const {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto it = _ai_statistics.find(fragment_id);
+    return it == _ai_statistics.end() ? nullptr : it->second;
 }
 
 void QueryContext::set_pipeline_context(const int fragment_id,
@@ -468,6 +513,13 @@ void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
+        // Recursive CTE stages reuse fragment IDs, but the saved profile is the first stage's
+        // detached snapshot. Refresh only AI counters from their owner, which accumulates all stages.
+        if (auto statistics = find_ai_statistics(fragment_id)) {
+            const int profile_level =
+                    _query_options.__isset.profile_level ? _query_options.profile_level : 2;
+            statistics->update_profile_snapshot(*fragment_profile.front(), profile_level);
+        }
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
 
         if (_load_channel_profile_map.contains(fragment_id)) {

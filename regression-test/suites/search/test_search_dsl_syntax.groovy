@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_dsl_syntax", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_dsl_test_table"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -91,16 +92,16 @@ suite("test_search_dsl_syntax", "p0") {
     qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"
 
     // DSL Syntax Test 2: Phrase queries with quotes
-    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"')"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"') ORDER BY id"
 
     // DSL Syntax Test 3: Wildcard queries
     qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:*Learning') ORDER BY id"
 
     // DSL Syntax Test 4: Prefix queries
-    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Data*')"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Data*') ORDER BY id"
 
     // DSL Syntax Test 5: Regular expression queries
-    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/')"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/') ORDER BY id"
 
     // DSL Syntax Test 6: Boolean AND operator
     qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('category:Technology AND tags:AI') ORDER BY id"

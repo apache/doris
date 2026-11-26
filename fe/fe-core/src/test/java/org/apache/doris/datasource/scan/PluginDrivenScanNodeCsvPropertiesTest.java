@@ -23,6 +23,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.hive.HiveTextProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileAttributes;
@@ -145,6 +146,24 @@ class PluginDrivenScanNodeCsvPropertiesTest {
     }
 
     @Test
+    void testOpenCsvUsesStatementExecutionVersionSnapshot() {
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION - 1;
+            ScanContext scanContext = ScanContext.builder()
+                    .beExecVersion(Config.be_exec_version).build();
+            Config.be_exec_version = Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+
+            UserException error = Assertions.assertThrows(UserException.class,
+                    () -> propertiesToWire(
+                            HiveTextProperties.extract(CSV_SERDE, Map.of(), Map.of()), scanContext));
+            Assertions.assertTrue(error.getMessage().contains("OpenCSV"));
+        } finally {
+            Config.be_exec_version = original;
+        }
+    }
+
+    @Test
     void testAbsentSemanticFlagRetainsLegacyWireContract() throws Exception {
         int original = Config.be_exec_version;
         try {
@@ -192,9 +211,16 @@ class PluginDrivenScanNodeCsvPropertiesTest {
     }
 
     private static TFileAttributes propertiesToWire(Map<String, String> properties) throws Exception {
+        return propertiesToWire(properties,
+                ScanContext.builder().beExecVersion(Config.be_exec_version).build());
+    }
+
+    private static TFileAttributes propertiesToWire(Map<String, String> properties,
+            ScanContext scanContext) throws Exception {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(node, "scanNodeProperties", properties);
         Deencapsulation.setField(node, "sessionVariable", new SessionVariable());
+        Deencapsulation.setField(node, "scanContext", scanContext);
         // Exercise the real scan-node consumer and wire encoding: map assertions cannot detect byte truncation.
         TFileAttributes attributes = node.getFileAttributes();
         TFileAttributes decoded = new TFileAttributes();

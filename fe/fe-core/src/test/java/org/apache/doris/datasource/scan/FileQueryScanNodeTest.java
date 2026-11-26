@@ -38,9 +38,12 @@ import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +74,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         private TableIf targetTable;
+        private boolean applyColumnDefaultsOnRead = true;
 
         TestFileQueryScanNode(SessionVariable sv) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", ScanContext.EMPTY, false, sv);
@@ -86,6 +90,15 @@ public class FileQueryScanNodeTest {
 
         void initSchemaParamsForTest() throws UserException {
             initSchemaParams();
+        }
+
+        void setApplyColumnDefaultsOnRead(boolean applyColumnDefaultsOnRead) {
+            this.applyColumnDefaultsOnRead = applyColumnDefaultsOnRead;
+        }
+
+        @Override
+        protected boolean applyColumnDefaultsOnRead() {
+            return applyColumnDefaultsOnRead;
         }
 
         @Override
@@ -113,6 +126,106 @@ public class FileQueryScanNodeTest {
     public void setUp() {
         table = Mockito.mock(TableIf.class);
         Mockito.when(table.getName()).thenReturn("test_table");
+    }
+
+    @Test
+    public void testEligibleFileRangeCarriesBeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileSplitSizeOnBe(96 * MB);
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assertions.assertTrue(range.isSetTargetSplitSize());
+        Assertions.assertEquals(96 * MB, range.getTargetSplitSize());
+    }
+
+    @Test
+    public void testIneligibleFileRangeOmitsBeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assertions.assertFalse(range.isSetTargetSplitSize());
+    }
+
+    @Test
+    public void testMetadataCountRangesOmitBeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        TFileRangeDesc countRange = new TFileRangeDesc();
+        countRange.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        TTableFormatFileDesc metadataCount = new TTableFormatFileDesc();
+        metadataCount.setTableLevelRowCount(10);
+        countRange.setTableFormatParams(metadataCount);
+        FileQueryScanNode.setTargetSplitSize(countRange, sv);
+        Assertions.assertFalse(countRange.isSetTargetSplitSize());
+    }
+
+    @Test
+    public void testEligibleFileUsesDedicatedFeCoarseSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+
+        Assertions.assertEquals(512 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_ORC, true));
+    }
+
+    @Test
+    public void testIneligibleFileKeepsLegacyFeSplitSize() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_CSV_PLAIN, true));
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_PARQUET, false));
+
+        sv.enableFileScannerV2 = false;
+        Assertions.assertEquals(512 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+
+        sv.enableFileScannerV2 = true;
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assertions.assertFalse(range.isSetTargetSplitSize());
+
+        sv.maxFileScannersConcurrency = 16;
+        node.setLimit(100);
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+    }
+
+    @Test
+    public void testDedicatedSplitSizesHaveCoarseAndFineDefaults() {
+        SessionVariable sv = new SessionVariable();
+        Assertions.assertEquals(512 * MB, sv.getFileSplitSizeOnFe());
+        Assertions.assertEquals(64 * MB, sv.getFileSplitSizeOnBe());
+    }
+
+    @Test
+    public void nonpositiveTargetsKeepLegacyFePlanning() {
+        SessionVariable sv = new SessionVariable();
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+        for (long value : new long[] {0, -1}) {
+            sv.setFileSplitSizeOnFe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_PARQUET, true));
+            sv.setFileSplitSizeOnFe(512 * MB);
+            sv.setFileSplitSizeOnBe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_ORC, true));
+            sv.setFileSplitSizeOnBe(64 * MB);
+        }
     }
 
     @Test
@@ -184,6 +297,7 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
     }
 
     @Test
@@ -262,6 +376,7 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
     }
 
     @Test
@@ -335,6 +450,29 @@ public class FileQueryScanNodeTest {
         Assertions.assertSame(slotInfo, updatedSlotInfo);
         Assertions.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assertions.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testConnectorCanKeepColumnDefaultWriteOnly() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(table);
+        node.setApplyColumnDefaultsOnRead(false);
+
+        Column column = new Column("added_later", Type.INT, false, null, true, "7", "");
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc.getId());
+        slot.setColumn(column);
+        desc.addSlot(slot);
+        Mockito.when(table.getBaseSchema(false)).thenReturn(Collections.singletonList(column));
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(column));
+
+        node.initSchemaParamsForTest();
+
+        TExpr missingColumnExpr = node.getFileScanRangeParams()
+                .getRequiredSlots().get(0).getDefaultValueExpr();
+        Assertions.assertEquals(TExprNodeType.NULL_LITERAL,
+                missingColumnExpr.getNodes().get(0).getNodeType());
     }
 
 }

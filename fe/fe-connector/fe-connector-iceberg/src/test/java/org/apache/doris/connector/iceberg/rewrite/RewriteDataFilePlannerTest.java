@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg.rewrite;
 
+import org.apache.doris.connector.iceberg.action.IcebergRewriteDataFilesAction;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -35,6 +36,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -47,6 +49,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.ZoneOffset;
 import java.util.Arrays;
@@ -54,6 +58,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -168,6 +173,15 @@ public class RewriteDataFilePlannerTest {
 
     private static RewriteDataFilePlanner.Parameters rewriteAll(long maxGroupSize, ConnectorPredicate where) {
         return params(0L, Long.MAX_VALUE, 5, true, maxGroupSize, where);
+    }
+
+    private static RewriteDataFilePlanner.Parameters sizeBasedParams(long maxGroupSize, int minInputFiles) {
+        IcebergRewriteDataFilesAction action = new IcebergRewriteDataFilesAction(Map.of(
+                "target-file-size-bytes", "512", "min-file-size-bytes", "384", "max-file-size-bytes", "900",
+                "max-file-group-size-bytes", Long.toString(maxGroupSize),
+                "min-input-files", Integer.toString(minInputFiles)), Collections.emptyList(), null);
+        action.validate();
+        return action.buildRewriteParameters();
     }
 
     private static List<RewriteDataGroup> plan(Table table, RewriteDataFilePlanner.Parameters p) {
@@ -428,6 +442,28 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
+    public void nanosecondWhereRewritesOnlyTheMatchingPartition() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "ns"), schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        long expected = 1704164645123456789L;
+        for (long nanos : new long[] {expected, expected + 1}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            append(table, DataFiles.builder(spec).withPath("s3://bucket/" + nanos + ".parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withPartition(partition)
+                    .withFormat(FileFormat.PARQUET).build());
+        }
+        ConnectorExpression predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 03:04:05.123456789"));
+        List<RewriteDataGroup> groups = plan(table, rewriteAll(1_000_000L, where(predicate)));
+        Assertions.assertEquals(1, totalFiles(groups));
+        Assertions.assertEquals(expected, groups.get(0).getTasks().get(0).file().partition().get(0, Long.class));
+    }
+
+    @Test
     public void whereBetweenPrunesToMatchingPartition() {
         // BETWEEN is a node the rewrite-side neutral converter emits directly; REWRITE mode pushes it
         // (-> id>=1 AND id<=1) just as the live code did. Scan mode has no BETWEEN node case and would drop it,
@@ -478,7 +514,7 @@ public class RewriteDataFilePlannerTest {
         append(t, unpartFile("a", 100), unpartFile("b", 100));
 
         // Files selected (100 < min 200). Group: count 2, size 200. minInputFiles 100 disables hasEnoughInputFiles;
-        // hasEnoughContent fires alone (count > 1 && size 200 > target 150); size 200 <= group cap so hasTooMuchContent off.
+        // hasEnoughContent fires alone (count > 1 && size 200 > target 150); size 200 <= max file size.
         List<RewriteDataGroup> groups = new RewriteDataFilePlanner(
                 new RewriteDataFilePlanner.Parameters(150L, 200L, 1000L, 100, false, 1_000_000L,
                         Integer.MAX_VALUE, 0.3, 2L, null), ZoneOffset.UTC).planAndOrganizeTasks(t);
@@ -487,17 +523,69 @@ public class RewriteDataFilePlannerTest {
         Assertions.assertEquals(2, totalFiles(groups));
     }
 
-    @Test
-    public void groupFilterKeepsViaTooMuchContent() {
+    @ParameterizedTest
+    @CsvSource({"100000, 5", "200000, 5", "100000, 1", "200000, 1", "1024, 5", "900, 5"})
+    public void groupFilterKeepsOneOversizedFile(long maxGroupSize, int minInputFiles) {
         Table t = createUnpartitioned("t14");
-        append(t, unpartFile("a", 2000));
+        DataFile file = unpartFile("oversized.parquet", 1024);
+        append(t, file);
 
-        // One oversized file: selected (2000 > max 1000), packed alone into a 2000-byte group that exceeds the
-        // 1500 group cap -> hasTooMuchContent fires (the only true OR-arm; count 1 disables the count/content arms).
-        List<RewriteDataGroup> groups = plan(t, params(0L, 1000L, 100, false, 1500L, null));
+        // A single oversized file must survive both filters, independently of the group cap or file-count limit.
+        List<RewriteDataGroup> groups = plan(t, sizeBasedParams(maxGroupSize, minInputFiles));
 
         Assertions.assertEquals(1, groups.size());
         Assertions.assertEquals(1, totalFiles(groups));
+        Assertions.assertEquals(1024L, groups.get(0).getTotalSize());
+        Assertions.assertEquals(file.path().toString(), groups.get(0).getDataFiles().get(0).path().toString());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1, 100000", "383, 100000", "384, 100000", "512, 100000", "900, 100000", "383, 100"})
+    public void groupFilterSkipsOneFileAtOrBelowMaxSize(long fileSize, long maxGroupSize) {
+        Table t = createUnpartitioned("single_file");
+        append(t, unpartFile("a", fileSize));
+
+        Assertions.assertTrue(plan(t, sizeBasedParams(maxGroupSize, 5)).isEmpty());
+    }
+
+    @Test
+    public void groupFilterKeepsOversizedFileWithDefaultOptions() {
+        Table t = createUnpartitioned("default_options");
+        append(t, unpartFile("a", 1024L * 1024 * 1024));
+        IcebergRewriteDataFilesAction action = new IcebergRewriteDataFilesAction(
+                Collections.emptyMap(), Collections.emptyList(), null);
+        action.validate();
+
+        List<RewriteDataGroup> groups = plan(t, action.buildRewriteParameters());
+
+        Assertions.assertEquals(1, groups.size());
+        Assertions.assertEquals(1, totalFiles(groups));
+    }
+
+    @Test
+    public void groupFilterKeepsSmallFilesAtMinInputCount() {
+        Table t = createUnpartitioned("small_files");
+        append(t, unpartFile("a", 100), unpartFile("b", 100), unpartFile("c", 100),
+                unpartFile("d", 100), unpartFile("e", 100));
+
+        List<RewriteDataGroup> groups = plan(t, sizeBasedParams(100000L, 5));
+
+        Assertions.assertEquals(1, groups.size());
+        Assertions.assertEquals(5, totalFiles(groups));
+        Assertions.assertEquals(500L, groups.get(0).getTotalSize());
+    }
+
+    @Test
+    public void oversizedFilesStillUseGroupSizeForPacking() {
+        Table t = createUnpartitioned("oversized_groups");
+        append(t, unpartFile("a", 1024), unpartFile("b", 1024), unpartFile("c", 1024));
+
+        List<RewriteDataGroup> groups = plan(t, sizeBasedParams(2500L, 5));
+
+        Assertions.assertEquals(2, groups.size());
+        Assertions.assertEquals(3, totalFiles(groups));
+        Assertions.assertEquals(new HashSet<>(Arrays.asList(1024L, 2048L)),
+                new HashSet<>(Arrays.asList(groups.get(0).getTotalSize(), groups.get(1).getTotalSize())));
     }
 
     @Test

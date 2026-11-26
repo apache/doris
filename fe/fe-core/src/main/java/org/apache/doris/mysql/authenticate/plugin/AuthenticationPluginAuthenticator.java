@@ -91,6 +91,10 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(request.getUserName(), request.getRemoteIp())
+                != null) {
+            return AuthenticateResponse.failedResponse;
+        }
         AuthenticationRequest pluginRequest = toPluginRequest(request);
         if (!plugin.supports(pluginRequest)) {
             return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
@@ -144,6 +148,9 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             AuthenticationResult result) {
         Principal principal = Objects.requireNonNull(result.getPrincipal(),
                 "principal is required for successful authentication");
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(qualifiedUser, remoteIp) != null) {
+            return AuthenticateResponse.failedResponse;
+        }
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {

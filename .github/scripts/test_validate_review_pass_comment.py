@@ -24,7 +24,7 @@ def make_comment(**overrides: str) -> str:
         "base": BASE_SHA,
         "reviewed_at": "2026-08-18T12:01+00:00",
         "reviewer": "doris-committer",
-        "model": "gpt-5.6-sol",
+        "model": "gpt-6-sol",
         "effort": "xhigh",
         "findings": "{blocker: 0, major: 0, minor: 1, nit: 2}",
         "rounds": "2",
@@ -68,24 +68,35 @@ def validate(comment: str, **overrides: object) -> dict[str, object]:
 class ValidateReviewPassCommentTest(unittest.TestCase):
     def test_accepts_allowed_model_effort_combinations(self) -> None:
         combinations = (
-            ("claude-opus-5", "xhigh"),
-            ("claude-opus-5", "max"),
-            ("claude-opus-5[1m]", "xhigh"),
-            ("claude-opus-5[1m]", "max"),
+            ("claude-opus-5-5", "xhigh"),
+            ("claude-opus-5-5", "max"),
+            ("claude-opus-5-5[1m]", "xhigh"),
+            ("claude-opus-5-5[1m]", "max"),
             ("claude-fable-5", "xhigh"),
             ("claude-fable-5", "max"),
             ("claude-fable-5[1m]", "xhigh"),
             ("claude-fable-5[1m]", "max"),
-            ("gpt-5.6-sol", "xhigh"),
-            ("gpt-5.6-sol", "max"),
-            ("gpt-5.6-sol", "ultra"),
+            ("gpt-6.1-sol", "xhigh"),
+            ("gpt-6.1-sol", "max"),
+            ("gpt-6.1-sol", "ultra"),
+            ("gpt-6-sol", "xhigh"),
+            ("gpt-6-sol", "max"),
+            ("gpt-6-sol", "ultra"),
             ("claude-fable-5-1", "xhigh"),
             ("claude-fable-5-1", "max"),
             ("claude-fable-5-1[1m]", "xhigh"),
             ("claude-fable-5-1[1m]", "max"),
+            ("gpt-6.2-sol", "xhigh"),
+            ("gpt-6.2-sol", "max"),
+            ("gpt-6.2-sol", "ultra"),
+            ("gpt-6.2-astra", "xhigh"),
+            ("gpt-6.2-astra", "max"),
+            ("gpt-6.2-astra", "ultra"),
             ("gpt-6-astra", "xhigh"),
             ("gpt-6-astra", "max"),
             ("gpt-6-astra", "ultra"),
+            ("gemini-4-carbon", "high"),
+            ("gemini-4-neon", "xhigh"),
         )
         for model, effort in combinations:
             with self.subTest(model=model, effort=effort):
@@ -94,8 +105,8 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
 
     def test_rejects_ultra_for_claude_models(self) -> None:
         for model in (
-            "claude-opus-5",
-            "claude-opus-5[1m]",
+            "claude-opus-5-5",
+            "claude-opus-5-5[1m]",
             "claude-fable-5",
             "claude-fable-5[1m]",
             "claude-fable-5-1",
@@ -105,13 +116,72 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
                     validate(make_comment(model=model, effort="ultra"))
 
-    def test_rejects_effort_below_xhigh(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
-            validate(make_comment(effort="high"))
+    def test_rejects_unsupported_efforts_for_gemini_models(self) -> None:
+        cases = (
+            ("gemini-4-carbon", "none"),
+            ("gemini-4-carbon", "minimal"),
+            ("gemini-4-carbon", "low"),
+            ("gemini-4-carbon", "medium"),
+            ("gemini-4-carbon", "xhigh"),
+            ("gemini-4-carbon", "max"),
+            ("gemini-4-carbon", "ultra"),
+            ("gemini-4-carbon", "unknown"),
+            ("gemini-4-carbon", ""),
+            ("gemini-4-neon", "max"),
+            ("gemini-4-neon", "ultra"),
+        )
+        for model, effort in cases:
+            with self.subTest(model=model, effort=effort):
+                with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
+                    validate(make_comment(model=model, effort=effort))
+
+    def test_rejects_retired_models(self) -> None:
+        for model in ("gpt-5.6-sol", "claude-opus-5", "claude-opus-5[1m]"):
+            for effort in ("xhigh", "max", "ultra"):
+                with self.subTest(model=model, effort=effort):
+                    with self.assertRaisesRegex(ValidationError, "model is not allowed"):
+                        validate(make_comment(model=model, effort=effort))
+
+    def test_rejects_lower_and_unknown_efforts(self) -> None:
+        for model in (
+            "claude-opus-5-5",
+            "claude-opus-5-5[1m]",
+            "claude-fable-5",
+            "claude-fable-5[1m]",
+            "claude-fable-5-1",
+            "claude-fable-5-1[1m]",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-6-astra",
+            "gemini-4-neon",
+        ):
+            for effort in ("none", "minimal", "low", "medium", "high", "unknown", ""):
+                with self.subTest(model=model, effort=effort):
+                    with self.assertRaisesRegex(ValidationError, "is not allowed for model"):
+                        validate(make_comment(model=model, effort=effort))
 
     def test_rejects_unlisted_model(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "model is not allowed"):
-            validate(make_comment(model="gpt-5.6"))
+        for model in (
+            "gpt-5.6",
+            "gpt-6.1",
+            "gpt-6.1-sol-preview",
+            "gpt-6.1-sol[1m]",
+            "gpt-6.2",
+            "gpt-6.2-astra-preview",
+            "gpt-6.2-sol[1m]",
+            "gemini-4",
+            "gemini-4-carbon-high",
+            "gemini-4-neon-xhigh",
+            "gemini-4-argon",
+            "gemini-4-hydrogen",
+            "gemini-pro-orchestrator",
+            "gemini-pro-orchestrator-neon",
+        ):
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValidationError, "model is not allowed"):
+                    validate(make_comment(model=model))
 
     def test_rejects_a_different_head(self) -> None:
         with self.assertRaisesRegex(ValidationError, "current PR head"):

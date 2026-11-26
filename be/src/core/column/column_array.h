@@ -48,7 +48,7 @@ class SipHash;
 #define ALL_COLUMNS_TIME \
     ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2, ColumnTimeStampNs, ColumnTimeStampTz
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
-#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6, ColumnUUID
 
 namespace doris {
 
@@ -252,8 +252,6 @@ public:
                nested_array
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
-
-    void erase(size_t start, size_t length) override;
 
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;

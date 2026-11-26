@@ -50,9 +50,9 @@ public:
 
     const ReadSchema& schema() const override { return *_schema; }
 
-    Status current_block_row_locations(std::vector<RowLocation>* locations) override {
-        return _inner_iterator->current_block_row_locations(locations);
-    }
+    // The segment merge takes the newer row of a key from the segment with the larger data_id. The
+    // segment id is known before init() loads the segment, unlike the inner iterator.
+    uint64_t data_id() const override { return static_cast<uint64_t>(_segment.id); }
 
     void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {

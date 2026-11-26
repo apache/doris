@@ -19,16 +19,27 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "exec/operator/file_scan_operator.h"
+#include "agent/cgroup_cpu_ctl.h"
+#include "common/exception.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/id_manager.h"
+#include "storage/rowset_id.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -83,51 +94,6 @@ protected:
         return access_path;
     }
 };
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionRespectsRolloutOption) {
-    for (auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
-        TFileScanRangeParams params;
-        params.__set_format_type(format);
-        TFileRangeDesc range;
-        for (const auto& table_format : {"hive", "iceberg", "tvf"}) {
-            TTableFormatFileDesc table;
-            table.__set_table_format_type(table_format);
-            params.__set_table_format_params(table);
-            range.__set_table_format_params(table);
-            for (int option = 0; option < 3; ++option) {
-                TQueryOptions options;
-                if (option != 0) {
-                    options.__set_enable_file_scanner_v2(option == 2);
-                } else {
-                    // An absent Thrift field must not enable V2 even if its value defaults to true.
-                    options.enable_file_scanner_v2 = true;
-                    options.__isset.enable_file_scanner_v2 = false;
-                }
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          FileScanLocalState::TEST_should_use_file_scanner_v2(options, false,
-                                                                              params));
-                EXPECT_EQ(RowIdStorageReader::should_use_file_scanner_v2(options, params, range),
-                          option == 2);
-            }
-        }
-    }
-}
-
-TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOnV1) {
-    TQueryOptions options;
-    options.__set_enable_file_scanner_v2(true);
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-    TFileRangeDesc range;
-    range.__set_format_type(TFileFormatType::FORMAT_JNI);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-    range.__set_format_type(TFileFormatType::FORMAT_ORC);
-    TTableFormatFileDesc table;
-    table.__set_table_format_type("transactional_hive");
-    params.__set_table_format_params(table);
-    range.__set_table_format_params(table);
-    EXPECT_FALSE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
-}
 
 TEST_F(RowIdStorageReaderTest, ExternalFetchPreservesIcebergFileMetadata) {
     TFileRangeDesc range;
@@ -263,7 +229,7 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
                 EXPECT_EQ(FileScannerV2::TEST_is_partition_slot(slot_info, name), is_partition);
                 format::ColumnDefinition column;
                 column.name = name;
-                column.type = slots[i].get_data_type_ptr();
+                column.type = slots[i].type();
                 const auto status = reader.annotate_projected_column(slot_info, &context, &column);
                 ASSERT_TRUE(status.ok()) << status;
                 if (!is_partition) {
@@ -274,6 +240,37 @@ TEST_F(RowIdStorageReaderTest, ExternalFetchPartitionSlotsPreserveHivePositionMa
             EXPECT_TRUE(reader.validate_projected_columns(context).ok());
         }
     }
+}
+
+// A request block reads each of its scan ranges with a separate reader, and its profile reports the
+// mean reader-init and block-read time over those ranges. When an RPC fetches two lazily
+// materialized tables, the second request block starts with the first block's averages in the
+// caller's variables; they must not leak into its own.
+TEST_F(RowIdStorageReaderTest, ExternalFetchProfileAveragesInitAndGetBlockTimes) {
+    std::vector<RowIdStorageReader::ExternalFetchStatistics> fetch_statistics(3);
+    fetch_statistics[0].init_reader_ms = 10;
+    fetch_statistics[0].get_block_ms = 100;
+    fetch_statistics[1].init_reader_ms = 20;
+    fetch_statistics[1].get_block_ms = 200;
+    fetch_statistics[2].init_reader_ms = 60;
+    fetch_statistics[2].get_block_ms = 600;
+    // The averages a previous request block of the same RPC left behind.
+    int64_t init_reader_avg_ms = 50;
+    int64_t get_block_avg_ms = 500;
+    RuntimeProfile profile("ExternalRowIDFetcher");
+
+    RowIdStorageReader::add_external_fetch_avg_time_profile(fetch_statistics, &profile,
+                                                            &init_reader_avg_ms, &get_block_avg_ms);
+
+    EXPECT_EQ(init_reader_avg_ms, 30);
+    EXPECT_EQ(get_block_avg_ms, 300);
+    const auto* init_reader_avg =
+            profile.get_info_string(RowIdStorageReader::InitReaderAvgTimeProfile);
+    ASSERT_NE(init_reader_avg, nullptr);
+    EXPECT_EQ(*init_reader_avg, "30ms");
+    const auto* get_block_avg = profile.get_info_string(RowIdStorageReader::GetBlockAvgTimeProfile);
+    ASSERT_NE(get_block_avg, nullptr);
+    EXPECT_EQ(*get_block_avg, "300ms");
 }
 
 TEST_F(RowIdStorageReaderTest, SameSourceColumnSharesKey) {
@@ -411,6 +408,149 @@ TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
     });
     EXPECT_FALSE(result.ok());
     EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
+}
+
+// multiget_data_v2 runs read_by_rowids() on the remote scan scheduler, which by default is a
+// ThreadPool whose worker has no exception boundary. A request whose file mapping exists but
+// whose slot carries a PTypeNode this BE cannot decode makes SlotDescriptor's constructor throw;
+// the RPC helper must turn that into an error status on the response instead of letting the
+// exception leave the worker and terminate the process.
+TEST_F(RowIdStorageReaderTest, RpcHelperReportsThrownExceptionOnThreadPoolPath) {
+    IdManager id_manager;
+    ExecEnv* env = ExecEnv::GetInstance();
+    IdManager* saved_id_manager = env->get_id_manager();
+    env->set_id_manager(&id_manager);
+    Defer restore_id_manager {[&] { env->set_id_manager(saved_id_manager); }};
+
+    PMultiGetRequestV2 request;
+    request.mutable_query_id()->set_hi(68610);
+    request.mutable_query_id()->set_lo(1);
+    request.set_wg_id(1);
+    auto id_file_map = id_manager.add_id_file_map(request.query_id(), 1024);
+    const uint32_t file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(/*tablet_id=*/1, RowsetId(), /*segment_id=*/0));
+
+    PRequestBlockDesc* block_desc = request.add_request_block_descs();
+    block_desc->add_file_id(file_id);
+    block_desc->add_row_id(0);
+    PSlotDescriptor* slot = block_desc->add_slots();
+    slot->set_id(0);
+    slot->set_parent(0);
+    slot->set_column_pos(0);
+    slot->set_byte_offset(0);
+    slot->set_null_indicator_byte(0);
+    slot->set_null_indicator_bit(-1);
+    slot->set_col_name("c");
+    slot->set_slot_idx(0);
+    // A type node kind unknown to this BE, as a newer FE could send.
+    slot->mutable_slot_type()->add_types()->set_type(99);
+
+    // The worker captures the response and the latch by reference. Declare them before the
+    // scheduler so every exit, including a failed wait below, joins the worker in stop_scheduler
+    // before either captured object is destroyed.
+    PMultiGetResponseV2 response;
+    CountDownLatch finished(1);
+    std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
+    ThreadPoolSimplifiedScanScheduler scheduler("rowid_rpc_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 4, 1).ok());
+    Defer stop_scheduler {[&] { scheduler.stop(); }};
+
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(SimplifiedScanTask(
+                                                  [&]() {
+                                                      RowIdStorageReader::read_by_rowids_for_rpc(
+                                                              request, &response);
+                                                      finished.count_down();
+                                                      return true;
+                                                  },
+                                                  nullptr, nullptr),
+                                          "rowid_rpc_test_task")
+                        .ok());
+    ASSERT_TRUE(finished.wait_for(std::chrono::seconds(30)));
+
+    EXPECT_NE(response.status().status_code(), 0);
+    ASSERT_EQ(response.status().error_msgs_size(), 1);
+    EXPECT_NE(response.status().error_msgs(0).find("invalid TTypeNodeType"), std::string::npos);
+}
+
+// Phase-two row fetch decodes a PRequestBlockDesc built by another BE. Each case below is a request
+// that a newer sender (an unknown ROW_VERSION) or a malformed one could send; it must fail before
+// any per-row lookup instead of being read as a FILE_LOCAL_ROW_ID request.
+class RowIdFetchRequestValidationTest : public RowIdStorageReaderTest {
+protected:
+    void SetUp() override {
+        _saved_id_manager = ExecEnv::GetInstance()->get_id_manager();
+        ExecEnv::GetInstance()->set_id_manager(&_id_manager);
+        _request.mutable_query_id()->set_hi(37);
+        _request.mutable_query_id()->set_lo(1);
+        _id_file_map = _id_manager.add_id_file_map(_request.query_id(), 1024);
+        _internal_file_id = _id_file_map->get_file_mapping_id(
+                std::make_shared<FileMapping>(/*tablet_id=*/1, RowsetId(), /*segment_id=*/0));
+        _block_desc = _request.add_request_block_descs();
+        make_slot({}).to_protobuf(_block_desc->add_slots());
+    }
+
+    void TearDown() override { ExecEnv::GetInstance()->set_id_manager(_saved_id_manager); }
+
+    Status fetch() const {
+        PMultiGetResponseV2 response;
+        return RowIdStorageReader::read_by_rowids(_request, &response);
+    }
+
+    IdManager _id_manager;
+    IdManager* _saved_id_manager = nullptr;
+    PMultiGetRequestV2 _request;
+    std::shared_ptr<IdFileMap> _id_file_map;
+    PRequestBlockDesc* _block_desc = nullptr;
+    uint32_t _internal_file_id = 0;
+};
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsMismatchedFileIdAndRowIdCounts) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->add_row_id(1);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("file_ids=1, row_ids=2"), std::string::npos) << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsUnknownRowLocationVersion) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->set_row_location_version(99);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported row location version in fetch: 99"),
+              std::string::npos)
+            << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsLanceRowIdForInternalMapping) {
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(0);
+    _block_desc->set_row_location_version(static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID));
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("Lance dataset row IDs require an external file mapping"),
+              std::string::npos)
+            << st;
+}
+
+TEST_F(RowIdFetchRequestValidationTest, RejectsInternalRowIdBeyondUint32) {
+    // 2^32 is representable on the uint64 wire but is not a segment ordinal. Truncating it would
+    // fetch row 0 of the segment.
+    constexpr uint64_t row_id = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1;
+    _block_desc->add_file_id(_internal_file_id);
+    _block_desc->add_row_id(row_id);
+
+    const Status st = fetch();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("internal row id exceeds uint32 range: 4294967296"),
+              std::string::npos)
+            << st;
 }
 
 } // namespace doris

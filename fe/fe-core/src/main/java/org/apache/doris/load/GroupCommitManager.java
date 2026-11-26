@@ -31,6 +31,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SlidingWindowCounter;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.qe.ConnectContext;
@@ -51,9 +52,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -62,7 +63,7 @@ public class GroupCommitManager {
 
     private static final Logger LOG = LogManager.getLogger(GroupCommitManager.class);
 
-    private Set<Long> blockedTableIds = new HashSet<>();
+    private final Set<Long> blockedTableIds = ConcurrentHashMap.newKeySet();
 
     // Selection preferences are part of the bounded cache key.
     private final Cache<String, Long> tableToBeMap = CacheBuilder.newBuilder()
@@ -265,6 +266,10 @@ public class GroupCommitManager {
     public long selectBackendForGroupCommitInternal(long tableId, String cluster,
             @Nullable BackendSelection.SelectionHint selectionHint)
             throws LoadException, DdlException {
+        // A follower planning an INSERT cannot see the master's schema-change block.
+        if (isBlock(tableId)) {
+            throw new DdlException("insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE);
+        }
         // Understanding Group Commit and Backend Selection Logic
         //
         // Group commit is a server-side technique used for batching data imports.

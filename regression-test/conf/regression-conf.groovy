@@ -51,6 +51,9 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+
+// The default private RPC regression provisions its own TLS/plaintext clusters from these local packages.
+privateRpcTlsPackageHome = "${DORIS_HOME}"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
 // suite configs
@@ -161,6 +164,17 @@ hive3PgPort=5732
 enableKafkaTest=false
 kafka_port=19193
 
+// fluss catalog test config
+// to enable fluss test, you need firstly to start fluss containers
+// See `docker/thirdparties/run-thirdparties-docker.sh -c fluss`
+enableFlussTest=false
+fluss_coordinator_port=19123
+// The object store the fluss lake lives in. Fluss removes every lake option whose
+// name holds key, secret or password before it hands a table's properties to a
+// client, so a suite that reads the lake has to tell its own catalog how to reach
+// that store; the credentials are the minio defaults and are spelled out there.
+fluss_minio_port=19125
+
 // elasticsearch catalog test config
 // See `docker/thirdparties/run-thirdparties-docker.sh`
 enableEsTest=false
@@ -240,7 +254,12 @@ extArrowFlightHttpPort= 8030
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
+iceberg_encryption_kms_port=18384
+iceberg_encryption_fixture_port=18385
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
@@ -263,23 +282,25 @@ s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
 
+// Optional Trino JDBC regressions use the Trino service in the Iceberg Docker stack.
+// Match trino_jdbc_port to its published TRINO_JDBC_PORT and externalEnvIp to the Docker host.
+enableTrinoJdbcTest = false
+trino_jdbc_port = 8080
+
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+// Optional MongoDB fixture: run-thirdparties-docker.sh -c mongodb.
+enableMongoDBTest = false
+mongodb_port = 27017
+mongodb_user = "mongodb_test"
+mongodb_password = "mongodb_test"
 
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
 enableRefactorParamsHdfsTest=true
 
-
-// LakeSoul catalog test config
-enableLakesoulTest = false
-lakesoulPGUser="*******"
-lakesoulPGPwd="*******"
-lakesoulPGUrl="*******"
-lakesoulMinioAK="*******"
-lakesoulMinioSK="*******"
-lakesoulMinioEndpoint="*******"
 
 // cloud
 metaServiceToken = "greedisgood9999"
@@ -324,6 +345,28 @@ anymousS3Uri="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_sto
 anymousS3Region="eu-west-3"
 anymousS3ExpectDataCount="8365"
 awsInstanceProfileRegion="us-east-1"
+
+// Object storage IAM regression tests run one provider per invocation: AWS or GCP.
+objectStorageIamProvider=""
+objectStorageIamEndpoint=""
+objectStorageIamRegion=""
+objectStorageIamBucket=""
+objectStorageIamPrefix="regression/object_storage_iam_p0"
+objectStorageIamDataPath="regression/tpch/sf0.01/customer.csv.gz"
+// AWS authentication.
+objectStorageIamAwsRoleArn=""
+objectStorageIamAwsExternalId=""
+// GCP authentication. Credential provider types are comma-separated DEFAULT and/or
+// COMPUTE_ENGINE. DEFAULT also tests omitted authentication properties; leaving both GCP
+// settings empty tests only omitted properties. A non-empty account adds COMPUTE_ENGINE
+// impersonation. The IAM data fixture must be private so anonymous reads can be rejected.
+objectStorageIamGcpCredentialProviderTypes=""
+objectStorageIamGcpImpersonationServiceAccount=""
+// Optional public GCS fixture for anonymous TVF reads: gzip CSV with a '|' separator.
+// Configure a gs:// URI and its positive row count to enable test_gcp_tvf_anonymous.
+// This public fixture must differ from the private objectStorageIamDataPath fixture.
+objectStorageIamGcpAnonymousUri=""
+objectStorageIamGcpAnonymousExpectedRows=""
 
 // hudi p0 external regression test config
 // To enable hudi test, you need first start hudi container.

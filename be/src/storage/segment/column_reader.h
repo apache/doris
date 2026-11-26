@@ -27,13 +27,13 @@
 #include <functional>
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"            // for Status
 #include "core/column/column_array.h" // ColumnArray
@@ -47,6 +47,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/segment/column_iterator_options.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
@@ -69,6 +70,7 @@ class StorageReadOptions;
 
 namespace io {
 class FileReader;
+class ReadAheadRangeBuffer;
 } // namespace io
 struct Slice;
 struct StringRef;
@@ -87,6 +89,7 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
+struct ColumnReadAheadHint;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -97,31 +100,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-
-    // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
-    // of reading on-disk data. Used for read-time-filled constant columns (e.g.
-    // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
-    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
-    std::optional<Field> const_value = std::nullopt;
-};
-
-struct ColumnIteratorOptions {
-    bool use_page_cache = false;
-    bool is_predicate_column = false;
-    // for page cache allocation
-    // page types are divided into DATA_PAGE & INDEX_PAGE
-    // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
-    io::FileReader* file_reader = nullptr; // Ref
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr; // Ref
-    io::IOContext io_ctx;
-    bool only_read_offsets = false;
-
-    void sanity_check() const {
-        CHECK_NOTNULL(file_reader);
-        CHECK_NOTNULL(stats);
-    }
 };
 
 class ColumnIterator;
@@ -160,25 +138,29 @@ public:
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                    std::shared_ptr<ColumnReader>* reader);
 
-    enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
+    enum class DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     static bool is_compaction_reader_type(ReaderType type);
 
     ~ColumnReader() override;
 
+    // Checks this reader and its owned readers without changing their local status.
+    // Does not perform IO. Call without holding the column-reader cache mutex.
+    virtual Status healthy_status() const;
+
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                const StorageReadOptions*);
+                                const StorageReadOptions*, bool enable_read_ahead = false);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
-    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta, const std::string& rowset_id,
-                              uint32_t segment_id, size_t rows_of_segment,
-                              std::unique_ptr<IndexIterator>* iterator);
+    virtual Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                      const TabletIndex* index_meta, const std::string& rowset_id,
+                                      uint32_t segment_id, size_t rows_of_segment,
+                                      std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -188,7 +170,8 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec) const;
+                     BlockCompressionCodec* codec,
+                     io::ReadAheadRangeBuffer* read_ahead = nullptr) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -264,6 +247,28 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
+    // Only wrap initialization of cached state. Iterator-local read failures
+    // must not poison this reader. Preserve exceptions after recording them.
+    template <typename Fn>
+    Status _load_with_health_check(Fn&& load) {
+        try {
+            auto status = load();
+            _healthy_status.update(status);
+            return status;
+        } catch (const doris::Exception& e) {
+            _healthy_status.update(e.to_status());
+            throw;
+        } catch (const std::exception& e) {
+            _healthy_status.update(Status::InternalError(
+                    "Exception while initializing cached column reader: {}", e.what()));
+            throw;
+        } catch (...) {
+            _healthy_status.update(Status::InternalError(
+                    "Unknown exception while initializing cached column reader"));
+            throw;
+        }
+    }
+
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
@@ -297,6 +302,7 @@ private:
     CompressionTypePB _meta_compression;
 
     ColumnReaderOptions _opts;
+    AtomicStatus _healthy_status;
     uint64_t _num_rows;
 
     io::FileReaderSPtr _file_reader;
@@ -420,6 +426,8 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
+    virtual Status prepare_read_ahead(const ColumnReadAheadHint& hint) { return Status::OK(); }
+
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
@@ -542,7 +550,11 @@ protected:
     // Normalize the wire encoding, strip this iterator's column name, and explicitly partition
     // paths consumed by this iterator from paths that must be routed to descendants. This helper is
     // intentionally side-effect free; callers apply DATA/predicate read requirements explicitly.
-    Result<AccessPathSplit> _split_access_paths(TColumnAccessPaths access_paths) const;
+    // owns_offset_meta tells whether this iterator has current-level offsets. When it does not
+    // (Struct), a legacy OFFSET tail is a data field named "offset" and stays a descendant path,
+    // and a typed META OFFSET request is an FE/BE contract violation.
+    Result<AccessPathSplit> _split_access_paths(TColumnAccessPaths access_paths,
+                                                bool owns_offset_meta) const;
     ColumnIteratorOptions _opts;
 
     ReadRequirement _read_requirement {ReadRequirement::NORMAL};
@@ -604,6 +616,16 @@ public:
             PrefetcherInitMethod init_method) override;
 
 protected:
+    struct PageReadContext {
+        io::ReadAheadRangeBuffer* buffer {nullptr};
+        bool retry_on_error {false};
+    };
+
+    // Called synchronously at every physical data-page load, including dictionary inspection
+    // during init() and page transitions inside a batch. No worker invokes these hooks.
+    virtual PageReadContext _before_page_read(int32_t page_index) { return {}; }
+    virtual void _after_page_read(int32_t page_index, const PagePointer& page) {}
+
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
     // query column metadata such as the storage field type.
     const std::shared_ptr<ColumnReader>& get_reader() const { return _reader; }
@@ -656,7 +678,7 @@ public:
 // reading for string/binary column types. When the OFFSET path is detected in set_access_paths, it
 // sets only_read_offsets on the ColumnIteratorOptions so that the BinaryPlainPageDecoder skips
 // chars memcpy and only fills offsets.
-class StringFileColumnIterator final : public FileColumnIterator {
+class StringFileColumnIterator : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -928,6 +950,49 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
+// Reads COMPACTION_ROWID_COL by synthesizing the physical source RowLocation during compaction.
+// Its payload is RowLocation, distinct from the query-facing GlobalRowLoacationV2 format.
+class CompactionRowIdColumnIterator : public ColumnIterator {
+public:
+    CompactionRowIdColumnIterator(RowsetId rowset_id, uint32_t segment_id)
+            : _rowset_id(rowset_id), _segment_id(segment_id) {}
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = cast_set<uint32_t>(ord_idx);
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        for (size_t i = 0; i < *n; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(_current_rowid + i));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        _current_rowid += *n;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        for (size_t i = 0; i < count; ++i) {
+            RowLocation location(_rowset_id, _segment_id, cast_set<uint32_t>(rowids[i]));
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(RowLocation));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    uint32_t _current_rowid = 0;
+    RowsetId _rowset_id;
+    uint32_t _segment_id = 0;
+};
+
 class RowIdColumnIteratorV2 : public ColumnIterator {
 public:
     RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
@@ -957,62 +1022,8 @@ private:
     uint32_t _file_id;
 };
 
-// This iterator is used to read default value column
-class DefaultValueColumnIterator : public ColumnIterator {
-public:
-    DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               FieldType type, int precision, int scale, int len)
-            : _has_default_value(has_default_value),
-              _default_value(std::move(default_value)),
-              _is_nullable(is_nullable),
-              _type(type),
-              _precision(precision),
-              _scale(scale),
-              _len(len) {}
-
-    Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
-
-    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override {
-        return next_batch(n, dst);
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override;
-
-    ordinal_t get_current_ordinal() const override { return _current_rowid; }
-
-private:
-    void _insert_many_default(MutableColumnPtr& dst, size_t n);
-
-    bool _has_default_value;
-    std::string _default_value;
-    bool _is_nullable;
-    FieldType _type;
-    int _precision;
-    int _scale;
-    const int _len;
-    Field _default_value_field;
-
-    // current rowid
-    ordinal_t _current_rowid = 0;
-};
-
-// Produces a column whose every row is the same constant Field value.
-// Used for read-time-filled constant hidden columns (e.g. __DORIS_COMMIT_TSO_COL__),
-// where the on-disk value is only a placeholder and the real value comes from the read
-// context (StorageReadOptions).
+// Produces a column whose every row is the same request-scoped constant Field value.
+// It is created directly by Segment and never stored in ColumnReaderCache.
 class ConstantColumnIterator : public ColumnIterator {
 public:
     ConstantColumnIterator() = delete;
@@ -1029,6 +1040,12 @@ public:
     }
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, *n);
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
         *has_null = _value.is_null();
         Status st = _insert_many(dst, *n);
         if (!st.ok()) {
@@ -1044,6 +1061,12 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, count);
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
         return _insert_many(dst, count);
     }
 
@@ -1059,6 +1082,10 @@ private:
             dst->insert_many_defaults(n);
             return Status::OK();
         }
+        // Query predicates may allocate ColumnDictI32 for strings. For example, evaluating
+        // `city = 'Paris'` on an old segment whose added `city` column defaults to "Paris" must
+        // materialize a ColumnString before inserting the default Field.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         dst->insert_duplicate_fields(_value, n);
         return Status::OK();
     }
@@ -1067,38 +1094,64 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-// A ColumnReader that represents a single constant value for the whole segment instead of reading
-// on-disk data. Used for read-time-filled constant columns (e.g. __DORIS_COMMIT_TSO_COL__) on a
-// single-version segment, whose on-disk zonemap only reflects the placeholder. It advertises a
-// single-value [v, v] zonemap so segment-level pruning matches against the real value, and produces
-// a ConstantColumnIterator for data reads.
+// A request-scoped ColumnReader that represents one constant value for the whole segment instead
+// of reading on-disk data. For example, an old segment after `ADD COLUMN city DEFAULT 'Paris'`
+// uses [Paris, Paris] as its zonemap and produces "Paris" without caching that request's reader.
 class ConstantColumnReader : public ColumnReader {
 public:
-    explicit ConstantColumnReader(Field value) : _value(std::move(value)) {}
+    explicit ConstantColumnReader(Field value, FieldType meta_type)
+            : _value(std::move(value)), _schema_type(meta_type) {
+        // A null Field still needs its schema type. For example, an old segment after adding a
+        // nullable BIGINT column has value NULL but must report BIGINT to the read pipeline.
+        if (_schema_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN ||
+            _schema_type == FieldType::OLAP_FIELD_TYPE_NONE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "constant field type {} is not valid",
+                            static_cast<int>(_schema_type));
+        }
+        if (!_value.is_null()) {
+            const auto field_type = primitive_type_to_storage_field_type(_value.get_type());
+            // String SerDe stores CHAR/VARCHAR defaults in a TYPE_STRING Field. For example,
+            // VARCHAR DEFAULT 'Paris' is represented as STRING even though the schema remains
+            // VARCHAR, so validate the compatible string family instead of exact enum identity.
+            const bool compatible_string_types =
+                    is_string_type(field_type) && is_string_type(_schema_type);
+            if (field_type != _schema_type && !compatible_string_types) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "constant field type {} does not match schema type {}",
+                                static_cast<int>(_value.get_type()),
+                                static_cast<int>(_schema_type));
+            }
+        }
+    }
 
     bool has_zone_map() const override { return true; }
 
-    // The base ColumnReader default-constructs without initializing its _meta_type. The data-read
-    // path (Segment::new_column_iterator) verifies tablet_column.type() == reader->get_meta_type()
-    // when config::enable_column_type_check is on (default true), so derive the real OLAP type from
-    // the constant value to avoid a spurious "different type between schema and column reader" error.
-    FieldType get_meta_type() override {
-        return primitive_type_to_storage_field_type(_value.get_type());
-    }
+    FieldType get_meta_type() override { return _schema_type; }
 
     Status match_condition(const AndBlockColumnPredicate* col_predicates,
                            bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
-                        const StorageReadOptions* /*opt*/) override {
+                        const StorageReadOptions* /*opt*/,
+                        bool /*enable_read_ahead*/ = false) override {
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }
 
     Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const override;
 
+    // For example, an index added together with `city DEFAULT 'Paris'` has no index file in an old
+    // segment; nullptr tells the caller to evaluate the constant value instead.
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>&, const TabletIndex*,
+                              const std::string&, uint32_t, size_t,
+                              std::unique_ptr<IndexIterator>* iterator) override {
+        *iterator = nullptr;
+        return Status::OK();
+    }
+
 private:
     Field _value;
+    FieldType _schema_type;
 };
 
 } // namespace segment_v2

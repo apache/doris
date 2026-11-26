@@ -17,9 +17,21 @@
 
 package org.apache.iceberg;
 
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.ScanMetrics;
+import org.apache.iceberg.util.ContentFileUtil;
+
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /** A data-table scan that keeps partition specs bound to the scan's schema. */
 public final class SchemaAwareDataTableScan extends DataTableScan {
@@ -29,17 +41,130 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     }
 
     public static TableScan newScan(Table table) {
-        return new SchemaAwareDataTableScan(table, table.schema(), TableScanContext.empty());
+        // Inherit the context of the table's own scan: it carries the table's metrics reporter (for example a REST
+        // catalog's scan reports), so a historical scan reports like a current one. A catalog-specific Table may
+        // return its own scan type; such a table keeps the plain context it had before.
+        TableScan tableScan = table.newScan();
+        TableScanContext context = tableScan instanceof DataTableScan
+                ? ((DataTableScan) tableScan).context() : TableScanContext.empty();
+        return new SchemaAwareDataTableScan(table, table.schema(), context);
     }
 
-    /** Returns every table spec rebound to {@code schema}. */
-    public static Map<Integer, PartitionSpec> specsFor(Table table, Schema schema) {
+    /**
+     * Gives native local manifest planning a request-local FileIO, preserving the complete scan context.
+     * Custom tables/scans may implement different planning semantics and must keep their original behavior.
+     */
+    public static Optional<TableScan> withFileIO(TableScan scan, UnaryOperator<FileIO> wrapIO,
+            ExecutorService executor) {
+        if (!supportsLocalManifestPlanning(scan)) {
+            return Optional.empty();
+        }
+        BaseTable table = (BaseTable) scan.table();
+        FileIO io = wrapIO.apply(table.io());
+        Table view = new BaseTable(table.operations(), table.name(), table.reporter(), table.labels()) {
+            @Override
+            public FileIO io() {
+                return io;
+            }
+        };
+        DataTableScan nativeScan = (DataTableScan) scan;
+        // schema() may be a projection excluding predicate columns. Keep the original binding schema too.
+        TableScan scoped = scan.getClass() == SchemaAwareDataTableScan.class
+                ? new SchemaAwareDataTableScan(view, nativeScan.tableSchema(), nativeScan.context())
+                : new DataTableScan(view, nativeScan.tableSchema(), nativeScan.context());
+        // An explicit planWith would override the SDK's plan-in-worker-pool=false setting.
+        return Optional.of(nativeScan.shouldPlanWithExecutor() ? scoped.planWith(executor) : scoped);
+    }
+
+    /** Only native data scans can be replaced by local manifest planning without losing custom semantics. */
+    public static boolean supportsLocalManifestPlanning(TableScan scan) {
+        return (scan.getClass() == DataTableScan.class || scan.getClass() == SchemaAwareDataTableScan.class)
+                && scan.table().getClass() == BaseTable.class;
+    }
+
+    /** Preserve the native scan's requested manifest columns, including explicit column statistics. */
+    public static List<String> manifestColumns(TableScan scan) {
+        return ((DataTableScan) scan).scanColumns();
+    }
+
+    /** Separate predicate-read statistics, window retention and the native task's requested statistics. */
+    public static DataFileProjection dataFileProjection(TableScan scan, Set<Integer> equalityFields,
+            boolean hasPredicate) {
+        return new DataFileProjection((DataTableScan) scan, equalityFields, hasPredicate);
+    }
+
+    /** Immutable per-scan projection; equality keys remain available until delete association completes. */
+    public static final class DataFileProjection {
+        private final List<String> manifestColumns;
+        private final boolean keepWindowStats;
+        private final Set<Integer> windowStatColumns;
+        private final boolean keepTaskStats;
+        private final Set<Integer> taskStatColumns;
+        private final boolean needsTaskCopy;
+
+        private DataFileProjection(DataTableScan scan, Set<Integer> equalityFields, boolean hasPredicate) {
+            keepTaskStats = scan.shouldReturnColumnStats();
+            Set<Integer> requested = keepTaskStats ? scan.columnsToKeepStats() : Collections.emptySet();
+            taskStatColumns = requested == null ? null : Set.copyOf(requested);
+            manifestColumns = (hasPredicate || !equalityFields.isEmpty()) && !keepTaskStats
+                    ? ManifestReader.withStatsColumns(scan.scanColumns()) : scan.scanColumns();
+            keepWindowStats = keepTaskStats || !equalityFields.isEmpty();
+            if (taskStatColumns == null) {
+                // A null native selection with returnColumnStats=true explicitly requests every column.
+                windowStatColumns = null;
+                needsTaskCopy = false;
+            } else {
+                Set<Integer> retained = new HashSet<>(taskStatColumns);
+                retained.addAll(equalityFields);
+                windowStatColumns = Set.copyOf(retained);
+                needsTaskCopy = !taskStatColumns.containsAll(equalityFields);
+            }
+        }
+
+        public List<String> manifestColumns() {
+            return manifestColumns;
+        }
+
+        public DataFile copyForManifest(DataFile file) {
+            return ContentFileUtil.copy(file, keepWindowStats, windowStatColumns);
+        }
+
+        public DataFile forTask(DataFile file) {
+            return needsTaskCopy ? ContentFileUtil.copy(file, keepTaskStats, taskStatColumns) : file;
+        }
+    }
+
+    /** Reuse the native ScanEvent, planning timer and close-time table reporter around local planning. */
+    public static CloseableIterable<FileScanTask> planFilesWithLocalPlanner(TableScan scan,
+            Function<ScanMetrics, CloseableIterable<FileScanTask>> planner) {
+        DataTableScan nativeScan = (DataTableScan) scan;
+        return new DataTableScan(scan.table(), nativeScan.tableSchema(), nativeScan.context()) {
+            @Override
+            public CloseableIterable<FileScanTask> doPlanFiles() {
+                return planner.apply(scanMetrics());
+            }
+        }.planFiles();
+    }
+
+    /** Returns the selected snapshot's specs bound to the scan schema. */
+    public static Map<Integer, PartitionSpec> specsFor(TableScan scan) {
+        Table table = scan.table();
+        Schema schema = scan.schema();
+        Map<Integer, PartitionSpec> tableSpecs = table.specs();
         if (schema.sameSchema(table.schema())) {
-            return table.specs();
+            return tableSpecs;
         }
 
         Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
-        table.specs().forEach((id, spec) -> specs.put(id, spec.toUnbound().bind(schema, true)));
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot != null) {
+            // Later, unused specs can have partition names that conflict with historical columns.
+            // Bind only specs referenced by this snapshot, including those needed for delete files.
+            for (ManifestFile manifest : snapshot.allManifests(table.io())) {
+                specs.computeIfAbsent(manifest.partitionSpecId(),
+                        id -> tableSpecs.get(id).toUnbound().bind(schema, true));
+            }
+        }
         return Collections.unmodifiableMap(specs);
     }
 
@@ -47,7 +172,7 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     protected Map<Integer, PartitionSpec> specs() {
         // A metadata-only schema commit preserves the current snapshot ID, so schema identity—not snapshot
         // identity—must decide whether historical partition specs need rebinding.
-        return specsFor(table(), tableSchema());
+        return specsFor(this);
     }
 
     @Override

@@ -27,8 +27,11 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.datasource.split.SplitWeight;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -62,11 +65,15 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.IntUnaryOperator;
 import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
@@ -82,6 +89,7 @@ public class FederationBackendPolicy {
     }
 
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
+    private final NavigableMap<Long, Integer> assignedWeightCounts = new TreeMap<>();
 
     protected ConsistentHash<Split, Backend> consistentHash;
 
@@ -90,6 +98,8 @@ public class FederationBackendPolicy {
 
     private NodeSelectionStrategy nodeSelectionStrategy;
     private boolean enableSplitsRedistribution = true;
+    private final int consistentHashSpreadNum;
+    private final IntUnaryOperator randomIndex;
 
     // Create a ConsistentHash ring may be a time-consuming operation, so we cache it.
     private static LoadingCache<HashCacheKey, ConsistentHash<Split, Backend>> consistentHashCache;
@@ -142,7 +152,20 @@ public class FederationBackendPolicy {
     }
 
     public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy) {
+        this(nodeSelectionStrategy, 1);
+    }
+
+    public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum) {
+        this(nodeSelectionStrategy, consistentHashSpreadNum, bound -> ThreadLocalRandom.current().nextInt(bound));
+    }
+
+    @VisibleForTesting
+    FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum,
+            IntUnaryOperator randomIndex) {
+        Preconditions.checkArgument(consistentHashSpreadNum >= 0, "consistentHashSpreadNum must be at least 0");
         this.nodeSelectionStrategy = nodeSelectionStrategy;
+        this.consistentHashSpreadNum = consistentHashSpreadNum;
+        this.randomIndex = randomIndex;
     }
 
     public FederationBackendPolicy() {
@@ -157,6 +180,31 @@ public class FederationBackendPolicy {
     }
 
     public void init(List<String> preLocations) throws UserException {
+        ComputeGroup computeGroup = queryComputeGroup();
+        init(computeGroup, preLocations.isEmpty() ? getQueryAvailableBackends(computeGroup)
+                : queryBackendPolicy(preLocations).getCandidateBackends(computeGroup.getBackendList()));
+    }
+
+    public static List<Backend> getQueryAvailableBackends() throws UserException {
+        return getQueryAvailableBackends(queryComputeGroup());
+    }
+
+    private static List<Backend> getQueryAvailableBackends(ComputeGroup computeGroup) {
+        ConnectContext context = ConnectContext.get();
+        StatementContext statement = context == null ? null : context.getStatementContext();
+        ConnectorStatementScope scope = statement == null ? ConnectorStatementScope.NONE
+                : statement.getOrCreateConnectorStatementScope();
+        // The untagged root/admin group has no addressable ID, but is one stable selection domain.
+        String groupId = computeGroup instanceof AllBackendComputeGroup
+                ? AllBackendComputeGroup.class.getSimpleName() : computeGroup.getId();
+        String key = "engine:external-scan-backends:" + computeGroup.getClass().getName() + ":" + groupId;
+        // Selection can randomly fill a compute-node deficit with mixed nodes. Admission and every default
+        // scan must reuse that result within the statement, while capability checks continue to read live state.
+        return scope.computeIfAbsentForPlanning(key, () -> List.copyOf(queryBackendPolicy(Collections.emptyList())
+                .getCandidateBackends(computeGroup.getBackendList())));
+    }
+
+    private static BeSelectionPolicy queryBackendPolicy(List<String> preLocations) {
         // scan node is used for query
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder();
         builder.needQueryAvailable()
@@ -164,10 +212,40 @@ public class FederationBackendPolicy {
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations);
-        init(builder.build());
+        return builder.build();
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
+        ComputeGroup computeGroup = queryComputeGroup();
+        init(computeGroup, policy.getCandidateBackends(computeGroup.getBackendList()));
+    }
+
+    private void init(ComputeGroup computeGroup, List<Backend> candidates) throws UserException {
+        backends.addAll(candidates);
+        if (backends.isEmpty()) {
+            if (Config.isCloudMode()) {
+                throw new UserException("No available backends, "
+                        + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+            } else {
+                throw new UserException("No available backends for compute group: " + computeGroup.toString());
+            }
+        }
+        assignedWeightPerBackend.clear();
+        assignedWeightCounts.clear();
+        backendMap.clear();
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
+        for (Backend backend : backends) {
+            setAssignedWeight(backend, 0L);
+        }
+
+        try {
+            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+        } catch (ExecutionException e) {
+            throw new UserException("failed to get consistent hash", e);
+        }
+    }
+
+    private static ComputeGroup queryComputeGroup() throws UserException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
             if (Config.isCloudMode()) {
@@ -182,25 +260,7 @@ public class FederationBackendPolicy {
             throw new LoadException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
         }
 
-        backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
-        if (backends.isEmpty()) {
-            if (Config.isCloudMode()) {
-                throw new UserException("No available backends, "
-                        + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
-            } else {
-                throw new UserException("No available backends for compute group: " + computeGroup.toString());
-            }
-        }
-        for (Backend backend : backends) {
-            assignedWeightPerBackend.put(backend, 0L);
-        }
-
-        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
-        try {
-            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
-        } catch (ExecutionException e) {
-            throw new UserException("failed to get consistent hash", e);
-        }
+        return computeGroup;
     }
 
     public Backend getNextBe() {
@@ -209,10 +269,21 @@ public class FederationBackendPolicy {
         return selectedBackend;
     }
 
-    /** Replace only the round-robin order; candidate membership and backend metadata remain unchanged. */
+    /**
+     * Replace the round-robin order with a non-empty subset of the initialized candidates.
+     * Load backend selection may intentionally retain only preferred candidates.
+     */
     public void replaceBackendOrder(List<Backend> orderedBackends) {
+        Preconditions.checkState(nodeSelectionStrategy == NodeSelectionStrategy.ROUND_ROBIN,
+                "backend order can only be replaced for round-robin selection");
+        Preconditions.checkArgument(!orderedBackends.isEmpty()
+                        && new LinkedHashSet<>(orderedBackends).size() == orderedBackends.size()
+                        && new LinkedHashSet<>(backends).containsAll(orderedBackends),
+                "ordered backends must be a non-empty subset of the initialized candidates");
         backends.clear();
         backends.addAll(orderedBackends);
+        backendMap.clear();
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         nextBe = 0;
     }
 
@@ -233,12 +304,26 @@ public class FederationBackendPolicy {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
         Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
-        List<Split> remainingSplits;
-
-        List<Backend> backends = new ArrayList<>();
-        for (List<Backend> backendList : backendMap.values()) {
-            backends.addAll(backendList);
+        if (backends.size() == 1 && splits.stream().allMatch(Split::isRemotelyAccessible)) {
+            // Every remotely readable split has the same owner. Avoid per-split hashing,
+            // candidate allocation and weight-map updates under the batch assignment lock.
+            // Local-only splits still need the locality checks in the general path below.
+            Backend backend = backends.get(0);
+            boolean alternativesUsed = !isSpreadEnabled();
+            long weight = 0;
+            for (Split split : splits) {
+                weight = Math.addExact(weight, split.getSplitWeight().getRawValue());
+                if (alternativesUsed) {
+                    split.setAlternativeHosts(Collections.emptyList());
+                }
+            }
+            assignment.putAll(backend, splits);
+            if (!splits.isEmpty()) {
+                addAssignedWeight(backend, weight);
+            }
+            return assignment;
         }
+        List<Split> remainingSplits;
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
@@ -252,11 +337,18 @@ public class FederationBackendPolicy {
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
 
-                    if (chosenNode.isPresent()) {
+                    // A host hint is a local preference for remotely readable splits. In spread mode, do not
+                    // let a repeated hint monopolize one backend while other eligible backends are idle.
+                    boolean localNodeIsWithinGlobalMinimum = chosenNode.isPresent();
+                    if (localNodeIsWithinGlobalMinimum && isSpreadEnabled()) {
+                        long minimumAssignedWeight = assignedWeightCounts.firstKey();
+                        localNodeIsWithinGlobalMinimum = assignedWeightPerBackend.get(chosenNode.get())
+                                <= minimumAssignedWeight;
+                    }
+                    if (localNodeIsWithinGlobalMinimum) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
-                        assignedWeightPerBackend.put(selectedBackend,
-                                assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+                        addAssignedWeight(selectedBackend, split.getSplitWeight().getRawValue());
                         continue;
                     }
                 }
@@ -280,12 +372,25 @@ public class FederationBackendPolicy {
                     }
                     case RANDOM: {
                         randomCandidates.reset();
-                        candidateNodes = selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
+                        candidateNodes = consistentHashSpreadNum == 0 ? backends
+                                : selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
                         break;
                     }
                     case CONSISTENT_HASHING: {
-                        candidateNodes = consistentHash.getNode(split,
-                                Config.split_assigner_min_consistent_hash_candidate_num);
+                        if (consistentHashSpreadNum == 0) {
+                            candidateNodes = backends;
+                        } else {
+                            if (isSpreadEnabled()) {
+                                int candidateCount = Math.min(consistentHashSpreadNum, backends.size());
+                                candidateNodes = candidateCount >= backends.size() ? backends
+                                        : consistentHash.getNode(split, candidateCount);
+                            } else {
+                                // The ring cannot find more candidates than eligible physical backends.
+                                candidateNodes = consistentHash.getNode(split,
+                                        Math.min(Config.split_assigner_min_consistent_hash_candidate_num,
+                                                backends.size()));
+                            }
+                        }
                         break;
                     }
                     default: {
@@ -301,17 +406,22 @@ public class FederationBackendPolicy {
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
-            Backend selectedBackend = chooseNodeForSplit(candidateNodes);
-            List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
-            alternativeBackends.remove(selectedBackend);
-            split.setAlternativeHosts(
-                    alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            Backend selectedBackend = isSpreadEnabled() && split.isRemotelyAccessible()
+                    ? chooseNodeForSpread(candidateNodes) : chooseNodeForSplit(candidateNodes);
+            // Alternative hosts are used only by global redistribution, which spread mode disables.
+            if (!isSpreadEnabled()) {
+                List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
+                alternativeBackends.remove(selectedBackend);
+                split.setAlternativeHosts(
+                        alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            }
             assignment.put(selectedBackend, split);
-            assignedWeightPerBackend.put(selectedBackend,
-                    assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+            addAssignedWeight(selectedBackend, split.getSplitWeight().getRawValue());
         }
 
-        if (enableSplitsRedistribution) {
+        // Global redistribution can move a split outside its hash candidates or its locality constraints.
+        // The spread mode balances weights within each split's candidates during initial assignment instead.
+        if (enableSplitsRedistribution && !isSpreadEnabled()) {
             equateDistribution(assignment);
         }
         return assignment;
@@ -329,10 +439,15 @@ public class FederationBackendPolicy {
             return;
         }
 
-        List<Backend> allNodes = new ArrayList<>();
-        for (List<Backend> backendList : backendMap.values()) {
-            allNodes.addAll(backendList);
+        // Small streaming batches usually keep the accumulated weights within the allowed variance.
+        // Avoid rebuilding both priority queues when their first comparison would already stop redistribution.
+        if (assignedWeightCounts.lastKey() - assignedWeightCounts.firstKey()
+                <= SplitWeight.rawValueForStandardSplitCount(Config.split_assigner_max_split_num_variance)) {
+            return;
         }
+
+        List<Backend> allNodes = new ArrayList<>();
+        allNodes.addAll(backends);
         Collections.sort(allNodes, Comparator.comparing(Backend::getId));
 
         if (allNodes.size() < 2) {
@@ -370,10 +485,8 @@ public class FederationBackendPolicy {
             // move split from max to min
             Split redistributedSplit = redistributeSplit(assignment, maxNode, minNode);
 
-            assignedWeightPerBackend.put(maxNode,
-                    assignedWeightPerBackend.get(maxNode) - redistributedSplit.getSplitWeight().getRawValue());
-            assignedWeightPerBackend.put(minNode, Math.addExact(
-                    assignedWeightPerBackend.get(minNode), redistributedSplit.getSplitWeight().getRawValue()));
+            addAssignedWeight(maxNode, -redistributedSplit.getSplitWeight().getRawValue());
+            addAssignedWeight(minNode, redistributedSplit.getSplitWeight().getRawValue());
 
             // add max back into maxNodes only if it still has assignments
             if (assignment.containsKey(maxNode)) {
@@ -484,6 +597,50 @@ public class FederationBackendPolicy {
         return chosenNode;
     }
 
+    private boolean isSpreadEnabled() {
+        return (nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum != 1)
+                || (nodeSelectionStrategy == NodeSelectionStrategy.RANDOM && consistentHashSpreadNum == 0);
+    }
+
+    private void setAssignedWeight(Backend backend, long weight) {
+        Long previousWeight = assignedWeightPerBackend.put(backend, weight);
+        if (previousWeight != null) {
+            decrementWeightCount(previousWeight);
+        }
+        assignedWeightCounts.merge(weight, 1, Integer::sum);
+    }
+
+    private void addAssignedWeight(Backend backend, long delta) {
+        setAssignedWeight(backend, Math.addExact(assignedWeightPerBackend.get(backend), delta));
+    }
+
+    private void decrementWeightCount(long weight) {
+        int count = assignedWeightCounts.get(weight);
+        if (count == 1) {
+            assignedWeightCounts.remove(weight);
+        } else {
+            assignedWeightCounts.put(weight, count - 1);
+        }
+    }
+
+    private Backend chooseNodeForSpread(List<Backend> candidateNodes) {
+        Backend chosenNode = null;
+        long minWeight = Long.MAX_VALUE;
+        int tiedNodes = 0;
+        for (Backend node : candidateNodes) {
+            long queuedWeight = assignedWeightPerBackend.get(node);
+            if (queuedWeight < minWeight) {
+                chosenNode = node;
+                minWeight = queuedWeight;
+                tiedNodes = 1;
+            } else if (queuedWeight == minWeight && randomIndex.applyAsInt(++tiedNodes) == 0) {
+                // Reservoir sampling gives every node with the minimum weight the same probability.
+                chosenNode = node;
+            }
+        }
+        return chosenNode;
+    }
+
     public int numBackends() {
         return backends.size();
     }
@@ -502,7 +659,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getSplitIdentity().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }

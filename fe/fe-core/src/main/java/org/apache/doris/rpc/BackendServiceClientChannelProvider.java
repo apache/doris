@@ -26,5 +26,18 @@ import java.util.concurrent.Executor;
 public interface BackendServiceClientChannelProvider {
     ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor);
 
-    long currentConfigVersion();
+    default ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
+        // Preserve custom providers' existing endpoint policy until they opt into purpose selection.
+        return createChannel(address, resolvedIp, executor);
+    }
+
+    /** Whether independent catalog workers can exchange data and report status to this coordinator. */
+    default boolean supportsRemoteWorkers() {
+        return true;
+    }
+
+    default boolean supportsPrivateFileKeys() {
+        return false;
+    }
 }

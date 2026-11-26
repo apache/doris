@@ -51,6 +51,11 @@ public:
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_simdjson(IColumn& column, simdjson::ondemand::value& value,
+                                              const FormatOptions& options,
+                                              SimdJsonReadContext& context,
+                                              const std::string& column_name) const override;
+
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
 
@@ -82,6 +87,16 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                        const IColumn& column, const NullMap* null_map,
+                                        const std::shared_ptr<arrow::Field>& field,
+                                        arrow::ArrayBuilder* array_builder, int64_t start,
+                                        int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>& field,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
     Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
@@ -107,7 +122,8 @@ public:
     }
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override {
         return {key_serde, value_serde};

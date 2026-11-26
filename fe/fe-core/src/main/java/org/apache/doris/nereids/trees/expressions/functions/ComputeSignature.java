@@ -108,8 +108,8 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
         return ComputeSignatureChain.from(this, signature, getArguments())
-                .then(ComputeSignatureHelper::implementAnyDataTypeWithOutIndex)
-                .then(ComputeSignatureHelper::implementAnyDataTypeWithIndex)
+                .then((cs, sig, args) -> ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(cs, sig, args))
+                .then((cs, sig, args) -> ComputeSignatureHelper.implementAnyDataTypeWithIndex(cs, sig, args))
                 .then(ComputeSignatureHelper::computePrecision)
                 .then(ComputeSignatureHelper::implementFollowToArgumentReturnType)
                 .then(ComputeSignatureHelper::normalizeDecimalV2)

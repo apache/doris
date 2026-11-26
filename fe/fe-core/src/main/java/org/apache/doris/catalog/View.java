@@ -169,6 +169,7 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
         originalViewDef = "";
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();

@@ -17,6 +17,7 @@
 
 #include "exec/operator/nested_loop_join_build_operator.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "exec/operator/operator.h"
@@ -83,14 +84,16 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 
 Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::prepare(state));
-    size_t num_build_tuples =
-            _child->operator_row_desc_after_projection().tuple_descriptors().size();
-
-    for (size_t i = 0; i < num_build_tuples; ++i) {
-        TupleDescriptor* build_tuple_desc =
-                _child->operator_row_desc_after_projection().tuple_descriptors()[i];
-        auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
-        RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
+    const auto& row_tuples = _row_descriptor.tuple_descriptors();
+    for (const auto* build_tuple_desc :
+         _child->operator_row_desc_after_projection().tuple_descriptors()) {
+        if (std::none_of(row_tuples.begin(), row_tuples.end(),
+                         [tuple_id = build_tuple_desc->id()](const auto* tuple_desc) {
+                             return tuple_desc->id() == tuple_id;
+                         })) {
+            return Status::InternalError("build tuple id {} is not part of the row descriptor",
+                                         build_tuple_desc->id());
+        }
     }
     RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state,
                                    _child->operator_row_desc_after_projection()));

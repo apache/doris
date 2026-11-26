@@ -31,12 +31,16 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/get_least_supertype.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/field_type.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -229,7 +233,8 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                     JsonbWriter& writer) const {
+                                                     JsonbWriter& writer,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(from_column);
     const auto& offsets = data_column.get_offsets();
 
@@ -242,7 +247,7 @@ Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column,
     }
 
     for (size_t i = start; i < end; ++i) {
-        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer));
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer, options));
     }
     if (!writer.writeEndArray()) {
         return Status::InternalError("writeEndArray failed");
@@ -322,6 +327,77 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     return Status::OK();
 }
 
+namespace {
+
+template <typename WriteNested>
+Status write_array_column_to_target(const IColumn& column, const NullMap* null_map,
+                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                    WriteNested&& write_nested) {
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = array_column.get_offsets();
+    const auto& nested_data = array_column.get_data();
+    auto& builder = assert_cast<arrow::ListBuilder&>(*array_builder);
+    auto* nested_builder = builder.value_builder();
+    for (int64_t array_idx = start; array_idx < end; ++array_idx) {
+        if (null_map != nullptr && (*null_map)[array_idx]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
+        RETURN_IF_ERROR(write_nested(nested_data, nested_builder, offsets[array_idx - 1],
+                                     offsets[array_idx]));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeArraySerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::LIST ||
+        array_builder->type()->id() != arrow::Type::LIST) {
+        return Status::InvalidArgument("Paimon array writer requires an Arrow list field");
+    }
+    const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
+    const auto& nested_field = list_type.value_field();
+    return write_array_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return nested_serde->write_column_to_paimon_arrow(
+                        array_type.get_nested_type(), nested_data, nullptr, nested_field,
+                        nested_builder, nested_start, nested_end, ctz);
+            });
+}
+
+Status DataTypeArraySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::LIST ||
+        array_builder->type()->id() != arrow::Type::LIST) {
+        return Status::InvalidArgument("Iceberg array writer requires an Arrow list field");
+    }
+    const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
+    const auto& nested_field = list_type.value_field();
+    return write_array_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return nested_serde->write_column_to_iceberg_arrow(
+                        array_type.get_nested_type(), nested_data, nullptr, nested_field,
+                        nested_builder, nested_start, nested_end, ctz);
+            });
+}
+
 Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                   int64_t start, int64_t end,
                                                   const cctz::time_zone& ctz) const {
@@ -335,9 +411,19 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
             // Convert Arrow offsets to Doris offsets, starting at offsets.back().
             offsets_data.emplace_back(prev_size + read_offset(i) - arrow_nested_start_offset);
         }
-        return nested_serde->read_column_from_arrow(
-                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-                arrow_nested_end_offset, ctz);
+        // A NULL row still owns its child segment: always list_size values for a fixed-size
+        // list, possibly a non-empty one for a list. The values there are unspecified and are
+        // not decoded.
+        std::shared_ptr<arrow::Array> values;
+        RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+                *concrete_array, start, end, concrete_array->values(),
+                [&read_offset](int64_t row) {
+                    return std::pair<int64_t, int64_t>(read_offset(row), read_offset(row + 1));
+                },
+                &values));
+        return nested_serde->read_column_from_arrow(column_array.get_data(), values.get(),
+                                                    arrow_nested_start_offset,
+                                                    arrow_nested_end_offset, ctz);
     };
 
     switch (arrow_array->type_id()) {
@@ -717,6 +803,70 @@ Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_list_orc_values(nested_serde, column, view);
+}
+
+Status DataTypeArraySerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                             const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_ARRAY || !context.binding ||
+        context.binding->children.size() != 1) {
+        return Status::InvalidArgument("BSON ARRAY requires one pinned element binding");
+    }
+    bson_t document;
+    bson_iter_t it;
+    if (!bson_init_static(&document, value.value.value.v_doc.data,
+                          value.value.value.v_doc.data_len) ||
+        !bson_iter_init(&it, &document)) {
+        return Status::InvalidArgument("Invalid BSON array");
+    }
+    auto& target = assert_cast<ColumnArray&>(column);
+    auto& data = target.get_data();
+    const size_t before = data.size();
+    const size_t offsets_before = target.get_offsets().size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            if (data.size() > before) {
+                data.pop_back(data.size() - before);
+            }
+            target.get_offsets().resize(offsets_before);
+        }
+    });
+    size_t count = 0;
+    while (bson_iter_next(&it)) {
+        Status status = ++count > BsonDecodeContext::MAX_ELEMENTS
+                                ? Status::InvalidArgument("BSON array exceeds the element limit")
+                                : nested_serde->read_one_cell_from_bson(
+                                          data, BsonValueView::of(*bson_iter_value(&it)),
+                                          context.child(context.binding->children.data()));
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    target.get_offsets().push_back(data.size());
+    committed = true;
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    if (input.type().value() != simdjson::ondemand::json_type::array) {
+        return Status::DataQualityError("Json value isn't array, but the column `{}` is array.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnArray&>(column);
+    auto& data = target.get_data();
+
+    size_t field_count = 0;
+    for (simdjson::ondemand::value element : input.get_array()) {
+        RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
+                data, element, options, context, column_name + ".element"));
+        ++field_count;
+    }
+    auto& offsets = target.get_offsets();
+    offsets.push_back(offsets.back() + field_count);
+    return Status::OK();
 }
 
 } // namespace doris

@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_inverted_index_sc_version1_race', 'nonConcurrent,docker') {
+suite('test_inverted_index_sc_version1_race', 'docker') {
 
     def options = new ClusterOptions()
     options.cloudMode = true

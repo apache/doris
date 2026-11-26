@@ -1,0 +1,19 @@
+name: Code Review Dismissal
+run-name: Dismiss review ${{ github.event.review.id }} on PR ${{ github.event.pull_request.number }}
+
+on:
+  pull_request_review:
+    types: [dismissed]
+
+# Fork review events use an unprivileged token. The default-branch sync
+# workflow uses these IDs only to look up the actual dismissal on GitHub.
+permissions: {}
+
+jobs:
+  notify:
+    if: >-
+      github.event.review.user.login == 'github-actions[bot]' ||
+      (vars.DORIS_REVIEW_APP_BOT != '' && github.event.review.user.login == vars.DORIS_REVIEW_APP_BOT)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Requesting a code review status update.'

@@ -531,7 +531,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // key3 is in the sparse column, return variant type
-    StorageReadOptions type_opts;
+    StorageReadOptions type_opts(olap_reader_stats);
     type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     TabletColumn non_variant_column;
     non_variant_column.set_name("non_variant_column");
@@ -736,11 +736,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     // append data
     auto insert_object = ColumnVariantV2::create();
     fill_varaint_column(insert_object, 1, 1);
-    std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
-    _variant_column_data->column_data = insert_object.get();
-    _variant_column_data->row_pos = 0;
-    const uint8_t* data = (const uint8_t*)_variant_column_data.get();
-    EXPECT_TRUE(variant_subcolumn_writer->append_data(&data, 1));
+    EXPECT_TRUE(variant_subcolumn_writer->append(*insert_object, 0, 1));
     // write null data
     EXPECT_TRUE(variant_subcolumn_writer->write_data().ok());
 }

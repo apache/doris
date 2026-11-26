@@ -46,8 +46,14 @@ class IvmAggAvgProcessor extends IvmAggSumLikeProcessor {
     }
 
     @Override
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
         return ImmutableList.of(IvmAggStateKey.SUM, IvmAggStateKey.COUNT);
+    }
+
+    @Override
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        // AVG is derived from the hidden SUM/COUNT states; the visible AVG value is not merged.
+        return false;
     }
 
     @Override

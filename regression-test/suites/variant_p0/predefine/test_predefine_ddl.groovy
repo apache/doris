@@ -36,11 +36,11 @@ suite("test_predefine_ddl", "p0") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    sql """ set default_variant_enable_doc_mode = false """
-    sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_max_subcolumns_count = 10 """
-    sql """ set default_variant_max_sparse_column_statistics_size = 10 """
-    sql """ set default_variant_sparse_hash_shard_count = 10 """
+    sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
+    sql """ set debug_variant_max_subcolumns_count = 10 """
+    sql """ set debug_variant_max_sparse_column_statistics_size = 10 """
+    sql """ set debug_variant_sparse_hash_shard_count = 10 """
 
     def tableName = "test_ddl_table"
 
@@ -106,6 +106,12 @@ suite("test_predefine_ddl", "p0") {
     sql """ alter table ${tableName} add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
     sql """ alter table ${tableName} add column var3 variant<'ab' : string> NULL """
+
+    // A Schema Template cannot declare TIMESTAMPTZ paths.
+    test {
+        sql """ alter table ${tableName} add column var4 variant<'ts' : timestamptz(3)> NULL """
+        exception("VARIANT unsupported sub-type: timestamptz(3)")
+    }
 
     // TODO(lihangyu) : uncomment
     // test {
@@ -200,6 +206,30 @@ suite("test_predefine_ddl", "p0") {
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
         exception("VARIANT unsupported sub-type: datetime")
+    }
+
+    test {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : timestamptz(6)
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        exception("VARIANT unsupported sub-type: timestamptz(6)")
+    }
+
+    test {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                'ab*' : array<timestamptz>
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        exception("VARIANT unsupported sub-type: array<timestamptz")
     }
 
     test {
@@ -306,8 +336,8 @@ suite("test_predefine_ddl", "p0") {
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
     sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "set default_variant_max_subcolumns_count = 10"
-    sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set debug_variant_max_subcolumns_count = 10"
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
         `var` variant NULL

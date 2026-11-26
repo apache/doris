@@ -164,6 +164,23 @@ struct IntegerRoundingComputation {
                     // A saturated divisor is larger than every valid value of this Decimal type.
                     // Only directed rounding can produce one representable target unit.
                     if (target_scale >= std::numeric_limits<T>::max()) {
+                        if constexpr (rounding_mode == RoundingMode::Floor) {
+                            if (*in < 0) {
+                                throw doris::Exception(
+                                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow in decimal rounding result. Cast the "
+                                        "input "
+                                        "to a Decimal type with sufficient precision.");
+                            }
+                        } else if constexpr (rounding_mode == RoundingMode::Ceil) {
+                            if (*in > 0) {
+                                throw doris::Exception(
+                                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow in decimal rounding result. Cast the "
+                                        "input "
+                                        "to a Decimal type with sufficient precision.");
+                            }
+                        }
                         *out = T(0);
                     } else if constexpr (rounding_mode == RoundingMode::Floor) {
                         *out = *in < 0 ? -target_scale : T(0);

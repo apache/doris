@@ -84,25 +84,7 @@ class IvmLinearDeltaHandler {
         LogicalProject<?> deltaProject = new LogicalProject<>(outputs.build(), deltaScan);
         ImmutableList.Builder<NamedExpression> remappedOutputs = ImmutableList.builderWithExpectedSize(
                 originalScan.getOutput().size() + 2);
-        for (Slot originalSlot : originalScan.getOutput()) {
-            Slot deltaSlot = helper.findSlotByNameOrNull(deltaProject.getOutput(), originalSlot.getName());
-            if (deltaSlot != null) {
-                remappedOutputs.add(new Alias(originalSlot.getExprId(), deltaSlot, originalSlot.getName()));
-            } else if (Column.ROW_LSN_COL.equals(originalSlot.getName())) {
-                // The incremental delta scan is expanded from the row-binlog, which does not
-                // carry __DORIS_ROW_LSN_COL__; its value is the stream lsn virtual column
-                // (__DORIS_STREAM_LSN_COL__). Map it back to the base row lsn slot so the
-                // normalized plan's row-id expression keeps evaluating to the row lsn.
-                Slot streamLsnSlot = helper.findSlotByName(deltaProject.getOutput(), Column.STREAM_LSN_COL);
-                remappedOutputs.add(new Alias(originalSlot.getExprId(), streamLsnSlot, originalSlot.getName()));
-            } else if (originalSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
-                remappedOutputs.add(new Alias(originalSlot.getExprId(),
-                        helper.hiddenColumnFallbackExpression(originalSlot), originalSlot.getName()));
-            } else {
-                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                        "IVM: delta scan missing column " + originalSlot.getName());
-            }
-        }
+        remappedOutputs.addAll(helper.remapDeltaScanOutputs(originalScan, deltaProject));
         remappedOutputs.add(helper.findSlotByName(deltaProject.getOutput(), Column.IVM_DML_FACTOR_COL));
         remappedOutputs.add(helper.findSlotByName(deltaProject.getOutput(), Column.SEQUENCE_COL));
         LogicalProject<?> project = new LogicalProject<>(remappedOutputs.build(), deltaProject);
@@ -137,6 +119,19 @@ class IvmLinearDeltaHandler {
             childOutputMapping.put(project.child().getOutput().get(i), child.plan.getOutput().get(i));
         }
         for (NamedExpression output : project.getProjects()) {
+            // A hidden state the child computes itself wins over a project-level derivation of it:
+            // above the aggregate, normalize derives the MIN/MAX bound from the array for a full
+            // refresh, while the apply result is the bound the merge computed. Only the states the
+            // child reports as its own are replaced; everything else (row_id, other hidden
+            // expressions) keeps the normal rewrite.
+            if (child.ownedHiddenStateNames.contains(output.getName())) {
+                Slot childState = helper.findSlotByNameOrNull(child.plan.getOutput(),
+                        output.getName());
+                if (childState != null) {
+                    newOutputs.add(childState);
+                    continue;
+                }
+            }
             for (Slot inputSlot : output.getInputSlots()) {
                 if (!childOutputMapping.containsKey(inputSlot)) {
                     childOutputMapping.put(inputSlot, helper.findSlotByName(child.plan.getOutput(),
@@ -150,7 +145,8 @@ class IvmLinearDeltaHandler {
         LogicalProject<?> newProject = project.withProjectsAndChild(newOutputs.build(), child.plan);
         Slot newDmlFactor = helper.findSlotByName(newProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot newSequence = helper.findSlotByName(newProject.getOutput(), Column.SEQUENCE_COL);
-        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence, child.maxDeltaIndex));
+        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence,
+                child.maxDeltaIndex, child.ownedHiddenStateNames));
     }
 
     Optional<IvmDeltaRewriteResult> rewriteFilter(LogicalFilter<? extends Plan> filter,
@@ -174,12 +170,13 @@ class IvmLinearDeltaHandler {
         Plan newPlan = plan.withChildren(ImmutableList.of(deltaChild.plan));
         if (!remapHiddenSlotsFromOutput) {
             return Optional.of(new IvmDeltaRewriteResult(newPlan,
-                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxDeltaIndex));
+                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxDeltaIndex,
+                    deltaChild.ownedHiddenStateNames));
         } else {
             Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
             Slot newSequenceSlot = helper.findSlotByName(newPlan.getOutput(), Column.SEQUENCE_COL);
             return Optional.of(new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot,
-                    newSequenceSlot, deltaChild.maxDeltaIndex));
+                    newSequenceSlot, deltaChild.maxDeltaIndex, deltaChild.ownedHiddenStateNames));
         }
     }
 

@@ -36,8 +36,11 @@ import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -754,5 +757,67 @@ public class CastTest {
             cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
+    }
+
+    @Test
+    public void testMayFailOnNonNullInputForScalarCasts() {
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(BooleanType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(LargeIntType.INSTANCE, FloatType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE));
+
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(BigIntType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(StringType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(JsonType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(VariantType.INSTANCE, StringType.INSTANCE));
+
+        Cast safeCast = new Cast(new SlotReference("slot", IntegerType.INSTANCE, true), BigIntType.INSTANCE);
+        Assertions.assertTrue(safeCast.nullable());
+        Assertions.assertFalse(safeCast.mayFailOnNonNullInput());
+        TryCast failingTryCast = new TryCast(new SlotReference("slot", StringType.INSTANCE, false),
+                IntegerType.INSTANCE);
+        Assertions.assertTrue(failingTryCast.mayFailOnNonNullInput());
+    }
+
+    @Test
+    public void testMayFailOnNonNullInputForNestedCasts() {
+        ArrayType integers = ArrayType.of(IntegerType.INSTANCE);
+        ArrayType bigInts = ArrayType.of(BigIntType.INSTANCE);
+        ArrayType strings = ArrayType.of(StringType.INSTANCE);
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(integers, bigInts));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(strings, integers));
+        // The outer ARRAY can stay non-null even when an element cast fails.
+        Assertions.assertFalse(Cast.castNullable(false, strings, integers));
+
+        MapType safeSourceMap = MapType.of(IntegerType.INSTANCE, integers);
+        MapType safeTargetMap = MapType.of(BigIntType.INSTANCE, bigInts);
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(safeSourceMap, safeTargetMap));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                MapType.of(StringType.INSTANCE, integers), safeTargetMap));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                MapType.of(IntegerType.INSTANCE, strings), safeTargetMap));
+
+        StructType safeSourceStruct = new StructType(ImmutableList.of(
+                new StructField("metric", IntegerType.INSTANCE, false, ""),
+                new StructField("attributes", safeSourceMap, true, "")));
+        StructType safeTargetStruct = new StructType(ImmutableList.of(
+                new StructField("metric", BigIntType.INSTANCE, false, ""),
+                new StructField("attributes", safeTargetMap, true, "")));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(safeSourceStruct, safeTargetStruct));
+        StructType failingSourceStruct = new StructType(ImmutableList.of(
+                new StructField("metric", StringType.INSTANCE, false, ""),
+                new StructField("attributes", safeSourceMap, true, "")));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(failingSourceStruct, safeTargetStruct));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(safeSourceStruct,
+                new StructType(ImmutableList.of(new StructField("metric", BigIntType.INSTANCE, false, "")))));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(safeTargetStruct,
+                new StructType(ImmutableList.of(
+                        new StructField("metric", BigIntType.INSTANCE, false, ""),
+                        new StructField("attributes", safeTargetMap, false, "")))));
     }
 }

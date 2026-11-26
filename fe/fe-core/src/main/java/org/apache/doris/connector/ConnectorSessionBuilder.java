@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -27,6 +28,8 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
 import java.util.Collections;
@@ -74,7 +77,7 @@ public final class ConnectorSessionBuilder {
         ConnectorSessionBuilder b = new ConnectorSessionBuilder();
         b.queryId = ctx.queryId() != null ? DebugUtil.printId(ctx.queryId()) : "";
         b.user = ctx.getQualifiedUser();
-        b.timeZone = ctx.getSessionVariable().getTimeZone();
+        b.timeZone = TimeUtils.getCanonicalTimeZone(ctx.getSessionVariable().getTimeZone());
         b.locale = "en_US";  // Doris doesn't have per-session locale yet
         b.sessionProperties = extractSessionProperties(ctx);
         b.connectContext = ctx;  // read for the delegated credential at build() time, gated by capability
@@ -173,9 +176,38 @@ public final class ConnectorSessionBuilder {
                 }
             }
         }
+        ConnectorStatementScope scope = captureStatementScope();
+        if (scope != ConnectorStatementScope.NONE && connectContext != null) {
+            StmtExecutor owner = connectContext.getExecutor();
+            if (owner != null) {
+                scope.computeIfAbsent(QueryTaskGroups.SCOPE_KEY, () -> {
+                    QueryTaskGroups groups = new QueryTaskGroups();
+                    owner.registerQueryCancellationCallback(groups::close);
+                    return groups;
+                });
+            }
+        }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope());
+                scope, captureBeExecVersion());
+    }
+
+    /**
+     * Captures the backend execution version that NereidsPlanner pinned for the current statement, which the
+     * query options sent to the backends and the write handle carry too. It is read off the same statement
+     * context as {@link #captureStatementScope()}. Without a statement context, or before the planner pins the
+     * version (offline planning, commands that plan no query, tests), it is {@code Config.be_exec_version}.
+     */
+    private int captureBeExecVersion() {
+        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
+        if (ctx == null) {
+            return Config.be_exec_version;
+        }
+        StatementContext sc = ctx.getStatementContext();
+        if (sc == null || !sc.hasBeExecVersion()) {
+            return Config.be_exec_version;
+        }
+        return sc.getBeExecVersion();
     }
 
     /**
@@ -183,9 +215,10 @@ public final class ConnectorSessionBuilder {
      * otherwise read it off the originating {@link ConnectContext}'s statement context (preferring the
      * retained context from {@link #from} over the thread-local, so a session built off the request thread
      * still captures correctly). Two-level null (no context / no statement context) yields
-     * {@link ConnectorStatementScope#NONE} -- mirrors {@code MvccUtil.getSnapshotFromContext}. Capturing the
-     * reference here (not reading it live) lets off-thread scan pumps that reuse this one session reach the
-     * same scope even though they have no ConnectContext thread-local.
+     * {@link ConnectorStatementScope#NONE} -- mirrors {@code MvccUtil.getSnapshotFromContext}, and so does a
+     * statement whose scope is already closed (see {@link StatementContext#getConnectorStatementScopeForNewSession}).
+     * Capturing the reference here (not reading it live) lets off-thread scan pumps that reuse this one session
+     * reach the same scope even though they have no ConnectContext thread-local.
      */
     private ConnectorStatementScope captureStatementScope() {
         if (statementScope != null) {
@@ -199,7 +232,7 @@ public final class ConnectorSessionBuilder {
         if (sc == null) {
             return ConnectorStatementScope.NONE;
         }
-        return sc.getOrCreateConnectorStatementScope();
+        return sc.getConnectorStatementScopeForNewSession();
     }
 
     /**
@@ -220,7 +253,19 @@ public final class ConnectorSessionBuilder {
      * Server-level globals (e.g., lower_case_table_names) are also included.
      */
     private static Map<String, String> extractSessionProperties(ConnectContext ctx) {
-        Map<String, String> props = VariableMgr.toMap(ctx.getSessionVariable());
+        // Reuse immutable exports between variable invalidations: external-view hints can be parsed
+        // after a metadata lookup has already built the first connector session.
+        StatementContext statementContext = ctx.getStatementContext();
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        if (statementContext == null) {
+            return readSessionProperties(sessionVariable);
+        }
+        return statementContext.getOrComputeConnectorSessionProperties(sessionVariable,
+                () -> readSessionProperties(sessionVariable));
+    }
+
+    private static Map<String, String> readSessionProperties(SessionVariable sessionVariable) {
+        Map<String, String> props = VariableMgr.toMap(sessionVariable);
         // Server-level lower_case_table_names for identifier mapping
         props.put("lower_case_table_names",
                 String.valueOf(GlobalVariable.lowerCaseTableNames));

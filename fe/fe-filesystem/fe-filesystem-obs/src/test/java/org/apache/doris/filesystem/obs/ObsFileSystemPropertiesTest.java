@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -130,6 +132,32 @@ class ObsFileSystemPropertiesTest {
     }
 
     @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com",
+                "obs.access_key", "ak",
+                "obs.secret_key", "sk"));
+        ObsFileSystemProperties otherCredentials = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com",
+                "obs.access_key", "other-ak",
+                "obs.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("obs", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
+    }
+
+    @Test
     void hadoopMap_selectsObsFileSystemWithoutLinkingIt() {
         // Premise this test rests on, and the exact shape of a deployment where fe-core no longer
         // supplies hadoop: hadoop-huaweicloud puts org.apache.hadoop.fs.obs.OBSFileSystem on this
@@ -205,21 +233,23 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("obs-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        // accessKey is an identifier, not a secret: shown in clear text for diagnostics.
-        Assertions.assertTrue(rendered.contains("accessKey=obs-ak-plain"), rendered);
+        // Access-key identifiers must follow the same display policy as the other credentials.
+        Assertions.assertFalse(rendered.contains("obs-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("obs-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://obs.cn-north-4.myhuaweicloud.com"), rendered);
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+    void provider_sensitivePropertyKeysCoverAllCredentials() {
         Set<String> keys = new ObsFileSystemProvider().sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("obs.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("OBS_SECRET_KEY"), keys.toString());
         Assertions.assertTrue(keys.contains("OBS_SESSION_TOKEN"), keys.toString());
-        // accessKey is not sensitive, so its aliases must not be registered for masking.
-        Assertions.assertFalse(keys.contains("OBS_ACCESS_KEY"), keys.toString());
-        Assertions.assertFalse(keys.contains("obs.access_key"), keys.toString());
+        // Access-key aliases follow the same masking contract as the secret and session token.
+        Assertions.assertTrue(keys.contains("OBS_ACCESS_KEY"), keys.toString());
+        Assertions.assertTrue(keys.contains("obs.access_key"), keys.toString());
     }
 
     @Test

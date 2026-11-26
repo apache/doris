@@ -75,6 +75,8 @@ public class RemoteOlapTableSink extends OlapTableSink {
 
     @Override
     protected TDataSink toThrift() {
+        // The BE must not apply this cluster's private TLS policy to an independent Doris cluster.
+        tDataSink.olap_table_sink.setRemoteEndpoint(true);
         tDataSink.olap_table_sink.getPartition()
                 .setMasterAddress(masterAddress);
         return tDataSink;

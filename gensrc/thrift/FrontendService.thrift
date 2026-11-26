@@ -104,6 +104,8 @@ struct TGetDbsParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   7: optional set<string> reserved_field_7
+  // Name-only scanners can avoid materializing database objects and omit db_ids in the response.
+  8: optional bool include_db_ids = true
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -222,6 +224,9 @@ struct TQueryStatistics {
     15: optional i64 process_rows
     16: optional i32 finished_tasks_num
     17: optional i32 total_tasks_num
+    // Spill written to / read from object storage (spill_storage_type=s3); zero for local spill.
+    18: optional i64 spill_write_bytes_to_remote_storage
+    19: optional i64 spill_read_bytes_from_remote_storage
 }
 
 struct TQueryStatisticsResult {
@@ -338,6 +343,9 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  // Paimon commit messages prepared by BE and committed by FE.
+  34: optional list<DataSinks.TPaimonCommitMessage> paimon_commit_messages
 }
 
 struct TFeResult {
@@ -445,6 +453,8 @@ struct TMasterOpRequest {
     1008: optional bool cursor_fetch_requested
     // Capabilities negotiated with the original MySQL client.
     1009: optional i32 mysql_capability
+    // Whether the client-facing FE can complete an empty cursor with COM_STMT_FETCH.
+    1010: optional bool empty_cursor_supported
 }
 
 struct TColumnDefinition {
@@ -476,7 +486,7 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
-    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    // Lets the forwarding FE wait for the final statistics of dispatched fragments.
     12: optional list<i64> auditStatisticsBackendIds;
     // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
     13: optional bool clientDeprecatedEofApplied;
@@ -693,8 +703,8 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
-    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
-    13: optional string firstErrorMsg
+    12: optional string firstErrorMsg
+    13: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
@@ -917,6 +927,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
+  // Wire ids must stay consistent across maintained branches. Do not renumber or reuse ids.
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
@@ -931,11 +942,11 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
-  DATABASE_PROPERTIES = 13,
-  AUTHENTICATION_INTEGRATIONS = 14,
+  AUTHENTICATION_INTEGRATIONS = 13,
+  ROLE_MAPPINGS = 14,
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
-  ROLE_MAPPINGS = 17,
+  DATABASE_PROPERTIES = 17,
   EXTENSIONS = 18,
   TSO_STATUS = 19,
   STATISTICS = 20,
@@ -2145,4 +2156,7 @@ service FrontendService {
     TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
 
     Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
+
+    // Result buffers can outlive their local fragments; abort through the owning FE's query-level route.
+    Status.TStatus cancelFlightQuery(1: Types.TUniqueId result_id)
 }

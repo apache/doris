@@ -18,10 +18,12 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -51,7 +53,6 @@ public class ResultReceiver {
     private Status runStatus = new Status();
     private long packetIdx = 0;
     private long timeoutTs = 0;
-    private TNetworkAddress address;
     private Types.PUniqueId queryId;
     private Types.PUniqueId instanceId;
     private Long backendId;
@@ -59,14 +60,26 @@ public class ResultReceiver {
     private volatile Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
     private Boolean enableParallelResultSink = false;
 
+    private final BackendRpcTarget target;
     int maxMsgSizeOfResultReceiver;
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
+        this(queryId, tid, backendId, address, timeoutTs, maxMsgSizeOfResultReceiver, enableParallelResultSink, true);
+    }
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink, boolean internalRpc) {
+        this(queryId, tid, backendId, new BackendRpcTarget(address, BackendServiceProxy.getInstance(internalRpc)),
+                timeoutTs, maxMsgSizeOfResultReceiver, enableParallelResultSink);
+    }
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, BackendRpcTarget target, long timeoutTs,
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
+        this.target = target;
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.instanceId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
-        this.address = address;
         this.timeoutTs = timeoutTs;
         this.maxMsgSizeOfResultReceiver = maxMsgSizeOfResultReceiver;
         this.enableParallelResultSink = enableParallelResultSink;
@@ -86,8 +99,7 @@ public class ResultReceiver {
                 .setRespInAttachment(false)
                 .build();
         try {
-            fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsyncWithCallback(address, request,
-                    callback);
+            fetchDataAsyncFuture = target.fetch(request, callback);
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
@@ -155,6 +167,23 @@ public class ResultReceiver {
                     LOG.warn("finstId={}, receive packet failed, expect={}, receive={}",
                             DebugUtil.printId(getRealFinstId()), packetIdx, pResult.getPacketSeq());
                     status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, "receive error packet");
+                    return null;
+                }
+
+                // Test hook: lose the first response that carries rows, the way a failed fetch_data RPC
+                // does (THRIFT_RPC_ERROR, as the ExecutionException branch below reports it), at a point
+                // where the BE has produced the rows -- and so the query's scans have read their input.
+                // StmtExecutor.handleQueryWithRetry then retries the query, which is what this exercises.
+                // Only a session's own query qualifies: the point is armed for a number of hits, which
+                // isEnable spends, and an internal query (auto-analyze, say) fetching rows at the same
+                // time would otherwise take the hit meant for the query under test.
+                if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0
+                        && ConnectContext.get() != null && !ConnectContext.get().getState().isInternal()
+                        && DebugPointUtil.isEnable("ResultReceiver.getNext.dropDataBatch")) {
+                    LOG.warn("debug point ResultReceiver.getNext.dropDataBatch: dropping packet {} of finstId={}",
+                            pResult.getPacketSeq(), DebugUtil.printId(getRealFinstId()));
+                    status.updateStatus(TStatusCode.THRIFT_RPC_ERROR,
+                            "fetch result rpc failed (debug point ResultReceiver.getNext.dropDataBatch)");
                     return null;
                 }
 

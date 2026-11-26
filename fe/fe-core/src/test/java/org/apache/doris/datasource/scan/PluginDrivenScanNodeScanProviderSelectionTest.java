@@ -25,11 +25,16 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -52,6 +57,26 @@ import java.util.Map;
  * {@code PluginDrivenScanNodeVerboseExplainTest}.</p>
  */
 public class PluginDrivenScanNodeScanProviderSelectionTest {
+
+    @Test
+    public void mixedNativeRangesKeepParquetScannerContract() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        Deencapsulation.setField(node, "params", params);
+        ConnectorScanRange scanRange = Mockito.mock(ConnectorScanRange.class);
+        Mockito.when(scanRange.getSplitIdentity()).thenReturn("");
+        PluginDrivenSplit split = new PluginDrivenSplit(scanRange);
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_ORC);
+        node.setScanParams(range, split);
+        Assertions.assertFalse(params.isContainsNativeParquet());
+        range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        node.setScanParams(range, split);
+        Assertions.assertTrue(params.isContainsNativeParquet());
+        range.setFormatType(TFileFormatType.FORMAT_JNI);
+        node.setScanParams(range, split);
+        Assertions.assertTrue(params.isContainsNativeParquet());
+    }
 
     @Test
     public void resolvesProviderForCurrentHandle() {
@@ -149,5 +174,33 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
         // connector consumes the Hive INT96 compatibility timezone.
         Assertions.assertEquals("Asia/Shanghai",
                 Deencapsulation.invoke(node, "getHiveParquetTimeZone"));
+    }
+
+    @Test
+    public void connectorWithoutHiveInt96SemanticsIgnoresCatalogParquetTimezone() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "Asia/Shanghai");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getType()).thenReturn("hms");
+        Mockito.when(catalog.getProperties()).thenReturn(properties);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.usesHiveParquetInt96TimeZone()).thenReturn(false);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getScanPlanProvider(handle)).thenReturn(provider);
+
+        TupleDescriptor descriptor = new TupleDescriptor(new TupleId(0));
+        descriptor.setTable(table);
+        PluginDrivenScanNode node = new PluginDrivenScanNode(
+                new PlanNodeId(0), descriptor, false, new SessionVariable(), ScanContext.EMPTY,
+                connector, Mockito.mock(ConnectorSession.class), handle);
+
+        // A Paimon or Iceberg table behind an HMS catalog keeps its own timestamp semantics: the catalog's Hive
+        // INT96 timezone must not reach a provider that does not use it (branch-4.x #68441).
+        Assertions.assertEquals("", Deencapsulation.invoke(node, "getHiveParquetTimeZone"));
     }
 }

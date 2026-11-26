@@ -660,6 +660,14 @@ public class SchemaTable extends Table {
                                     .column("ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("WEIGHT_REJECT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("LAST_WEIGHT_REJECT_REASON", ScalarType.createStringType())
+                                    // Appended last: the BE scanner falls back to asking an older FE for only the
+                                    // leading columns.
+                                    .column("WEIGHT_BOUNDED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("EVICTION_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CATALOG_ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_MAX_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL_ESTIMATED_WEIGHT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("backend_kerberos_ticket_cache",

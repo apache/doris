@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 #include <time.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -111,11 +112,17 @@ Status FullCompaction::pick_rowsets_to_compact() {
     _input_rowsets = tablet()->pick_candidate_rowsets_to_full_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
     RETURN_IF_ERROR(_check_all_version(_input_rowsets));
-    if (_input_rowsets.size() <= 1) {
+    // An already compacted rowset can expire later without another write. Full compaction
+    // is also the explicit TTL GC operation, including the initial [0-1], [2-y] layout.
+    const bool ttl_gc = _tablet->tablet_schema()->has_ttl_col() &&
+                        std::ranges::any_of(_input_rowsets, [](const auto& rowset) {
+                            return rowset->num_rows() > 0;
+                        });
+    if (_input_rowsets.size() <= 1 && !ttl_gc) {
         return Status::Error<FULL_NO_SUITABLE_VERSION>("There is no suitable version");
     }
 
-    if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
+    if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1 && !ttl_gc) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do full compaction.
         return Status::Error<FULL_NO_SUITABLE_VERSION>("There is no suitable version");
@@ -131,7 +138,7 @@ Status FullCompaction::modify_rowsets() {
         std::vector<RowsetSharedPtr> tmp_rowsets {};
 
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_tablet->tablet_state() == TABLET_NOTREADY) {
+        if (_tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
             LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                       << _tablet->tablet_id();
             return Status::OK();

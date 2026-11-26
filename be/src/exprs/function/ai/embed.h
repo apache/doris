@@ -21,13 +21,18 @@
 #include <rapidjson/document.h>
 
 #include <string_view>
+#include <utility>
+#include <variant>
 
+#include "common/config.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exprs/function/ai/ai_functions.h"
+#include "io/object_storage/be_obj_storage_config_parser.h"
+#include "util/defer_op.h"
 #include "util/jsonb_utils.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
 
 namespace doris {
 class FunctionEmbed : public AIFunction<FunctionEmbed> {
@@ -76,6 +81,8 @@ public:
             VectorizedUtils::update_null_map(result_null_map->get_data(),
                                              nullable.get_null_map_data(), is_const);
         }
+
+        record_input(context, input_rows_count, result_null_map);
 
         if (result_null_map &&
             !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
@@ -262,6 +269,14 @@ private:
         RETURN_IF_ERROR(
                 this->send_request_to_llm(request_body, response, config, adapter, context));
 
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        bool parse_failed = true;
+        Defer record_parse([&] {
+            if (statistics) {
+                statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+            }
+        });
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -271,6 +286,7 @@ private:
                     "AI embedding returned {} results, but {} inputs were sent", results.size(),
                     expected_size);
         }
+        parse_failed = false;
         return Status::OK();
     }
 
@@ -418,29 +434,27 @@ private:
         return Status::OK();
     }
 
-    static Status init_s3_client_conf_from_json(const rapidjson::Value& file_input,
-                                                S3ClientConf& s3_client_conf) {
-        std::string endpoint;
-        RETURN_IF_ERROR(_get_required_string_field(file_input, "endpoint", endpoint));
-        std::string region;
-        RETURN_IF_ERROR(_get_required_string_field(file_input, "region", region));
-
-        auto get_optional_string_field = [&](const char* field_name, std::string& value) {
-            auto iter = file_input.FindMember(field_name);
-            if (iter == file_input.MemberEnd() || iter->value.IsNull()) {
-                return;
+    static Status read_s3_properties(const rapidjson::Value& file_input,
+                                     std::map<std::string, std::string>& properties) {
+        properties.emplace("provider", "AWS");
+        RETURN_IF_ERROR(
+                _get_required_string_field(file_input, "endpoint", properties["AWS_ENDPOINT"]));
+        RETURN_IF_ERROR(_get_required_string_field(file_input, "region", properties["AWS_REGION"]));
+        const std::pair<const char*, const char*> credentials[] = {
+                {"ak", "AWS_ACCESS_KEY"},
+                {"sk", "AWS_SECRET_KEY"},
+                {"role_arn", "AWS_ROLE_ARN"},
+                {"external_id", "AWS_EXTERNAL_ID"}};
+        for (auto [field, property] : credentials) {
+            auto it = file_input.FindMember(field);
+            if (it != file_input.MemberEnd() && !it->value.IsNull()) {
+                if (!it->value.IsString()) {
+                    return Status::InvalidArgument("EMBED file json field '{}' must be a string",
+                                                   field);
+                }
+                properties.emplace(property, it->value.GetString());
             }
-            DORIS_CHECK(iter->value.IsString());
-            value = iter->value.GetString();
-        };
-
-        get_optional_string_field("ak", s3_client_conf.ak);
-        get_optional_string_field("sk", s3_client_conf.sk);
-        get_optional_string_field("role_arn", s3_client_conf.role_arn);
-        get_optional_string_field("external_id", s3_client_conf.external_id);
-        s3_client_conf.endpoint = endpoint;
-        s3_client_conf.region = region;
-
+        }
         return Status::OK();
     }
 
@@ -455,17 +469,21 @@ private:
             return Status::OK();
         }
 
-        S3ClientConf s3_client_conf;
-        RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
-        auto s3_client = DORIS_TRY(S3ClientFactory::instance().create(s3_client_conf));
-
+        std::map<std::string, std::string> properties;
+        RETURN_IF_ERROR(read_s3_properties(file_input, properties));
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
-        std::string bucket = s3_uri.get_bucket();
-        std::string key = s3_uri.get_key();
-        DORIS_CHECK(!bucket.empty() && !key.empty());
-        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key, .prefix = ""},
-                                                      ttl_seconds);
+        auto resource = DORIS_TRY(parse_be_obj_storage_config(properties, s3_uri.get_bucket()));
+        auto result =
+                ObjStorageClientFactory::instance().create(resource.client, true, resource.bucket);
+        if (!result.client) {
+            if (result.unsupported) {
+                return Status::NotSupported("{}", result.error);
+            }
+            return Status::InvalidArgument<false>(result.error);
+        }
+        media_url = result.client->generate_presigned_url(
+                {.bucket = resource.bucket, .key = s3_uri.get_key()}, ttl_seconds);
         return Status::OK();
     }
 };

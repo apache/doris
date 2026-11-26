@@ -22,14 +22,17 @@
 #include <array>
 #include <bit>
 #include <limits>
+#include <string>
 #include <type_traits>
 
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/type_limit.h"
 
 namespace doris {
@@ -135,6 +138,158 @@ TYPED_TEST(VCaseSelectionTest, MaximumAndWideBranchIndices) {
     const size_t branches = sizeof(typename TypeParam::IndexType) == 1 ? 255 : 257;
     this->check_selection(4099, branches, false);
     this->check_selection(4099, branches, true);
+}
+
+// A VARBINARY result is selected like a string one. Values keep NUL and non-UTF-8 bytes, a
+// constant branch repeats its value, and without ELSE a row that no branch selects is NULL.
+class VCaseVarbinaryTest : public ::testing::Test {
+protected:
+    static TExprNode case_node(bool nullable, bool has_else) {
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::CASE_EXPR);
+        node.__set_type(DataTypeVarbinary().to_thrift());
+        node.__set_is_nullable(nullable);
+        node.case_expr.__set_has_else_expr(has_else);
+        return node;
+    }
+
+    static MutableColumnPtr varbinary_column(const std::vector<std::string>& values) {
+        auto column = ColumnVarbinary::create();
+        for (const auto& value : values) {
+            column->insert_data(value.data(), value.size());
+        }
+        return column;
+    }
+
+    static std::string value_at(const IColumn& column, size_t row) {
+        auto ref = column.get_data_at(row);
+        return {ref.data, ref.size};
+    }
+};
+
+TEST_F(VCaseVarbinaryTest, ResultWithElse) {
+    VCaseExpr expr(case_node(false, true));
+    const std::vector<std::string> else_values {"e0", "e1", "e2", "e3", "e4", "e5"};
+    const std::vector<std::string> then_values {
+            std::string("a\0b", 3), "\xff\xfe", "", "x", "\x80", "y"};
+    std::vector<ColumnPtr> columns {varbinary_column(else_values), varbinary_column(then_values),
+                                    ColumnConst::create(varbinary_column({"c"}), 6)};
+    const std::vector<uint8_t> indices {1, 0, 2, 1, 0, 2};
+
+    auto result = expr._execute_update_result<uint8_t>(indices.data(), columns, 6);
+
+    ASSERT_EQ(result->size(), 6);
+    ASSERT_NE(dynamic_cast<const ColumnVarbinary*>(result.get()), nullptr);
+    const std::vector<std::string> expected {std::string("a\0b", 3), "e1", "c", "x", "e4", "c"};
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(value_at(*result, row), expected[row]) << row;
+    }
+}
+
+TEST_F(VCaseVarbinaryTest, NullableResultWithoutElse) {
+    VCaseExpr expr(case_node(true, false));
+    auto null_map = ColumnUInt8::create();
+    for (uint8_t is_null : {0, 1, 0, 0, 1, 0}) {
+        null_map->insert_value(is_null);
+    }
+    std::vector<ColumnPtr> columns {
+            nullptr,
+            ColumnNullable::create(varbinary_column({"n0", "n1", "\xff", "n3", "n4", "n5"}),
+                                   std::move(null_map)),
+            varbinary_column({"p0", "p1", "p2", std::string("\0", 1), "p4", "p5"})};
+    const std::vector<uint8_t> indices {1, 1, 1, 2, 0, 0};
+
+    auto result = expr._execute_update_result<uint8_t>(indices.data(), columns, 6);
+
+    ASSERT_EQ(result->size(), 6);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_NE(dynamic_cast<const ColumnVarbinary*>(&nullable.get_nested_column()), nullptr);
+    const std::vector<bool> expected_null {false, true, false, false, true, true};
+    const std::vector<std::string> expected {"n0", "", "\xff", std::string("\0", 1), "", ""};
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(nullable.is_null_at(row), expected_null[row]) << row;
+        if (!expected_null[row]) {
+            EXPECT_EQ(value_at(nullable.get_nested_column(), row), expected[row]) << row;
+        }
+    }
+}
+
+TEST(VCaseExprTest, FileBranchesPreserveValuesAndNulls) {
+    const auto file_type = std::make_shared<DataTypeFile>();
+    const auto file_value = [](const std::string& uri) {
+        const auto bytes = uri + std::string("\0\xff", 2);
+        return Field::create_field<TYPE_FILE>(
+                File {Field::create_field<TYPE_STRING>(uri), Field(), Field(), Field(),
+                      Field::create_field<TYPE_STRING>("ETAG:" + uri),
+                      Field::create_field<TYPE_VARBINARY>(StringView(bytes))});
+    };
+    struct Scenario {
+        bool nullable;
+        bool constant;
+        bool has_else;
+        bool null_branch;
+    };
+    const Scenario scenarios[] {{false, false, true, false}, {false, true, true, false},
+                                {true, false, true, false},  {true, true, true, false},
+                                {true, true, true, true},    {true, false, false, false}};
+    constexpr size_t rows = 4;
+    const uint8_t indices[] {0, 1, 1, 0};
+    for (const auto& scenario : scenarios) {
+        SCOPED_TRACE(::testing::Message() << "nullable=" << scenario.nullable << " constant="
+                                          << scenario.constant << " has_else=" << scenario.has_else
+                                          << " null_branch=" << scenario.null_branch);
+        const auto result_type = scenario.nullable ? make_nullable(file_type) : file_type;
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::CASE_EXPR);
+        node.__set_type(file_type->to_thrift());
+        node.__set_is_nullable(scenario.nullable);
+        node.case_expr.__set_has_else_expr(scenario.has_else);
+        VCaseExpr expression(node);
+
+        std::vector<ColumnPtr> columns {nullptr};
+        if (scenario.has_else) {
+            auto otherwise = file_type->create_column();
+            for (size_t row = 0; row < rows; ++row) {
+                otherwise->insert(file_value("urn:left"));
+            }
+            columns[0] = std::move(otherwise);
+        }
+        auto branch = result_type->create_column();
+        for (size_t row = 0; row < (scenario.constant ? 1 : rows); ++row) {
+            if (scenario.nullable && (scenario.null_branch || (!scenario.constant && row == 1))) {
+                branch->insert_default();
+            } else {
+                branch->insert(file_value("urn:right"));
+            }
+        }
+        if (scenario.constant) {
+            columns.push_back(ColumnConst::create(std::move(branch), rows));
+        } else {
+            columns.push_back(std::move(branch));
+        }
+        auto result = expression._execute_update_result<uint8_t>(indices, columns, rows);
+        columns.clear();
+        ASSERT_EQ(result->size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            const bool expected_null =
+                    indices[row] == 0 ? !scenario.has_else
+                                      : scenario.nullable && (scenario.null_branch ||
+                                                              (!scenario.constant && row == 1));
+            ASSERT_EQ(result->is_null_at(row), expected_null) << row;
+            if (expected_null) {
+                continue;
+            }
+            const std::string uri = indices[row] == 0 ? "urn:left" : "urn:right";
+            const auto value = (*result)[row];
+            const auto& file = value.get<TYPE_FILE>();
+            EXPECT_EQ(file[0].get<TYPE_STRING>(), uri);
+            EXPECT_TRUE(file[1].is_null());
+            EXPECT_TRUE(file[2].is_null());
+            EXPECT_TRUE(file[3].is_null());
+            EXPECT_EQ(file[4].get<TYPE_STRING>(), "ETAG:" + uri);
+            EXPECT_EQ(file[5].get<TYPE_VARBINARY>().str(), uri + std::string("\0\xff", 2));
+        }
+    }
 }
 
 } // namespace doris

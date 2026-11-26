@@ -19,9 +19,12 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Char type in Nereids.
@@ -81,5 +84,10 @@ public class CharType extends CharacterType {
             return "CHAR";
         }
         return "CHAR(" + len + ")";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new CharLiteral("", width()));
     }
 }

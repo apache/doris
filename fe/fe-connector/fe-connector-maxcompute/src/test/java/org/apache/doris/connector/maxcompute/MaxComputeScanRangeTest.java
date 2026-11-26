@@ -63,6 +63,24 @@ import java.util.List;
  */
 public class MaxComputeScanRangeTest {
 
+    @Test
+    public void equalCoordinatesFromDifferentSessionsHaveDifferentIdentities() {
+        for (String type : new String[] {MaxComputeScanRange.SPLIT_TYPE_ROW_OFFSET,
+                MaxComputeScanRange.SPLIT_TYPE_BYTE_SIZE}) {
+            MaxComputeScanRange first = MaxComputeScanRange.builder().splitType(type)
+                    .sessionId("session-a").start(0).length(1000).build();
+            MaxComputeScanRange second = MaxComputeScanRange.builder().splitType(type)
+                    .sessionId("session-b").start(0).length(1000).build();
+            MaxComputeScanRange sameWork = MaxComputeScanRange.builder().splitType(type)
+                    .sessionId("session-a").start(0).length(1000).build();
+            Assertions.assertEquals(first.getPath(), second.getPath());
+            Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+            Assertions.assertEquals(first.getSplitIdentity(), sameWork.getSplitIdentity());
+            Assertions.assertEquals(0, first.getStart());
+            Assertions.assertEquals(1000, first.getLength());
+        }
+    }
+
     private static final long SPLIT_BYTE_SIZE = 268435456L; // ODPS default byte-size split
 
     @Test

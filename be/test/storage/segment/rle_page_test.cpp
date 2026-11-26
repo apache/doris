@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "core/data_type/data_type_factory.hpp"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
@@ -36,16 +37,13 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        Arena pool;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        auto column = DataTypeFactory::instance().create_data_type(type, 0, 0)->create_column();
 
         size_t n = 1;
-        decoder->next_batch(&n, &column_block_view);
+        EXPECT_TRUE(decoder->next_batch(&n, column).ok());
         EXPECT_EQ(1, n);
-        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
+        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(
+                column->get_raw_data().data);
     }
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
@@ -53,12 +51,13 @@ public:
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
-        PageBuilderType rle_page_builder(builder_options);
-        Status ret0 = rle_page_builder.init();
-        EXPECT_TRUE(ret0.ok());
-        rle_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
-        OwnedSlice s = rle_page_builder.finish();
-        EXPECT_EQ(size, rle_page_builder.count());
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, builder_options).ok());
+        std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
+        EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        OwnedSlice s;
+        EXPECT_TRUE(rle_page_builder->finish(&s).ok());
+        EXPECT_EQ(size, rle_page_builder->count());
 
         PageDecoderOptions decodeder_options;
         PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
@@ -67,17 +66,15 @@ public:
         EXPECT_EQ(0, rle_page_decoder.current_index());
         EXPECT_EQ(size, rle_page_decoder.count());
 
-        Arena pool;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        auto column = DataTypeFactory::instance().create_data_type(Type, 0, 0)->create_column();
         size_t size_to_fetch = size;
-        status = rle_page_decoder.next_batch(&size_to_fetch, &column_block_view);
+        // The analyzer wrongly thinks the decoder is still being constructed.
+        // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.VirtualCall)
+        status = rle_page_decoder.next_batch(&size_to_fetch, column);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(size, size_to_fetch);
 
-        CppType* values = reinterpret_cast<CppType*>(block.data());
+        const auto* values = reinterpret_cast<const CppType*>(column->get_raw_data().data);
         for (uint i = 0; i < size; i++) {
             if (src[i] != values[i]) {
                 FAIL() << "Fail at index " << i << " inserted=" << src[i] << " got=" << values[i];
@@ -87,7 +84,7 @@ public:
         // Test Seek within block by ordinal
         for (int i = 0; i < 100; i++) {
             int seek_off = random() % size;
-            rle_page_decoder.seek_to_position_in_page(seek_off);
+            EXPECT_TRUE(rle_page_decoder.seek_to_position_in_page(seek_off).ok());
             EXPECT_EQ((int32_t)(seek_off), rle_page_decoder.current_index());
             CppType ret;
             copy_one<Type, PageDecoderType>(&rle_page_decoder, &ret);
@@ -148,11 +145,14 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT> rle_page_builder(builder_options);
-    Status ret0 = rle_page_builder.init();
-    EXPECT_TRUE(ret0.ok());
-    rle_page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
-    OwnedSlice s = rle_page_builder.finish();
+    segment_v2::PageBuilder* builder = nullptr;
+    ASSERT_TRUE(segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>::create(&builder,
+                                                                                   builder_options)
+                        .ok());
+    std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
+    EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(ints.get()), &size).ok());
+    OwnedSlice s;
+    EXPECT_TRUE(rle_page_builder->finish(&s).ok());
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 4 bytes values
@@ -162,7 +162,7 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
 TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
     const uint32_t size = 10000;
 
-    std::unique_ptr<bool[]> bools(new bool[size]);
+    std::unique_ptr<uint8_t[]> bools(new uint8_t[size]);
     for (int i = 0; i < size; i++) {
         if (random() % 2 == 0) {
             bools.get()[i] = true;
@@ -180,17 +180,20 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderRandom) {
 TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
     size_t size = 100;
 
-    std::unique_ptr<bool[]> bools(new bool[size]);
+    std::unique_ptr<uint8_t[]> bools(new uint8_t[size]);
     for (int i = 0; i < size; i++) {
         bools.get()[i] = true;
     }
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
-    segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL> rle_page_builder(builder_options);
-    Status ret0 = rle_page_builder.init();
-    EXPECT_TRUE(ret0.ok());
-    rle_page_builder.add(reinterpret_cast<const uint8_t*>(bools.get()), &size);
-    OwnedSlice s = rle_page_builder.finish();
+    segment_v2::PageBuilder* builder = nullptr;
+    ASSERT_TRUE(segment_v2::RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(&builder,
+                                                                                    builder_options)
+                        .ok());
+    std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
+    EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(bools.get()), &size).ok());
+    OwnedSlice s;
+    EXPECT_TRUE(rle_page_builder->finish(&s).ok());
     // 4 bytes header
     // 2 bytes indicate_value(): 0x64 << 1 | 1 = 201
     // 1 bytes values

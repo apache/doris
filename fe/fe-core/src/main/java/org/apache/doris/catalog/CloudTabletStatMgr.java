@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.Replica.RowCountReport;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.GetTabletStatsRequest;
@@ -42,6 +43,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncCloudTabletStatsRequest;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,7 +63,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
+import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 /*
@@ -134,7 +136,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
         getActiveTabletStats(copiedTablets);
 
         // get stats by interval
-        List<Long> dbIds = getAllTabletStats(cloudTablet -> {
+        List<Long> dbIds = getAllTabletStats((materializedIndex, cloudTablet) -> {
             if (copiedTablets.contains(cloudTablet.getId())) {
                 return false;
             }
@@ -143,6 +145,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 return false;
             }
             CloudReplica cloudReplica = (CloudReplica) replicas.get(0);
+            // Checkpoints retain polling timers but not report validity. A recovered idle tablet
+            // at the infinite interval must fetch a valid count before backoff can apply again.
+            RowCountReport report = cloudReplica.getRowCountReport();
+            if (report == null || materializedIndex.isChangelog()
+                    && report.version() < materializedIndex.getRequiredChangelogReportVersion()) {
+                return true;
+            }
             int index = cloudReplica.getStatsIntervalIndex();
             if (index >= DEFAULT_INTERVAL_LADDER_MS.length) {
                 LOG.warn("get tablet stats interval index out of range, tabletId: {}, index: {}",
@@ -159,7 +168,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
         updateStatInfo(dbIds);
     }
 
-    private List<Long> getAllTabletStats(Function<CloudTablet, Boolean> filter) {
+    private List<Long> getAllTabletStats(BiPredicate<MaterializedIndex, CloudTablet> filter) {
         long getStatsTabletNum = 0;
         long start = System.currentTimeMillis();
         List<Future<Void>> futures = new ArrayList<>();
@@ -185,7 +194,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                         for (MaterializedIndex index
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             for (Tablet tablet : index.getTablets()) {
-                                if (filter != null && !filter.apply((CloudTablet) tablet)) {
+                                if (filter != null && !filter.test(index, (CloudTablet) tablet)) {
                                     continue;
                                 }
                                 getStatsTabletNum++;
@@ -196,6 +205,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tabletBuilder.setPartitionId(partition.getId());
                                 tabletBuilder.setTabletId(tablet.getId());
                                 builder.addTabletIdx(tabletBuilder);
+                                if (index.isChangelog()) {
+                                    builder.addTabletIdsWithRowCountVersion(tablet.getId());
+                                }
 
                                 if (builder.getTabletIdxCount() >= Config.get_tablet_stat_batch_size) {
                                     futures.add(submitGetTabletStatsTask(builder.build(), filter == null));
@@ -244,6 +256,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
             }
             activeTabletNum++;
             builder.addTabletIdx(tabletIndexPB);
+            if (tabletMetas.get(i).isChangelog()) {
+                builder.addTabletIdsWithRowCountVersion(tabletIndexPB.getTabletId());
+            }
             if (builder.getTabletIdxCount() >= Config.get_tablet_stat_batch_size) {
                 futures.add(submitGetTabletStatsTask(builder.build(), true));
                 builder = GetTabletStatsRequest.newBuilder()
@@ -274,7 +289,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 .build();
     }
 
-    private Future<Void> submitGetTabletStatsTask(GetTabletStatsRequest req, boolean activeUpdate) {
+    @VisibleForTesting
+    Future<Void> submitGetTabletStatsTask(GetTabletStatsRequest req, boolean activeUpdate) {
         return GET_TABLET_STATS_THREAD_POOL.submit(() -> {
             GetTabletStatsResponse resp;
             try {
@@ -330,7 +346,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                 long tableRowCount = 0L;
 
-                if (!table.readLockIfExist()) {
+                if (!table.writeLockIfExist()) {
                     continue;
                 }
                 OlapTable.Statistics tableStats;
@@ -354,20 +370,26 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             dynamicPartitionNearLimitCount++;
                         }
                     }
-                    long tableBinlogSize = 0L;
-                    long tableTotalBinlogSize = 0L;
+                    long tableChangelogSize = 0L;
+                    long tableTotalChangelogSize = 0L;
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         for (MaterializedIndex index
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
+                            long indexReportVersion = Long.MAX_VALUE;
+                            long requiredReportVersion = index.getRequiredChangelogReportVersion();
+                            boolean indexReported = true;
+                            boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
-                                long tabletBinlogSize = 0L;
+                                long tabletChangelogSize = 0L;
 
                                 long tabletRowCount = 0L;
+                                long tabletReportVersion = -1;
+                                boolean tabletReported = false;
                                 long tabletIndexSize = 0L;
                                 long tabletSegmentSize = 0L;
 
@@ -378,15 +400,24 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                         tableTotalReplicaDataSize += replica.getDataSize();
                                     }
 
-                                    if (index.isRowBinlog()) {
-                                        if (replica.getDataSize() > tabletBinlogSize) {
-                                            tabletBinlogSize = replica.getDataSize();
+                                    if (index.isChangelog()) {
+                                        if (replica.getDataSize() > tabletChangelogSize) {
+                                            tabletChangelogSize = replica.getDataSize();
                                         }
-                                        tableTotalBinlogSize += replica.getDataSize();
+                                        tableTotalChangelogSize += replica.getDataSize();
                                     }
 
-                                    if (replica.getRowCount() > tabletRowCount) {
-                                        tabletRowCount = replica.getRowCount();
+                                    // Default replica zeroes before the first successful MS fetch are
+                                    // unknown. Count a tablet once even when it has several replicas.
+                                    RowCountReport report = replica.getRowCountReport();
+                                    if (!index.isChangelog()) {
+                                        tabletRowCount = Math.max(tabletRowCount, replica.getRowCount());
+                                        tabletReported |= report != null;
+                                    } else if (report != null && report.version() >= requiredReportVersion
+                                            && (!tabletReported || report.rows() > tabletRowCount)) {
+                                        tabletRowCount = Math.max(0, report.rows());
+                                        tabletReportVersion = report.version();
+                                        tabletReported = true;
                                     }
 
                                     if (replica.getLocalInvertedIndexSize() > tabletIndexSize) {
@@ -401,7 +432,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 tableDataSize += tabletDataSize;
                                 partitionDataSize += tabletDataSize;
-                                tableBinlogSize += tabletBinlogSize;
+                                tableChangelogSize += tabletChangelogSize;
                                 if (maxTabletSize.second <= tabletDataSize) {
                                     maxTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
                                 }
@@ -410,15 +441,28 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 }
 
                                 indexRowCount += tabletRowCount;
-                                if (!index.isRowBinlog()) {
+                                indexReportVersion = Math.min(indexReportVersion, tabletReportVersion);
+                                indexReported &= tabletReported;
+                                anyTabletReported |= tabletReported;
+                                if (!index.isChangelog()) {
                                     tableRowCount += tabletRowCount;
                                 }
 
                                 tableTotalLocalIndexSize += tabletIndexSize;
                                 tableTotalLocalSegmentSize += tabletSegmentSize;
                             } // end for tablets
-                            index.setRowCountReported(true);
-                            index.setRowCount(indexRowCount);
+                            // Also covers a fetch started before the regression pauses publication.
+                            if (DebugPointUtil.isEnable("FE.TabletStatMgr.updateIndexRowCount.disabled")) {
+                                continue;
+                            }
+                            // A failed/absent MS fetch must not overwrite a positive immediate
+                            // changelog estimate with the replica's initial zero.
+                            if (!index.isChangelog() || anyTabletReported || indexReported) {
+                                index.setReportedRowCount(indexRowCount, indexReported,
+                                        index.isChangelog() && !tablets.isEmpty() ? indexReportVersion : -1);
+                            } else {
+                                index.setRowCountReported(false);
+                            }
                         } // end for indices
                         if (maxPartitionSize.second <= partitionDataSize) {
                             maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
@@ -434,17 +478,17 @@ public class CloudTabletStatMgr extends MasterDaemon {
                         minTableSize = Pair.of("" + table.getId(), tableDataSize);
                     }
 
-                    //  this is only one thread to update table statistics, readLock is enough
+                    // The write lock serializes retained counts with successful commit deltas.
                     tableStats = new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L,
-                            tableBinlogSize, tableTotalBinlogSize);
+                            tableChangelogSize, tableTotalChangelogSize);
                     olapTable.setStatistics(tableStats);
                     LOG.debug("finished to set row num for table: {} in database: {}",
                             table.getName(), db.getFullName());
                 } finally {
-                    table.readUnlock();
+                    table.writeUnlock();
                 }
                 totalTableSize += tableDataSize;
                 newCloudTableStatsList.add(tableStats);
@@ -510,7 +554,12 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     || replica.getLocalInvertedIndexSize() != stat.getIndexSize()
                     || replica.getLocalSegmentSize() != stat.getSegmentSize();
             replica.setDataSize(stat.getDataSize());
-            replica.setRowCount(stat.getNumRows());
+            // Older/partial responses may omit num_rows. Missing means no row-count
+            // information, so it cannot establish a known zero or erase a previous count.
+            if (stat.hasNumRows()) {
+                replica.updateRowCountReport(stat.getNumRows(),
+                        stat.hasRowCountPartitionVersion() ? stat.getRowCountPartitionVersion() : -1);
+            }
             replica.setLocalInvertedIndexSize(stat.getIndexSize());
             replica.setLocalSegmentSize(stat.getSegmentSize());
 

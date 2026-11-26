@@ -23,20 +23,25 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCheckAuthRequest;
@@ -51,6 +56,7 @@ import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
@@ -58,6 +64,7 @@ import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeType;
@@ -68,18 +75,24 @@ import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.Level;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -88,10 +101,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -314,6 +329,124 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
+    public void testListTableStatusPrunesCommentLookupWhenNotProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            // comment is a required Thrift field: it must be set (empty placeholder),
+            // and the response must pass Thrift validation without the lookup.
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.never()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.fill_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("fill_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("projected comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("fill_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("TABLE_COMMENT"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("projected comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenRequiredColumnsUnset() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.legacy_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("legacy_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("legacy comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("legacy_comment_status_column");
+            // required_columns unset: an older BE — everything is filled.
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("legacy comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
     public void testListTableStatusPrunesAllOptionalColumnsWhenRequiredColumnsIsEmpty() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.prune_all_optional_status_columns(\n"
                 + "    k1 INT,\n"
@@ -400,6 +533,60 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
+    /**
+     * On a follower in cloud mode, listing a table refreshes its partition versions from the meta service, which
+     * only UPDATE_TIME reads. A listing that asks for names and types, as Flight SQL GetTables does, must not
+     * depend on that RPC: when it fails, the enumeration stops and the caller gets only the rows before it.
+     */
+    @Test
+    public void testListTableStatusRefreshesCloudFollowerVersionsOnlyForUpdateTime() throws Exception {
+        createTable("CREATE TABLE test.follower_status_table(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
+        createView("CREATE VIEW test.follower_status_view AS SELECT k1 FROM test.follower_status_table");
+        TGetTablesParams namesAndTypes = followerStatusParams("TABLE_NAME", "TABLE_TYPE");
+        TGetTablesParams updateTimes = followerStatusParams("UPDATE_TIME");
+        Env followerEnv = Mockito.spy(Env.getCurrentEnv());
+        Mockito.doReturn(false).when(followerEnv).isMaster();
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<CloudPartition> versions = Mockito.mockStatic(CloudPartition.class)) {
+            env.when(Env::getCurrentEnv).thenReturn(followerEnv);
+            config.when(Config::isCloudMode).thenReturn(true);
+            // The meta service is down: every partition version refresh fails.
+            versions.when(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()))
+                    .thenThrow(new RpcException("", "injected meta service failure"));
+
+            TListTableStatusResult listed = impl.listTableStatus(namesAndTypes);
+
+            Assertions.assertEquals(
+                    ImmutableMap.of("follower_status_table", "BASE TABLE", "follower_status_view", "VIEW"),
+                    listed.getTables().stream()
+                            .collect(Collectors.toMap(TTableStatus::getName, TTableStatus::getType)));
+            versions.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()), Mockito.never());
+
+            // UPDATE_TIME reads the partitions' visible version time, so it still refreshes them first.
+            impl.listTableStatus(updateTimes);
+
+            versions.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()));
+        }
+    }
+
+    private TGetTablesParams followerStatusParams(String... requiredColumns) {
+        TGetTablesParams params = new TGetTablesParams();
+        params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        params.setDb("test");
+        params.setPattern("follower_status_%");
+        params.setRequiredColumns(Sets.newHashSet(requiredColumns));
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+        return params;
+    }
+
 
     @Test
     public void testCreatePartitionRange() throws Exception {
@@ -441,8 +628,110 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreatePartitionWithRowBinlog() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+    public void testCreatePartitionRangeLimitDoesNotLeavePartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_range_limit (event_day DATETIME NOT NULL, id INT) "
+                + "DUPLICATE KEY(event_day, id) "
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(
+                    createPartitionRequest(db, table, "2023-08-07 00:00:00", "2023-08-08 00:00:00"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(0, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionListLimitCountsOnlyNewPartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_list_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult existing = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, existing.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult overflow = impl.createPartition(
+                    createPartitionRequest(db, table, "BEIJING", "SHANGHAI"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, overflow.getStatus().getStatusCode());
+            Assertions.assertTrue(overflow.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(1, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionLimitIsRecheckedAtPublication() throws Exception {
+        createTable("CREATE TABLE test.partition_list_concurrent_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_concurrent_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+
+            // Model a concurrent publication after the request's read-lock precheck.
+            OlapTable spyTable = Mockito.spy(table);
+            AtomicBoolean stalePrecheck = new AtomicBoolean(true);
+            db.unregisterTable(table.getName());
+            db.registerTable(spyTable);
+            try {
+                Mockito.doAnswer(invocation -> stalePrecheck.compareAndSet(true, false)
+                        ? 0 : invocation.callRealMethod()).when(spyTable).getPartitionNum();
+                TCreatePartitionResult result = impl.createPartition(createPartitionRequest(db, spyTable, "SHANGHAI"));
+                Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+                Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+                Assertions.assertFalse(stalePrecheck.get());
+                Assertions.assertEquals(1, spyTable.getPartitionNum());
+            } finally {
+                db.unregisterTable(spyTable.getName());
+                db.registerTable(table);
+            }
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    private static TCreatePartitionRequest createPartitionRequest(Database db, OlapTable table, String... values) {
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        for (String value : values) {
+            TNullableStringLiteral literal = new TNullableStringLiteral();
+            literal.setValue(value);
+            partitionValues.add(Collections.singletonList(literal));
+        }
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        return request;
+    }
+
+    @Test
+    public void testCreatePartitionWithChangelog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_changelog(\n"
                 + "    event_day DATETIME NOT NULL,\n"
                 + "    site_id INT,\n"
                 + "    city_code VARCHAR(100)\n"
@@ -450,12 +739,11 @@ public class FrontendServiceImplTest extends TestWithFeService {
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
                 + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
-                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
-                + "\"binlog.format\" = \"ROW\");";
-        createTable(createOlapTblStmt);
+                + "PROPERTIES(\"replication_num\" = \"1\", \"changelog.enable\" = \"true\");";
+        createTableWithChangelog(createOlapTblStmt);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
-        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_changelog");
         TNullableStringLiteral start = new TNullableStringLiteral();
         start.setValue("2023-08-09 00:00:00");
         TCreatePartitionRequest request = new TCreatePartitionRequest();
@@ -471,20 +759,20 @@ public class FrontendServiceImplTest extends TestWithFeService {
 
         Partition createdPartition = table.getPartition("p20230809000000");
         Assertions.assertNotNull(createdPartition);
-        MaterializedIndex rowBinlogIndex = createdPartition
+        MaterializedIndex changelogIndex = createdPartition
                 .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
-                .filter(MaterializedIndex::isRowBinlog)
+                .filter(MaterializedIndex::isChangelog)
                 .findFirst()
                 .orElseThrow();
         Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
                 result.getTabletsSize());
-        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+        for (Tablet changelogTablet : changelogIndex.getTablets()) {
             TTabletLocation location = result.getTablets().stream()
-                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .filter(tablet -> tablet.getTabletId() == changelogTablet.getId())
                     .findFirst()
                     .orElseThrow();
             Assertions.assertTrue(location.isSetBaseTabletId());
-            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+            Assertions.assertEquals(changelogTablet.getChangelogBaseTabletId(), location.getBaseTabletId());
         }
     }
 
@@ -533,6 +821,94 @@ public class FrontendServiceImplTest extends TestWithFeService {
         } finally {
             db.unregisterTable(spyTable.getName());
             db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testReplacePartitionSnapshotAllowsUnpartitionedTempPartition() throws Exception {
+        createTable("CREATE TABLE test.replace_snapshot_unpartitioned (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("replace_snapshot_unpartitioned");
+        InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList(table.getName()),
+                Collections.singletonList("replace_snapshot_temp"));
+        Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+        Assertions.assertNotNull(tempPartition);
+        Assertions.assertNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+
+        TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+        Assertions.assertEquals(tempPartition.getId(), result.getId());
+        Assertions.assertEquals(1, result.getIndexesSize());
+        Assertions.assertEquals(1, result.getNumBuckets());
+        Assertions.assertFalse(result.isSetStartKeys());
+        Assertions.assertFalse(result.isSetEndKeys());
+        Assertions.assertFalse(result.isSetInKeys());
+    }
+
+    @Test
+    public void testReplacePartitionSnapshotPreservesPartitionItemChecks() throws Exception {
+        for (String partitionType : Arrays.asList("RANGE", "LIST")) {
+            String tableName = "replace_snapshot_" + partitionType.toLowerCase(Locale.ROOT);
+            String partitionClause = partitionType.equals("RANGE")
+                    ? "PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (10)) "
+                    : "PARTITION BY LIST(k) (PARTITION p1 VALUES IN (1)) ";
+            createTable("CREATE TABLE test." + tableName + " (k INT) " + partitionClause
+                    + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\")");
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
+            InsertOverwriteUtil.addTempPartitions(table, Collections.singletonList("p1"),
+                    Collections.singletonList("replace_snapshot_temp"));
+            Partition tempPartition = table.getPartition("replace_snapshot_temp", true);
+            Assertions.assertNotNull(tempPartition);
+            Assertions.assertNotNull(table.getPartitionInfo().getItem(tempPartition.getId()));
+            TOlapTablePartition result = snapshotReplacePartition(table, tempPartition.getId());
+            Assertions.assertEquals(tempPartition.getId(), result.getId());
+            if (partitionType.equals("RANGE")) {
+                Assertions.assertEquals(10, result.getEndKeys().get(0).getIntLiteral().getValue());
+            } else {
+                Assertions.assertEquals(1, result.getInKeys().get(0).get(0).getIntLiteral().getValue());
+            }
+
+            // Model a missing item without removing the temporary Partition object.
+            PartitionItem item = table.getPartitionInfo().getItem(tempPartition.getId());
+            table.writeLock();
+            try {
+                table.getPartitionInfo().setItem(tempPartition.getId(), true, null);
+            } finally {
+                table.writeUnlock();
+            }
+            try {
+                InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> snapshotReplacePartition(table, tempPartition.getId()));
+                UserException cause = Assertions.assertInstanceOf(UserException.class, exception.getCause());
+                Assertions.assertEquals("partition item of " + tempPartition.getId()
+                        + " was dropped concurrently while building replace partition result, please retry",
+                        cause.getDetailMessage());
+            } finally {
+                table.writeLock();
+                try {
+                    table.getPartitionInfo().setItem(tempPartition.getId(), true, item);
+                } finally {
+                    table.writeUnlock();
+                }
+            }
+        }
+    }
+
+    private static TOlapTablePartition snapshotReplacePartition(OlapTable table, long partitionId) throws Exception {
+        Method method = FrontendServiceImpl.class.getDeclaredMethod("snapshotPartitionResultsById",
+                OlapTable.class, Collection.class, boolean.class, boolean.class, String.class);
+        method.setAccessible(true);
+        table.readLock();
+        try {
+            List<?> snapshots = (List<?>) method.invoke(null, table, Collections.singletonList(partitionId),
+                    false, false, "replace partition");
+            Assertions.assertEquals(1, snapshots.size());
+            Field field = snapshots.get(0).getClass().getDeclaredField("tPartition");
+            field.setAccessible(true);
+            return (TOlapTablePartition) field.get(snapshots.get(0));
+        } finally {
+            table.readUnlock();
         }
     }
 
@@ -881,28 +1257,77 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadPlanningAndPreCommitRejectInvalidToken(boolean legacyAuthCode) {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+        TLoadTxnBeginRequest begin = new TLoadTxnBeginRequest().setToken("bad-token");
+        TLoadTxnCommitRequest preCommit = new TLoadTxnCommitRequest().setToken("bad-token");
+        TStreamLoadPutRequest plan = new TStreamLoadPutRequest().setToken("bad-token");
+        if (legacyAuthCode) {
+            begin.setAuthCode(0);
+            preCommit.setAuthCode(0);
+            plan.setAuthCode(0);
+        }
+        assertInvalidToken(impl, "loadTxnBeginImpl", begin, "127.0.0.1");
+        assertInvalidToken(impl, "loadTxnPreCommitImpl", preCommit);
+        assertInvalidToken(impl, "httpStreamPutImpl", plan, new TStreamLoadPutResult());
+    }
+
     @Test
-    public void testLoadTxnCommitRejectsInvalidToken() {
+    public void testLegacyAuthCodeStillRequiresPassword() throws TException {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setUser("root").setPasswd("wrong_password").setUserIp("127.0.0.1")
+                .setDb("test").setTbl("missing_table").setLabel("legacy_auth_code").setAuthCode(0);
+        Assertions.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("Access denied"));
+    }
+
+    @Test
+    public void testInternalTokenWithLegacyAuthCodePassesAuthentication() throws TException {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        Mockito.doReturn(true).when(impl).checkToken("internal-token");
+        TLoadTxnBeginRequest request = new TLoadTxnBeginRequest()
+                .setToken("internal-token").setAuthCode(0);
+        // An empty label is rejected only after successful authentication.
+        Assertions.assertTrue(impl.loadTxnBegin(request).getStatus().getErrorMsgs().get(0)
+                .contains("empty label"));
+        Mockito.verify(impl).checkToken("internal-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadTxnCommitRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
         assertInvalidToken(impl, "loadTxnCommitImpl", request);
     }
 
-    @Test
-    public void testLoadTxnRollbackRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLoadTxnRollbackRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
         assertInvalidToken(impl, "loadTxnRollbackImpl", request);
     }
 
-    @Test
-    public void testCommitTxnRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCommitTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TCommitTxnRequest request = new TCommitTxnRequest();
         request.setUser("root");
@@ -910,6 +1335,9 @@ public class FrontendServiceImplTest extends TestWithFeService {
         request.setDb("test");
         request.setTxnId(100L);
         request.setCommitInfos(Collections.emptyList());
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -921,14 +1349,18 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
-    @Test
-    public void testRollbackTxnRejectsInvalidToken() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testRollbackTxnRejectsInvalidToken(boolean legacyAuthCode) {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TRollbackTxnRequest request = new TRollbackTxnRequest();
         request.setUser("root");
         request.setPasswd("");
         request.setDb("test");
         request.setTxnId(100L);
+        if (legacyAuthCode) {
+            request.setAuthCode(0);
+        }
         request.setToken("bad-token");
         Mockito.doReturn(false).when(impl).checkToken("bad-token");
 
@@ -938,6 +1370,60 @@ public class FrontendServiceImplTest extends TestWithFeService {
         } finally {
             closeTransactionValidationMock();
         }
+    }
+
+    @Test
+    public void testGroupCommitStreamLoadPutChecksAuthenticationAndLoadPrivilege() throws Exception {
+        String noLoadUser = "group_commit_no_load_user";
+        String noLoadPassword = "group_commit_test_password";
+        boolean originalForwardSetting = Config.enable_forward_group_commit_stream_load_to_follower;
+        Config.enable_forward_group_commit_stream_load_to_follower = false;
+        executeCommand("DROP USER IF EXISTS " + noLoadUser);
+        executeCommand("CREATE USER " + noLoadUser + " IDENTIFIED BY '" + noLoadPassword + "'");
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+            TStreamLoadPutResult badPassword = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "wrong_password", "missing_table"));
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, badPassword.getStatus().getStatusCode());
+            Assertions.assertTrue(badPassword.getStatus().getErrorMsgs().get(0).contains("Access denied"));
+
+            TStreamLoadPutResult missingLoad = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest(noLoadUser, noLoadPassword, "missing_table"));
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, missingLoad.getStatus().getStatusCode());
+            String missingLoadError = missingLoad.getStatus().getErrorMsgs().get(0);
+            Assertions.assertTrue(missingLoadError.contains("Load_priv"), missingLoadError);
+
+            FrontendServiceImpl tokenCheckingImpl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+            TStreamLoadPutRequest badTokenRequest = groupCommitStreamLoadRequest("", "", "missing_table");
+            badTokenRequest.setToken("bad-token");
+            Mockito.doReturn(false).when(tokenCheckingImpl).checkToken("bad-token");
+            TStreamLoadPutResult badToken = tokenCheckingImpl.streamLoadPut(badTokenRequest);
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, badToken.getStatus().getStatusCode());
+            Assertions.assertTrue(badToken.getStatus().getErrorMsgs().get(0).contains("Invalid token"));
+
+            TStreamLoadPutResult authorized = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "", "missing_table"));
+            Assertions.assertEquals(TStatusCode.NOT_FOUND, authorized.getStatus().getStatusCode());
+            Assertions.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+            executeCommand("DROP USER IF EXISTS " + noLoadUser);
+            Config.enable_forward_group_commit_stream_load_to_follower = originalForwardSetting;
+        }
+    }
+
+    private static TStreamLoadPutRequest groupCommitStreamLoadRequest(String user, String password, String table) {
+        return new TStreamLoadPutRequest()
+                .setUser(user)
+                .setPasswd(password)
+                .setDb("test")
+                .setTbl(table)
+                .setUserIp("127.0.0.1")
+                .setLoadId(new TUniqueId(1L, 1L))
+                .setGroupCommitMode("async_mode")
+                .setAuthCode(0);
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;
@@ -973,11 +1459,12 @@ public class FrontendServiceImplTest extends TestWithFeService {
         }
     }
 
-    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object... args) {
         try {
-            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            Class<?>[] types = Arrays.stream(args).map(Object::getClass).toArray(Class<?>[]::new);
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, types);
             method.setAccessible(true);
-            method.invoke(impl, request);
+            method.invoke(impl, args);
             Assertions.fail("expected invalid token");
         } catch (InvocationTargetException e) {
             Assertions.assertTrue(e.getCause() instanceof AuthenticationException);

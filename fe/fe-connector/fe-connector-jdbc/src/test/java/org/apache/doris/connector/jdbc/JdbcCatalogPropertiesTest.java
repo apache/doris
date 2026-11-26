@@ -67,8 +67,8 @@ class JdbcCatalogPropertiesTest {
         Assertions.assertFalse(p.isOnlySpecifiedDatabase());
         Assertions.assertEquals("", p.getIncludeDatabaseList());
         Assertions.assertEquals("", p.getExcludeDatabaseList());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
         Assertions.assertEquals("", p.getFunctionRules());
         Assertions.assertFalse(p.isLowerCaseMetaNames());
         Assertions.assertEquals("", p.getMetaNamesMapping());
@@ -267,6 +267,16 @@ class JdbcCatalogPropertiesTest {
                 JdbcCatalogProperties.of(with(JdbcCatalogProperties.PASSWORD, "secret-p")).toString();
         Assertions.assertFalse(rendered.contains("secret-p"), "got: " + rendered);
         Assertions.assertTrue(rendered.contains("password=***"), "got: " + rendered);
+    }
+
+    @Test
+    void toStringMasksTheJdbcConnectionStringWithoutChangingIt() {
+        String url = "jdbc:mysql://host.example.com:3306/db?password=fixture-url-secret";
+        JdbcCatalogProperties properties = JdbcCatalogProperties.of(with(JdbcCatalogProperties.JDBC_URL, url));
+        Assertions.assertFalse(properties.toString().contains(url));
+        Assertions.assertFalse(properties.toString().contains("fixture-url-secret"));
+        Assertions.assertTrue(properties.toString().contains("jdbcUrl=***"));
+        Assertions.assertEquals(url, properties.getJdbcUrl());
     }
 
     // ---- driver_url mandatory security rule: statement-side rejects, of()-side must not ----

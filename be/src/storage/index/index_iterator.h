@@ -17,25 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
+#include <memory>
 #include <variant>
 
-#include "common/exception.h"
-#include "common/factory_creator.h"
-#include "runtime/runtime_state.h"
-#include "storage/index/ann/ann_index_reader.h"
-#include "storage/index/index_query_context.h"
+#include "common/status.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
-
-namespace doris {
-struct AnnTopNParam;
-}
 
 namespace doris::segment_v2 {
 
+struct AnnTopNParam;
+struct IndexQueryContext;
+using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
+
 class InvertedIndexQueryCacheHandle;
+enum class InvertedIndexReaderType;
 
 struct InvertedIndexParam;
 using IndexParam = std::variant<InvertedIndexParam*, segment_v2::AnnTopNParam*>;

@@ -25,7 +25,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -36,6 +38,11 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -49,8 +56,8 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -101,7 +108,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private final Map<String, String> sessionVariables;
     private boolean enableIvm;
     private DataType sequenceDataType = BigIntType.INSTANCE;
-    private String ivmPlanSignature;
+    /**
+     * Whether the MV being created is an append-only detail table, as the normalize settled it. The
+     * distribution and table-information passes lay the MV out differently per table model.
+     */
+    private boolean ivmAppendOnlyDupModel;
 
     /**
      * constructor for create MTMV
@@ -184,9 +195,14 @@ public class CreateMTMVInfo extends CreateTableInfo {
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
-        KeysType distributionKeysType = isEnableIvm() ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
-        boolean userHashDistributionForIvm = isEnableIvm() && distribution != null && distribution.isHash();
-        if (isEnableIvm()) {
+        // Which key model the MV is built on settles its distribution: the unique-key model is maintained
+        // through a row-id, so it is distributed on that unless the user hashed on something themselves,
+        // while an append-only detail MV holds the query's own rows and is distributed like any other DUP
+        // table -- which is what a non-IVM MV gets as well.
+        boolean ivmUniqueKeyModel = isEnableIvm() && !ivmAppendOnlyDupModel;
+        KeysType distributionKeysType = ivmUniqueKeyModel ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        boolean userHashDistributionForIvm = ivmUniqueKeyModel && distribution != null && distribution.isHash();
+        if (ivmUniqueKeyModel) {
             if (!userHashDistributionForIvm) {
                 distribution = buildIvmRowIdDistribution(distribution);
             }
@@ -270,8 +286,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
             // IVM rewrite changes the plan shape. Treat those as probe failures too: restore the original create
             // state and retry regular MTMV analysis. If the regular path also fails, that error is still returned
             // to the user. Explicit INCREMENTAL does not call this helper, so its strict failure semantics remain.
-            LOG.info("AUTO refresh materialized view {} fallback to non-IVM after IVM probe failed: {}",
-                    tableNameInfo.getTbl(), e.getMessage());
+            LOG.info("REFRESH AUTO for {}: IVM probe failed, retrying as a regular asynchronous materialized view: {}",
+                    tableNameInfo.toSql(), e.getMessage());
             origin.restore(this);
             logicalQuery = parseFreshLogicalQuery();
             resetStatementContext(ctx);
@@ -351,19 +367,52 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
                 this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.create(tableNameInfo.getTbl()))
                         : Optional.empty());
+        if (isEnableIvm()) {
+            validateIvmStreamPrerequisites(mtmvAnalyzeQueryInfo.getRelation());
+        }
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
-        if (isEnableIvm()) {
+        ivmAppendOnlyDupModel = isEnableIvm()
+                && mtmvAnalyzeQueryInfo.getIvmRewriteResult().isAppendOnlyDupTable();
+        if (isEnableIvm() && !ivmAppendOnlyDupModel) {
+            // The unique-key model orders what its delta writes against what the MV already holds, so its
+            // sequence column type is part of the MV's properties.
             sequenceDataType = calculateSequenceDataType(mtmvAnalyzeQueryInfo.getIvmNormalizedPlan());
             this.properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                     + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, sequenceDataType.toCatalogDataType().toSql());
-            IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
-            this.ivmPlanSignature = planSignature.getSha256();
-        } else {
-            this.ivmPlanSignature = null;
+        }
+    }
+
+    private void validateIvmStreamPrerequisites(MTMVRelation relation)
+            throws org.apache.doris.common.AnalysisException {
+        // CREATE IF NOT EXISTS skips stream creation when the name is already registered.
+        if (isIfNotExists() && Env.getCurrentInternalCatalog().getDb(tableNameInfo.getDb())
+                .map(db -> db.isTableExist(tableNameInfo.getTbl())).orElse(false)) {
+            return;
+        }
+        Set<TableNameInfo> excludedTables = MTMVPropertyUtil.parseTableNameInfos(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
+        try {
+            for (BaseTableInfo base : relation.getBaseTables()) {
+                if (MTMVPartitionUtil.isTableExcluded(excludedTables,
+                        new TableNameInfo(base.getCtlName(), base.getDbName(), base.getTableName()))) {
+                    continue;
+                }
+                InternalCatalog.checkTableStreamEnabled();
+                TableIf table = MTMVUtil.getTable(base);
+                table.readLock();
+                try {
+                    table.checkAsTableStreamBaseTable(IvmUtil.IVM_STREAM_SCAN_TYPE);
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        } catch (DdlException e) {
+            // Let CREATE with AUTO retry regular MTMV analysis before any table or stream is created.
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 
@@ -380,9 +429,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
             return LargeIntType.INSTANCE;
         }
         // Native-table streams use MIN_DELTA, which collapses one key to at most (-, +), so the
-        // sequence does not need a source binlog sequence. When IVM supports external tables,
+        // sequence does not need a source changelog sequence. When IVM supports external tables,
         // this method inspects normalizedPlan and returns LARGEINT if an external stream does not
-        // support MIN_DELTA and therefore needs its 64-bit binlog sequence in the IVM sequence.
+        // support MIN_DELTA and therefore needs its 64-bit changelog sequence in the IVM sequence.
         return BigIntType.INSTANCE;
     }
 
@@ -404,6 +453,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getPctInfos().get(0).getTableInfo());
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
+            preloadCreationPartitionViews(ctx, mvPartitionInfo);
             allPartitionDescs = MTMVPartitionUtil
                     .getPartitionDescsByRelatedTable(properties, mvPartitionInfo, mvProperties,
                             getPartitionColumn(mvPartitionInfo.getPartitionCol()));
@@ -433,6 +483,19 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
     }
 
+    private static void preloadCreationPartitionViews(ConnectContext ctx, MTMVPartitionInfo partitionInfo)
+            throws org.apache.doris.common.AnalysisException {
+        for (MTMVRelatedTableIf relatedTable : partitionInfo.getPctTables()) {
+            if (relatedTable instanceof PluginDrivenMvccExternalTable) {
+                PluginDrivenMvccExternalTable table = (PluginDrivenMvccExternalTable) relatedTable;
+                MvccSnapshot snapshot = MvccUtil.getSnapshotFromContext(table)
+                        .orElseGet(() -> table.loadSnapshot(Optional.empty(), Optional.empty()));
+                ctx.getStatementContext().setSnapshot(new MvccTableInfo(table),
+                        table.materializePartitionViewForMtmv(snapshot));
+            }
+        }
+    }
+
     /**
      * set CreateTableInfo Information
      */
@@ -446,13 +509,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        if (isEnableIvm()) {
+        if (isEnableIvm() && !ivmAppendOnlyDupModel) {
+            // The unique-key model merges on write, which is what its row-id, delete sign and sequence
+            // column are for.
             this.setKeysType(KeysType.UNIQUE_KEYS);
             if (properties == null) {
                 properties = Maps.newHashMap();
             }
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         } else {
+            // A non-IVM MV and an append-only detail MV are both plain DUP tables: the detail one holds the
+            // query's own rows and only appends them, so there is nothing for merge-on-write to do.
             this.setKeysType(KeysType.DUP_KEYS);
         }
         this.analyzeUniqueKeyMergeOnWrite();
@@ -480,10 +547,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
-        // CreateMTMVInfo does not run CreateTableInfo.validate(), but an IVM MV
-        // is physically a MOW UNIQUE table. Reuse the ordinary MOW partition
-        // rule so partition columns must be key columns after IVM key rewrite.
-        boolean validateAsMow = isEnableIvm() || isEnableMergeOnWrite();
+        // CreateMTMVInfo does not run CreateTableInfo.validate(), and the partition rule an MV is checked
+        // against is the one its own table model has. The unique-key model is physically a MOW UNIQUE
+        // table, so its partition columns must be key columns after the IVM key rewrite; an append-only
+        // detail MV is a plain DUP table, whose partition column may be one of its value columns.
+        boolean validateAsMow = isEnableIvm() ? !ivmAppendOnlyDupModel : isEnableMergeOnWrite();
         getPartitionTableInfo().validatePartitionInfo(
                 columnMap,
                 properties,
@@ -540,16 +608,13 @@ public class CreateMTMVInfo extends CreateTableInfo {
         return mvPartitionInfo;
     }
 
-    public String getIvmPlanSignature() {
-        return ivmPlanSignature;
-    }
-
     public Map<String, String> getSessionVariables() {
         return sessionVariables;
     }
 
     private static class AnalyzeQueryState {
         private final Map<String, String> properties;
+        private final Map<String, String> mvProperties;
         private final List<ColumnDefinition> columns;
         private final List<String> keys;
         private final DistributionDescriptor distribution;
@@ -560,10 +625,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private final MTMVPartitionType mvPartitionType;
         private final Expression mvPartitionExpression;
         private final boolean enableIvm;
-        private final String ivmPlanSignature;
 
         private AnalyzeQueryState(CreateMTMVInfo info) {
             this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
+            this.mvProperties = Maps.newHashMap(info.mvProperties);
             this.columns = info.columns;
             this.keys = Utils.copyRequiredList(info.keys);
             this.distribution = info.distribution;
@@ -574,7 +639,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             this.mvPartitionType = info.mvPartitionDefinition.getPartitionType();
             this.mvPartitionExpression = info.mvPartitionDefinition.getFunctionCallExpression();
             this.enableIvm = info.enableIvm;
-            this.ivmPlanSignature = info.ivmPlanSignature;
         }
 
         private static AnalyzeQueryState capture(CreateMTMVInfo info) {
@@ -583,6 +647,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         private void restore(CreateMTMVInfo info) {
             info.properties = properties == null ? null : Maps.newHashMap(properties);
+            info.mvProperties = Maps.newHashMap(mvProperties);
             info.columns = columns;
             info.keys = Utils.copyRequiredList(keys);
             info.distribution = distribution;
@@ -593,7 +658,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
             info.mvPartitionDefinition.setPartitionType(mvPartitionType);
             info.mvPartitionDefinition.setFunctionCallExpression(mvPartitionExpression);
             info.enableIvm = enableIvm;
-            info.ivmPlanSignature = ivmPlanSignature;
         }
     }
 }

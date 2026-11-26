@@ -42,9 +42,12 @@ fragment QUOTED_CHAR
 
 // ============== Default lexer rules ==============
 
-AND : 'AND' ;
-OR  : 'OR' ;
-NOT : 'NOT' | '!' ;
+// Boolean operators are case-insensitive, matching the query string syntax used by
+// Lucene/Elasticsearch: `a:x or b:y` is the same as `a:x OR b:y`. The parser also accepts
+// these tokens in value position, so `field:and` keeps searching for the term "and".
+AND : [Aa][Nn][Dd] ;
+OR  : [Oo][Rr] ;
+NOT : [Nn][Oo][Tt] | '!' ;
 
 LPAREN   : '(' ;
 RPAREN   : ')' ;
@@ -93,6 +96,13 @@ LIST_WS : [ \t\r\n\u3000]+ -> skip ;
 // ============== String lexer rules ==============
 
 mode STRING_MODE;
+
+// A quoted section is tokenized as one unit so that parentheses inside the quotes do not
+// terminate the clause early, e.g. ANY("All Quiet on the Western Front (2022 film)").
+// It is a separate rule (instead of an alternative inside STRING_CONTENT) because a negated
+// set inside a closure lets the lexer run past the closing parenthesis when another ANY/ALL
+// appears later in the same DSL.
+STRING_QUOTED : '"' (ESCAPED_CHAR | ~["\\])* '"' ;
 
 STRING_CONTENT : (ESCAPED_CHAR | NON_ESCAPED)+ ;
 STRING_RPAREN : ')' -> popMode ;

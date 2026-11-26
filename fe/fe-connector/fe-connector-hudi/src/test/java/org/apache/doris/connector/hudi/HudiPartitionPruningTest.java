@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /**
  * Tests {@link HudiConnectorMetadata#applyFilter} partition pruning (P3-T05).
@@ -167,7 +170,7 @@ public class HudiPartitionPruningTest {
         // the RELATIVE storage paths (the Hudi metadata listing that the scan also feeds fsView), so the pruned
         // set is the shape fsView is keyed by. RED before the fix: applyFilter fed HMS hive-style names to fsView,
         // which finds nothing on a non-hive-style table -> 0 splits for any filtered query.
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(PARTITIONS),                 // HMS hive-style names -- must NOT be used here
                 HudiTestProperties.minimal(),                  // use_hive_sync_partition=false -> non-hive-sync
                 new StubMetaClientExecutor(Arrays.asList("2024/01", "2024/02", "2023/12")));
@@ -178,10 +181,56 @@ public class HudiPartitionPruningTest {
     }
 
     @Test
+    public void timestampTzPredicatesRemainForTypedFiltering() {
+        List<String> paths = Arrays.asList("dt=2023-12-01 08%3A00%3A00/region=east",
+                "dt=2023-12-01 10%3A00%3A00/region=west");
+        HudiTableHandle handle = partitionedHandle().toBuilder()
+                .partitionKeyNames(Arrays.asList("dt", "region")).build();
+        ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        ConnectorColumnRef column = new ConnectorColumnRef("dt", type);
+        // The neutral converter carries TIMESTAMPTZ fields in UTC, while the path has session-local text.
+        ConnectorLiteral instant = new ConnectorLiteral(type, LocalDateTime.of(2023, 12, 1, 0, 0));
+        ConnectorExpression equality = new ConnectorComparison(ConnectorComparison.Operator.EQ, column, instant);
+        ConnectorExpression inList = new ConnectorIn(column, Collections.singletonList(instant), false);
+        for (boolean hiveSync : Arrays.asList(false, true)) {
+            HudiConnectorMetadata metadata = metadata(new FakeHmsClient(paths),
+                    HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, String.valueOf(hiveSync)),
+                    new StubMetaClientExecutor(paths));
+            for (ConnectorExpression predicate : Arrays.asList(equality, inList)) {
+                Assertions.assertFalse(metadata.applyFilter(null, handle,
+                        new ConnectorFilterConstraint(predicate)).isPresent());
+                ConnectorExpression conjunction = and(predicate, eq("region", "east"));
+                Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                        null, handle, new ConnectorFilterConstraint(conjunction));
+                Assertions.assertEquals(Collections.singletonList(paths.get(0)), prunedPaths(result));
+                Assertions.assertSame(conjunction, result.get().getRemainingFilter(),
+                        "the BE must still evaluate the instant predicate");
+            }
+        }
+    }
+
+    @Test
+    public void testHiveSyncPrunesPhysicalPathsWithoutDecodingLiteralPercentTwice() {
+        List<String> names = Arrays.asList("dt=08%253A00", "dt=%25253A", "dt=other");
+        FakeHmsClient hms = new FakeHmsClient(names);
+        hms.locations = Map.of(names.get(0), "s3://b/t/dt=08%3A00",
+                names.get(1), "s3://b/t/dt=%253A", names.get(2), "s3://b/t/dt=other");
+        HudiConnectorMetadata metadata = metadata(hms,
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(Collections.emptyList()));
+        HudiTableHandle handle = partitionedHandle().toBuilder()
+                .partitionKeyNames(Collections.singletonList("dt")).build();
+        Assertions.assertEquals(Collections.singletonList("dt=08%3A00"), prunedPaths(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("dt", "08:00")))));
+        Assertions.assertEquals(Collections.singletonList("dt=%253A"), prunedPaths(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("dt", "%3A")))));
+        Assertions.assertEquals(names.subList(0, 2), hms.loadedNames);
+    }
+
+    @Test
     public void testHiveSyncBranchPrunesHmsNames() {
-        // use_hive_sync_partition=true: partitions are registered in HMS and the hive-style name IS the relative
-        // storage layout, so applyFilter prunes the HMS names directly (no Hudi metadata listing / stub unused).
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        // Plain hive-style names need no location lookup or Hudi metadata listing.
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(PARTITIONS),
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
                 new StubMetaClientExecutor(Collections.emptyList()));
@@ -190,6 +239,30 @@ public class HudiPartitionPruningTest {
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedPaths(result));
+    }
+
+    @Test
+    public void testHiveSyncPrunesAcrossEquivalentS3Schemes() {
+        List<String> names = Arrays.asList("dt=08%253A00", "dt=%25253A", "dt=plain");
+        for (String baseScheme : Arrays.asList("s3", "s3a")) {
+            for (String partitionScheme : Arrays.asList("s3", "s3a")) {
+                FakeHmsClient hms = new FakeHmsClient(names);
+                hms.locations = Map.of(names.get(0), partitionScheme + "://b/t/dt=08%3A00",
+                        names.get(1), partitionScheme + "://b/t/dt=%253A");
+                HudiConnectorMetadata metadata = metadata(hms,
+                        HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                        new StubMetaClientExecutor(Collections.emptyList()));
+                HudiTableHandle handle = new HudiTableHandle.Builder("db", "t",
+                        baseScheme + "://b/t", "COPY_ON_WRITE")
+                        .partitionKeyNames(Collections.singletonList("dt")).build();
+                for (String value : Arrays.asList("08:00", "%3A", "plain")) {
+                    String path = value.equals("08:00") ? "dt=08%3A00"
+                            : value.equals("%3A") ? "dt=%253A" : "dt=plain";
+                    Assertions.assertEquals(Collections.singletonList(path), prunedPaths(metadata.applyFilter(
+                            null, handle, new ConnectorFilterConstraint(eq("dt", value)))));
+                }
+            }
+        }
     }
 
     /**
@@ -201,7 +274,7 @@ public class HudiPartitionPruningTest {
      */
     @Test
     public void testPinnedHiveSyncReadPrunesTheMetadataListingNotHms() {
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(Collections.singletonList("year=2024/month=01")),   // GONE already unsynced
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
                 new StubMetaClientExecutor(Arrays.asList("year=2024/month=01", "year=2023/month=12")));
@@ -218,7 +291,7 @@ public class HudiPartitionPruningTest {
     /** The shape the pinned case exists to prevent, shown on the latest read where it is the right answer. */
     @Test
     public void testLatestHiveSyncReadPrunesAgainstHmsAndMayPruneToNothing() {
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(Collections.singletonList("year=2024/month=01")),
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
                 new StubMetaClientExecutor(Arrays.asList("year=2024/month=01", "year=2023/month=12")));
@@ -238,14 +311,14 @@ public class HudiPartitionPruningTest {
                 HudiConnectorMetadata.prunePartitionPaths(
                         Arrays.asList("2024/01", "2024/02", "2023/12"),
                         PART_KEYS,
-                        Collections.singletonMap("year", Collections.singletonList("2024"))));
+                        Collections.singletonMap("year", Collections.singletonList("2024")), true));
     }
 
     @Test
     public void testDatePartitionPredicatePrunesUnchanged() {
         // H2 non-regression: a DATE predicate literal is a LocalDate (not LocalDateTime), so it is NOT diverted to
         // hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored DATE value.
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(Arrays.asList("2024-01-01", "2024-01-02")));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
@@ -271,7 +344,7 @@ public class HudiPartitionPruningTest {
         // MUTATION: dropping the `instanceof BigDecimal` branch (falling through to String.valueOf) ->
         // literal renders "1.0000", ["1.0000"].contains("1") == false -> partition dropped -> prunedPaths
         // empty -> red.
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(Arrays.asList("1", "2")));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
@@ -286,14 +359,71 @@ public class HudiPartitionPruningTest {
         Assertions.assertEquals(Collections.singletonList("1"), prunedPaths(result));
     }
 
+    @Test
+    public void complexLiteralIsNeverAPartitionValue() {
+        // p = CAST([TRUE] AS STRING): the engine strips the CAST, so the literal arrives as the element list [true]
+        // while BE renders the cast as "[1]"; a MAP or STRUCT literal arrives as its display text. Read as a
+        // partition value, either would prune the p=[1] partition away, and in an IN, skipping just that item
+        // would narrow the list to 'x'.
+        HudiConnectorMetadata metadata = metadata(
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
+                new StubMetaClientExecutor(Arrays.asList("[1]", "x")));
+        HudiTableHandle handle = singleKeyHandle("p");
+        for (ConnectorLiteral literal : complexLiterals()) {
+            ConnectorExpression equality =
+                    new ConnectorComparison(ConnectorComparison.Operator.EQ, colRef("p"), literal);
+            ConnectorExpression inList = new ConnectorIn(colRef("p"), Arrays.asList(literal, lit("x")), false);
+            Assertions.assertFalse(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(equality))
+                    .isPresent(), equality.toString());
+            Assertions.assertFalse(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(inList))
+                    .isPresent(), inList.toString());
+        }
+    }
+
+    @Test
+    public void inListWithAnItemThatIsNotALiteralDoesNotPrune() {
+        // p IN (f(), 'x') with a call the planner did not fold: skipping the call would keep only p=x and lose the
+        // rows whose p equals what f() returns. A NULL item matches no partition, so the IN still prunes without it.
+        HudiConnectorMetadata metadata = metadata(
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
+                new StubMetaClientExecutor(Arrays.asList("a", "x")));
+        HudiTableHandle handle = singleKeyHandle("p");
+        ConnectorExpression withCall = new ConnectorIn(colRef("p"), Arrays.asList(
+                new ConnectorFunctionCall("f", ConnectorType.of("STRING"), Collections.emptyList()), lit("x")), false);
+        ConnectorExpression withNull = new ConnectorIn(colRef("p"),
+                Arrays.asList(ConnectorLiteral.ofNull(ConnectorType.of("STRING")), lit("x")), false);
+
+        Assertions.assertFalse(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withCall)).isPresent());
+        Assertions.assertEquals(Collections.singletonList("x"),
+                prunedPaths(metadata.applyFilter(null, handle, new ConnectorFilterConstraint(withNull))));
+    }
+
     // ========== helpers ==========
+
+    private static HudiTableHandle singleKeyHandle(String partitionKey) {
+        return new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList(partitionKey))
+                .build();
+    }
+
+    /** An ARRAY, a MAP and a STRUCT literal, each with the value the engine's converter gives that type. */
+    private static List<ConnectorLiteral> complexLiterals() {
+        return Arrays.asList(
+                new ConnectorLiteral(ConnectorType.arrayOf(ConnectorType.of("BOOLEAN")),
+                        Collections.singletonList(true)),
+                new ConnectorLiteral(ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")),
+                        "{\"k\":1}"),
+                new ConnectorLiteral(ConnectorType.structOf(Collections.singletonList("f"),
+                        Collections.singletonList(ConnectorType.of("INT"))), "{\"f\":1}"));
+    }
 
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             HudiTableHandle handle, ConnectorExpression expr) {
         // Default (use_hive_sync_partition=false) -> the non-hive-sync branch, whose candidate source is the Hudi
         // metadata listing. Feed the canned partition list via the stub executor (no live metaClient). The
         // hive-style names here parse the same via parsePartitionValues, so the pruning assertions are unchanged.
-        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+        HudiConnectorMetadata metadata = metadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(PARTITIONS));
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
@@ -335,11 +465,13 @@ public class HudiPartitionPruningTest {
     }
 
     /**
-     * Minimal {@link HmsClient} double returning a fixed partition-name list.
-     * Only {@code listPartitionNames} is exercised by partition pruning; the rest fail loud.
+     * Minimal {@link HmsClient} double returning partition names and locations.
+     * Unrelated HMS operations fail loudly.
      */
     private static final class FakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private Map<String, String> locations = Collections.emptyMap();
+        private List<String> loadedNames;
 
         FakeHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -383,7 +515,16 @@ public class HudiPartitionPruningTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName,
                 List<String> partNames) {
-            throw new UnsupportedOperationException();
+            loadedNames = new ArrayList<>(partNames);
+            List<HmsPartitionInfo> result = new ArrayList<>();
+            for (String name : partNames) {
+                List<String> values = Arrays.stream(name.split("/"))
+                        .map(part -> HudiScanPlanProvider.unescapePathName(part.substring(part.indexOf('=') + 1)))
+                        .collect(Collectors.toList());
+                result.add(new HmsPartitionInfo(values,
+                        locations.getOrDefault(name, "s3://b/t/" + name), null, null, null, null));
+            }
+            return result;
         }
 
         @Override
@@ -396,22 +537,32 @@ public class HudiPartitionPruningTest {
         }
     }
 
+    private static HudiConnectorMetadata metadata(HmsClient hms, HudiCatalogProperties props,
+            HudiMetaClientExecutor executor) {
+        return new HudiConnectorMetadata(hms, props, executor) {
+            @Override
+            boolean urlEncodePartitioning(HudiTableHandle handle, List<String> paths) {
+                return true;
+            }
+        };
+    }
+
     /**
      * {@link HudiMetaClientExecutor} test double that returns a canned value WITHOUT running the action, so a test
      * can supply the non-hive-sync {@code applyFilter} branch's {@code listAllPartitionPaths} result offline (no
      * live metaClient / filesystem). Mirrors the stub pattern in HudiConnectorPartitionListingTest.
      */
     private static final class StubMetaClientExecutor implements HudiMetaClientExecutor {
-        private final Object canned;
+        private final List<String> canned;
 
-        StubMetaClientExecutor(Object canned) {
+        StubMetaClientExecutor(List<String> canned) {
             this.canned = canned;
         }
 
         @SuppressWarnings("unchecked")
         @Override
         public <T> T execute(Callable<T> action) {
-            return (T) canned;
+            return (T) HudiConnectorMetadata.unpinnedListing(0, canned, true);
         }
     }
 }

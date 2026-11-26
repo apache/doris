@@ -18,7 +18,7 @@
 suite("test_variant_agg_doc_value", "p0"){
     def variantV2Function = "parse_to_variant"
     sql """DROP TABLE IF EXISTS var_agg"""
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
 
     int max_subcolumns_count = Math.floor(Math.random() * 10)
     def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"

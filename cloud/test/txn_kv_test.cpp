@@ -1547,10 +1547,16 @@ TEST(TxnKvTest, BatchScan) {
 }
 
 TEST(TxnKvTest, ReportConflictingRange) {
+    const bool old_enable_logging_conflict_keys = config::enable_logging_conflict_keys;
+    DORIS_CLOUD_DEFER {
+        config::enable_logging_conflict_keys = old_enable_logging_conflict_keys;
+    };
     config::enable_logging_conflict_keys = true;
 
     constexpr std::string_view key_prefix = "txn_kv_test__report_conflicting_range";
     std::string key = std::string(key_prefix) + std::to_string(time(nullptr));
+    key.push_back('\0');
+    key.append("suffix");
 
     {
         // 1. write a common key
@@ -1576,13 +1582,63 @@ TEST(TxnKvTest, ReportConflictingRange) {
     ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_CONFLICT);
 
     // 3. get the conflicting ranges.
+    auto* fdb_txn = static_cast<fdb::Transaction*>(txn2.get());
     std::vector<std::pair<std::string, std::string>> values;
-    ASSERT_EQ(reinterpret_cast<fdb::Transaction*>(txn2.get())->get_conflicting_range(&values),
-              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(fdb_txn->get_conflicting_range(&values), TxnErrorCode::TXN_OK);
     ASSERT_EQ(values.size(), 2);
     ASSERT_EQ(values[0].first, key);
     ASSERT_EQ(values[1].second, "0");
     ASSERT_TRUE(values[1].first.starts_with(key));
+
+    auto* sp = doris::SyncPoint::get_instance();
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    int batch_limit = 0;
+    doris::SyncPoint::CallbackGuard limit_guard;
+    sp->set_call_back(
+            "transaction:get_conflict_range:batch_limit",
+            [&](auto&& args) { *doris::try_any_cast<int*>(args[0]) = batch_limit; }, &limit_guard);
+    int page_count = 0;
+    int fail_on_page = 0;
+    constexpr fdb_error_t txn_timed_out = 1031;
+    doris::SyncPoint::CallbackGuard page_guard;
+    sp->set_call_back(
+            "range_get_iterator:init:get_keyvalue_array_err",
+            [&](auto&& args) {
+                if (++page_count == fail_on_page) {
+                    *doris::try_any_cast<fdb_error_t*>(args[0]) = txn_timed_out;
+                }
+            },
+            &page_guard);
+
+    for (auto reader :
+         {&fdb::Transaction::get_conflicting_range, &fdb::Transaction::get_read_conflict_range,
+          &fdb::Transaction::get_write_conflict_range}) {
+        batch_limit = 0;
+        fail_on_page = 0;
+        values.clear();
+        ASSERT_EQ((fdb_txn->*reader)(&values), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(values.size(), 2);
+        const auto expected = values;
+
+        // Put the two range ends on separate pages.
+        batch_limit = 1;
+        page_count = 0;
+        values.clear();
+        ASSERT_EQ((fdb_txn->*reader)(&values), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(values, expected);
+        EXPECT_GT(page_count, 1);
+
+        page_count = 0;
+        fail_on_page = 2;
+        values.clear();
+        EXPECT_EQ((fdb_txn->*reader)(&values), TxnErrorCode::TXN_TIMEOUT);
+        EXPECT_EQ(values.size(), 1);
+    }
 }
 
 TEST(TxnKvTest, WatchKey) {

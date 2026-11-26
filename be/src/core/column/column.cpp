@@ -51,6 +51,17 @@ bool contains_boolean_value_column(const IColumn& column) {
 
 } // namespace
 
+ConstantExprResult::ConstantExprResult(ColumnPtr column) {
+    DORIS_CHECK(column.get() != nullptr);
+    // Constant expressions can return either ColumnConst or a plain single-row column.
+    if (const auto* const_column = check_and_get_column<ColumnConst>(column.get())) {
+        _column_ptr = const_column->get_data_column_ptr();
+    } else {
+        _column_ptr = std::move(column);
+    }
+    DORIS_CHECK_EQ(_column_ptr->size(), 1);
+}
+
 std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();

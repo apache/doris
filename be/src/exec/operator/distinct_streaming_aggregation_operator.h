@@ -55,6 +55,7 @@ private:
                                               ColumnRawPtrs& key_columns, const uint32_t num_rows);
     void _make_nullable_output_key(Block* block);
     bool _should_expand_preagg_hash_tables();
+    size_t _memory_usage() const;
 
     void _swap_cache_block(Block* block) {
         DCHECK(!_cache_block.is_empty_column());
@@ -82,6 +83,7 @@ private:
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_use_limit = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
     bool _is_single_backend = false;
@@ -145,7 +147,7 @@ public:
 
 private:
     friend class DistinctStreamingAggLocalState;
-
+    size_t _memory_limit(RuntimeState* state) const;
     void init_make_nullable(RuntimeState* state);
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
@@ -159,6 +161,10 @@ private:
 
     // If _is_streaming_preagg = true, deduplication will be abandoned in cases where the deduplication rate is low.
     bool _is_streaming_preagg = false;
+    /// When spilling is enabled, the pre-agg should not occupy too much memory: session variable
+    /// `spill_streaming_agg_mem_limit` (0 = none), combined with the query-limit-based budget in
+    /// `_memory_limit()`.
+    size_t _spill_streaming_agg_mem_limit = 0;
 };
 
 /// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.

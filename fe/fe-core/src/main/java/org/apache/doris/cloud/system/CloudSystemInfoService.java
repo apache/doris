@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.catalog.CloudColocatePlacement;
 import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -66,6 +67,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -106,6 +108,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             new ConcurrentHashMap<>();
 
     private InstanceInfoPB.Status instanceStatus;
+
+    // Written and consumed by the journal replay thread; additions never strand existing routes.
+    private long replayBackendRemovalVersion;
+
+    public long getReplayBackendRemovalVersion() {
+        return replayBackendRemovalVersion;
+    }
 
     public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
         return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
@@ -247,17 +256,46 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterIdToBackend.computeIfAbsent(clusterId, k -> new ArrayList<>());
     }
 
-    public void removeVirtualClusterInfoFromMapsNoLock(String clusterId, String clusterName) {
-        LOG.info("remove virtual cluster info from maps, clusterId={}, clusterName={}", clusterId, clusterName);
-        clusterIdToBackend.remove(clusterId);
-        clusterNameToId.remove(clusterName);
-    }
-
     public void renameVirtualClusterInfoFromMapsNoLock(String clusterId, String oldClusterName, String newClusterName) {
         LOG.info("remove virtual cluster info from maps, clusterId={}, name from {} to {}",
                 clusterId, oldClusterName, newClusterName);
         clusterNameToId.put(newClusterName, clusterId);
-        clusterNameToId.remove(oldClusterName);
+        clusterNameToId.remove(oldClusterName, clusterId);
+    }
+
+    // Physical and virtual group checkers fetch and apply snapshots independently.
+    // For example:
+    // 1. A current physical snapshot installs name -> newId.
+    // 2. A delayed virtual snapshot overwrites it with name -> oldId.
+    // 3. A later virtual snapshot removes oldId and its name mapping.
+    // The new physical group's metadata and BEs still exist, but its name mapping
+    // is missing. Normal add/rename detection cannot repair it because neither
+    // the group ID nor the BE names have changed.
+    //
+    // Reconcile name mappings for locally installed groups on every sync cycle.
+    // Callers must exclude records whose metadata reconciliation was rejected.
+    // This does not reject stale snapshots; it restores the current mapping once
+    // a later cycle applies current metadata from the meta service.
+    public void refreshComputeGroupNames(Collection<Cloud.ClusterPB> remoteComputeGroups) {
+        wlock.lock();
+        try {
+            for (Cloud.ClusterPB group : remoteComputeGroups) {
+                String id = group.getClusterId();
+                // Empty physical groups and rejected virtual groups may not be installed locally.
+                // Do not create a name pointing to missing metadata.
+                if (!computeGroupIdToComputeGroup.containsKey(id)) {
+                    continue;
+                }
+                String name = group.getClusterName();
+                String previousId = clusterNameToId.put(name, id);
+                if (!id.equals(previousId)) {
+                    LOG.warn("repair compute group name mapping from meta service, name={}, oldId={}, currentId={}",
+                            name, previousId, id);
+                }
+            }
+        } finally {
+            wlock.unlock();
+        }
     }
 
     public CloudComputeGroupMeta getComputeGroupByName(String computeGroupName) {
@@ -421,11 +459,17 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    // Remove local metadata for a physical or virtual compute group. Physical backends
+    // must be removed by the caller before removing the group.
     public void removeComputeGroup(String computeGroupId, String computeGroupName) {
         try {
             wlock.lock();
+            LOG.info("remove compute group, id={}, name={}", computeGroupId, computeGroupName);
             computeGroupIdToComputeGroup.remove(computeGroupId);
-            removeVirtualClusterInfoFromMapsNoLock(computeGroupId, computeGroupName);
+            clusterIdToBackend.remove(computeGroupId);
+            // Earlier checkers could publish aliases from rejected renames. Remove every name
+            // still owned by this ID, without removing names already reused by another group.
+            clusterNameToId.entrySet().removeIf(entry -> computeGroupId.equals(entry.getValue()));
             invalidateCloudColocatePlacement(computeGroupId);
         } finally {
             wlock.unlock();
@@ -532,6 +576,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             be.setAlive(false);
             be.setLastMissingHeartbeatTime(System.currentTimeMillis());
             Env.getCurrentEnv().getEditLog().logDropBackend(be);
+            TabletSlidingWindowAccessStats.getInstance().removeBackend(be.getId());
             LOG.info("dropped cloud backend={}, and lastMissingHeartbeatTime={}", be, be.getLastMissingHeartbeatTime());
         }
 
@@ -632,22 +677,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             be = be.stream().filter(i -> !d.contains(i.getId())).collect(Collectors.toList());
             // ATTN: clusterId may have zero nodes
             clusterIdToBackend.replace(clusterId, be);
-            // such as dropCluster, but no lock
             // ATTN: Empty clusters are treated as dropped clusters.
             if (be.isEmpty()) {
                 LOG.info("del clusterId {} and clusterName {} due to be nodes eq 0", clusterId, clusterName);
                 MetricRepo.unregisterCloudMetrics(clusterId, clusterName, toDel);
-                boolean succ = clusterNameToId.remove(clusterName, clusterId);
 
                 // remove from computeGroupIdToComputeGroup
                 removeComputeGroup(clusterId, clusterName);
-
-                if (!succ) {
-                    LOG.warn("impossible, somewhere err, clusterNameToId {}, "
-                            + "want remove cluster name {}, cluster id {}",
-                            clusterNameToId, clusterName, clusterId);
-                }
-                clusterIdToBackend.remove(clusterId);
             }
             LOG.info("update (del) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, be.size(), b);
@@ -830,9 +866,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String computeGroupId = tryCreateComputeGroup(clusterName,
                 RandomIdentifierGenerator.generateRandomIdentifier(8));
-        String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
-                : String.valueOf(Config.cluster_id);
-
+        String instanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
         String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
 
         String publicEndpoint = tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
@@ -946,6 +980,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<Backend> toDel = new ArrayList<>();
         toDel.add(backend);
         updateCloudClusterMap(new ArrayList<>(), toDel);
+        replayBackendRemovalVersion++;
     }
 
     @Override
@@ -1220,7 +1255,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                                       final String originalName, final String clusterId) {
         wlock.lock();
         try {
-            clusterNameToId.remove(originalName);
+            clusterNameToId.remove(originalName, clusterId);
             clusterNameToId.put(newName, clusterId);
         } finally {
             wlock.unlock();
@@ -1250,17 +1285,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
         }
         return clusterName;
-    }
-
-    public void dropCluster(final String clusterId, final String clusterName) {
-        wlock.lock();
-        try {
-            clusterNameToId.remove(clusterName, clusterId);
-            clusterIdToBackend.remove(clusterId);
-            invalidateCloudColocatePlacement(clusterId);
-        } finally {
-            wlock.unlock();
-        }
     }
 
     public List<String> getCloudClusterNames() {
@@ -1501,23 +1525,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("unable to alter frontend due to invalid role");
         }
 
-        // Issue rpc to meta to add this node, then fe master would add this node to its frontends
-        Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
-                .setCloudUniqueId(cloudUnqiueID)
-                .setIp(host)
-                .setHost(host)
-                .setEditLogPort(editLogPort)
-                .setNodeType(nodeType)
-                .setCtime(System.currentTimeMillis() / 1000)
-                .build();
-
-        ClusterPB clusterPB = ClusterPB.newBuilder()
-                .setClusterId(Config.cloud_sql_server_cluster_id)
-                .setClusterName(Config.cloud_sql_server_cluster_name)
-                .setType(ClusterPB.Type.SQL)
-                .addNodes(nodeInfoPB)
-                .build();
-
+        ClusterPB clusterPB = buildFrontendCluster(nodeType, host, editLogPort, cloudUnqiueID);
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -1537,6 +1545,34 @@ public class CloudSystemInfoService extends SystemInfoService {
         } catch (RpcException e) {
             throw new DdlException("failed to alter frontend", e);
         }
+    }
+
+    private ClusterPB buildFrontendCluster(Cloud.NodeInfoPB.NodeType type, String host, int editLogPort,
+            String cloudUniqueId) {
+        Cloud.NodeInfoPB node = Cloud.NodeInfoPB.newBuilder()
+                .setCloudUniqueId(cloudUniqueId)
+                .setIp(host)
+                .setHost(host)
+                .setEditLogPort(editLogPort)
+                .setNodeType(type)
+                .setCtime(System.currentTimeMillis() / 1000)
+                .build();
+        return ClusterPB.newBuilder()
+                .setClusterId(Config.cloud_sql_server_cluster_id)
+                .setClusterName(Config.cloud_sql_server_cluster_name)
+                .setType(ClusterPB.Type.SQL)
+                .addNodes(node)
+                .build();
+    }
+
+    public Cloud.MetaServiceResponseStatus bootstrapInstance(String instanceId, String host, int editLogPort)
+            throws RpcException {
+        Cloud.BootstrapInstanceRequest request = Cloud.BootstrapInstanceRequest.newBuilder()
+                .setInstanceId(instanceId)
+                .setInitialFeCluster(buildFrontendCluster(Cloud.NodeInfoPB.NodeType.FE_MASTER, host, editLogPort,
+                        Config.cloud_unique_id))
+                .build();
+        return MetaServiceProxy.getInstance().bootstrapInstance(request).getStatus();
     }
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
@@ -1892,31 +1928,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         void run() throws DdlException;
     }
 
-
-    public void tryCreateInstance(String instanceId, String name, boolean sseEnabled) throws DdlException {
-        Cloud.CreateInstanceRequest.Builder builder = Cloud.CreateInstanceRequest.newBuilder();
-        builder.setInstanceId(instanceId);
-        builder.setName(name);
-        builder.setSseEnabled(sseEnabled);
-        builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
-
-        Cloud.CreateInstanceResponse response;
-        try {
-
-            Cloud.CreateInstanceRequest request = builder.build();
-            response = MetaServiceProxy.getInstance().createInstance(request);
-            LOG.info("create instance, request: {}, response: {}", request, response);
-            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
-                    && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
-                LOG.warn("Failed to create instance {}, response: {}", instanceId, response);
-                throw new DdlException("Failed to create instance");
-            }
-            LOG.info("Successfully created instance {}, response: {}", instanceId, response);
-        } catch (RpcException e) {
-            LOG.warn("Failed to create instance {}", instanceId, e);
-            throw new DdlException("Failed to create instance");
-        }
-    }
 
     public String getInstanceId(String cloudUniqueId) throws IOException {
         Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();

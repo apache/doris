@@ -84,11 +84,11 @@ public class DropMaterializedViewTest extends TestWithFeService {
         String db = UnitTestUtil.DB_NAME;
         String baseTable = "ivm_drop_test_base";
 
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
+        createTableWithChangelog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true');", db, baseTable));
+                + "'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true');", db, baseTable));
 
         String mvName = "ivm_drop_test_mv";
         createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s "
@@ -118,11 +118,11 @@ public class DropMaterializedViewTest extends TestWithFeService {
         String baseTable1 = "ivm_drop_owner_base1";
         String baseTable2 = "ivm_drop_owner_base2";
         String tableProperties = "PROPERTIES ('replication_num' = '1', "
-                + "'enable_unique_key_merge_on_write' = 'true', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')";
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "'enable_unique_key_merge_on_write' = 'true', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')";
+        createTableWithChangelog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable1, tableProperties));
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithChangelog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable2, tableProperties));
 
         String mvName = "ivm_drop_owner_mv";

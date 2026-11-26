@@ -215,7 +215,7 @@ message ColumnMetaPB {
     optional ColumnPathInfo column_path_info = 13;
 
     // Extra type info to be compatible with tabet schema
-    optional bytes default_value = 14; // ColumnMessage.default_value ?
+    optional bytes DEPRECATED_default_value = 14; // this field is useless, it is added by https://github.com/apache/doris/pull/24170/
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
 
@@ -232,6 +232,8 @@ message ColumnMetaPB {
     optional uint64 uncompressed_data_bytes = 25;
     optional uint64 raw_data_bytes = 26;
     optional bool variant_enable_doc_mode = 27 [default = false];
+    // Variant root only: 0 is the legacy namespace, 1 escapes object-key components.
+    optional uint32 variant_path_encoding = 28 [default = 0];
 }
 
 // External column meta entry describing one top-level column's externalized

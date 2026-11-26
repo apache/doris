@@ -850,9 +850,8 @@ void MetaChecker::init_mysql_connection(const std::string& host, const std::stri
     if (!mysql_real_connect(&conn, host.c_str(), user.c_str(), password.c_str(), "", stol(port),
                             nullptr, 0)) {
         msg = "mysql conn failed ";
-        LOG(WARNING) << msg << mysql_error(&conn) << " host " << host << " port " << port
-                     << " user " << user << " password " << password << " instance_id "
-                     << instance_id;
+        LOG(WARNING) << msg << "error_code " << mysql_errno(&conn) << " host " << host << " port "
+                     << port << " user " << user << " instance_id " << instance_id;
         return;
     }
 

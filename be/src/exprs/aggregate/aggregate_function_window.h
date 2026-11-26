@@ -219,6 +219,14 @@ public:
 
     String get_name() const override { return "percent_rank"; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PEER_GROUP;
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return WindowSpillPeerFunction::PERCENT_RANK;
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
@@ -289,6 +297,14 @@ public:
 
     String get_name() const override { return "cume_dist"; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PEER_GROUP;
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return WindowSpillPeerFunction::CUME_DIST;
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
@@ -347,6 +363,10 @@ public:
 
     String get_name() const override { return "ntile"; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::NTILE;
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
@@ -397,8 +417,7 @@ public:
 };
 
 template <bool result_is_nullable, bool arg_is_nullable>
-struct FirstLastData
-        : public ReaderFirstAndLastData<void, result_is_nullable, arg_is_nullable, false> {
+struct FirstLastData : public ReaderFirstAndLastData<result_is_nullable, arg_is_nullable> {
 public:
     void set_is_null() { this->_data_value.reset(); }
 };
@@ -417,19 +436,11 @@ public:
     int64_t _frame_total_rows = 0;
 };
 
-template <bool arg_is_nullable>
-struct BaseValue : public Value<arg_is_nullable> {
-public:
-    bool is_null() const { return this->_ptr == nullptr; }
-    // because _ptr pointer to first_argument or third argument, so it's difficult to cast ptr
-    // so here will call virtual function
-    StringRef get_value() const { return this->_ptr->get_data_at(this->_offset); }
-};
-
 template <bool result_is_nullable, bool arg_is_nullable>
 struct LeadLagData {
 public:
     static constexpr bool result_nullable = result_is_nullable;
+
     void reset() {
         _data_value.reset();
         _is_inited = false;
@@ -438,17 +449,16 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
-            if (_data_value.is_null()) {
+            if (!_data_value.has()) {
                 auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 col.insert_default();
             } else {
                 auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
-                StringRef value = _data_value.get_value();
-                col.insert_data(value.data, value.size);
+                col.get_null_map_data().push_back(0);
+                _data_value.insert_result_into(col.get_nested_column());
             }
         } else {
-            StringRef value = _data_value.get_value();
-            to.insert_data(value.data, value.size);
+            _data_value.insert_result_into(to);
         }
     }
 
@@ -456,13 +466,15 @@ public:
         if constexpr (arg_is_nullable) {
             if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
                         ->is_null_at(pos)) {
-                // ptr == nullptr means nullable
                 _data_value.reset();
                 return;
             }
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            _data_value.set(nullable.get_nested_column(), pos);
+        } else {
+            _data_value.set(*columns[0], pos);
         }
-        // here ptr is pointer to nullable column or not null column from first
-        _data_value.set_value(columns[0], pos);
     }
 
     void set_value_from_default(const IColumn* column, size_t pos) {
@@ -473,10 +485,10 @@ public:
             if (nullable_column->is_null_at(pos)) {
                 this->_data_value.reset();
             } else {
-                this->_data_value.set_value(nullable_column->get_nested_column_ptr().get(), pos);
+                this->_data_value.set(nullable_column->get_nested_column(), pos);
             }
         } else {
-            this->_data_value.set_value(column, pos);
+            this->_data_value.set(*column, pos);
         }
     }
 
@@ -492,7 +504,7 @@ public:
     int64_t get_offset_value() const { return _offset_value; }
 
 private:
-    BaseValue<arg_is_nullable> _data_value;
+    SingleValueDataColumn _data_value;
     bool _is_inited = false;
     int64_t _offset_value = 0;
 };

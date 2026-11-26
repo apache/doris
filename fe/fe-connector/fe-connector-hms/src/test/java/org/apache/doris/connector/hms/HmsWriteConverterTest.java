@@ -145,6 +145,17 @@ public class HmsWriteConverterTest {
     }
 
     @Test
+    public void testExplicitParquetGzipCompression() {
+        // GZIP is a valid Hive `parquet.compression` value, and the Doris Parquet writer now
+        // honours it, so the CREATE TABLE allow-list must accept it instead of rejecting it.
+        Table table = HmsWriteConverter.toHiveTable(
+                baseTable("parquet", Collections.singletonList(col("id", "INT")),
+                        Collections.emptyList()).properties(mutableMap("compression", "gzip")).build());
+        Assertions.assertEquals("gzip", table.getParameters().get("parquet.compression"));
+        Assertions.assertFalse(table.getParameters().containsKey("compression"));
+    }
+
+    @Test
     public void testUnsupportedCompressionAndFormatThrow() {
         Assertions.assertThrows(IllegalArgumentException.class, () ->
                 HmsWriteConverter.toHiveTable(

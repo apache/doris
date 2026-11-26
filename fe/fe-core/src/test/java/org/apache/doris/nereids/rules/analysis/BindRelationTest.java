@@ -92,13 +92,13 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     }
 
     @Test
-    void rejectIncrementalReadWithoutRowBinlog() {
+    void rejectIncrementalReadWithoutChangelog() {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(connectContext)
-                        .analyze("SELECT a, b, __DORIS_BINLOG_OP__ "
+                        .analyze("SELECT a, b, __DORIS_CHANGELOG_OP__ "
                                 + "FROM db1.t@incr(\"incrementType\" = \"DETAIL\")"));
 
-        Assertions.assertEquals("INCR query requires ROW binlog enabled on base table.", exception.getMessage());
+        Assertions.assertEquals("INCR query requires changelog enabled on base table.", exception.getMessage());
     }
 
     @Test

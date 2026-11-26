@@ -41,8 +41,14 @@ class IvmAggBitmapUnionCountProcessor extends IvmAggBitmapProcessor {
     }
 
     @Override
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
         return ImmutableList.of(IvmAggStateKey.BITMAP_UNION);
+    }
+
+    @Override
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        // The visible value is bitmap_count(hidden bitmap state), so the bitmap is the merged state.
+        return false;
     }
 
     @Override

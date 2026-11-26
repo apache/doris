@@ -21,10 +21,16 @@
 
 #include <memory>
 
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/uint24.h"
+#include "core/value/vdatetime_value.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::OlapReaderStatistics;
@@ -38,16 +44,13 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        Arena pool;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        auto column = DataTypeFactory::instance().create_data_type(type, 0, 0)->create_column();
 
         size_t n = 1;
-        decoder->_copy_next_values(n, column_block_view.data());
+        EXPECT_TRUE(decoder->next_batch(&n, column).ok());
         EXPECT_EQ(1, n);
-        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
+        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(
+                column->get_raw_data().data);
     }
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
@@ -55,12 +58,13 @@ public:
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
+        std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
 
-        page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
-        OwnedSlice s = page_builder.finish();
+        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        OwnedSlice s;
+        EXPECT_TRUE(page_builder->finish(&s).ok());
 
         segment_v2::PageDecoderOptions decoder_options;
         PageDecoderType page_decoder_(s.slice(), decoder_options);
@@ -70,25 +74,20 @@ public:
         segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<DataPage> decoded_page;
-        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
-                           "");
+        EXPECT_TRUE(pre_decoder
+                            .decode(&decoded_page, &page_slice, 0, false,
+                                    segment_v2::PageTypePB::DATA_PAGE, "")
+                            .ok());
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_decoder.current_index());
 
-        Arena pool;
-
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, false, get_scalar_type_info(Type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
-
-        status = page_decoder.next_batch(&size, &column_block_view);
+        auto column = DataTypeFactory::instance().create_data_type(Type, 0, 0)->create_column();
+        status = page_decoder.next_batch(&size, column);
         EXPECT_TRUE(status.ok());
 
-        CppType* values = reinterpret_cast<CppType*>(block.data());
-        CppType* decoded = (CppType*)values;
+        const auto* decoded = reinterpret_cast<const CppType*>(column->get_raw_data().data);
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {
                 FAIL() << "Fail at index " << i << " inserted=" << src[i] << " got=" << decoded[i];
@@ -98,7 +97,7 @@ public:
         // Test Seek within block by ordinal
         for (int i = 0; i < 100; i++) {
             int seek_off = random() % size;
-            page_decoder.seek_to_position_in_page(seek_off);
+            EXPECT_TRUE(page_decoder.seek_to_position_in_page(seek_off).ok());
             EXPECT_EQ((int32_t)(seek_off), page_decoder.current_index());
             CppType ret;
             copy_one<Type, PageDecoderType>(&page_decoder, &ret);
@@ -115,12 +114,13 @@ public:
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
+        std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
 
-        page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
-        OwnedSlice s = page_builder.finish();
+        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        OwnedSlice s;
+        EXPECT_TRUE(page_builder->finish(&s).ok());
 
         segment_v2::PageDecoderOptions decoder_options;
         PageDecoderType page_decoder_(s.slice(), decoder_options);
@@ -130,8 +130,10 @@ public:
         segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<DataPage> decoded_page;
-        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
-                           "");
+        EXPECT_TRUE(pre_decoder
+                            .decode(&decoded_page, &page_slice, 0, false,
+                                    segment_v2::PageTypePB::DATA_PAGE, "")
+                            .ok());
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
@@ -164,6 +166,39 @@ public:
 
         status = page_decoder.seek_at_or_after_value(bigger_than_biggest, &exact_match);
         EXPECT_EQ(status.code(), ENTRY_NOT_FOUND);
+    }
+
+    // Eight consecutive days from 2020-01-01 in one bitshuffle page of V1 DATE cells, each date
+    // stored as a uint24, unshuffled into `decoded_page` as the page cache holds it. `page` is
+    // left pointing at the unshuffled page.
+    void build_date_v1_page(std::vector<VecDateTimeValue>* days,
+                            std::unique_ptr<DataPage>* decoded_page, Slice* page) {
+        using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>;
+        constexpr size_t kRows = 8;
+        days->resize(kRows);
+        std::vector<uint24_t> cells(kRows);
+        for (size_t i = 0; i < kRows; ++i) {
+            ASSERT_TRUE((*days)[i].from_date_int64(static_cast<int64_t>(20200101 + i)));
+            cells[i] = Layout::to_storage((*days)[i]);
+        }
+        PageBuilderOptions options;
+        options.data_page_size = 256 * 1024;
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(segment_v2::BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(
+                            &builder, options)
+                            .ok());
+        std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
+        size_t added = kRows;
+        ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(cells.data()), &added).ok());
+        ASSERT_EQ(added, kRows);
+        OwnedSlice encoded;
+        ASSERT_TRUE(page_builder->finish(&encoded).ok());
+        segment_v2::BitShufflePagePreDecoder pre_decoder;
+        *page = encoded.slice();
+        ASSERT_TRUE(
+                pre_decoder
+                        .decode(decoded_page, page, 0, false, segment_v2::PageTypePB::DATA_PAGE, "")
+                        .ok());
     }
 };
 
@@ -364,6 +399,50 @@ TEST_F(BitShufflePageTest, TestBitShuffleDecimal12BlockEncoderSeekValue) {
             segment_v2::BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_DECIMAL>,
             segment_v2::BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_DECIMAL>>(
             decimals.get(), size, &small_than_smallest, &bigger_than_biggest);
+}
+
+// A V1 DATE page holds each date as a uint24 cell; a batch decodes the cells into the dates
+// of a ColumnDate.
+TEST_F(BitShufflePageTest, TestBitShuffleDateV1DecodesIntoDates) {
+    std::vector<VecDateTimeValue> days;
+    std::unique_ptr<DataPage> decoded_page;
+    Slice page;
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &decoded_page, &page));
+    segment_v2::PageDecoderOptions decoder_options;
+    segment_v2::BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page,
+                                                                               decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    MutableColumnPtr dates = ColumnDate::create();
+    size_t n = days.size();
+    ASSERT_TRUE(decoder.next_batch(&n, dates).ok());
+    ASSERT_EQ(n, days.size());
+    const auto& decoded = assert_cast<const ColumnDate&>(*dates).get_data();
+    for (size_t i = 0; i < days.size(); ++i) {
+        EXPECT_EQ(decoded[i], days[i]) << "row " << i;
+    }
+}
+
+// Rows read by id into a ColumnDate come back as their dates.
+TEST_F(BitShufflePageTest, TestBitShuffleDateV1ReadsRowIdsIntoDates) {
+    std::vector<VecDateTimeValue> days;
+    std::unique_ptr<DataPage> decoded_page;
+    Slice page;
+    ASSERT_NO_FATAL_FAILURE(build_date_v1_page(&days, &decoded_page, &page));
+    segment_v2::PageDecoderOptions decoder_options;
+    segment_v2::BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_DATE> decoder(page,
+                                                                               decoder_options);
+    ASSERT_TRUE(decoder.init().ok());
+
+    const segment_v2::rowid_t rowids[] = {1, 3, 6};
+    MutableColumnPtr picked = ColumnDate::create();
+    size_t n = 3;
+    ASSERT_TRUE(decoder.read_by_rowids(rowids, 0, &n, picked).ok());
+    ASSERT_EQ(n, 3);
+    const auto& picked_dates = assert_cast<const ColumnDate&>(*picked).get_data();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(picked_dates[i], days[rowids[i]]) << "row id " << rowids[i];
+    }
 }
 
 } // namespace doris

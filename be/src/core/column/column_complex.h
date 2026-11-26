@@ -63,11 +63,10 @@ public:
 
     void insert_binary_data(const char* pos, size_t length) {
         insert_default();
-        value_type* pvalue = &get_element(size() - 1);
         if (!length) {
-            *pvalue = *reinterpret_cast<const value_type*>(pos);
             return;
         }
+        value_type* pvalue = &get_element(size() - 1);
 
         if constexpr (T == TYPE_BITMAP) {
             pvalue->deserialize(pos);
@@ -237,16 +236,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
-    }
-
-    void erase(size_t start, size_t length) override {
-        if (start >= data.size() || length == 0) {
-            return;
-        }
-        length = std::min(length, data.size() - start);
-        size_t remain_size = data.size() - length;
-        std::move(data.begin() + start + length, data.end(), data.begin() + start);
-        data.resize(remain_size);
     }
 
     size_t serialize_size_at(size_t row) const override { return sizeof(data[row]); }

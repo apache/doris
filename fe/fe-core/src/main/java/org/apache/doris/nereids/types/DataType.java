@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -44,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -86,6 +88,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.UUID.getPrimitiveType(), UuidType.INSTANCE)
                     .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
@@ -390,12 +393,30 @@ public abstract class DataType {
             case "ipv6":
                 dataType = IPv6Type.INSTANCE;
                 break;
+            case "uuid":
+                if (types.size() != 1) {
+                    throw new AnalysisException("UUID does not support length or precision parameters");
+                }
+                dataType = UuidType.INSTANCE;
+                break;
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "file":
+                if (types.size() != 1) {
+                    throw new AnalysisException("FILE does not accept type parameters");
+                }
+                dataType = FileType.INSTANCE;
+                break;
             case "varbinary":
-                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
-                dataType = VarBinaryType.INSTANCE;
+                // Keep declared byte limits in table schemas and nested binary leaves.
+                if (types.size() == 1 || (types.size() == 2 && types.get(1).equals("*"))) {
+                    dataType = VarBinaryType.INSTANCE;
+                } else if (types.size() == 2) {
+                    dataType = VarBinaryType.createVarBinaryType(Integer.parseInt(types.get(1)));
+                } else {
+                    throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -422,6 +443,7 @@ public abstract class DataType {
     @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
         switch (type.getPrimitiveType()) {
+            case FILE: return FileType.INSTANCE;
             case BOOLEAN: return BooleanType.INSTANCE;
             case TINYINT: return TinyIntType.INSTANCE;
             case SMALLINT: return SmallIntType.INSTANCE;
@@ -447,6 +469,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case UUID: return UuidType.INSTANCE;
             case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
@@ -540,6 +563,15 @@ public abstract class DataType {
     public DataType defaultConcreteType() {
         return this;
     }
+
+    /**
+     * The non-null zero value of this type: the value a NOT NULL column of the type is
+     * initialized with when no value is supplied, and what a slot of this type holds when the
+     * plan has no producer for it (e.g. an IVM hidden slot a source scan does not carry).
+     * The expression must be deterministic, have no slot references, and produce this type.
+     * Empty for types that have no such value (state types, lambda, unsupported).
+     */
+    public abstract Optional<Expression> zeroValue();
 
     public boolean acceptsType(DataType other) {
         return sameType(other);
@@ -713,6 +745,10 @@ public abstract class DataType {
         return this instanceof IPv6Type;
     }
 
+    public boolean isUuidType() {
+        return this instanceof UuidType;
+    }
+
     public boolean isBitmapType() {
         return this instanceof BitmapType;
     }
@@ -743,6 +779,43 @@ public abstract class DataType {
 
     public boolean isVariantType() {
         return this instanceof VariantType;
+    }
+
+    /** Inspect logical types, including unresolved signature placeholders, for a FILE leaf. */
+    public boolean typeContainsFile() {
+        if (this instanceof ArrayType) {
+            return ((ArrayType) this).getItemType().typeContainsFile();
+        } else if (this instanceof MapType) {
+            return ((MapType) this).getKeyType().typeContainsFile()
+                    || ((MapType) this).getValueType().typeContainsFile();
+        } else if (this instanceof StructType) {
+            return ((StructType) this).getFields().stream().anyMatch(field -> field.getDataType().typeContainsFile());
+        } else if (this instanceof AggStateType) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(DataType::typeContainsFile);
+        }
+        return isFileType();
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
+    }
+
+    /** Key capabilities required by ordering, grouping, or deduplication operations. */
+    public enum KeyUse {
+        ORDERING,
+        GROUP_EQUALITY
+    }
+
+    /** Whether expressions of this bound type can participate in keys requiring {@code keyUse}. */
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return true;
+    }
+
+    /** Reject this bound type when {@code operation} requires an unsupported key capability. */
+    public void checkKeyUse(KeyUse keyUse, String operation) {
+        if (!allowsKeyUse(keyUse)) {
+            throw new AnalysisException(operation + " does not support type " + toSql());
+        }
     }
 
     public boolean isStructType() {
@@ -842,6 +915,17 @@ public abstract class DataType {
      */
     public boolean isInjectiveCastTo(DataType target) {
         return this.equals(target);
+    }
+
+    /**
+     * Whether grouping and null-safe equality can be used to replace a value by its group
+     * representative in deterministic expressions. Both operations must identify the same
+     * values, and expressions must observe the same value for all members of a group.
+     * For example, {@code signbit(CAST('+0.0' AS DOUBLE))} is false and
+     * {@code signbit(CAST('-0.0' AS DOUBLE))} is true, even though both zeros belong to the same group.
+     */
+    public boolean supportsValuePreservingGrouping() {
+        return false;
     }
 
     public static List<DataType> trivialTypes() {

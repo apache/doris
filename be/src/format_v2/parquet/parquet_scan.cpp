@@ -16,9 +16,11 @@
 #include "format_v2/parquet/parquet_scan.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -42,6 +44,7 @@
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vtopn_pred.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
@@ -108,6 +111,22 @@ bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence) {
 
 } // namespace detail
 
+#ifdef BE_TEST
+namespace detail {
+namespace {
+std::atomic<size_t> physical_leaf_set_builds = 0;
+}
+
+void reset_physical_leaf_set_build_count() {
+    physical_leaf_set_builds.store(0, std::memory_order_relaxed);
+}
+
+size_t physical_leaf_set_build_count() {
+    return physical_leaf_set_builds.load(std::memory_order_relaxed);
+}
+} // namespace detail
+#endif
+
 namespace {
 
 detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
@@ -161,6 +180,24 @@ bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const Data
     default:
         return left_type->equals(*right_type);
     }
+}
+
+// The file block column and the reader that fills it are derived from one projection by two
+// different passes, so nothing structurally forces them to agree. A mismatch confined to the
+// CHILDREN of a complex column is invisible to every later check -- both sides still say STRUCT --
+// and surfaces only at assert_cast inside a decoder, which takes the whole process down. Refuse
+// the read here instead, naming both types.
+Status check_block_column_type(const DataTypePtr& block_type,
+                               const ParquetColumnReader& column_reader,
+                               format::LocalColumnId local_id, size_t block_position) {
+    if (types_equal_ignoring_nested_nullability(column_reader.type(), block_type)) {
+        return Status::OK();
+    }
+    return Status::InternalError(
+            "Parquet column {} (file column id {}, block position {}) is read as {} but its file "
+            "block column is {}",
+            column_reader.name(), local_id.value(), block_position,
+            column_reader.type()->get_name(), block_type->get_name());
 }
 
 bool is_data_page_type(tparquet::PageType::type page_type) {
@@ -297,6 +334,226 @@ std::vector<format::LocalColumnIndex> physical_non_predicate_columns(
     return columns;
 }
 
+const ParquetColumnSchema* projection_schema_child(const ParquetColumnSchema& schema,
+                                                   int32_t local_id) {
+    const auto child = std::ranges::find_if(schema.children, [local_id](const auto& candidate) {
+        return candidate->local_id == local_id;
+    });
+    return child == schema.children.end() ? nullptr : child->get();
+}
+
+void collect_variant_projection_decisions(const tparquet::RowGroup& row_group,
+                                          const ParquetColumnSchema& schema,
+                                          const format::LocalColumnIndex& projection,
+                                          size_t* candidate_ordinal,
+                                          RowGroupReadPlan* row_group_plan) {
+    DORIS_CHECK(candidate_ordinal != nullptr && row_group_plan != nullptr);
+    if (!format::is_partial_projection(&projection)) {
+        return;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        if (detail::variant_residual_columns_are_prunable_for_row_group(row_group, schema,
+                                                                        projection)) {
+            // The statistics prove no residual can contribute, so this row group reads pure leaves.
+            row_group_plan->prunable_variant_projection_ordinals.push_back(*candidate_ordinal);
+            ++row_group_plan->variant_leaf_projection_columns;
+        } else if (detail::variant_projection_carries_residuals(schema, projection)) {
+            // The reader merges the rows stored outside the shredded leaves.
+            ++row_group_plan->variant_leaf_projection_columns;
+            ++row_group_plan->variant_residual_projection_columns;
+        } else {
+            // Nothing proves the residual is empty and the projection cannot read it.
+            row_group_plan->full_variant_projection_ordinals.push_back(*candidate_ordinal);
+            ++row_group_plan->variant_full_projection_columns;
+        }
+        ++*candidate_ordinal;
+        return;
+    }
+    for (const auto& child_projection : projection.children) {
+        const auto* child_schema = projection_schema_child(schema, child_projection.local_id());
+        DORIS_CHECK(child_schema != nullptr);
+        collect_variant_projection_decisions(row_group, *child_schema, child_projection,
+                                             candidate_ordinal, row_group_plan);
+    }
+}
+
+void collect_variant_projection_decisions(
+        const tparquet::RowGroup& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const std::vector<format::LocalColumnIndex>& projections, size_t* candidate_ordinal,
+        RowGroupReadPlan* row_group_plan) {
+    for (const auto& projection : projections) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            file_schema[local_id] == nullptr || !file_schema[local_id]->contains_variant) {
+            continue;
+        }
+        collect_variant_projection_decisions(row_group, *file_schema[local_id], projection,
+                                             candidate_ordinal, row_group_plan);
+    }
+}
+
+void apply_variant_projection_decisions(const ParquetColumnSchema& schema,
+                                        format::LocalColumnIndex* projection,
+                                        std::span<const size_t> prunable_ordinals,
+                                        std::span<const size_t> full_ordinals,
+                                        size_t* candidate_ordinal) {
+    DORIS_CHECK(projection != nullptr && candidate_ordinal != nullptr);
+    if (!format::is_partial_projection(projection)) {
+        return;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        if (std::ranges::binary_search(prunable_ordinals, *candidate_ordinal)) {
+            detail::prune_variant_residual_columns(schema, projection);
+        } else if (std::ranges::binary_search(full_ordinals, *candidate_ordinal)) {
+            projection->project_all_children = true;
+            projection->children.clear();
+        }
+        ++*candidate_ordinal;
+        return;
+    }
+    for (auto& child_projection : projection->children) {
+        const auto* child_schema = projection_schema_child(schema, child_projection.local_id());
+        DORIS_CHECK(child_schema != nullptr);
+        apply_variant_projection_decisions(*child_schema, &child_projection, prunable_ordinals,
+                                           full_ordinals, candidate_ordinal);
+    }
+}
+
+void apply_variant_projection_decisions(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        std::vector<format::LocalColumnIndex>* projections,
+        std::span<const size_t> prunable_ordinals, std::span<const size_t> full_ordinals,
+        size_t* candidate_ordinal) {
+    DORIS_CHECK(projections != nullptr);
+    for (auto& projection : *projections) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            file_schema[local_id] == nullptr || !file_schema[local_id]->contains_variant) {
+            continue;
+        }
+        apply_variant_projection_decisions(*file_schema[local_id], &projection, prunable_ordinals,
+                                           full_ordinals, candidate_ordinal);
+    }
+}
+
+void prepare_row_group_physical_projection(
+        const tparquet::RowGroup& row_group,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, RowGroupReadPlan* row_group_plan) {
+    DORIS_CHECK(row_group_plan != nullptr);
+    row_group_plan->prunable_variant_projection_ordinals.clear();
+    row_group_plan->full_variant_projection_ordinals.clear();
+    row_group_plan->variant_leaf_projection_columns = 0;
+    row_group_plan->variant_residual_projection_columns = 0;
+    row_group_plan->variant_full_projection_columns = 0;
+    size_t candidate_ordinal = 0;
+    collect_variant_projection_decisions(row_group, file_schema, request.predicate_columns,
+                                         &candidate_ordinal, row_group_plan);
+    collect_variant_projection_decisions(row_group, file_schema, request.non_predicate_columns,
+                                         &candidate_ordinal, row_group_plan);
+}
+
+// The row-group residual decision is written into the projection itself, so collecting the leaf
+// columns is a pure function of the projection shape.
+void collect_physical_leaf_column_ids(const ParquetColumnSchema& schema,
+                                      const format::LocalColumnIndex& projection,
+                                      std::unordered_set<int>* leaf_column_ids) {
+    DORIS_CHECK(leaf_column_ids != nullptr);
+    if (projection.project_all_children) {
+        collect_all_leaf_column_ids(schema, leaf_column_ids);
+        return;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        collect_projected_leaf_column_ids(schema, projection, leaf_column_ids);
+        return;
+    }
+    if (projection.children.empty()) {
+        collect_all_leaf_column_ids(schema, leaf_column_ids);
+        return;
+    }
+    for (const auto& child_projection : projection.children) {
+        const auto* child_schema = projection_schema_child(schema, child_projection.local_id());
+        DORIS_CHECK(child_schema != nullptr);
+        collect_physical_leaf_column_ids(*child_schema, child_projection, leaf_column_ids);
+    }
+}
+
+std::unordered_set<int> collect_request_leaf_column_ids(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    std::unordered_set<int> leaf_column_ids;
+    const auto collect_projection = [&](const format::LocalColumnIndex& projection) {
+        const int32_t local_id = projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
+            file_schema[local_id] == nullptr) {
+            return;
+        }
+        collect_physical_leaf_column_ids(*file_schema[local_id], projection, &leaf_column_ids);
+    };
+    for (const auto& projection : request.predicate_columns) {
+        collect_projection(projection);
+    }
+    for (const auto& projection : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(projection.column_id())) {
+            collect_projection(projection);
+        }
+    }
+    return leaf_column_ids;
+}
+
+void materialize_row_group_projection(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const RowGroupReadPlan& row_group_plan,
+        format::FileScanRequest* physical_request);
+
+std::unordered_set<int> request_leaf_column_ids(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+#ifdef BE_TEST
+    detail::physical_leaf_set_builds.fetch_add(1, std::memory_order_relaxed);
+#endif
+    return collect_request_leaf_column_ids(file_schema, request);
+}
+
+std::optional<std::unordered_set<int>> row_group_leaf_column_ids(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const RowGroupReadPlan& row_group_plan,
+        const std::unordered_set<int>& request_leaf_ids) {
+    if (!row_group_plan.has_row_group_physical_projection()) {
+        return std::nullopt;
+    }
+    // Pruning removes columns, so this set cannot be derived by adding to the request-level set:
+    // the same Variant can appear pruned under a predicate projection and unpruned under the
+    // deferred output projection at once. Rebuild it from the rewritten projections instead.
+    format::FileScanRequest physical_request;
+    materialize_row_group_projection(file_schema, request, row_group_plan, &physical_request);
+    auto leaf_column_ids = collect_request_leaf_column_ids(file_schema, physical_request);
+    if (leaf_column_ids == request_leaf_ids) {
+        return std::nullopt;
+    }
+    return leaf_column_ids;
+}
+
+void materialize_row_group_projection(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const RowGroupReadPlan& row_group_plan,
+        format::FileScanRequest* physical_request) {
+    DORIS_CHECK(physical_request != nullptr);
+    physical_request->predicate_columns = request.predicate_columns;
+    physical_request->non_predicate_columns = request.non_predicate_columns;
+    physical_request->count_star_placeholder_columns = request.count_star_placeholder_columns;
+    size_t candidate_ordinal = 0;
+    apply_variant_projection_decisions(file_schema, &physical_request->predicate_columns,
+                                       row_group_plan.prunable_variant_projection_ordinals,
+                                       row_group_plan.full_variant_projection_ordinals,
+                                       &candidate_ordinal);
+    apply_variant_projection_decisions(file_schema, &physical_request->non_predicate_columns,
+                                       row_group_plan.prunable_variant_projection_ordinals,
+                                       row_group_plan.full_variant_projection_ordinals,
+                                       &candidate_ordinal);
+}
+
 void materialize_count_star_placeholders(const format::FileScanRequest& request, size_t rows,
                                          Block* file_block) {
     DORIS_CHECK(file_block != nullptr);
@@ -385,11 +642,53 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups) {
     DORIS_CHECK(row_group_first_rows != nullptr && selected_row_groups != nullptr);
-    if (scan_range.start_offset < 0 || scan_range.size < -1 ||
+    row_group_first_rows->assign(metadata.row_groups.size(), 0);
+    int64_t next_first_row = 0;
+    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
+        (*row_group_first_rows)[row_group_idx] = next_first_row;
+        const auto row_group_rows = metadata.row_groups[row_group_idx].num_rows;
+        if (row_group_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        if (row_group_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
+            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
+        }
+        next_first_row += row_group_rows;
+    }
+    return select_native_row_groups_by_scan_range(metadata, scan_range, *row_group_first_rows,
+                                                  selected_row_groups);
+}
+
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              const std::vector<int64_t>& row_group_first_rows,
+                                              std::vector<int>* selected_row_groups) {
+    DORIS_CHECK(selected_row_groups != nullptr);
+    DORIS_CHECK(row_group_first_rows.size() == metadata.row_groups.size());
+    if (scan_range.start_offset < 0 || scan_range.size < -1 || scan_range.row_group_id < -1 ||
+        scan_range.row_group_id_end < -1 ||
+        scan_range.row_group_id >= cast_set<int64_t>(metadata.row_groups.size()) ||
+        (scan_range.row_group_id_end >= 0 &&
+         (scan_range.row_group_id < 0 || scan_range.row_group_id_end < scan_range.row_group_id ||
+          scan_range.row_group_id_end >= cast_set<int64_t>(metadata.row_groups.size()))) ||
         (scan_range.size >= 0 &&
          scan_range.start_offset > std::numeric_limits<int64_t>::max() - scan_range.size)) {
         return Status::Corruption("Invalid Parquet scan range [{}, {})", scan_range.start_offset,
                                   scan_range.size);
+    }
+    selected_row_groups->clear();
+    if (scan_range.row_group_id >= 0) {
+        const int64_t row_group_id_end = scan_range.row_group_id_end >= 0
+                                                 ? scan_range.row_group_id_end
+                                                 : scan_range.row_group_id;
+        selected_row_groups->reserve(
+                cast_set<size_t>(row_group_id_end - scan_range.row_group_id + 1));
+        for (int64_t row_group_id = scan_range.row_group_id; row_group_id <= row_group_id_end;
+             ++row_group_id) {
+            selected_row_groups->push_back(cast_set<int>(row_group_id));
+        }
+        return Status::OK();
     }
     const uint64_t range_start = static_cast<uint64_t>(scan_range.start_offset);
     const uint64_t range_end = scan_range.size < 0
@@ -402,21 +701,9 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                     range_end >= static_cast<uint64_t>(scan_range.file_size));
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
-    row_group_first_rows->assign(metadata.row_groups.size(), 0);
-    selected_row_groups->clear();
     selected_row_groups->reserve(metadata.row_groups.size());
-    int64_t next_first_row = 0;
     for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
-        (*row_group_first_rows)[row_group_idx] = next_first_row;
         const auto& row_group = metadata.row_groups[row_group_idx];
-        if (row_group.num_rows < 0) {
-            return Status::Corruption("Invalid negative row count in parquet row group {}",
-                                      row_group_idx);
-        }
-        if (row_group.num_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
-            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
-        }
-        next_first_row += row_group.num_rows;
         bool selected = full_file_range;
         if (!full_file_range) {
             if (row_group.columns.empty()) {
@@ -452,6 +739,30 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
 
 } // namespace detail
 
+detail::ParquetAdaptiveSnapshot ParquetAdaptiveContext::restore(uint64_t predicate_digest) const {
+    std::scoped_lock lock(_lock);
+    const auto snapshot = _snapshots.find(predicate_digest);
+    return snapshot == _snapshots.end() ? detail::ParquetAdaptiveSnapshot {} : snapshot->second;
+}
+
+void ParquetAdaptiveContext::publish(uint64_t predicate_digest,
+                                     const detail::ParquetAdaptiveSnapshot& incoming_snapshot) {
+    std::scoped_lock lock(_lock);
+    auto& current = _snapshots[predicate_digest];
+    for (const auto& [position, incoming_stats] : incoming_snapshot.predicate_runtime_stats) {
+        auto& current_stats = current.predicate_runtime_stats[position];
+        if (incoming_stats.samples >= current_stats.samples) {
+            current_stats = incoming_stats;
+        }
+    }
+    if (incoming_snapshot.predicate_batch_sequence >= current.predicate_batch_sequence) {
+        current.predicate_batch_sequence = incoming_snapshot.predicate_batch_sequence;
+        current.predicate_survival_ratio = incoming_snapshot.predicate_survival_ratio;
+    }
+    current.empty_predicate_batch_rows = std::max(current.empty_predicate_batch_rows,
+                                                  incoming_snapshot.empty_predicate_batch_rows);
+}
+
 namespace {
 
 std::vector<RowRange> intersect_row_ranges(const std::vector<RowRange>& left,
@@ -480,10 +791,10 @@ Status finalize_native_row_group_read_plan(
         const NativeParquetMetadata& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, bool enable_bloom_filter,
-        RowGroupReadPlan* row_group_plan, ParquetPruningStats* pruning_stats,
-        const cctz::time_zone* timezone, const RuntimeState* runtime_state,
-        ParquetFileContext* file_context, const ParquetColumnReaderProfile& column_reader_profile,
-        bool* selected) {
+        const std::unordered_set<int>& request_leaf_ids, RowGroupReadPlan* row_group_plan,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
+        const RuntimeState* runtime_state, ParquetFileContext* file_context,
+        const ParquetColumnReaderProfile& column_reader_profile, bool* selected) {
     DORIS_CHECK(row_group_plan != nullptr && pruning_stats != nullptr && file_context != nullptr &&
                 selected != nullptr);
     *selected = true;
@@ -492,25 +803,21 @@ Status finalize_native_row_group_read_plan(
     }
     row_group_plan->expensive_pruning_pending = false;
     const auto& thrift = metadata.to_thrift();
+    const auto row_group_leaf_ids =
+            row_group_leaf_column_ids(file_schema, request, *row_group_plan, request_leaf_ids);
+    const auto& requested_leaf_ids =
+            row_group_leaf_ids.has_value() ? *row_group_leaf_ids : request_leaf_ids;
     const std::vector<int> candidate {row_group_plan->row_group_id};
     std::vector<int> metadata_selected;
     RETURN_IF_ERROR(select_row_groups_by_metadata(
             thrift, file_schema, request, &candidate, &metadata_selected, enable_bloom_filter,
             pruning_stats, timezone, runtime_state, file_context, column_reader_profile,
-            ParquetMetadataProbeMode::EXPENSIVE_ONLY));
+            ParquetMetadataProbeMode::EXPENSIVE_ONLY, &requested_leaf_ids));
     if (metadata_selected.empty()) {
         *selected = false;
         return Status::OK();
     }
 
-    std::unordered_set<int> requested_leaf_ids;
-    for (const auto& projection : request_scan_columns(request)) {
-        const auto local_id = projection.local_id();
-        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
-            continue;
-        }
-        collect_projected_leaf_column_ids(*file_schema[local_id], projection, &requested_leaf_ids);
-    }
     std::unordered_map<int, NativeParquetPageIndex> page_indexes;
     if (can_use_parquet_page_index(request, runtime_state)) {
         RETURN_IF_ERROR(file_context->load_native_page_indexes(
@@ -579,6 +886,7 @@ Status build_native_row_group_read_plans(
             row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
         }
         row_group_plan.expensive_pruning_pending = true;
+        prepare_row_group_physical_projection(row_group, file_schema, request, &row_group_plan);
         plan->row_groups.push_back(std::move(row_group_plan));
     }
     return Status::OK();
@@ -596,19 +904,35 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     DORIS_CHECK(plan != nullptr && file_context != nullptr);
     plan->row_groups.clear();
     plan->pruning_stats = {};
+    plan->requested_leaf_column_ids = request_leaf_column_ids(file_schema, request);
     plan->enable_bloom_filter = enable_bloom_filter;
-    std::vector<int64_t> row_group_first_rows;
+    const auto& row_group_first_rows = metadata.row_group_first_rows();
     std::vector<int> scan_range_selected;
     RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
-            metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
-    std::vector<int> metadata_selected;
-    RETURN_IF_ERROR(select_row_groups_by_metadata(
-            metadata.to_thrift(), file_schema, request, &scan_range_selected, &metadata_selected,
-            enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
-            column_reader_profile, ParquetMetadataProbeMode::FOOTER_ONLY));
+            metadata.to_thrift(), scan_range, row_group_first_rows, &scan_range_selected));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
-                                                      metadata_selected, row_group_first_rows, plan,
-                                                      timezone, runtime_state, file_context));
+                                                      scan_range_selected, row_group_first_rows,
+                                                      plan, timezone, runtime_state, file_context));
+    std::vector<RowGroupReadPlan> metadata_selected_plans;
+    metadata_selected_plans.reserve(plan->row_groups.size());
+    for (auto& row_group_plan : plan->row_groups) {
+        const auto row_group_leaf_ids = row_group_leaf_column_ids(
+                file_schema, request, row_group_plan, plan->requested_leaf_column_ids);
+        const auto& requested_leaf_ids = row_group_leaf_ids.has_value()
+                                                 ? *row_group_leaf_ids
+                                                 : plan->requested_leaf_column_ids;
+        const std::vector<int> candidate {row_group_plan.row_group_id};
+        std::vector<int> metadata_selected;
+        RETURN_IF_ERROR(select_row_groups_by_metadata(
+                metadata.to_thrift(), file_schema, request, &candidate, &metadata_selected,
+                enable_bloom_filter, &plan->pruning_stats, timezone, runtime_state, file_context,
+                column_reader_profile, ParquetMetadataProbeMode::FOOTER_ONLY, &requested_leaf_ids));
+        if (!metadata_selected.empty()) {
+            metadata_selected_plans.push_back(std::move(row_group_plan));
+        }
+    }
+    plan->row_groups = std::move(metadata_selected_plans);
+    plan->pruning_stats.total_row_groups = cast_set<int64_t>(scan_range_selected.size());
     plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }
@@ -627,9 +951,9 @@ Status finalize_parquet_row_group_plans(
         ParquetPruningStats deferred_stats;
         bool selected = false;
         RETURN_IF_ERROR(finalize_native_row_group_read_plan(
-                metadata, file_schema, request, enable_bloom_filter, &row_group_plan,
-                &deferred_stats, timezone, runtime_state, file_context, column_reader_profile,
-                &selected));
+                metadata, file_schema, request, enable_bloom_filter,
+                plan->requested_leaf_column_ids, &row_group_plan, &deferred_stats, timezone,
+                runtime_state, file_context, column_reader_profile, &selected));
         if (parquet_profile != nullptr) {
             parquet_profile->update_deferred_pruning_stats(deferred_stats, selected);
         }
@@ -897,25 +1221,27 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
 
 } // namespace
 
-void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
-    _enable_bloom_filter = plan.enable_bloom_filter;
-    _row_group_plans = std::move(plan.row_groups);
+void ParquetScanScheduler::set_plan(std::shared_ptr<RowGroupScanPlan> plan) {
+    DORIS_CHECK(plan != nullptr);
+    _enable_bloom_filter = plan->enable_bloom_filter;
+    _scan_plan = std::move(plan);
     _condition_cache_filtered_rows = 0;
     _predicate_filtered_rows = 0;
     _remaining_plans_need_replanning = false;
+    _requested_leaf_ids_need_refresh = false;
     reset();
 }
 
 void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
     _condition_cache_ctx = std::move(ctx);
-    if (!_condition_cache_ctx || !_condition_cache_ctx->filter_result || _row_group_plans.empty()) {
+    if (!_condition_cache_ctx || !_condition_cache_ctx->filter_result || empty()) {
         return;
     }
 
     if (!_condition_cache_ctx->is_hit) {
         _condition_cache_ctx->base_granule =
-                _row_group_plans.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
-        const auto& last_plan = _row_group_plans.back();
+                _scan_plan->row_groups.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
+        const auto& last_plan = _scan_plan->row_groups.back();
         const int64_t end_granule = (last_plan.first_file_row + last_plan.row_group_rows +
                                      ConditionCacheContext::GRANULE_SIZE - 1) /
                                     ConditionCacheContext::GRANULE_SIZE;
@@ -927,8 +1253,8 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
     }
 
     std::vector<RowGroupReadPlan> filtered_plans;
-    filtered_plans.reserve(_row_group_plans.size());
-    for (auto& plan : _row_group_plans) {
+    filtered_plans.reserve(_scan_plan->row_groups.size());
+    for (auto& plan : _scan_plan->row_groups) {
         const int64_t old_rows = count_range_rows(plan.selected_ranges);
         plan.selected_ranges = filter_ranges_by_condition_cache(
                 plan.selected_ranges, *_condition_cache_ctx->filter_result, plan.first_file_row,
@@ -939,12 +1265,15 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
             filtered_plans.push_back(std::move(plan));
         }
     }
-    _row_group_plans = std::move(filtered_plans);
+    _scan_plan->row_groups = std::move(filtered_plans);
     reset();
 }
 
 void ParquetScanScheduler::reset() {
     _next_row_group_plan_idx = 0;
+    _row_group_order.clear();
+    _row_group_order_prepared = false;
+    _topn_footer_recheck = false;
     _raw_rows_read = 0;
     _predicate_schedule_request = nullptr;
     _predicate_schedule = {};
@@ -961,6 +1290,7 @@ void ParquetScanScheduler::set_scan_request(std::shared_ptr<format::FileScanRequ
     _active_request = std::move(request);
     _pending_request.reset();
     _predicate_schedule_request = nullptr;
+    _restore_adaptive_state(*_active_request);
 }
 
 void ParquetScanScheduler::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
@@ -980,14 +1310,41 @@ void ParquetScanScheduler::activate_pending_scan_request_at_row_group_boundary()
     // Footer plans and adaptive ordering describe the previous predicate snapshot. Reusing either
     // after a late runtime filter would miss pruning or bias the new predicate order with stale data.
     _remaining_plans_need_replanning = true;
+    _requested_leaf_ids_need_refresh = true;
     _predicate_schedule = {};
     _predicate_positions_scratch.clear();
     _predicate_indices_by_position_scratch.clear();
     _materialized_predicate_positions_scratch.clear();
     _ordered_predicate_positions_scratch.clear();
+    _restore_adaptive_state(*_active_request);
+}
+
+void ParquetScanScheduler::_restore_adaptive_state(const format::FileScanRequest& request) {
     _predicate_runtime_stats.clear();
     _predicate_batch_sequence = 0;
     _predicate_survival_ratio = -1;
+    _empty_predicate_batch_rows = 0;
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    const auto snapshot = _adaptive_context->restore(*request.predicate_snapshot_digest);
+    _predicate_runtime_stats = snapshot.predicate_runtime_stats;
+    _predicate_batch_sequence = snapshot.predicate_batch_sequence;
+    _predicate_survival_ratio = snapshot.predicate_survival_ratio;
+    _empty_predicate_batch_rows = snapshot.empty_predicate_batch_rows;
+}
+
+void ParquetScanScheduler::_publish_adaptive_state(const format::FileScanRequest& request) {
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    // Concurrent children may publish in either order. The adaptive context keeps only monotonic
+    // sample progress for this exact predicate digest, so a cold sibling cannot erase warm state.
+    _adaptive_context->publish(*request.predicate_snapshot_digest,
+                               {.predicate_runtime_stats = _predicate_runtime_stats,
+                                .predicate_survival_ratio = _predicate_survival_ratio,
+                                .predicate_batch_sequence = _predicate_batch_sequence,
+                                .empty_predicate_batch_rows = _empty_predicate_batch_rows});
 }
 
 void ParquetScanScheduler::reset_current_row_group() {
@@ -999,6 +1356,7 @@ void ParquetScanScheduler::reset_current_row_group() {
     _has_current_row_group = false;
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_row_group_request.reset();
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
     _current_row_group_rows = 0;
@@ -1075,11 +1433,12 @@ const detail::PredicateConjunctSchedule& ParquetScanScheduler::predicate_conjunc
 }
 
 std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_prefetch_columns(
-        const format::FileScanRequest& request) {
+        const format::FileScanRequest& request,
+        const std::vector<format::LocalColumnIndex>& physical_predicate_columns) {
     std::vector<size_t> positions;
     std::unordered_map<size_t, const format::LocalColumnIndex*> columns_by_position;
-    columns_by_position.reserve(request.predicate_columns.size());
-    for (const auto& column : request.predicate_columns) {
+    columns_by_position.reserve(physical_predicate_columns.size());
+    for (const auto& column : physical_predicate_columns) {
         const auto position_it = request.local_positions.find(column.column_id());
         DORIS_CHECK(position_it != request.local_positions.end());
         const size_t position = position_it->second.value();
@@ -1121,14 +1480,147 @@ std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_p
     return result;
 }
 
+namespace {
+
+struct TopNOrderingColumn {
+    const VTopNPred* predicate;
+    const ParquetColumnSchema* schema;
+};
+
+std::optional<TopNOrderingColumn> find_topn_ordering_column(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const VTopNPred* topn = nullptr;
+    for (size_t idx = 0; idx < safe_count; ++idx) {
+        const auto& root = request.conjuncts[idx]->root();
+        if (root->is_topn_filter() && root->can_evaluate_zonemap_filter()) {
+            topn = assert_cast<const VTopNPred*>(root.get());
+            break;
+        }
+    }
+    if (topn == nullptr) {
+        return std::nullopt;
+    }
+    const auto* slot = assert_cast<const VSlotRef*>(topn->get_child(0).get());
+    const auto position = std::ranges::find_if(request.local_positions, [&](const auto& entry) {
+        return entry.second.value() == slot->column_id();
+    });
+    if (position == request.local_positions.end()) {
+        return std::nullopt;
+    }
+    const auto column = std::ranges::find_if(file_schema, [&](const auto& schema) {
+        return schema->local_id == position->first.value();
+    });
+    if (column == file_schema.end() || (*column)->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        (*column)->max_repetition_level != 0 ||
+        !expr_zonemap::data_types_compatible((*column)->type, slot->data_type())) {
+        return std::nullopt;
+    }
+    return TopNOrderingColumn {.predicate = topn, .schema = column->get()};
+}
+
+} // namespace
+
+void ParquetScanScheduler::prepare_topn_row_group_order(
+        const ParquetFileContext& file_context,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    _row_group_order_prepared = true;
+    const auto binding = find_topn_ordering_column(file_schema, request);
+    if (!binding.has_value()) {
+        return;
+    }
+    const auto* topn = binding->predicate;
+    const auto& schema = *binding->schema;
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    const auto& metadata = file_context.native_metadata->to_thrift();
+    _topn_footer_recheck = std::ranges::any_of(_scan_plan->row_groups, [&](const auto& plan) {
+        const auto& group = metadata.row_groups[plan.row_group_id];
+        DORIS_CHECK(schema.leaf_column_id >= 0 && schema.leaf_column_id < group.columns.size());
+        const auto& chunk = group.columns[schema.leaf_column_id];
+        return chunk.__isset.meta_data && chunk.meta_data.__isset.statistics;
+    });
+    // Scheduling need not evaluate conversions in groups excluded by TopN. Reuse the request's
+    // existing metadata-pruning boundary; row-ID fetches still require increasing file positions.
+    if (!_topn_footer_recheck || request.row_ids.has_value() ||
+        safe_count != request.conjuncts.size() || _scan_plan->row_groups.size() < 2) {
+        return;
+    }
+    struct Priority {
+        std::optional<Field> best;
+        bool may_have_null = false;
+    };
+    std::vector<Priority> priorities;
+    priorities.reserve(_scan_plan->row_groups.size());
+    const bool trusted_nulls =
+            native::parquet_reader_compat(metadata.__isset.created_by ? metadata.created_by : "")
+                    .null_count_trusted;
+    bool usable = false;
+    for (const auto& plan : _scan_plan->row_groups) {
+        const auto& group = metadata.row_groups[plan.row_group_id];
+        DORIS_CHECK(schema.leaf_column_id >= 0 && schema.leaf_column_id < group.columns.size());
+        const auto& chunk = group.columns[schema.leaf_column_id];
+        Priority priority;
+        if (chunk.__isset.meta_data && chunk.meta_data.__isset.statistics) {
+            const auto safe_statistics = detail::sanitize_native_footer_statistics(
+                    schema.type_descriptor, chunk.meta_data.statistics,
+                    detail::has_supported_type_defined_order(metadata, schema.leaf_column_id));
+            const auto stats = ParquetStatisticsUtils::TransformColumnStatistics(
+                    schema, &safe_statistics, chunk.meta_data.num_values, _timezone, trusted_nulls);
+            if (stats.has_min_max) {
+                priority.best = topn->is_asc() ? stats.min_value : stats.max_value;
+                usable = true;
+            }
+            priority.may_have_null = stats.has_null;
+        }
+        priorities.push_back(std::move(priority));
+    }
+    if (!usable) {
+        return;
+    }
+    _row_group_order.resize(priorities.size());
+    std::iota(_row_group_order.begin(), _row_group_order.end(), 0);
+    std::stable_sort(_row_group_order.begin(), _row_group_order.end(), [&](size_t lhs, size_t rhs) {
+        const auto& left = priorities[lhs];
+        const auto& right = priorities[rhs];
+        if (topn->nulls_first() && left.may_have_null != right.may_have_null) {
+            return left.may_have_null;
+        }
+        if (left.best.has_value() != right.best.has_value()) {
+            return left.best.has_value();
+        }
+        if (!left.best.has_value()) {
+            return false;
+        }
+        return topn->is_asc() ? *left.best < *right.best : *right.best < *left.best;
+    });
+}
+
 Status ParquetScanScheduler::open_next_row_group(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, bool* has_row_group) {
     *has_row_group = false;
     RowGroupReadPlan* selected_plan = nullptr;
-    while (_next_row_group_plan_idx < _row_group_plans.size()) {
-        RowGroupReadPlan& candidate_plan = _row_group_plans[_next_row_group_plan_idx++];
+    DORIS_CHECK(_scan_plan != nullptr);
+    if (!_row_group_order_prepared) {
+        prepare_topn_row_group_order(file_context, file_schema, request);
+    }
+    if (_requested_leaf_ids_need_refresh) {
+        // A runtime-filter refresh changes the immutable projection baseline exactly once; later
+        // row groups only apply their full-Variant fallback delta to this rebuilt set.
+        _scan_plan->requested_leaf_column_ids = request_leaf_column_ids(file_schema, request);
+        _requested_leaf_ids_need_refresh = false;
+    }
+    while (_next_row_group_plan_idx < _scan_plan->row_groups.size()) {
+        const size_t plan_idx = _row_group_order.empty()
+                                        ? _next_row_group_plan_idx
+                                        : _row_group_order[_next_row_group_plan_idx];
+        ++_next_row_group_plan_idx;
+        RowGroupReadPlan& candidate_plan = _scan_plan->row_groups[plan_idx];
         // Probe only the row group about to execute. This keeps LIMIT/cancellation latency
         // independent of the number of later remote row groups while preserving eager footer
         // statistics pruning during open.
@@ -1142,13 +1634,26 @@ Status ParquetScanScheduler::open_next_row_group(
             candidate_plan.expensive_pruning_pending = true;
             candidate_plan.page_skip_plans.clear();
             candidate_plan.offset_indexes.clear();
+            const auto& row_group = file_context.native_metadata->to_thrift()
+                                            .row_groups[candidate_plan.row_group_id];
+            prepare_row_group_physical_projection(row_group, file_schema, request, &candidate_plan);
+        }
+        // TopN changes its bound in place, without publishing a new FileScanRequest. For example,
+        // reading [0, 99] first can tighten ASC LIMIT 3 to 2 and exclude a later group [100, 199].
+        // Recheck before dictionary/index probes or prefetch, using the current monotonic bound.
+        if (_remaining_plans_need_replanning || _topn_footer_recheck) {
+            const auto row_group_leaf_ids = row_group_leaf_column_ids(
+                    file_schema, request, candidate_plan, _scan_plan->requested_leaf_column_ids);
+            const auto& requested_leaf_ids = row_group_leaf_ids.has_value()
+                                                     ? *row_group_leaf_ids
+                                                     : _scan_plan->requested_leaf_column_ids;
             const std::vector<int> candidate {candidate_plan.row_group_id};
             std::vector<int> footer_selected;
             RETURN_IF_ERROR(select_row_groups_by_metadata(
                     file_context.native_metadata->to_thrift(), file_schema, request, &candidate,
                     &footer_selected, _enable_bloom_filter, &deferred_stats, _timezone,
                     _runtime_state, &file_context, _scan_profile.column_reader_profile,
-                    ParquetMetadataProbeMode::FOOTER_ONLY));
+                    ParquetMetadataProbeMode::FOOTER_ONLY, &requested_leaf_ids));
             if (footer_selected.empty()) {
                 if (_parquet_profile != nullptr) {
                     _parquet_profile->update_deferred_pruning_stats(deferred_stats, false);
@@ -1159,8 +1664,8 @@ Status ParquetScanScheduler::open_next_row_group(
         bool selected = false;
         RETURN_IF_ERROR(finalize_native_row_group_read_plan(
                 *file_context.native_metadata, file_schema, request, _enable_bloom_filter,
-                &candidate_plan, &deferred_stats, _timezone, _runtime_state, &file_context,
-                _scan_profile.column_reader_profile, &selected));
+                _scan_plan->requested_leaf_column_ids, &candidate_plan, &deferred_stats, _timezone,
+                _runtime_state, &file_context, _scan_profile.column_reader_profile, &selected));
         if (_parquet_profile != nullptr) {
             _parquet_profile->update_deferred_pruning_stats(deferred_stats, selected);
         }
@@ -1187,6 +1692,13 @@ Status ParquetScanScheduler::open_next_row_group(
 
     const auto& row_group_metadata =
             file_context.native_metadata->to_thrift().row_groups[row_group_idx];
+    if (row_group_plan.has_row_group_physical_projection()) {
+        _current_row_group_request = std::make_unique<format::FileScanRequest>();
+        materialize_row_group_projection(file_schema, request, row_group_plan,
+                                         _current_row_group_request.get());
+    }
+    const auto& row_group_request =
+            _current_row_group_request != nullptr ? *_current_row_group_request : request;
     _current_row_group_rows = row_group_metadata.num_rows;
     DORIS_CHECK(_current_row_group_rows == row_group_plan.row_group_rows);
     DORIS_CHECK(_current_row_group_rows > 0);
@@ -1223,6 +1735,7 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_non_predicate_columns.clear();
     _current_dictionary_filters.clear();
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
+                                                       row_group_request.predicate_columns,
                                                        row_group_idx, row_group_metadata));
     // Dictionary probing is complete, so the native data-page readers can now share the same
     // row-group-scoped MergeRangeFileReader policy as v1. Sharing one wrapper is important: a
@@ -1233,7 +1746,7 @@ Status ParquetScanScheduler::open_next_row_group(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : std::string {});
     std::vector<ParquetPageCacheRange> native_ranges;
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
-            thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
+            thrift_metadata, file_schema, request_scan_columns(row_group_request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
     if (!request.row_ids.has_value() && request.non_predicate_positions.empty()) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
@@ -1247,7 +1760,7 @@ Status ParquetScanScheduler::open_next_row_group(
                 {}, 0, _profile, _merge_read_slice_size);
     }
 
-    for (const auto& col : request.predicate_columns) {
+    for (const auto& col : row_group_request.predicate_columns) {
         const auto local_id = col.column_id();
         if (_current_predicate_columns.contains(local_id)) {
             continue;
@@ -1283,12 +1796,13 @@ Status ParquetScanScheduler::open_next_row_group(
     // BufferedFileStreamReader later consumes the same Doris file-cache blocks; prefetch never
     // changes row/column materialization order.
     if (!_current_merge_range_active) {
-        const auto prefetch_columns = adaptive_predicate_prefetch_columns(request);
+        const auto prefetch_columns =
+                adaptive_predicate_prefetch_columns(request, row_group_request.predicate_columns);
         RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
                                                            prefetch_columns,
                                                            &_current_predicate_prefetched));
     }
-    for (const auto& col : request.non_predicate_columns) {
+    for (const auto& col : row_group_request.non_predicate_columns) {
         const auto local_id = col.column_id();
         if (request.is_count_star_placeholder(col.column_id())) {
             continue;
@@ -1324,9 +1838,21 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
-                                                           physical_non_predicate_columns(request),
-                                                           &_current_non_predicate_prefetched));
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(
+                file_context, file_schema, request,
+                physical_non_predicate_columns(row_group_request),
+                &_current_non_predicate_prefetched));
+    }
+    if (_parquet_profile != nullptr) {
+        update_counter_if_not_null(
+                _parquet_profile->variant_leaf_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_leaf_projection_columns));
+        update_counter_if_not_null(
+                _parquet_profile->variant_residual_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_residual_projection_columns));
+        update_counter_if_not_null(
+                _parquet_profile->variant_full_projection_row_group_columns,
+                cast_set<int64_t>(row_group_plan.variant_full_projection_columns));
     }
     *has_row_group = true;
     return Status::OK();
@@ -1561,6 +2087,7 @@ bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn
         GET_TYPED_DICTIONARY_VALUES(TYPE_DATEV2);
         GET_TYPED_DICTIONARY_VALUES(TYPE_DATETIMEV2);
         GET_TYPED_DICTIONARY_VALUES(TYPE_TIMESTAMPTZ);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_TIMESTAMP_NS);
         GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL32);
         GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL64);
         GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMALV2);
@@ -1568,6 +2095,7 @@ bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn
         GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL256);
         GET_TYPED_DICTIONARY_VALUES(TYPE_IPV4);
         GET_TYPED_DICTIONARY_VALUES(TYPE_IPV6);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_UUID);
 #undef GET_TYPED_DICTIONARY_VALUES
     default:
         return false;
@@ -1794,7 +2322,8 @@ Status build_dictionary_entry_filter(size_t block_position,
 Status ParquetScanScheduler::prepare_current_dictionary_filters(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, int row_group_idx,
+        const format::FileScanRequest& request,
+        const std::vector<format::LocalColumnIndex>& physical_predicate_columns, int row_group_idx,
         const tparquet::RowGroup& row_group_metadata) {
     _current_dictionary_filters.clear();
     _current_dictionary_residual_conjuncts.clear();
@@ -1811,7 +2340,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
     }
 
     SCOPED_TIMER(_scan_profile.dict_filter_rewrite_time);
-    for (const auto& col : request.predicate_columns) {
+    for (const auto& col : physical_predicate_columns) {
         const auto local_id = col.column_id();
         if (!local_id.is_valid() || local_id.value() >= static_cast<int32_t>(file_schema.size())) {
             continue;
@@ -2031,11 +2560,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         *used_direct_reader_filter = false;
         // External table schemas may make required Parquet descendants nullable. Preserve the
         // recursive type and shape checks while ignoring only nullability at every nesting level.
-        DCHECK(types_equal_ignoring_nested_nullability(
-                column_reader->type(), file_block->get_by_position(block_position).type))
-                << column_reader->type()->get_name() << " "
-                << file_block->get_by_position(block_position).type->get_name() << " "
-                << column_reader->name() << " " << file_block->get_by_position(block_position).name;
+        RETURN_IF_ERROR(check_block_column_type(file_block->get_by_position(block_position).type,
+                                                *column_reader, local_id, block_position));
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         SCOPED_TIMER(_scan_profile.column_read_time);
         const auto dictionary_filter_it = _current_dictionary_filters.find(local_id);
@@ -2620,6 +3146,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     _predicate_survival_ratio = _predicate_survival_ratio < 0
                                         ? batch_survival
                                         : 0.25 * batch_survival + 0.75 * _predicate_survival_ratio;
+    _publish_adaptive_state(request);
     if (_scan_profile.selected_rows != nullptr) {
         COUNTER_UPDATE(_scan_profile.selected_rows, selected_rows);
     }
@@ -2666,9 +3193,12 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
-                                                           physical_non_predicate_columns(request),
-                                                           &_current_non_predicate_prefetched));
+        const auto& physical_request =
+                _current_row_group_request != nullptr ? *_current_row_group_request : request;
+        RETURN_IF_ERROR(
+                prefetch_current_row_group_columns(file_context, file_schema, request,
+                                                   physical_non_predicate_columns(physical_request),
+                                                   &_current_non_predicate_prefetched));
     }
 
     if (selected_rows > _batch_size) {
@@ -2700,12 +3230,13 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
             const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
-            DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
-                      column_reader->type()->get_primitive_type())
-                    << type_to_string(file_block->get_by_position(block_position)
-                                              .type->get_primitive_type())
-                    << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
-                    << column_reader->name() << " " << fid << " " << block_position;
+            // Compare the whole type, not just the top-level primitive one: the block column and
+            // the reader's type are derived from the same projection by two different passes, and
+            // a complex column whose CHILDREN disagree reads as STRUCT on both sides here and is
+            // only caught by assert_cast deep inside the decoder, which aborts the process.
+            RETURN_IF_ERROR(
+                    check_block_column_type(file_block->get_by_position(block_position).type,
+                                            *column_reader, fid, block_position));
             if (need_filter_output) {
                 [[maybe_unused]] auto old_size = column->size();
                 RETURN_IF_ERROR(
@@ -2829,7 +3360,7 @@ Status ParquetScanScheduler::read_next_batch(
         *eof = false;
         return Status::OK();
     }
-    int64_t predicate_batch_rows = _batch_size;
+    int64_t predicate_batch_rows = std::max(_batch_size, _empty_predicate_batch_rows);
     const int64_t max_predicate_batch_rows = std::min<int64_t>(
             std::numeric_limits<uint16_t>::max(),
             std::max<int64_t>(DEFAULT_READ_BATCH_SIZE, _runtime_state == nullptr
@@ -2899,6 +3430,8 @@ Status ParquetScanScheduler::read_next_batch(
             // long empty prefixes cheaply; a later non-empty probe is sliced before lazy columns
             // are materialized, so this internal width cannot escape the caller's row cap.
             predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
+            _empty_predicate_batch_rows = predicate_batch_rows;
+            _publish_adaptive_state(*_active_request);
             continue;
         }
         *eof = false;

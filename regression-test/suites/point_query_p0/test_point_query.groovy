@@ -65,7 +65,7 @@ suite("test_point_query") {
 
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
-            connect(user, password, url_without_prep) {
+            connectToDoris(user, password, url_without_prep) {
                 // set to false to invalid cache correcly
                 sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
@@ -139,7 +139,7 @@ suite("test_point_query") {
             sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38", 0, 90696620686827832.374, [0], null) """
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
-            def result1 = connect(user, password, prepare_url) {
+            def result1 = connectToDoris(user, password, prepare_url) {
                 def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)
@@ -239,7 +239,7 @@ suite("test_point_query") {
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
-            def result2 = connect(user, password, context.config.jdbcUrl) {
+            def result2 = connectToDoris(user, password, context.config.jdbcUrl) {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
@@ -333,7 +333,7 @@ suite("test_point_query") {
         }
         create_meta_change_table("${realDb}.tbl_point_query_meta_change")
         sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'origin')"
-        connect(user, password, prepare_url) {
+        connectToDoris(user, password, prepare_url) {
             def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change where k = ?"
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
             assertEquals('origin', get_prepared_value(stmt, 1))
@@ -363,7 +363,7 @@ suite("test_point_query") {
 
         create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
         sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_origin')"
-        connect(user, password, prepare_url) {
+        connectToDoris(user, password, prepare_url) {
             def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change_string_key where k = ?"
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
             assertEquals('string_origin', get_prepared_string_key_value(stmt, 'key1'))
@@ -378,7 +378,7 @@ suite("test_point_query") {
 
         sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "true")"""
         try {
-            connect(user, password, prepare_url) {
+            connectToDoris(user, password, prepare_url) {
                 def lightweightStmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${realDb}.tbl_point_query0 where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(lightweightStmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 lightweightStmt.setInt(1, 1231)
@@ -504,7 +504,7 @@ suite("test_point_query") {
         );
     """
     sql "insert into test_partial_prepared_statement values ('user_guid', 'feature', 'sk','feature_value', '2021-01-01 00:00:00')"
-    def result2 = connect(user, password, prepare_url) {
+    def result2 = connectToDoris(user, password, prepare_url) {
         def partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = ? "
         assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         partial_prepared_stmt.setString(1, "feature")

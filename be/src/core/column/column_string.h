@@ -81,7 +81,6 @@ private:
     static constexpr size_t MAX_STRING_SIZE = 4294967295;
 
     friend class COWHelper<IColumn, ColumnStr<T>>;
-    friend class OlapBlockDataConvertor;
 
     /// Maps i'th position to offset to i+1'th element. Last offset maps to the end of all chars (is the size of all chars).
     PaddedPODArray<T> offsets;
@@ -641,8 +640,6 @@ public:
                           uint8_t* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
-
-    void erase(size_t start, size_t length) override;
 
     void deserialize(StringRef* keys, const size_t num_rows) override;
     void serialize(StringRef* keys, const size_t num_rows) const override;

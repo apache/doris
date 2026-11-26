@@ -101,6 +101,7 @@ struct IndexSpec {
 struct IndexTabletOptions {
     int64_t tablet_id = 100000;
     bool include_key_column = true;
+    bool enable_unique_key_merge_on_write = false;
     bool external_segment_meta = true;
     int64_t storage_page_size = 0;
     InvertedIndexStorageFormatPB index_storage_format = InvertedIndexStorageFormatPB::V2;
@@ -115,7 +116,6 @@ struct IndexBatch {
     std::vector<std::vector<std::string>> variant_jsons_by_column;
     std::vector<ColumnPtr> variant_columns_by_column;
     bool deprecated_enable_flatten_nested = false;
-    bool check_duplicate_json_path = false;
 
     static IndexBatch single_text(std::vector<std::string> values, int32_t first_key = 0);
     static IndexBatch single_variant(std::vector<std::string> jsons, int32_t first_key = 0);
@@ -165,6 +165,7 @@ struct IndexReadOptions {
     bool collect_variant_values = false;
     bool enable_inverted_index_query = true;
     bool enable_fallback_on_missing_inverted_index = true;
+    bool enable_match_without_inverted_index = false;
     bool enable_no_need_read_data_opt = true;
     bool enable_common_expr_pushdown = true;
     bool enable_inverted_index_query_cache = false;

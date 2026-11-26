@@ -40,7 +40,6 @@
 #include "core/value/timestamptz_value.h"
 #include "exprs/hybrid_set.h"
 #include "format/parquet/parquet_block_split_bloom_filter.h"
-#include "format/parquet/vparquet_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
@@ -318,6 +317,72 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
 
     bool matched = single_column_block_pred.evaluate_and(zone_map_info);
     EXPECT_EQ(matched, expect_match);
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDeleteSign) {
+    const auto zero = Field::create_field<TYPE_TINYINT>(0);
+    const auto one = Field::create_field<TYPE_TINYINT>(1);
+    ComparisonPredicateBase<TYPE_TINYINT, PredicateType::EQ> predicate(0, "delete_sign", zero);
+    segment_v2::ZoneMap zone_map {
+            .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+
+    // A segment containing a tombstone must retain the delete-sign filter.
+    zone_map.max_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.min_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.min_value = Field::create_field<TYPE_TINYINT>(-1);
+    zone_map.max_value = zero;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+
+    zone_map.min_value = zero;
+    zone_map.max_value = zero;
+    zone_map.has_null = true;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    zone_map.has_not_null = false;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueOpposite) {
+    const auto zero = Field::create_field<TYPE_TINYINT>(0);
+    const auto one = Field::create_field<TYPE_TINYINT>(1);
+    ComparisonPredicateBase<TYPE_TINYINT, PredicateType::EQ> predicate(0, "delete_sign", zero,
+                                                                       true);
+    segment_v2::ZoneMap zone_map {
+            .min_value = zero, .max_value = zero, .has_null = false, .has_not_null = true};
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+
+    // Keep negated predicates conservative even when the non-negated equality cannot match.
+    zone_map.min_value = one;
+    zone_map.max_value = one;
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueString) {
+    const auto value = Field::create_field<TYPE_STRING>("constant");
+    ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ> predicate(0, "value", value);
+    segment_v2::ZoneMap zone_map {
+            .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+    zone_map.max_value = Field::create_field<TYPE_STRING>("other");
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+}
+
+TEST_F(BlockColumnPredicateTest, EqAlwaysTrueDouble) {
+    const auto value = Field::create_field<TYPE_DOUBLE>(1.0);
+    ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> predicate(0, "value", value);
+    segment_v2::ZoneMap zone_map {
+            .min_value = value, .max_value = value, .has_null = false, .has_not_null = true};
+    EXPECT_TRUE(predicate.is_always_true(zone_map));
+
+    zone_map.max_value = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+    EXPECT_FALSE(predicate.is_always_true(zone_map));
+    ComparisonPredicateBase<TYPE_DOUBLE, PredicateType::EQ> nan_predicate(0, "value",
+                                                                          zone_map.max_value);
+    zone_map.min_value = zone_map.max_value;
+    // Doris treats NaN as equal to NaN, including during row evaluation.
+    EXPECT_TRUE(nan_predicate.is_always_true(zone_map));
 }
 
 // test zonemap index
@@ -2747,74 +2812,6 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         EXPECT_FALSE(false_predicate->evaluate_and(&stat));
         or_block_column_pred.add_column_predicate(std::move(false_predicate));
         EXPECT_FALSE(or_block_column_pred.evaluate_and(&stat));
-    }
-}
-
-// Verifies the core algorithm of SegmentIterator::_can_prune_segment_by_tso: on a
-// single-version binlog segment the tso column (__DORIS_BINLOG_TSO__) is replaced at
-// read time with a constant commit_tso, so whole-segment pruning is decided by matching the
-// tso predicates against a degenerate zonemap (min == max == commit_tso). evaluate_and()
-// returns false iff commit_tso fails the predicates, i.e. the whole segment can be pruned.
-TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
-    // The user-visible raw commit tso (~4.66e17). Physical time part is ~1.78e12.
-    constexpr int64_t kCommitTso = 466872251335573505L;
-
-    auto make_tso_zone_map = [](int64_t commit_tso) {
-        return segment_v2::ZoneMap {.min_value = Field::create_field<TYPE_BIGINT>(commit_tso),
-                                    .max_value = Field::create_field<TYPE_BIGINT>(commit_tso),
-                                    .has_null = false,
-                                    .has_not_null = true};
-    };
-    // Mirrors _can_prune_segment_by_tso: returns true if the segment can be pruned.
-    auto can_prune = [&](const AndBlockColumnPredicate& preds) {
-        return !preds.evaluate_and(make_tso_zone_map(kCommitTso));
-    };
-
-    auto make_gt = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
-                        0, "", Field::create_field<TYPE_BIGINT>(value)));
-        return SingleColumnBlockPredicate::create_unique(pred);
-    };
-    auto make_le = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>(
-                        0, "", Field::create_field<TYPE_BIGINT>(value)));
-        return SingleColumnBlockPredicate::create_unique(pred);
-    };
-
-    // `> physical-time-magnitude` (between physical time and raw tso): commit_tso satisfies it,
-    // so the segment must NOT be pruned (this is exactly the historical mis-prune case).
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(1790000000000L));
-        EXPECT_FALSE(can_prune(preds));
-    }
-    // `> 0`: commit_tso satisfies it, segment kept.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(0));
-        EXPECT_FALSE(can_prune(preds));
-    }
-    // `> upper-bound (> commit_tso)`: commit_tso fails it, whole segment can be pruned.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso));
-        EXPECT_TRUE(can_prune(preds));
-    }
-    // Range `commit_tso < tso <= commit_tso+10`: commit_tso fails the lower bound, pruned.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso));
-        preds.add_column_predicate(make_le(kCommitTso + 10));
-        EXPECT_TRUE(can_prune(preds));
-    }
-    // Range `commit_tso-10 < tso <= commit_tso`: commit_tso satisfies both, kept.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso - 10));
-        preds.add_column_predicate(make_le(kCommitTso));
-        EXPECT_FALSE(can_prune(preds));
     }
 }
 

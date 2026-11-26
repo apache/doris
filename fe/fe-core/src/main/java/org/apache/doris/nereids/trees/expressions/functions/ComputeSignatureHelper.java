@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionSignature.TripleFunction;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -32,13 +33,11 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeStampTzType;
-import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.coercion.AdjustableScaleTimeType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
-import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.GlobalVariable;
@@ -57,6 +56,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /** ComputeSignatureHelper */
 public class ComputeSignatureHelper {
@@ -87,14 +87,26 @@ public class ComputeSignatureHelper {
         }
     }
 
-    private static DataType replaceAnyDataTypeWithOutIndex(DataType sigType, DataType expressionType) {
+    private static void requireAnyDataTypeAccepts(@Nullable ComputeSignature computeSignature,
+            AnyDataType sigType, DataType expressionType, List<Expression> arguments) {
+        if (!sigType.acceptsType(expressionType)) {
+            SearchSignature.throwCanNotFoundFunctionException(
+                    computeSignature != null ? computeSignature.getName() : sigType.simpleString(), arguments);
+        }
+    }
+
+    private static DataType replaceAnyDataTypeWithOutIndex(@Nullable ComputeSignature computeSignature,
+            DataType sigType, DataType expressionType, List<Expression> arguments) {
         if (expressionType instanceof NullType) {
             if (sigType instanceof ArrayType) {
-                return ArrayType.of(replaceAnyDataTypeWithOutIndex(
-                        ((ArrayType) sigType).getItemType(), NullType.INSTANCE));
+                return ArrayType.of(replaceAnyDataTypeWithOutIndex(computeSignature,
+                        ((ArrayType) sigType).getItemType(), NullType.INSTANCE, arguments));
             } else if (sigType instanceof MapType) {
-                return MapType.of(replaceAnyDataTypeWithOutIndex(((MapType) sigType).getKeyType(), NullType.INSTANCE),
-                        replaceAnyDataTypeWithOutIndex(((MapType) sigType).getValueType(), NullType.INSTANCE));
+                return MapType.of(
+                        replaceAnyDataTypeWithOutIndex(computeSignature, ((MapType) sigType).getKeyType(),
+                                NullType.INSTANCE, arguments),
+                        replaceAnyDataTypeWithOutIndex(computeSignature, ((MapType) sigType).getValueType(),
+                                NullType.INSTANCE, arguments));
             } else if (sigType instanceof StructType) {
                 // TODO: do not support struct type now
                 // throw new AnalysisException("do not support struct type now");
@@ -102,18 +114,20 @@ public class ComputeSignatureHelper {
             } else {
                 if (sigType instanceof AnyDataType
                         && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                    requireAnyDataTypeAccepts(computeSignature, (AnyDataType) sigType, expressionType, arguments);
                     return expressionType;
                 }
                 return sigType;
             }
         } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
-            return ArrayType.of(replaceAnyDataTypeWithOutIndex(
-                    ((ArrayType) sigType).getItemType(), ((ArrayType) expressionType).getItemType()));
+            return ArrayType.of(replaceAnyDataTypeWithOutIndex(computeSignature,
+                    ((ArrayType) sigType).getItemType(), ((ArrayType) expressionType).getItemType(), arguments));
         } else if (sigType instanceof MapType && expressionType instanceof MapType) {
-            return MapType.of(replaceAnyDataTypeWithOutIndex(
-                            ((MapType) sigType).getKeyType(), ((MapType) expressionType).getKeyType()),
-                    replaceAnyDataTypeWithOutIndex(
-                            ((MapType) sigType).getValueType(), ((MapType) expressionType).getValueType()));
+            return MapType.of(
+                    replaceAnyDataTypeWithOutIndex(computeSignature,
+                            ((MapType) sigType).getKeyType(), ((MapType) expressionType).getKeyType(), arguments),
+                    replaceAnyDataTypeWithOutIndex(computeSignature,
+                            ((MapType) sigType).getValueType(), ((MapType) expressionType).getValueType(), arguments));
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
             // TODO: do not support struct type now
             // throw new AnalysisException("do not support struct type now");
@@ -121,76 +135,54 @@ public class ComputeSignatureHelper {
         } else {
             if (sigType instanceof AnyDataType
                     && ((AnyDataType) sigType).getIndex() == AnyDataType.INDEX_OF_INSTANCE_WITHOUT_INDEX) {
+                requireAnyDataTypeAccepts(computeSignature, (AnyDataType) sigType, expressionType, arguments);
                 return expressionType;
             }
             return sigType;
         }
     }
 
-    private static void collectAnyDataType(DataType sigType, DataType expressionType,
-            Map<Integer, List<DataType>> indexToArgumentTypes) {
+    private static void collectAnyDataType(@Nullable ComputeSignature computeSignature, DataType sigType,
+            DataType expressionType, Map<Integer, List<DataType>> indexToArgumentTypes, List<Expression> arguments) {
         if (expressionType instanceof NullType) {
             if (sigType instanceof ArrayType) {
-                collectAnyDataType(((ArrayType) sigType).getItemType(), NullType.INSTANCE, indexToArgumentTypes);
+                collectAnyDataType(computeSignature, ((ArrayType) sigType).getItemType(), NullType.INSTANCE,
+                        indexToArgumentTypes, arguments);
             } else if (sigType instanceof MapType) {
-                collectAnyDataType(((MapType) sigType).getKeyType(), NullType.INSTANCE, indexToArgumentTypes);
-                collectAnyDataType(((MapType) sigType).getValueType(), NullType.INSTANCE, indexToArgumentTypes);
+                collectAnyDataType(computeSignature, ((MapType) sigType).getKeyType(), NullType.INSTANCE,
+                        indexToArgumentTypes, arguments);
+                collectAnyDataType(computeSignature, ((MapType) sigType).getValueType(), NullType.INSTANCE,
+                        indexToArgumentTypes, arguments);
             } else if (sigType instanceof StructType) {
                 // TODO: do not support struct type now
                 // throw new AnalysisException("do not support struct type now");
             } else {
-                if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
-                    List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
-                            ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList());
-                    dataTypes.add(expressionType);
-                }
+                addIndexedAnyDataType(computeSignature, sigType, expressionType, indexToArgumentTypes, arguments);
             }
         } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
-            collectAnyDataType(((ArrayType) sigType).getItemType(),
-                    ((ArrayType) expressionType).getItemType(), indexToArgumentTypes);
+            collectAnyDataType(computeSignature, ((ArrayType) sigType).getItemType(),
+                    ((ArrayType) expressionType).getItemType(), indexToArgumentTypes, arguments);
         } else if (sigType instanceof MapType && expressionType instanceof MapType) {
-            collectAnyDataType(((MapType) sigType).getKeyType(),
-                    ((MapType) expressionType).getKeyType(), indexToArgumentTypes);
-            collectAnyDataType(((MapType) sigType).getValueType(),
-                    ((MapType) expressionType).getValueType(), indexToArgumentTypes);
+            collectAnyDataType(computeSignature, ((MapType) sigType).getKeyType(),
+                    ((MapType) expressionType).getKeyType(), indexToArgumentTypes, arguments);
+            collectAnyDataType(computeSignature, ((MapType) sigType).getValueType(),
+                    ((MapType) expressionType).getValueType(), indexToArgumentTypes, arguments);
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
             // TODO: do not support struct type now
             // throw new AnalysisException("do not support struct type now");
         } else {
-            if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
-                List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
-                        ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList());
-                dataTypes.add(expressionType);
-            }
+            addIndexedAnyDataType(computeSignature, sigType, expressionType, indexToArgumentTypes, arguments);
         }
     }
 
-    private static void collectAnyDataTypeExpression(DataType sigType, DataType expressionType,
-            Expression expression, Map<Integer, List<Expression>> indexToArgumentExpressions) {
-        if (expressionType instanceof NullType) {
-            if (sigType instanceof ArrayType) {
-                collectAnyDataTypeExpression(((ArrayType) sigType).getItemType(), NullType.INSTANCE,
-                        expression, indexToArgumentExpressions);
-            } else if (sigType instanceof MapType) {
-                collectAnyDataTypeExpression(((MapType) sigType).getKeyType(), NullType.INSTANCE,
-                        expression, indexToArgumentExpressions);
-                collectAnyDataTypeExpression(((MapType) sigType).getValueType(), NullType.INSTANCE,
-                        expression, indexToArgumentExpressions);
-            } else if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
-                indexToArgumentExpressions.computeIfAbsent(
-                        ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList()).add(expression);
-            }
-        } else if (sigType instanceof ArrayType && expressionType instanceof ArrayType) {
-            collectAnyDataTypeExpression(((ArrayType) sigType).getItemType(),
-                    ((ArrayType) expressionType).getItemType(), expression, indexToArgumentExpressions);
-        } else if (sigType instanceof MapType && expressionType instanceof MapType) {
-            collectAnyDataTypeExpression(((MapType) sigType).getKeyType(),
-                    ((MapType) expressionType).getKeyType(), expression, indexToArgumentExpressions);
-            collectAnyDataTypeExpression(((MapType) sigType).getValueType(),
-                    ((MapType) expressionType).getValueType(), expression, indexToArgumentExpressions);
-        } else if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
-            indexToArgumentExpressions.computeIfAbsent(
-                    ((AnyDataType) sigType).getIndex(), i -> Lists.newArrayList()).add(expression);
+    private static void addIndexedAnyDataType(@Nullable ComputeSignature computeSignature, DataType sigType,
+            DataType expressionType, Map<Integer, List<DataType>> indexToArgumentTypes, List<Expression> arguments) {
+        if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
+            AnyDataType anyType = (AnyDataType) sigType;
+            requireAnyDataTypeAccepts(computeSignature, anyType, expressionType, arguments);
+            List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
+                    anyType.getIndex(), i -> Lists.newArrayList());
+            dataTypes.add(expressionType);
         }
     }
 
@@ -268,70 +260,64 @@ public class ComputeSignatureHelper {
     /** implementFollowToAnyDataType */
     public static FunctionSignature implementAnyDataTypeWithOutIndex(
             FunctionSignature signature, List<Expression> arguments) {
-        // collect all any data type with index
-        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
-        for (int i = 0; i < arguments.size(); i++) {
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
-            DataType expressionType = arguments.get(i).getDataType();
-            // Convert legacy datetime/date types to v2 types, keep v2 types as is
-            if (sigType.isDateType()) {
-                // Legacy DateType -> DateV2Type
-                sigType = DateV2Type.INSTANCE;
-            } else if (sigType.isDateTimeType()) {
-                // Legacy DateTimeType -> DateTimeV2Type
-                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
-            }
-            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
-        }
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        return signature;
+        return implementAnyDataTypeWithOutIndex(null, signature, arguments);
+    }
+
+    /** implementFollowToAnyDataType */
+    public static FunctionSignature implementAnyDataTypeWithOutIndex(
+            @Nullable ComputeSignature computeSignature, FunctionSignature signature, List<Expression> arguments) {
+        return implementAnyDataTypeWithOutIndexInternal(computeSignature, signature, arguments, true);
     }
 
     /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
     public static FunctionSignature implementAnyDataTypeWithOutIndexNoLegacyDateUpgrade(
             FunctionSignature signature, List<Expression> arguments) {
-        // collect all any data type with index
+        return implementAnyDataTypeWithOutIndexInternal(null, signature, arguments, false);
+    }
+
+    private static FunctionSignature implementAnyDataTypeWithOutIndexInternal(
+            @Nullable ComputeSignature computeSignature, FunctionSignature signature, List<Expression> arguments,
+            boolean upgradeLegacyDate) {
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
+            DataType sigType = signatureArgType(signature, i);
             DataType expressionType = arguments.get(i).getDataType();
-            // SKIP: legacy Date/DateTime type promotion to V2
-            newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
+            if (upgradeLegacyDate) {
+                sigType = upgradeLegacyDateType(sigType);
+            }
+            newArgTypes.add(replaceAnyDataTypeWithOutIndex(computeSignature, sigType, expressionType, arguments));
         }
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        return signature;
+        return signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
     }
 
     /** implementFollowToAnyDataType */
     public static FunctionSignature implementAnyDataTypeWithIndex(
             FunctionSignature signature, List<Expression> arguments) {
+        return implementAnyDataTypeWithIndex(null, signature, arguments);
+    }
+
+    /** implementFollowToAnyDataType */
+    public static FunctionSignature implementAnyDataTypeWithIndex(
+            @Nullable ComputeSignature computeSignature, FunctionSignature signature, List<Expression> arguments) {
+        return implementAnyDataTypeWithIndexInternal(computeSignature, signature, arguments, true);
+    }
+
+    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
+    public static FunctionSignature implementAnyDataTypeWithIndexNoLegacyDateUpgrade(
+            FunctionSignature signature, List<Expression> arguments) {
+        return implementAnyDataTypeWithIndexInternal(null, signature, arguments, false);
+    }
+
+    private static FunctionSignature implementAnyDataTypeWithIndexInternal(
+            @Nullable ComputeSignature computeSignature, FunctionSignature signature, List<Expression> arguments,
+            boolean upgradeLegacyDate) {
         // collect all any data type with index
         Map<Integer, List<DataType>> indexToArgumentTypes = Maps.newHashMap();
-        Map<Integer, List<Expression>> indexToArgumentExpressions = Maps.newHashMap();
         Map<Integer, Optional<DataType>> indexToCommonTypes = Maps.newHashMap();
         for (int i = 0; i < arguments.size(); i++) {
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
+            DataType sigType = signatureArgType(signature, i);
             DataType expressionType = arguments.get(i).getDataType();
-            collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
-            collectAnyDataTypeExpression(sigType, expressionType, arguments.get(i), indexToArgumentExpressions);
+            collectAnyDataType(computeSignature, sigType, expressionType, indexToArgumentTypes, arguments);
         }
         // if all any data type's expression is NULL, we should use follow to any data type to do type coercion
         Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
@@ -363,38 +349,21 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            boolean hasTimeStampNs = dataTypes.getValue().stream().anyMatch(DataType::isTimeStampNsType);
-            boolean hasOtherDateLike = dataTypes.getValue().stream().anyMatch(type -> type.isDateLikeType()
-                    && !type.isTimeStampNsType());
-            Optional<DataType> dataType;
-            if (hasTimeStampNs && hasOtherDateLike) {
-                dataType = TypeCoercionUtils.findWiderCommonTypeForIndexedAny(
-                        dataTypes.getValue(), indexToArgumentExpressions.get(dataTypes.getKey()));
-                if (!dataType.isPresent()) {
-                    throw new AnalysisException("Cannot find an exact common type for indexed ANY arguments");
-                }
-            } else if (GlobalVariable.enableNewTypeCoercionBehavior) {
-                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
-            } else {
-                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType = GlobalVariable.enableNewTypeCoercionBehavior
+                    ? TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true)
+                    : TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            if (upgradeLegacyDate && !dataType.isPresent()) {
+                throw new AnalysisException("Cannot find a common type for indexed ANY arguments: "
+                        + dataTypes.getValue());
             }
-            // TODO: should we use tinyint when all any data type's expression is null type?
-            // if (dataType.isPresent() && dataType.get() instanceof NullType) {
-            //     dataType = Optional.of(TinyIntType.INSTANCE);
-            // }
             indexToCommonTypes.put(dataTypes.getKey(), dataType);
         }
 
         // replace any data type and follow to any data type with real data type
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
-            // Convert legacy datetime/date types to v2 types, keep v2 types as is
-            if (sigType.isDateType()) {
-                // Legacy DateType -> DateV2Type
-                sigType = DateV2Type.INSTANCE;
-            } else if (sigType.isDateTimeType()) {
-                // Legacy DateTimeType -> DateTimeV2Type
-                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            if (upgradeLegacyDate) {
+                sigType = upgradeLegacyDateType(sigType);
             }
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
@@ -404,77 +373,23 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** implementFollowToAnyDataType without legacy date/datetime V2 promotion */
-    public static FunctionSignature implementAnyDataTypeWithIndexNoLegacyDateUpgrade(
-            FunctionSignature signature, List<Expression> arguments) {
-        // collect all any data type with index
-        Map<Integer, List<DataType>> indexToArgumentTypes = Maps.newHashMap();
-        Map<Integer, Optional<DataType>> indexToCommonTypes = Maps.newHashMap();
-        for (int i = 0; i < arguments.size(); i++) {
-            DataType sigType;
-            if (i >= signature.argumentsTypes.size()) {
-                sigType = signature.getVarArgType().orElseThrow(
-                        () -> new AnalysisException("function arity not match with signature"));
-            } else {
-                sigType = signature.argumentsTypes.get(i);
-            }
-            DataType expressionType = arguments.get(i).getDataType();
-            collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
+    private static DataType signatureArgType(FunctionSignature signature, int argIndex) {
+        if (argIndex >= signature.argumentsTypes.size()) {
+            return signature.getVarArgType().orElseThrow(
+                    () -> new AnalysisException("function arity not match with signature"));
         }
-        // if all any data type's expression is NULL, we should use follow to any data
-        // type to do type coercion
-        Set<Integer> allNullTypeIndex = Sets.newHashSetWithExpectedSize(indexToArgumentTypes.size());
-        for (Entry<Integer, List<DataType>> entry : indexToArgumentTypes.entrySet()) {
-            boolean allIsNullType = true;
-            for (DataType dataType : entry.getValue()) {
-                if (!(dataType instanceof NullType)) {
-                    allIsNullType = false;
-                    break;
-                }
-            }
-            if (allIsNullType) {
-                allNullTypeIndex.add(entry.getKey());
-            }
-        }
-        if (!allNullTypeIndex.isEmpty()) {
-            for (int i = 0; i < arguments.size(); i++) {
-                DataType sigType;
-                if (i >= signature.argumentsTypes.size()) {
-                    sigType = signature.getVarArgType().orElseThrow(
-                            () -> new IllegalStateException("function arity not match with signature"));
-                } else {
-                    sigType = signature.argumentsTypes.get(i);
-                }
-                DataType expressionType = arguments.get(i).getDataType();
-                collectFollowToAnyDataType(sigType, expressionType, indexToArgumentTypes, allNullTypeIndex);
-            }
-        }
+        return signature.argumentsTypes.get(argIndex);
+    }
 
-        // get all common type for any data type
-        for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            Optional<DataType> dataType;
-            if (GlobalVariable.enableNewTypeCoercionBehavior) {
-                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
-            } else {
-                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
-            }
-            // TODO: should we use tinyint when all any data type's expression is null type?
-            // if (dataType.isPresent() && dataType.get() instanceof NullType) {
-            // dataType = Optional.of(TinyIntType.INSTANCE);
-            // }
-            indexToCommonTypes.put(dataTypes.getKey(), dataType);
+    private static DataType upgradeLegacyDateType(DataType sigType) {
+        if (sigType.isDateType()) {
+            // Legacy DateType -> DateV2Type
+            return DateV2Type.INSTANCE;
+        } else if (sigType.isDateTimeType()) {
+            // Legacy DateTimeType -> DateTimeV2Type
+            return DateTimeV2Type.SYSTEM_DEFAULT;
         }
-
-        // replace any data type and follow to any data type with real data type
-        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
-        for (DataType sigType : signature.argumentsTypes) {
-            // SKIP: legacy Date/DateTime type promotion to V2
-            newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
-        }
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        DataType returnType = replaceAnyDataType(signature.returnType, indexToCommonTypes);
-        signature = signature.withReturnType(returnType);
-        return signature;
+        return sigType;
     }
 
     public static FunctionSignature normalizeDecimalV2(
@@ -495,18 +410,13 @@ public class ComputeSignatureHelper {
             return ((ComputePrecision) computeSignature).computePrecision(signature);
         }
 
-        boolean hasDateTimeV2Type = false;
-        boolean hasTimeV2Type = false;
-        boolean hasTimestampTzType = false;
+        boolean hasTimeScale = false;
         boolean hasDecimalV3Type = false;
-        for (DataType argumentsType : signature.argumentsTypes) {
-            hasDateTimeV2Type |= TypeCoercionUtils.hasDateTimeV2Type(argumentsType);
-            hasTimeV2Type |= TypeCoercionUtils.hasTimeV2Type(argumentsType);
-            hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentsType);
-            hasTimestampTzType |= TypeCoercionUtils.hasTimestampTzType(argumentsType);
+        for (DataType argumentType : signature.argumentsTypes) {
+            hasTimeScale |= TypeCoercionUtils.hasAdjustableTimeScale(argumentType);
+            hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentType);
         }
-
-        if (hasDateTimeV2Type || hasTimeV2Type || hasTimestampTzType) {
+        if (hasTimeScale) {
             signature = defaultTimePrecisionPromotion(signature, arguments);
         }
         if (hasDecimalV3Type) {
@@ -526,7 +436,7 @@ public class ComputeSignatureHelper {
         return signature.withReturnType(ArrayType.of(arrayType.getItemType()));
     }
 
-    // for time type with precision(now are DateTimeV2Type and TimeV2Type),
+    // For temporal types with adjustable precision,
     // we will promote the precision of the type to the maximum precision of all arguments
     private static FunctionSignature defaultTimePrecisionPromotion(FunctionSignature signature,
             List<Expression> arguments) {
@@ -540,52 +450,23 @@ public class ComputeSignatureHelper {
             } else {
                 targetType = signature.getArgType(i);
             }
-            // if input type X's slot(targetType) is datetimev2/timev2 or complex of them, get all nested type of X.
-            List<DataType> nestedInputTypes = ImmutableList.<DataType>builder()
-                    .addAll(extractArgumentTypeBySignature(DateTimeV2Type.class, targetType,
-                            arguments.get(i).getDataType()))
-                    .addAll(extractArgumentTypeBySignature(TimeV2Type.class, targetType,
-                            arguments.get(i).getDataType()))
-                    .addAll(extractArgumentTypeBySignature(TimeStampTzType.class, targetType,
-                            arguments.get(i).getDataType()))
-                    .build();
-            // there's DateTimeV2 and TimeV2 at same time, so we need get exact target type when we promote any slot.
-            List<DataType> nestedTargetTypes = ImmutableList.<DataType>builder()
-                    .addAll(extractSignatureTypes(DateTimeV2Type.class, targetType, arguments.get(i).getDataType()))
-                    .addAll(extractSignatureTypes(TimeV2Type.class, targetType, arguments.get(i).getDataType()))
-                    .addAll(extractSignatureTypes(TimeStampTzType.class, targetType, arguments.get(i).getDataType()))
-                    .build();
-            if (nestedInputTypes.isEmpty()) {
-                // if no DateTimeV2Type or TimeV2Type in the argument[i], no precision promotion
-                continue;
-            }
-
-            // for Map or Struct, we have more than one nested type.
-            // targetType may be ScaleTimeType or comlex type(Array, Struct) with ScaleTimeType nested.
-            Expression arg = arguments.get(i);
-            for (int j = 0; j < nestedInputTypes.size(); j++) {
-                // inputType could be any legal input type
-                DataType inputType = nestedInputTypes.get(j);
-                // corresponding target slot type for inputType
-                DataType nestedTargetType = nestedTargetTypes.get(j);
-                int targetScale = 0;
-
-                // for string input, try to get the most suitable scale
-                if (arg instanceof StringLikeLiteral) {
-                    ScaleTimeType timelikeType = (ScaleTimeType) nestedTargetType;
-                    targetScale = timelikeType.forTypeFromString((StringLikeLiteral) arg).getScale();
+            Expression argument = arguments.get(i);
+            // Pair each temporal target with its source in one traversal of the nested type tree.
+            List<Pair<AdjustableScaleTimeType, DataType>> temporalSlots = extractBySignature(
+                    AdjustableScaleTimeType.class, targetType, argument.getDataType(),
+                    (sig, arg) -> Pair.of((AdjustableScaleTimeType) sig, arg));
+            for (Pair<AdjustableScaleTimeType, DataType> slot : temporalSlots) {
+                int targetScale;
+                if (argument instanceof StringLikeLiteral) {
+                    targetScale = slot.first.forTypeFromString((StringLikeLiteral) argument).getScale();
                 } else {
-                    // for all other input types, get the target scale when cast it to targetType
-                    ScaleTimeType targetScaleType = (ScaleTimeType) nestedTargetType;
-                    ScaleTimeType promotedType = targetScaleType.scaleTypeForType(inputType);
-                    targetScale = promotedType.getScale();
+                    targetScale = slot.first.scaleTypeForType(slot.second).getScale();
                 }
-
-                finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
+                finalTypeScale = Math.max(finalTypeScale, targetScale);
             }
         }
 
-        // if no DateTimeV2Type or TimeV2Type in the arguments, no precision promotion
+        // Fixed-scale temporal types do not participate in precision promotion.
         if (finalTypeScale < 0) {
             return signature;
         }
@@ -596,8 +477,7 @@ public class ComputeSignatureHelper {
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        if (signature.returnType instanceof DateTimeV2Type || signature.returnType instanceof TimeV2Type
-                || signature.returnType instanceof TimeStampTzType
+        if (signature.returnType instanceof AdjustableScaleTimeType
                 || signature.returnType instanceof ComplexDataType) {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
@@ -654,19 +534,14 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    private static List<DataType> extractArgumentTypeBySignature(Class<? extends DataType> targetType,
+    private static List<DataType> extractArgumentTypeBySignature(Class<?> targetType,
             DataType signatureType, DataType argumentType) {
         return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> arg);
     }
 
-    private static List<DataType> extractSignatureTypes(Class<? extends DataType> targetType, DataType signatureType,
-            DataType argumentType) {
-        return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> sig);
-    }
-
-    // if signatureType is a super type of targetType, then extract corresponding argumentType slot
-    private static List<DataType> extractBySignature(Class<? extends DataType> targetType,
-            DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, DataType> pick) {
+    // Traverse aligned type slots and apply the picker wherever the signature matches the target capability.
+    private static <T> List<T> extractBySignature(Class<?> targetType,
+            DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, T> pick) {
         if (targetType.isAssignableFrom(signatureType.getClass())) {
             return Lists.newArrayList(pick.apply(signatureType, argumentType));
         } else if (signatureType instanceof ArrayType) {
@@ -681,13 +556,13 @@ public class ComputeSignatureHelper {
             }
         } else if (signatureType instanceof MapType) {
             if (argumentType instanceof NullType) {
-                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                List<T> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
                         argumentType, pick);
                 ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
                         argumentType, pick));
                 return ret;
             } else if (argumentType instanceof MapType) {
-                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                List<T> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
                         ((MapType) argumentType).getKeyType(), pick);
                 ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
                         ((MapType) argumentType).getValueType(), pick));

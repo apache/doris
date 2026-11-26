@@ -94,10 +94,11 @@ public abstract class Replica {
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
-    @SerializedName(value = "bs", alternate = {"binlogSize"})
-    private volatile long binlogSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
     private volatile long rowCount = 0;
+    // Keep the count and its coverage together. Replica updates from other paths can change rowCount.
+    @Getter
+    private transient volatile RowCountReport rowCountReport;
     @SerializedName(value = "st", alternate = {"state"})
     private volatile ReplicaState state;
 
@@ -109,10 +110,6 @@ public abstract class Replica {
     @Getter
     @SerializedName(value = "lss", alternate = {"localSegmentSize"})
     private long localSegmentSize = 0L;
-
-    // Number of binlog files retained on this replica.
-    @SerializedName(value = "bfn", alternate = {"binlogFileNum"})
-    private volatile long binlogFileNum = -1;
 
     public Replica() {
     }
@@ -214,22 +211,6 @@ public abstract class Replica {
         this.dataSize = dataSize;
     }
 
-    public long getBinlogSize() {
-        return binlogSize;
-    }
-
-    public void setBinlogSize(long binlogSize) {
-        this.binlogSize = binlogSize;
-    }
-
-    public long getBinlogFileNum() {
-        return binlogFileNum;
-    }
-
-    public void setBinlogFileNum(long binlogFileNum) {
-        this.binlogFileNum = binlogFileNum;
-    }
-
     public long getRemoteDataSize() {
         return 0;
     }
@@ -266,6 +247,22 @@ public abstract class Replica {
 
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
+    }
+
+    public record RowCountReport(long rows, long version) {
+    }
+
+    public boolean isRowCountReported() {
+        return rowCountReport != null;
+    }
+
+    public synchronized void updateRowCountReport(long rows, long version) {
+        if (rowCountReport == null || version >= rowCountReport.version()) {
+            setRowCount(rows);
+            if (rowCountReport == null || rows != rowCountReport.rows() || version != rowCountReport.version()) {
+                rowCountReport = new RowCountReport(rows, version);
+            }
+        }
     }
 
 
@@ -336,18 +333,18 @@ public abstract class Replica {
         return 0;
     }
 
-    public boolean isBinlogMissing() {
+    public boolean isChangelogMissing() {
         return false;
     }
 
-    public void setBinlogMissing(boolean binlogMissing) {
-        if (binlogMissing) {
-            throw new UnsupportedOperationException("setBinlogMissing is not supported in Replica");
+    public void setChangelogMissing(boolean changelogMissing) {
+        if (changelogMissing) {
+            throw new UnsupportedOperationException("setChangelogMissing is not supported in Replica");
         }
     }
 
-    public void consumeBinlogMissingRetry() {
-        throw new UnsupportedOperationException("consumeBinlogMissingRetry is not supported in Replica");
+    public void consumeChangelogMissingRetry() {
+        throw new UnsupportedOperationException("consumeChangelogMissingRetry is not supported in Replica");
     }
 
     public long getFurtherRepairWatermarkTxnTd() {
@@ -640,15 +637,5 @@ public abstract class Replica {
     public boolean isScheduleAvailable() {
         return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(getBackendIdValue())
                 && !isUserDrop();
-    }
-
-    public void setLastReportVersion(long version) {
-        if (version > 0) {
-            throw new UnsupportedOperationException("setLastReportVersion is not supported in Replica");
-        }
-    }
-
-    public long getLastReportVersion() {
-        return 0;
     }
 }

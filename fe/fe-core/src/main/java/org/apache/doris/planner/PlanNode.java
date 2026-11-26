@@ -95,6 +95,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     protected ArrayList<TupleId> tupleIds;
 
     protected List<Expr> conjuncts = Lists.newArrayList();
+    // Enabled only after Nereids has checked the scan's expression dependencies.
+    private boolean enableConditionCache = false;
 
     // Conjuncts used to filter the original load file.
     // In the load execution plan, the difference between "preFilterConjuncts" and "conjuncts" is that
@@ -182,6 +184,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         this.offset = node.offset;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
+        this.enableConditionCache = node.enableConditionCache;
 
         this.cardinality = -1;
         this.planNodeName = "V" + planNodeName;
@@ -311,6 +314,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
         Preconditions.checkArgument(targetConjuncts.size() == 1);
         return targetConjuncts.get(0);
+    }
+
+    public void setEnableConditionCache(boolean enableConditionCache) {
+        this.enableConditionCache = enableConditionCache;
     }
 
     public void addConjuncts(List<Expr> conjuncts) {
@@ -476,6 +483,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
+        if (this instanceof ScanNode) {
+            msg.setEnableConditionCache(enableConditionCache);
+        }
         msg.setIsSerialOperator(isSerialOperatorOnBe(ConnectContext.get()));
         msg.num_children = children.size();
         msg.limit = limit;
@@ -885,7 +895,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      * Default is false; only operators that truly need hash for correctness override
      * (finalize AggSink with group keys, HashJoin PARTITIONED/BUCKET_SHUFFLE, Intersect,
      * Except, analytic SortNode, partition-by AnalyticEvalNode).  Operators that request
-     * hash for performance only (StreamingAgg pre-agg with enable_local_exchange_before_agg)
+     * hash for performance only (the pre-aggregations: StreamingAgg with
+     * enable_local_exchange_before_streaming_agg, the LOCAL phase of AggSink with
+     * enable_local_exchange_before_agg)
      * MUST NOT override — that would cause SetOperationNode to over-insert HASH LE on
      * every union branch even when nothing downstream actually needs correctness shuffling.
      *

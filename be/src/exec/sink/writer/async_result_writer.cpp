@@ -81,7 +81,6 @@ AsyncResultWriter::QueuedBlock AsyncResultWriter::_get_block_from_queue() {
     DCHECK(!_data_queue.empty());
     auto queued = std::move(_data_queue.front());
     _data_queue.pop_front();
-    _queue_admission.begin_processing();
     DCHECK(_dependency);
     if (_data_queue_is_available()) {
         _dependency->set_ready();
@@ -90,17 +89,6 @@ AsyncResultWriter::QueuedBlock AsyncResultWriter::_get_block_from_queue() {
         _memory_used_counter->update(-queued.block->allocated_bytes());
     }
     return queued;
-}
-
-void AsyncResultWriter::_notify_block_processed() {
-    if (!_queue_admission.waits_for_processing()) {
-        return;
-    }
-    std::lock_guard l(_m);
-    _queue_admission.finish_processing();
-    if (_data_queue_is_available()) {
-        _dependency->set_ready();
-    }
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
@@ -116,16 +104,16 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    // This is a async thread, should lock the task ctx, to make sure runtimestate and operator_profile
-    // not deconstructed before the thread exit.
+    // Cancellation can destroy the fragment while this callback is queued. Lock its context
+    // before attaching through the raw RuntimeState pointer or accessing writer-owned state.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, state, operator_profile, task_ctx]() {
-                SCOPED_ATTACH_TASK(state);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
+                SCOPED_ATTACH_TASK(state);
                 this->process_block(state, operator_profile);
                 task_lock.reset();
             }));
@@ -196,7 +184,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         if (!status.ok()) [[unlikely]] {
             thread_context()->thread_mem_tracker_mgr->shrink_reserved();
             std::unique_lock l(_m);
-            _queue_admission.finish_processing();
             _writer_status.update(status);
             if (_is_finished() || _data_queue_is_available()) {
                 _dependency->set_ready();
@@ -211,11 +198,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             // Some writers finalize buffered data in close(), so the EOS reservation must outlive
             // both finish() and close() instead of being released between the two callbacks.
             reservation_held_for_finalize = true;
-            _notify_block_processed();
             break;
         }
         thread_context()->thread_mem_tracker_mgr->shrink_reserved();
-        _notify_block_processed();
     }
 
     {
@@ -225,7 +210,6 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
                 _memory_used_counter->update(-queued.block->allocated_bytes());
             }
         });
-        _queue_admission.finish_processing();
         _dependency->set_ready();
     }
 
@@ -315,7 +299,7 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::Block* block, s
 
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
-                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+                  RuntimeProfile::Counter* memory_used_counter);
 void AsyncResultWriter::set_low_memory_mode() {
     _low_memory_mode = true;
     clear_blocks(_free_blocks, _memory_used_counter);

@@ -17,95 +17,217 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Building the Docker image
+# Building the Doris runtime images
 
-### Download and copy the Doris code repo
+The default base uses Ubuntu 26.04 LTS. A second build entry point uses Red Hat
+Universal Base Image (UBI) 9 Minimal. Both bases contain the packages needed by
+the FE, BE and MS entry points, one maintained JDK, and rebuilt `doris-debug` / `dorisctl` binaries.
+Development packages, kernel headers, Python 2 and general profiling tools are
+not included. The `all-in-one/` and `doris-compose/` build paths use the same package-update
+policy with their own runtime tools.
 
-clone [Doris code repo](https://github.com/apache/doris.git) and enter the doris/docker/runtime path.
-your workspace should like this:
+## Build from a release archive
 
-```
-.
-├── runtime
-│   ├── README.md
-│   ├── all-in-one
-│   ├── base-image
-│   ├── be
-│   ├── broker
-│   ├── docker-compose-demo
-│   ├── doris-compose
-│   ├── fe
-│   ├── ms
-```
+Run from any directory in the checkout:
 
-### Download, extract archive and copy into resource directories
-
-1. Go to the doris [official website](https://doris.apache.org/download) to download the binary package you need(pay attention to selecting the doris version and architecture you need), and extract archive binary
-
-Here we take the build of x64 (avx2) and arm64 platforms of 3.0.2 version as an example.
-
-```shell
-$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.2-bin-x64.tar.gz && tar -zxvf apache-doris-3.0.2-bin-x64.tar.gz
-# or
-$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.2-bin-arm64.tar.gz && tar -zxvf apache-doris-3.0.2-bin-arm64.tar.gz
+```bash
+# Ubuntu 26.04
+bash docker/runtime/docker-build.sh -v 4.1.5
+# UBI 9
+bash docker/runtime/docker-build-ubi9.sh -v 4.1.5
 ```
 
-2. You need to copy the corresponding directories to different directories in sequence as below in the table:
+The script downloads the archive and its SHA512 checksum over HTTPS, verifies
+the archive before extracting it, builds the base, and passes that same base
+image to each component build. A checksum failure stops the build. The host
+needs Docker with BuildKit, Bash, curl, tar, and either sha512sum or shasum.
 
-amd64(avx2) platform: 
+The default working directories are `output/runtime-images/ubuntu26.04/` and
+`output/runtime-images/ubi9/`. Extracted build
+contexts are temporary and are removed on exit; source resource directories
+are not modified. The downloaded archive and component image inspection JSON
+are retained there. Output tags remain `doris.fe:<version>`,
+`doris.be:<version>` and `doris.ms:<version>`. Releases without MS build only
+FE and BE. UBI tags append `-ubi9`, for example `doris.be:4.1.5-ubi9`, so
+building both distributions does not overwrite either image family.
 
-| doris type |                      doris package                       |                                    docker file path                                    |
-|:----------:|:--------------------------------------------------------:|:--------------------------------------------------------------------------------------:|
-|     fe     |              apache-doris-3.0.2-bin-x64/fe               |                runtime/fe/resource/amd64/apache-doris-3.0.2-bin-x64/fe                 |
-|     be     |              apache-doris-3.0.2-bin-x64/be               |                runtime/be/resource/amd64/apache-doris-3.0.2-bin-x64/be                 |
-|     ms     |              apache-doris-3.0.2-bin-x64/ms               |                runtime/ms/resource/amd64/apache-doris-3.0.2-bin-x64/ms                 |
+| Environment variable | Purpose |
+| --- | --- |
+| `DORIS_ARCH` | Target `amd64` or `arm64`; defaults to the host architecture. Foreign architectures require Docker emulation. |
+| `DORIS_NO_AVX2=1` | Select the x64-noavx2 release archive. A native Linux x86_64 host without AVX2 selects it automatically. |
+| `DORIS_BASE_IMAGE` | Tag for the newly built base and the base consumed by all component builds. |
+| `DORIS_IMAGE_PREFIX` | Component tag prefix; defaults to `doris`. |
+| `DORIS_IMAGE_TAG_SUFFIX` | Override the component tag suffix (Ubuntu: empty; UBI: `-ubi9`). |
+| `DORIS_IMAGE_WORK_DIR` | Download, staging and image metadata directory. |
+| `DORIS_ARCHIVE` | Existing local release archive. It is still verified before extraction. |
+| `DORIS_ARCHIVE_SHA512` | Expected 128-character digest from a trusted release checksum. When omitted, download the release checksum document. |
+| `DORIS_DOWNLOAD_BASE_URL` | HTTPS release mirror; defaults to the Apache Doris release mirror. |
+| `UBUNTU_IMAGE`, `JDK17_IMAGE`, `JDK8_IMAGE`, `GO_IMAGE` | Ubuntu and shared build input overrides, for example an approved mirror with the same digest. |
+| `UBI9_IMAGE`, `JDK17_UBI9_IMAGE`, `JDK8_UBI9_IMAGE` | UBI Minimal and Temurin UBI 9 input overrides. |
 
-arm64 platform:
+For an existing archive, obtain its expected digest from the trusted release
+metadata, independently of the local file:
 
-| doris type |                       doris package                        |                                     docker file path                                     |
-|:----------:|:----------------------------------------------------------:|:----------------------------------------------------------------------------------------:|
-|     fe     |              apache-doris-3.0.2-bin-arm64/fe               |                runtime/fe/resource/arm64/apache-doris-3.0.2-bin-arm64/fe                 |
-|     be     |              apache-doris-3.0.2-bin-arm64/be               |                runtime/be/resource/arm64/apache-doris-3.0.2-bin-arm64/be                 |
-|     ms     |              apache-doris-3.0.2-bin-arm64/ms               |                runtime/ms/resource/arm64/apache-doris-3.0.2-bin-arm64/ms                 |
-
-**NOTICE**
-
-Only after doris 3.0, the storage-computing separation mode requires the ms (meta-service) component.
-
-### Build base image
-
-**NOTICE**
-
-The below images depend on the base image `apache/doris:base-latest`. If your environment cannot access it, you can pre-build the base image. The base image contains the basic environment for doris to run, including JDK, openssl, etc.
-
-1. As mentioned in the preparation steps above, the Dockerfile of the Base image is under the runtime/base-image path. To build it, make sure you have pulled the Doris code repo and execute the following command.
-
-```shell
-$ cd doris/runtime/base-image && docker build . -t doris-base:latest -f Dockerfile_base
+```bash
+DORIS_ARCHIVE=/path/to/apache-doris-4.1.5-bin-arm64.tar.gz \
+DORIS_ARCHIVE_SHA512=<expected-release-sha512> \
+DORIS_ARCH=arm64 \
+bash docker/runtime/docker-build.sh -v 4.1.5
 ```
 
-2. Adjust the base image name used by the Dockerfile of the doris component and replace the base image you built yourself, As shown in the following example:
+## Base images and Java compatibility
 
-```dockerfile
-# Adjust the base image here
-FROM doris-base:latest:latest
+The build script keeps the previous Java selection: Doris 3.x and newer use
+Java 17; older releases use Java 8. The base tags are
+`apache/doris:base-8.0-ubuntu26.04-jdk17` and
+`apache/doris:base-8.0-ubuntu26.04-jdk8`; the UBI equivalents replace
+`ubuntu26.04` with `ubi9`. Each image
+contains only the selected JDK, at `/usr/lib/jvm/java`, with a compatibility
+link at `/usr/lib/jvm/jdk-17` or `/usr/lib/jvm/jdk-8`.
 
-ARG TARGETARCH
+Build a base independently:
 
-ARG DORIS_VERSION="x.x.x"
-
+```bash
+docker build --pull --no-cache \
+    --build-arg JAVA_VERSION=17 \
+    -f docker/runtime/base-image/Dockerfile_base \
+    -t apache/doris:base-8.0-ubuntu26.04-jdk17 docker/runtime/base-image
 ```
 
-### Build Doris docker image
+The same Dockerfile shares the JDK selection and operator-tool build between
+both distributions. To build a UBI base independently:
 
-as the following commands, Docker will automatically confirm the architecture
-
-```shell
-$ cd doris/runtime/fe && docker build . -t doris.fe:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
-$ cd doris/runtime/be && docker build . -t doris.be:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
-$ cd doris/runtime/ms && docker build . -t doris.ms:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
+```bash
+docker build --pull --no-cache \
+    --build-arg RUNTIME_DISTRO=ubi9 --build-arg JAVA_VERSION=17 \
+    -f docker/runtime/base-image/Dockerfile_base \
+    -t apache/doris:base-8.0-ubi9-jdk17 docker/runtime/base-image
 ```
 
-### Latest update time
+Pass that UBI base through `BASE_IMAGE` for manual component builds.
 
-2025-02-12
+The default base is already minimal. `Dockerfile_base_slim` is a compatibility
+alias of that base, rather than a separate package list:
+
+```bash
+docker build --build-arg BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk17 \
+    -f docker/runtime/base-image/Dockerfile_base_slim \
+    -t apache/doris:base-8.0-ubuntu26.04-jdk17-slim docker/runtime/base-image
+```
+
+For manual component builds, extract the release under
+`<role>/resource/<arch>/apache-doris-<version>-bin-<release-arch>/<role>`.
+For example:
+
+```bash
+docker build --build-arg DORIS_VERSION=4.1.5 \
+    --build-arg BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk17 \
+    -f docker/runtime/fe/Dockerfile -t doris.fe:4.1.5 docker/runtime/fe
+```
+
+Manual builds default to Java 17. For an older release, build the Java 8 base
+and pass `JAVA_VERSION=8` or its explicit `BASE_IMAGE` to the component build.
+Do not use `--pull` on a component build that consumes a locally built base.
+
+## Runtime changes
+
+- The MySQL CLI comes from Ubuntu's `mysql-client-core` (MySQL 8.4) or
+  UBI's `mysql` package (MySQL 8.0). Both retain the TLS options used by
+  the entry points. UBI keeps `curl-minimal` to avoid conflicting with the
+  preinstalled curl package.
+- The full JDK retains tools such as `jcmd`. The vendor and patch update can
+  change certificate trust and disabled algorithms; validate TLS, Kerberos and
+  BE JNI integrations before rollout.
+- The runtime does not contain gdb, perf, BCC, iperf3, patchelf, vim, development
+  headers or Python 2. Use a separate diagnostic container when needed.
+- FE images omit Arthas and its bundled dependencies.
+- Both operator tools remain at `/opt/apache-doris/`. They are compiled from
+  the pinned doris-operator source with the updated Go toolchain, x/net and edwards25519;
+  Operator debug mode and compute-group discovery retain their commands.
+
+## MySQL TLS certificates
+
+FE images no longer contain `fe/mysql_ssl_default_certificate/`. This removes
+the shared example private keys before the final image layer is created.
+MySQL SSL remains disabled by default.
+
+Deployments enabling MySQL SSL must mount their own server keystore and CA
+truststore and set these existing FE configuration properties:
+
+```properties
+mysql_ssl_default_server_certificate = /run/secrets/mysql-server.p12
+mysql_ssl_default_ca_certificate = /run/secrets/mysql-ca.p12
+mysql_ssl_default_server_certificate_password = <server-keystore-password>
+mysql_ssl_default_ca_certificate_password = <truststore-password>
+```
+
+Set the passwords to match the mounted stores. The CA truststore only needs
+the trusted certificates, not a CA private key. Do not use the removed example
+certificates as production credentials.
+
+## Updating and verifying dependencies
+
+`base-image/Dockerfile_base` pins the Ubuntu, UBI 9, Temurin 17, Temurin 8 and Go
+multi-platform image digests, plus the doris-operator commit and source archive
+SHA256. Update version and digest together, and update the source checksum
+when changing the operator commit. Go's module checksum verification remains
+enabled. The build keeps these inventories in each runtime image:
+
+- `/usr/share/doris/runtime-packages.tsv`: installed OS package versions.
+- `/usr/share/doris/debug-tools.buildinfo`: compiled Go versions and modules.
+
+APT uses HTTPS and package signature verification. The base build upgrades APT
+first, upgrades all retained packages, and checks the minimum APT and OpenSSL
+patch versions for each supported Ubuntu release. The installer supports an
+explicit Ubuntu 22.04/Jammy override as well as the 26.04 default. When using
+Jammy, override the Ubuntu and JDK inputs together; for all-in-one or compose,
+override its Temurin input. UBI uses a separate `microdnf` installer, updates
+retained RPMs, and enables only the public UBI BaseOS and AppStream repositories.
+The UBI installer restores the zoneinfo files removed from the minimal image,
+which BE needs at startup. Its inventory records RPM epoch, version, release
+and architecture. Cache
+cleanup alone does not apply security patches.
+
+Refresh the pinned inputs regularly and rebuild the base with
+`--pull --no-cache`; then rebuild every component against it. Rebuilding a
+component against an old base does not update the base's packages. Inspect and
+scan each resulting image by its recorded digest.
+
+Run the release verification tests without Docker or network:
+
+```bash
+python3 docker/runtime/tests/test_docker_build.py -v
+```
+
+Inspect every shipped layer of a built image for removed artifacts:
+
+```bash
+python3 docker/runtime/tests/check_image_layers.py doris.fe:4.1.5
+```
+
+Before release, build both supported architectures and Java variants, scan
+the resulting images including Go binaries, and exercise FE/BE/MS startup,
+Operator debug mode, compute-group discovery, TLS and BE JNI. Check final
+image layers for the removed private keys. Findings in Doris application jars,
+including shaded dependencies, require separate dependency updates; an OS or
+JDK upgrade does not replace them.
+
+## Host and binary compatibility
+
+These are runtime images: the build scripts package existing Doris binaries
+and do not change their compiler or glibc baseline. The host uses the image's
+user-space libraries but supplies the kernel and CPU. A newer image can still
+require newer kernel interfaces or container-runtime syscall policies.
+
+UBI 9 on x86_64 requires **x86-64-v2**, including when selecting a Doris
+`x64-noavx2` archive. A no-AVX2 archive does not remove the UBI requirement.
+Ubuntu uses the ordinary `amd64` variant; this build does not opt into
+`amd64v3` packages. UBI 9's glibc 2.34 can be older than the environment where
+a custom Doris or JNI binary was built. Check all shipped native libraries,
+including JNI and FoundationDB, against the selected runtime.
+
+Before changing an existing deployment, validate its CPU features, kernel,
+Docker/containerd/runc and seccomp versions, and cgroup configuration. The
+Ubuntu 26.04 change in coreutils also requires exercising the shell entry
+points. Retain the previous 22.04 images for deployments whose host baseline
+has not been validated and for rollback. Do not repoint the old base-7.0 tags.

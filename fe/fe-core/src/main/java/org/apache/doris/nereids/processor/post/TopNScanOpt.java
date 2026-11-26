@@ -21,7 +21,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
-import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.DataType;
 
@@ -43,20 +42,18 @@ public class TopNScanOpt extends PlanPostProcessor {
             TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
                     topN.getOrderKeys().get(0).getExpr(),
                     topN.getOrderKeys().get(0).isNullFirst());
-            topN.accept(pusher, pushdownContext);
+            pusher.pushDown(topN.child(), pushdownContext);
         }
         return topN;
     }
 
-    boolean checkTopN(TopN topN) {
-        if (!(topN instanceof PhysicalTopN)) {
-            return false;
-        }
-        if (((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
+    private boolean checkTopN(PhysicalTopN<?> topN) {
+        if (topN.getSortPhase() != SortPhase.LOCAL_SORT) {
             return false;
         }
 
-        if (topN.getOrderKeys().isEmpty()) {
+        if (topN.getOrderKeys().isEmpty()
+                || AbstractRuntimeFilterPushDownVisitor.hasSensitiveExpressions(topN)) {
             return false;
         }
 
@@ -73,6 +70,7 @@ public class TopNScanOpt extends PlanPostProcessor {
                 || dataType.isDateLikeType()
                 || dataType.isTimeType()
                 || dataType.isIPType()
+                || dataType.isUuidType()
                 || dataType.isVarBinaryType();
     }
 

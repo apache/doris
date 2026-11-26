@@ -21,6 +21,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <chrono>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -69,14 +71,14 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, Runtime
 }
 
 DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
-                         const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                         const WriteRequest& sub_data_req, const WriteRequest& sub_changelog_req,
                          RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _rowset_builder = std::make_unique<GroupRowsetBuilder>(_engine, group_build_req, sub_data_req,
-                                                           sub_row_binlog_req, profile);
+                                                           sub_changelog_req, profile);
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -93,17 +95,56 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
 }
 
 BaseDeltaWriter::~BaseDeltaWriter() {
+    // Initialization may have created bitmap tokens before memtable init failed.
+    // Stop producers and drain both bitmap phases before any builder cleanup.
+    // A derived constructor can fail before it installs its builder.
+    if (_rowset_builder != nullptr) {
+        auto st = _get_load_cancel_status();
+        WARN_IF_ERROR(BaseDeltaWriter::cancel_with_status(
+                              st.ok() ? Status::Cancelled("delta writer destroyed") : st),
+                      "failed to cancel work while destroying delta writer");
+    }
     if (!_is_init) {
         return;
     }
 
-    // cancel and wait all memtables in flush queue to be finished
-    static_cast<void>(_memtable_writer->cancel());
-
-    if (_rowset_builder->tablet() != nullptr) {
+    // tablet_sptr(), not tablet(): tablet() is non-virtual and reads this builder's own
+    // _tablet, while the grouped builders override only tablet_sptr() to delegate to the member
+    // holding the data. Local GroupRowsetBuilder::init() never assigns _tablet, so through
+    // tablet() a local ROW-binlog load skipped this whole block and recorded nothing at all.
+    // CloudGroupRowsetBuilder::init() does assign it (to the data builder's tablet), so on that
+    // path the two accessors already agreed -- as they do for every non-grouped builder.
+    const BaseTabletSPtr& flushed_tablet = _rowset_builder->tablet_sptr();
+    if (flushed_tablet != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
-        _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
-        _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
+        flushed_tablet->flush_bytes->increment(stat.flush_size_bytes);
+        // Stamped here and nowhere else, so the load timestamp and the counter it
+        // accompanies always move together: a non-zero flush delta always comes with a
+        // fresh timestamp, and the active-window filter can only ever retire a stale
+        // delta, never invent one. Timestamp first, for the same reason as the query
+        // path -- the report walk reads both without a lock.
+        //
+        // Known limitation: DeltaWriterV2 (enable_memtable_on_sink_node, local mode only)
+        // commits through LoadStreamWriter and never reaches this destructor, so those loads
+        // are missing from SHOW TABLET / PROC. Not fixed: the only scheduling consumer is the
+        // cloud rebalancer, and V2 is excluded from cloud.
+        //
+        // Known limitation: a grouped writer's DATA and ROW_BINLOG flush tasks share one
+        // FlushToken, so the count below is the pair's combined total and is credited entirely
+        // to the data tablet that tablet_sptr() resolves to, on both the cloud and the local
+        // path. The binlog tablet gets no activity of its own and stays eligible for cold-first
+        // migration. Not fixed: splitting the count needs per-tablet completion accounting
+        // inside the flush token.
+        //
+        // Only when this writer actually flushed something. close() initializes an
+        // empty-rowset writer for every tablet of a touched partition, and those flush
+        // nothing. Stamping unconditionally would let such a writer refresh the timestamp
+        // of a delta that is still uncommitted because reports have been failing, and the
+        // next successful report would then resurrect that whole stale delta as fresh heat.
+        if (stat.flush_finish_count > 0) {
+            flushed_tablet->last_load_flush_time_ms.store(UnixMillis(), std::memory_order_relaxed);
+            flushed_tablet->flush_finish_count->increment(stat.flush_finish_count);
+        }
     }
 }
 
@@ -136,15 +177,24 @@ int64_t BaseDeltaWriter::table_id() const {
 
 DeltaWriter::~DeltaWriter() = default;
 
+Status BaseDeltaWriter::_get_load_cancel_status() const {
+    return _req.load_cancel_status && !_req.load_cancel_status->ok()
+                   ? _req.load_cancel_status->status()
+                   : Status::OK();
+}
+
 Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_get_load_cancel_status());
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (doris::thread_context()->is_attach_task()) {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("BaseDeltaWriter::init:before_memtable_init", Status::OK(),
+                                      this);
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
@@ -166,7 +216,7 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [this]() {
                     std::lock_guard<std::mutex> l(_lock);
-                    return _is_cancelled;
+                    return _is_cancelled || !_get_load_cancel_status().ok();
                 },
                 table_id());
     }
@@ -182,6 +232,7 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
                 config::memtable_flush_running_count_limit *
                 (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
         while (_memtable_writer->flush_running_count() >= effective_flush_running_count_limit) {
+            RETURN_IF_ERROR(_get_load_cancel_status());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -221,6 +272,7 @@ Status DeltaWriter::close() {
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
     RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->build_rowset();
 }
 
@@ -232,6 +284,7 @@ Status DeltaWriter::build_rowset() {
 }
 
 Status BaseDeltaWriter::submit_calc_delete_bitmap_task() {
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->submit_calc_delete_bitmap_task();
 }
 
@@ -242,6 +295,7 @@ Status BaseDeltaWriter::wait_calc_delete_bitmap() {
 Status DeltaWriter::commit_txn() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->commit_txn();
 }
 
@@ -254,6 +308,7 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    RETURN_IF_ERROR(_rowset_builder->cancel(st));
     _is_cancelled = true;
     return Status::OK();
 }

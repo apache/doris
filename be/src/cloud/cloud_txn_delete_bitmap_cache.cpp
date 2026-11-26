@@ -62,7 +62,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
         std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
-        RowBinlogTxnInfo* attach_row_binlog) {
+        ChangelogTxnInfo* attach_changelog) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -82,8 +82,8 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         *partial_update_info = iter->second.partial_update_info;
         *publish_status = iter->second.publish_status;
         *previous_publish_info = iter->second.publish_info;
-        if (attach_row_binlog != nullptr) {
-            *attach_row_binlog = iter->second.attach_row_binlog;
+        if (attach_changelog != nullptr) {
+            *attach_changelog = iter->second.attach_changelog;
         }
     }
 
@@ -206,7 +206,7 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids, RowsetSharedPtr rowset, int64_t txn_expiration,
         std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        const RowBinlogTxnInfo& attach_row_binlog) {
+        const ChangelogTxnInfo& attach_changelog) {
     int64_t txn_expiration_min =
             duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                     .count() +
@@ -218,7 +218,7 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         std::shared_ptr<PublishStatus> publish_status =
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info),
-                                   std::move(publish_status), attach_row_binlog);
+                                   std::move(publish_status), attach_changelog);
         // Cloud DELETE agent tasks have no attached resource context and use the
         // default load pool. Only capture a workload group from an attached task.
         auto* ctx = thread_context();

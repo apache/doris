@@ -218,10 +218,14 @@ public class HdfsPropertiesUtils {
             // No nameservice configured => HA is not enabled, nothing to validate
             return;
         }
-        for (String dfsservice : splitAndTrim(dfsNameservices)) {
-            if (dfsservice.isEmpty()) {
-                continue;
-            }
+        // Keep runtime binding compatible with catalogs written by older versions. Hadoop also
+        // ignores empty tokens produced by a trailing comma in dfs.nameservices.
+        List<String> services = splitAndTrim(dfsNameservices);
+        if (services.isEmpty()) {
+            // Keep runtime binding compatible with catalogs persisted by older versions.
+            return;
+        }
+        for (String dfsservice : services) {
             // 2. Check dfs.ha.namenodes.<nameservice>
             String haNnKey = HdfsClientConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX + "." + dfsservice;
             String namenodes = hdfsProperties.getOrDefault(haNnKey, "");

@@ -184,9 +184,10 @@ TEST_F(DeletePredicateTest, LifecycleAndDebugString) {
     EXPECT_EQ(delete_predicate.expr_name(), "DeletePredicate");
     EXPECT_EQ(delete_predicate.debug_string(), "DeletePredicate");
 
-    status = delete_predicate.open(nullptr, &context, FunctionContext::THREAD_LOCAL);
+    status = delete_predicate.open(nullptr, &context,
+                                   FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(status.ok()) << status;
-    delete_predicate.close(&context, FunctionContext::THREAD_LOCAL);
+    delete_predicate.close(&context, FunctionContext::FunctionStateScope::THREAD_LOCAL);
 }
 
 } // namespace doris::format

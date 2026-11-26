@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
@@ -112,11 +113,18 @@ public class ElementAt extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         // Struct field access (the former struct_element) only accepts a constant int/string index,
         // since the selected field — and therefore the result type — must be known at analysis time.
-        if (child(0).getDataType() instanceof StructType) {
+        if (getArgument(0).getDataType() instanceof StructType) {
             Expression field = getArgument(1);
             if (!(field instanceof StringLikeLiteral || field instanceof IntegerLikeLiteral)) {
                 throw new AnalysisException("element_at over a struct only allows a constant int or"
                         + " string second parameter: " + this.toSql());
+            }
+        } else if (getArgument(0).getDataType().isFileType()) {
+            if (!(getArgument(1) instanceof StringLikeLiteral)) {
+                throw new AnalysisException("element_at over FILE requires a constant public field name");
+            }
+            if (((StringLikeLiteral) getArgument(1)).getStringValue().equalsIgnoreCase("inline")) {
+                throw new AnalysisException("ELEMENT_AT does not support the FILE inline field; use FL_GET_BINARY");
             }
         }
     }
@@ -127,12 +135,10 @@ public class ElementAt extends ScalarFunction
         if (arg0Type instanceof NullType) {
             return ImmutableList.of(
                     FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType()));
-        }
-        if (arg0Type instanceof StructType) {
+        } else if (arg0Type instanceof StructType) {
             return ImmutableList.of(FunctionSignature.ret(structFieldType((StructType) arg0Type))
                     .args(arg0Type, child(1).getDataType()));
-        }
-        if (arg0Type instanceof VariantType) {
+        } else if (arg0Type instanceof VariantType) {
             DataType selectorType = child(1).getDataType();
             if (selectorType.isIntegralType() || selectorType.isBooleanType()) {
                 return ImmutableList.of(VARIANT_INDEX_SIGNATURE);
@@ -140,6 +146,10 @@ public class ElementAt extends ScalarFunction
             if (selectorType.isStringLikeType()) {
                 return ImmutableList.of(VARIANT_KEY_SIGNATURE);
             }
+        } else if (arg0Type.isFileType()) {
+            String name = ((StringLikeLiteral) getArgument(1)).getStringValue();
+            return ImmutableList.of(FunctionSignature.ret(namedFieldType(((FileType) arg0Type).getField(name), name))
+                    .args(arg0Type, child(1).getDataType()));
         }
         return SIGNATURES;
     }
@@ -148,22 +158,25 @@ public class ElementAt extends ScalarFunction
     private DataType structFieldType(StructType structType) {
         Expression field = getArgument(1);
         if (field instanceof IntegerLikeLiteral) {
-            int offset = ((IntegerLikeLiteral) field).getIntValue();
-            if (offset <= 0 || offset > structType.getFields().size()) {
+            StructField selected = structType.getFieldByOrdinal(((IntegerLikeLiteral) field).getBigDecimalValue());
+            if (selected == null) {
                 throw new AnalysisException("the specified field index out of bound: " + this.toSql());
             }
-            return structType.getFields().get(offset - 1).getDataType();
+            return selected.getDataType();
         } else if (field instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) field).getStringValue();
-            StructField structField = structType.getField(name);
-            if (structField == null) {
-                throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
-            }
-            return structField.getDataType();
+            return namedFieldType(structType.getField(name), name);
         } else {
             throw new AnalysisException("element_at over a struct only allows a constant int or"
                     + " string second parameter: " + this.toSql());
         }
+    }
+
+    private DataType namedFieldType(StructField field, String name) {
+        if (field == null) {
+            throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
+        }
+        return field.getDataType();
     }
 
     @Override
@@ -172,10 +185,10 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // Preserve predefinedFields for schema template matching
-            VariantType originalType = (VariantType) expressionType;
-            signature = signature.withArgumentType(0, originalType);
-            signature = signature.withReturnType(originalType);
+            // only keep the variant max subcolumns count
+            VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
+            signature = signature.withArgumentType(0, variantType);
+            signature = signature.withReturnType(variantType);
         }
         return super.computeSignature(signature);
     }

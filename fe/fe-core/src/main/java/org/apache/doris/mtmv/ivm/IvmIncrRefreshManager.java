@@ -26,6 +26,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -97,6 +98,8 @@ public class IvmIncrRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
+        // SET_VAR hints are applied while parsing the MV query, before executeCommand runs.
+        context.getConnectContext().setStatementContext(statementContext);
         // The delta may only read the base partitions the MV's partition definition keeps. A base
         // partition outside that set, expired by partition_sync_limit, would otherwise still be
         // read through the delta and the join-opposite snapshot, and its rows would have no MV
@@ -108,7 +111,7 @@ public class IvmIncrRefreshManager {
         statementContext.setIvmRewriteContext(
                 Optional.of(IvmRewriteContext.incremental(mtmv, scopePartitionIds)));
         // Excluded trigger tables do not produce delta and must not be validated for
-        // binlog / key-type support during the incremental analyze.
+        // changelog / key-type support during the incremental analyze.
         statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
@@ -121,12 +124,10 @@ public class IvmIncrRefreshManager {
     }
 
     /**
-     * Parse the MV's SELECT query into a logical plan (sink stripped). Used by REFRESH ...
-     * INCREMENTAL WITH DRY RUN, which plans the raw query with an IVM rewrite context so the
-     * analyzer rules turn it into the delta query.
+     * Build the result-producing query for REFRESH ... INCREMENTAL WITH DRY RUN.
      */
     public LogicalPlan buildQueryPlan(MTMV mtmv) {
-        return parseInsertQueryPlan(mtmv);
+        return new UnboundResultSink<>(parseInsertQueryPlan(mtmv));
     }
 
     @VisibleForTesting

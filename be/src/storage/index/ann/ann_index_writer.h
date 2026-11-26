@@ -17,20 +17,6 @@
 
 #pragma once
 
-// CLucene is third-party code and is not clean under -Wconversion (which
-// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
-// someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as inverted_index_common_impl.h).
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#endif
-#include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/analysis/LanguageBasedAnalyzer.h>
-#include <CLucene/util/bkd/bkd_writer.h>
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 #include <glog/logging.h>
 
 #include <cstdint>
@@ -40,12 +26,13 @@
 
 #include "core/pod_array.h"
 #include "storage/index/ann/ann_index.h"
-#include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
+class AnnIndexSink;
+class IndexFileWriter;
+
 class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
     static constexpr const char* INDEX_TYPE = "index_type";
@@ -67,27 +54,26 @@ public:
     void close_on_error() override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
-    Status add_values(const std::string fn, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override;
+    Status add_values(const uint8_t* values, size_t count) override;
+    Status add_array_values(size_t field_size, const uint8_t* value_ptr, const uint8_t* null_map,
+                            const uint64_t* offsets_ptr, size_t count) override;
     int64_t size() const override;
     Status finish() override;
 
 private:
     Status _build_and_save(Int64 min_train_rows, Int64 effective_min_rows);
+    void _release_build_resources();
 
 #ifdef BE_TEST
     friend class TestAnnIndexColumnWriter;
 #endif
 
-    // VectorIndex shoule be managed by some cache.
-    // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
-    // This should be a weak_ptr
+    // The build index is owned by this writer and released when the segment is finished.
     std::shared_ptr<VectorIndex> _vector_index;
     PODArray<float> _buffered_vectors;
     int64_t _total_rows = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
-    std::shared_ptr<lucene::store::Directory> _dir;
+    std::shared_ptr<AnnIndexSink> _sink;
 };
 } // namespace doris::segment_v2

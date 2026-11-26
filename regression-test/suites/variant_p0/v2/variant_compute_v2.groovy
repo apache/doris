@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_compute_v2", "p0,nonConcurrent") {
+suite("variant_compute_v2", "p0") {
     def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
-    sql "SET default_variant_enable_doc_mode = false"
-    sql "SET default_variant_max_subcolumns_count = 0"
-    sql "SET default_variant_enable_typed_paths_to_sparse = false"
-    sql "SET default_variant_max_sparse_column_statistics_size = 10000"
-    sql "SET default_variant_sparse_hash_shard_count = 1"
+    sql "SET debug_variant_enable_doc_mode = false"
+    sql "SET debug_variant_max_subcolumns_count = 0"
+    sql "SET debug_variant_enable_typed_paths_to_sparse = false"
+    sql "SET debug_variant_max_sparse_column_statistics_size = 10000"
+    sql "SET debug_variant_sparse_hash_shard_count = 1"
     def segmentScanTable = "variant_v2_segment_scan"
     sql "DROP TABLE IF EXISTS ${segmentScanTable}"
     sql """
@@ -288,23 +288,21 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
         FROM numbers("number" = "1")
     """
 
-    setBeConfigTemporary([variant_throw_exeception_on_invalid_json: true]) {
-        order_qt_parse_error_to_null """
+    order_qt_parse_error_to_null """
+        SELECT number,
+               CAST(try_parse_to_variant(payload) AS STRING),
+               try_parse_to_variant(payload) IS NULL
+        FROM (
             SELECT number,
-                   CAST(try_parse_to_variant(payload) AS STRING),
-                   try_parse_to_variant(payload) IS NULL
-            FROM (
-                SELECT number,
-                       CASE number
-                           WHEN 0 THEN '{"ok":1}'
-                           WHEN 1 THEN 'not-json'
-                           ELSE NULL
-                       END AS payload
-                FROM numbers("number" = "3")
-            ) t
-            ORDER BY number
-        """
-    }
+                   CASE number
+                       WHEN 0 THEN '{"ok":1}'
+                       WHEN 1 THEN 'not-json'
+                       ELSE NULL
+                   END AS payload
+            FROM numbers("number" = "3")
+        ) t
+        ORDER BY number
+    """
 
     order_qt_direct_result """
         SELECT ${variantV2Function}(CONCAT('{"id":', number, '}'))

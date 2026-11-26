@@ -192,6 +192,14 @@ final class MockDorisServer implements AutoCloseable {
         return schemaRequestCount.get();
     }
 
+    /** Represent an existing target or a user's manual schema repair. */
+    void setSchemaColumns(String... columns) {
+        synchronized (schemaColumns) {
+            schemaColumns.clear();
+            Collections.addAll(schemaColumns, columns);
+        }
+    }
+
     /** Exercise retry idempotency through both known error text and schema verification. */
     void enablePartialDdlRetryScenario() {
         partialDdlRetryScenario = true;
