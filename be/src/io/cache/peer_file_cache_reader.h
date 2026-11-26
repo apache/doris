@@ -90,6 +90,14 @@ public:
                         size_t file_size, const IOContext* ctx, bool request_fill = false,
                         int64_t tablet_id = 0, std::string resource_id = {});
 
+    // Evict cached sharded peer connection pools (and stale circuit-breaker entries) that have
+    // been idle for at least `max_idle_ms` milliseconds. Evicted channels are destroyed outside
+    // global locks while in-flight RPCs finish via their own shared_ptr references.
+    static size_t evict_idle_connections(int64_t max_idle_ms);
+
+    // Return the number of peer endpoints currently retained in the sharded connection pool map.
+    static size_t cached_peer_pool_count();
+
 private:
     io::Path _path;
     bool _is_doris_table {false};
