@@ -176,6 +176,37 @@ under the License.
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sdk-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-iceberg-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Parent-loaded Iceberg deserializes FileIO objects and requires their entire closure in this loader. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>${google-cloud-storage.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Only orders the scanner assembly before the deployment-topology integration test. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>iceberg-metadata-scanner</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
     <build>
@@ -199,6 +230,43 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>integration-test-provided-classpath</id>
+                        <phase>pre-integration-test</phase>
+                        <goals><goal>build-classpath</goal></goals>
+                        <configuration>
+                            <includeScope>provided</includeScope>
+                            <outputFile>${project.build.directory}/provided-classpath.txt</outputFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <argLine>@{argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <systemPropertyVariables>
+                        <logPath>${project.build.directory}/logs</logPath>
+                        <preload.jar>${project.build.directory}/preload-extensions-jar-with-dependencies.jar</preload.jar>
+                        <scanner.jar>${project.basedir}/../iceberg-metadata-scanner/target/iceberg-metadata-scanner-jar-with-dependencies.jar</scanner.jar>
+                        <provided.classpath>${project.build.directory}/provided-classpath.txt</provided.classpath>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>

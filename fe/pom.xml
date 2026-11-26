@@ -223,6 +223,7 @@ under the License.
     <modules>
         <module>fe-foundation</module>
         <module>fe-common</module>
+        <module>fe-iceberg-common</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
@@ -346,6 +347,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.11.0</iceberg.version>
+        <google-cloud-storage.version>2.67.0</google-cloud-storage.version>
         <lance.version>12.0.0</lance.version>
         <substrait.version>0.40.0</substrait.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->

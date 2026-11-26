@@ -77,4 +77,8 @@ under the License.
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
     <suppress files="software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java" checks=".*"/>
+    <!-- ResolvingFileIO's routing hook is package-private in the Iceberg SDK. -->
+    <suppress files="NativeGcsResolvingFileIO\.java" checks="ImportControl"/>
+    <!-- Access to SDK metadata-task owners requires the Iceberg runtime package. -->
+    <suppress files="DorisMetadataTaskFileIO\.java" checks="ImportControl"/>
 </suppressions>
