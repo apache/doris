@@ -69,7 +69,7 @@ final class DeltaLakeStatementScope {
             DeltaLakeTableHandle handle, long coordinate, Supplier<DeltaLakeTableHandle> loader) {
         String key = String.join("\0", handle.getTable(), handle.getPath(),
                 Objects.toString(handle.reference().registrationId, ""), handle.getTableId(),
-                Long.toString(coordinate));
+                handle.isHistory() ? "history" : "data", Long.toString(coordinate));
         return ConnectorStatementScopes.resolveInStatement(session, namespace, handle.getDatabase(), key, loader);
     }
 }

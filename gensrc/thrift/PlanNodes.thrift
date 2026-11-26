@@ -516,9 +516,48 @@ enum TDeltaLakeColumnMappingMode {
     ID = 2
 }
 
+struct TDeltaLakeHistoryJob {
+    1: optional string job_id
+    2: optional string job_name
+    3: optional string job_run_id
+    4: optional string run_id
+    5: optional string job_owner_id
+    6: optional string trigger_type
+}
+
+struct TDeltaLakeHistoryNotebook {
+    1: optional string notebook_id
+}
+
+// A present key with an absent value represents a SQL NULL map value.
+struct TDeltaLakeHistoryMapEntry {
+    1: optional string key
+    2: optional string value
+}
+
+struct TDeltaLakeHistoryRow {
+    1: optional i64 version
+    2: optional i64 timestamp_millis
+    3: optional string user_id
+    4: optional string user_name
+    5: optional string operation
+    6: optional list<TDeltaLakeHistoryMapEntry> operation_parameters
+    7: optional TDeltaLakeHistoryJob job
+    8: optional TDeltaLakeHistoryNotebook notebook
+    9: optional string cluster_id
+    10: optional i64 read_version
+    11: optional string isolation_level
+    12: optional bool is_blind_append
+    13: optional list<TDeltaLakeHistoryMapEntry> operation_metrics
+    14: optional string user_metadata
+    15: optional string engine_info
+}
+
 struct TDeltaLakeFileDesc {
     1: optional i64 schema_id
     2: optional TDeltaLakeDeletionVectorDesc deletion_vector
+    // Inline rows for a native Delta $history split.
+    3: optional list<TDeltaLakeHistoryRow> history_rows
 }
 
 // Deprecated: the associated external table read support has been removed.

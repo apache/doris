@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
+import org.apache.doris.thrift.TDeltaLakeHistoryRow;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -75,6 +76,12 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
         this.varbinaryPartitions = Set.copyOf(varbinaryPartitions);
         this.descriptor = descriptor.deepCopy();
         this.rowCount = rowCount;
+    }
+
+    static DeltaLakeScanRange history(List<TDeltaLakeHistoryRow> rows) {
+        String path = "file:///__doris_delta_history__/" + rows.get(0).getVersion();
+        TDeltaLakeFileDesc descriptor = new TDeltaLakeFileDesc().setHistoryRows(rows);
+        return new DeltaLakeScanRange(path, 0, rows.size(), rows.size(), 0, 0, Map.of(), descriptor);
     }
 
     DeltaLakeScanRange withByteRange(long offset, long size) {

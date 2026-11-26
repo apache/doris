@@ -115,6 +115,12 @@ class DeltaLakeConnectorTest {
             ConnectorTableHandle pinned = metadata.applySnapshot(next, latest, pin);
             Assertions.assertEquals(0, ((DeltaLakeTableHandle) pinned).getVersion());
             Assertions.assertEquals(1, metadata.getTableSchema(next, latest, pin).getColumns().size());
+            // Reusing the source pin on its history view must retain the history schema.
+            ConnectorTableHandle history = metadata.getSysTableHandle(next, latest, "history").orElseThrow();
+            DeltaLakeTableHandle pinnedHistory = (DeltaLakeTableHandle) metadata.applySnapshot(next, history, pin);
+            Assertions.assertTrue(pinnedHistory.isHistory());
+            Assertions.assertEquals(0, pinnedHistory.getVersion());
+            Assertions.assertTrue(metadata.getColumnHandles(next, history, pin).containsKey("operation"));
             DeltaLakeTestTables.commit(warehouse.resolve("db/other"), 0, "other", original);
             ConnectorTableHandle other = metadata.getTableHandle(next, "db", "other").orElseThrow();
             Assertions.assertThrows(DorisConnectorException.class, () -> metadata.applySnapshot(next, other, pin));

@@ -36,6 +36,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     private final DeltaLakeTableReference reference;
     private final String tableId;
     private final long version;
+    private final boolean history;
     private final transient Snapshot snapshot;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
@@ -43,24 +44,33 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     }
 
     DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, Snapshot snapshot) {
-        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot);
+        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot, false);
     }
 
     private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
-            long version, Snapshot snapshot) {
+            long version, Snapshot snapshot, boolean history) {
         this.database = database;
         this.table = table;
         this.reference = reference;
         this.tableId = tableId;
         this.version = version;
         this.snapshot = snapshot;
+        this.history = history;
     }
 
     // Queued statistics work retains coordinates, not a potentially large cached snapshot.
     DeltaLakeTableHandle withoutSnapshot() {
         DeltaLakeTableReference coordinates =
                 new DeltaLakeTableReference(reference.path, reference.registrationId, reference.managed);
-        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null);
+        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, history);
+    }
+
+    DeltaLakeTableHandle asHistory() {
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, true);
+    }
+
+    boolean isHistory() {
+        return history;
     }
 
     String getDatabase() {
@@ -129,7 +139,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     private DeltaLakeTableHandle wrap(Snapshot pinned) {
         DeltaKernelCompat.prepareForConcurrentReads(pinned);
-        return new DeltaLakeTableHandle(database, table, reference, pinned);
+        return new DeltaLakeTableHandle(database, table, reference, tableId, pinned.getVersion(), pinned, history);
     }
 
     Snapshot snapshot(DeltaLakeRuntime runtime) {

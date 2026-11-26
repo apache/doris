@@ -102,8 +102,23 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<String> listSupportedSysTables(ConnectorSession session, ConnectorTableHandle baseTableHandle) {
+        return List.of(DeltaLakeHistorySchema.NAME);
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        return DeltaLakeHistorySchema.NAME.equalsIgnoreCase(sysName)
+                ? Optional.of(((DeltaLakeTableHandle) baseTableHandle).asHistory()) : Optional.empty();
+    }
+
+    @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.isHistory()) {
+            return DeltaLakeHistorySchema.tableSchema(delta.getTable());
+        }
         return runtime.execute(() -> DeltaLakeSchemaBuilder.build(delta.getTable(),
                 delta.snapshot(runtime), properties));
     }
@@ -117,7 +132,8 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
-        return runtime.execute(() -> statistics.get(session, (DeltaLakeTableHandle) handle, runtime));
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        return delta.isHistory() ? Optional.empty() : runtime.execute(() -> statistics.get(session, delta, runtime));
     }
 
     @Override
@@ -155,8 +171,11 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.isHistory()) {
+            return List.of();
+        }
         return runtime.execute(() -> {
-            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
             Snapshot snapshot = delta.snapshot(runtime);
             List<String> columns = snapshot.getPartitionColumnNames();
             if (columns.isEmpty()) {
@@ -195,15 +214,20 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
         // Each AddFile carries its partition values, so ordinary scans can filter while enumerating files.
-        return runtime.execute(() -> !((DeltaLakeTableHandle) handle).snapshot(runtime)
-                .getPartitionColumnNames().isEmpty());
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        return !delta.isHistory()
+                && runtime.execute(() -> !delta.snapshot(runtime).getPartitionColumnNames().isEmpty());
     }
 
     @Override
     public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.isHistory()) {
+            return Optional.of(ConnectorMvccPartitionView.unpartitioned());
+        }
         return runtime.execute(() -> {
-            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
+            Snapshot snapshot = delta.snapshot(runtime);
             StructType schema = snapshot.getSchema();
             // FE LIST keys distinguish signed zeros and can narrow DOUBLE to FLOAT. Other types
             // can expose their normal LIST view to consumers such as partitioned materialized views.

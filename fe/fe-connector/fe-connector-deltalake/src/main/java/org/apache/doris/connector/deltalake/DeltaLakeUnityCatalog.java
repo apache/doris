@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.CommitRange;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
@@ -221,6 +222,14 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
             Optional<Long> version, Optional<Long> timestampMillis) {
         return managedTables.loadSnapshot(engine, reference.registrationId, reference.path,
                 new UCTableIdentifier(catalog, database, table), version, timestampMillis);
+    }
+
+    @Override
+    public CommitRange managedCommitRange(Engine engine, String database, String table,
+            DeltaLakeTableReference reference, long start, long end) {
+        return managedTables.loadCommitRange(engine, reference.registrationId, reference.path,
+                new UCTableIdentifier(catalog, database, table), Optional.of(start), Optional.empty(),
+                Optional.of(end), Optional.empty());
     }
 
     private JsonNode request(String resource, JsonNode body, boolean allowMissing) throws IOException {
