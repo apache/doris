@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMaxComputeTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.MaxComputeTableSink;
 import org.apache.doris.planner.PlanFragment;
@@ -58,8 +60,14 @@ class MCInsertExecutorTest {
             Assertions.assertInstanceOf(expected, plan.getRequirePhysicalProperties().getDistributionSpec());
 
             Config.be_exec_version = updatedVersion;
+            Optional<GroupExpression> groupExpression = Optional.of(Mockito.mock(GroupExpression.class));
+            Plan memoPlan = plan.withGroupExprLogicalPropChildren(groupExpression,
+                    Optional.of(plan.getLogicalProperties()), plan.children());
+            // chooseBestPlan attaches the selected children and memo expression before assigning properties.
+            PhysicalPlan chosen = (PhysicalPlan) memoPlan.withChildren(plan.children())
+                    .withGroupExpression(groupExpression);
             PhysicalMaxComputeTableSink<?> selected = (PhysicalMaxComputeTableSink<?>)
-                    plan.withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, null);
+                    chosen.withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, null);
             Assertions.assertInstanceOf(expected, selected.getRequirePhysicalProperties().getDistributionSpec());
 
             TQueryOptions dispatchOptions = new TQueryOptions();
