@@ -98,6 +98,19 @@ public class HttpDialectUtilsTest {
             Assert.assertNull(plugin.tryConvertSql(sql, session));
             server.setResponse("{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 1\"}");
             Assert.assertEquals(sql, plugin.tryConvertSql(sql, session));
+
+            String prefix = "{\"version\":\"v1\",\"code\":0,\"data\":\"SELECT 'A";
+            String suffix = "B' AS person\"}";
+            for (String rawNewline : Arrays.asList("\n", "\r\n", "\r")) {
+                server.setResponse(prefix + rawNewline + suffix);
+                Assert.assertNull(plugin.tryConvertSql(sql, session));
+            }
+            server.setResponse("{\r\n  \"version\": \"v1\",\n  \"code\": 0,\n  \"data\": \"SELECT 'A\\nB' AS person\"\n}");
+            Assert.assertEquals("SELECT 'A\nB' AS person", plugin.tryConvertSql(sql, session));
+            server.setResponse(prefix + suffix + "\n{}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
+            server.setResponse("{\"version\":\"v1\",\"code\":400,\"code\":0,\"data\":\"SELECT 1\"}");
+            Assert.assertNull(plugin.tryConvertSql(sql, session));
         } finally {
             GlobalVariable.sqlConverterServiceUrl = previousUrl;
         }

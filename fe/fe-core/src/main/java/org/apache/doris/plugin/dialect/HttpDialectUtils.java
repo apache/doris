@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.lang.reflect.Type;
@@ -77,6 +78,19 @@ public class HttpDialectUtils {
             }
 
             if (responseCode == HttpURLConnection.HTTP_OK) {
+                if (onFailure == null) {
+                    // Parse the response bytes directly. Reading it line by line can change a SQL
+                    // literal and turn an invalid response into an apparently successful conversion.
+                    try (InputStream response = connection.getInputStream()) {
+                        JsonNode result = CONFIRMED_RESPONSE.readTree(response);
+                        JsonNode code = result.path("code");
+                        if ("v1".equals(result.path("version").textValue()) && code.isNumber()
+                                && code.decimalValue().signum() == 0) {
+                            return result.path("data").textValue();
+                        }
+                        return null;
+                    }
+                }
                 try (InputStreamReader inputStreamReader
                         = new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8);
                         BufferedReader in = new BufferedReader(inputStreamReader)) {
@@ -87,17 +101,6 @@ public class HttpDialectUtils {
                         response.append(inputLine);
                     }
 
-                    if (onFailure == null) {
-                        // The legacy DTO defaults a missing/null primitive code to zero and coerces
-                        // other JSON primitives to strings. Neither can confirm conversion of stored SQL.
-                        JsonNode result = CONFIRMED_RESPONSE.readTree(response.toString());
-                        JsonNode code = result.path("code");
-                        if ("v1".equals(result.path("version").textValue()) && code.isNumber()
-                                && code.decimalValue().signum() == 0) {
-                            return result.path("data").textValue();
-                        }
-                        return null;
-                    }
                     Type type = new TypeToken<ConvertResponse>() {
                     }.getType();
                     ConvertResponse result = new Gson().fromJson(response.toString(), type);
