@@ -18,6 +18,12 @@
 
 
 /*
+CREATE TABLE no_partition_tb (
+    id INT,
+    name STRING
+);
+INSERT INTO no_partition_tb VALUES
+    (1, 'Alice'), (2, 'Bob'), (3, 'Charlie'), (4, 'David'), (5, 'Eva');
 CREATE TABLE one_partition_tb (
     id INT,
     name string
@@ -81,7 +87,6 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
 
     def two_partition_1_1 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' AND part2 = 1 ORDER BY id;"""
     def two_partition_2_1 = """SELECT * FROM two_partition_tb WHERE part1 = 'EU' AND part2 = 2 ORDER BY id;"""
-    def two_partition_3_2 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' ORDER BY id;"""
     def two_partition_4_all = """SELECT * FROM two_partition_tb ORDER BY id;"""
     def two_partition_5_1 = """SELECT * FROM two_partition_tb WHERE part1 = 'US' AND part2 = 2 AND id > 5 ORDER BY id;"""
 
@@ -103,16 +108,21 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
         String sk = context.config.otherConfigs.get("sk");
         String mc_db = "mc_datalake"
         String mc_catalog_name = "test_max_compute_partition_prune"
-
+        String no_cross_partition_catalog = "${mc_catalog_name}_no_cross_partition"
+        def mc_properties = """
+            "type" = "max_compute",
+            "mc.default.project" = "${mc_db}",
+            "mc.access_key" = "${ak}",
+            "mc.secret_key" = "${sk}",
+            "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+        """
 
         sql """drop catalog if exists ${mc_catalog_name};"""
+        sql """create catalog if not exists ${mc_catalog_name} properties (${mc_properties});"""
+        sql """drop catalog if exists ${no_cross_partition_catalog};"""
         sql """
-            create catalog if not exists ${mc_catalog_name} properties (
-                "type" = "max_compute",
-                "mc.default.project" = "${mc_db}",
-                "mc.access_key" = "${ak}",
-                "mc.secret_key" = "${sk}",
-                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+            create catalog if not exists ${no_cross_partition_catalog} properties (
+                ${mc_properties}, "mc.split_cross_partition" = "false"
             );
         """
         sql """ switch ${mc_catalog_name} """
@@ -157,10 +167,15 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
             contains "partition=1/4"
         }
 
+        def two_partition_3_2 = """
+            SELECT * FROM ${no_cross_partition_catalog}.${mc_db}.two_partition_tb
+            WHERE part1 = 'US' ORDER BY id;
+        """
         qt_two_partition_3_2 two_partition_3_2
         explain {
             sql("${two_partition_3_2}")
             contains "partition=2/4"
+            notContains "(approximate)inputSplitNum="
         }
 
         qt_two_partition_4_all two_partition_4_all
