@@ -40,7 +40,11 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_column_reader.h"
+#include "util/json/path_in_data.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -49,6 +53,67 @@ class RowDescriptor;
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+Status IndexExecContext::is_variant_path_absent(int32_t read_ordinal,
+                                                const PathInData& relative_path,
+                                                bool* absent) const {
+    DORIS_CHECK(_segment != nullptr);
+    DORIS_CHECK_GE(read_ordinal, 0);
+    DORIS_CHECK_LT(static_cast<size_t>(read_ordinal), _read_schema->num_column_ids());
+    DORIS_CHECK(_column_iter_opts.stats != nullptr);
+    const auto& column = *_read_schema->column(_read_schema->column_id(read_ordinal));
+    const int32_t root_uid =
+            column.parent_unique_id() >= 0 ? column.parent_unique_id() : column.unique_id();
+    // DROP/ADD can leave an old segment without the current root UID. Do not open its
+    // historical same-named column or initialize readers for a root that is absent.
+    if (!_segment->tablet_schema()->has_column_unique_id(root_uid)) {
+        *absent = true;
+        return Status::OK();
+    }
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    Status st = _segment->get_column_reader(root_uid, &column_reader, _column_iter_opts.stats,
+                                            &_column_iter_opts.io_ctx);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // After DROP v(uid=1), ADD v(uid=2), an old segment cannot contain this scan's root.
+        // Resolve by the current uid so historical values of the same name cannot match.
+        *absent = true;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
+    auto* reader = dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+    DORIS_CHECK(reader != nullptr);
+    RETURN_IF_ERROR(
+            reader->load_external_meta_once(_column_iter_opts.stats, &_column_iter_opts.io_ctx));
+    const auto* stats = reader->get_stats();
+    // Doc statistics enumerate stored paths without the sparse statistics limit. For example,
+    // a segment containing only `string4` can prove `string5` absent even in doc mode.
+    // An opaque root/ancestor value may contain the requested path, so it remains unavailable.
+    bool in_doc = stats->existed_in_doc_value_column("") ||
+                  stats->has_prefix_path_in_doc_value_column(relative_path.get_path() + ".");
+    std::string ancestor = relative_path.get_path();
+    while (!in_doc) {
+        in_doc = stats->existed_in_doc_value_column(ancestor);
+        const auto dot = ancestor.rfind('.');
+        if (dot == std::string::npos) {
+            break;
+        }
+        ancestor.resize(dot);
+    }
+    // Without escaped keys the key `a.b` and the path a -> b are stored alike, and the read plan
+    // reads FE's component ['a.b'] through the split path. For example, a stored `a.b.c` gives
+    // `v['a.b']` the value {"c":...}, so the split path must count as a prefix too.
+    const bool has_prefix =
+            reader->has_prefix_path(relative_path, _column_iter_opts.stats,
+                                    &_column_iter_opts.io_ctx) ||
+            (reader->path_encoding() == 0 &&
+             reader->has_prefix_path(PathInData(relative_path.get_path()), _column_iter_opts.stats,
+                                     &_column_iter_opts.io_ctx));
+    // Truncated sparse statistics cannot prove absence, nor can an existing unindexed path.
+    *absent = reader->get_subcolumn_meta_by_path(relative_path) == nullptr && !has_prefix &&
+              !reader->exist_in_sparse_column(relative_path) &&
+              !reader->is_exceeded_sparse_column_limit() && !in_doc && !stats->has_nested_group;
+    return Status::OK();
+}
 
 VExprContext::VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
 
