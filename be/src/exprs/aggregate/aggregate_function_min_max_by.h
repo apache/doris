@@ -93,8 +93,7 @@ public:
         if (has()) {
             assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to)
                     .get_data()
-                    .emplace_back(value)
-                    .optimize();
+                    .emplace_back(value);
         } else {
             assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).insert_default();
         }

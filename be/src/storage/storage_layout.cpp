@@ -237,7 +237,7 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_BITMAP>::column_to_stora
             column, row_pos, n, buffers,
             [](const BitmapValue& value) { return value.getSizeInBytes(); },
             [](const BitmapValue& value, uint8_t* out) {
-                return value.write_optimized_to(reinterpret_cast<char*>(out));
+                return value.write_to(reinterpret_cast<char*>(out));
             });
 }
 

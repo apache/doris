@@ -132,10 +132,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
-        column.get_data()
-                .emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
-                                             : result)
-                .optimize();
+        column.get_data().emplace_back(
+                result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect() : result);
     }
 
 private:
@@ -291,9 +289,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
-        column.get_data()
-                .emplace_back(!result.empty() ? result : this->bitmap_expr_cal.bitmap_calculate())
-                .optimize();
+        column.get_data().emplace_back(!result.empty() ? result
+                                                       : this->bitmap_expr_cal.bitmap_calculate());
     }
 
     void reset() {

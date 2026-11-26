@@ -86,7 +86,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     result.mutable_bytes_value()->Reserve(row_count);
     std::string memory_buffer;
     for (auto row = start; row < end; ++row) {
-        data_column.get_element(row).serialize_optimized(memory_buffer);
+        data_column.get_element(row).write(memory_buffer);
         result.add_bytes_value(memory_buffer);
     }
     return Status::OK();
@@ -106,11 +106,9 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
                                                   const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    char* ptr = nullptr;
-    const size_t size = data_column.get_element(row_num).write_optimized([&](size_t bytes) {
-        ptr = arena.alloc(bytes);
-        return ptr;
-    });
+    const auto& bitmap = data_column.get_element(row_num);
+    char* ptr = arena.alloc(bitmap.getSizeInBytes());
+    const size_t size = bitmap.write_to(ptr);
     result.writeStartBinary();
     result.writeBinary(ptr, size);
     result.writeEndBinary();
@@ -126,7 +124,7 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
         if (null_map && (*null_map)[string_i]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else {
-            col.get_element(string_i).serialize_optimized(memory_buffer);
+            col.get_element(string_i).write(memory_buffer);
             RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
                     column, *array_builder));
@@ -155,7 +153,7 @@ bool DataTypeBitMapSerDe::write_column_to_mysql_text(const IColumn& column, Buff
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
         std::string bytes;
-        data_column.get_element(row_idx).serialize_optimized(bytes);
+        data_column.get_element(row_idx).write(bytes);
         bw.write(bytes.data(), bytes.size());
         return true;
     } else {
@@ -172,11 +170,9 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            char* dst = nullptr;
-            const size_t len = col_data.get_element(row_id).write_optimized([&](size_t size) {
-                dst = arena.alloc(size);
-                return dst;
-            });
+            const auto& bitmap = col_data.get_element(row_id);
+            char* dst = arena.alloc(bitmap.getSizeInBytes());
+            const size_t len = bitmap.write_to(dst);
             cur_batch->data[row_id] = dst;
             cur_batch->length[row_id] = len;
         }
@@ -204,7 +200,7 @@ Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& fiel
 void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                     const FormatOptions& options) const {
     std::string buffer;
-    assert_cast<const ColumnBitmap&>(column).get_element(row_num).serialize_optimized(buffer);
+    assert_cast<const ColumnBitmap&>(column).get_element(row_num).write(buffer);
     bw.write(buffer.c_str(), buffer.size());
 }
 

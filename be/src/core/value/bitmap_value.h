@@ -105,6 +105,152 @@ namespace detail {
 
 class Roaring64MapSetBitForwardIterator;
 
+// Read-only compact serialization view over a 32-bit roaring::Roaring.
+// Holds non-owning pointers to `src`'s keys and unchanged containers, allocates temporary
+// converted copies only for containers that shrink (owned by `_owned_temps`), and delegates
+// serialization to CRoaring without mutating `src`.
+class OptimizedRoaringView {
+public:
+    // `src`: immutable 32-bit roaring; `is_v1`: true = portable (v1), false = native (v2).
+    OptimizedRoaringView(const roaring::Roaring& src, bool is_v1) : _src(&src), _is_v1(is_v1) {
+        const auto& ra = src.roaring.high_low_container;
+        if (ra.size <= 0 || (ra.flags & ROARING_FLAG_FROZEN) != 0) {
+            return;
+        }
+
+        // Step 1: convert only containers that shrink; lazily populate prior non-owning slots.
+        const uint32_t n = static_cast<uint32_t>(ra.size);
+        for (uint32_t i = 0; i < n; ++i) {
+            uint8_t orig_type = ra.typecodes[i];
+            const auto* unwrapped =
+                    roaring::internal::container_unwrap_shared(ra.containers[i], &orig_type);
+            uint8_t new_type = orig_type;
+            OwnedContainer converted(_try_convert_container(unwrapped, orig_type, &new_type),
+                                     ContainerDeleter {new_type});
+
+            if (converted && converted.get() != unwrapped && new_type != orig_type) {
+                if (_containers.empty()) {
+                    _containers.resize(n);
+                    _typecodes.resize(n);
+                    for (uint32_t j = 0; j < i; ++j) {
+                        uint8_t prev_type = ra.typecodes[j];
+                        const auto* prev = roaring::internal::container_unwrap_shared(
+                                ra.containers[j], &prev_type);
+                        _containers[j] = const_cast<roaring::internal::container_t*>(prev);
+                        _typecodes[j] = prev_type;
+                    }
+                }
+                _containers[i] = converted.get();
+                _typecodes[i] = new_type;
+                _owned_temps.push_back(std::move(converted));
+            } else {
+                // Release without freeing when CRoaring returns `unwrapped` unchanged (owned by `src`).
+                if (converted.get() == unwrapped) {
+                    (void)converted.release();
+                }
+                if (!_containers.empty()) {
+                    _containers[i] = const_cast<roaring::internal::container_t*>(unwrapped);
+                    _typecodes[i] = orig_type;
+                }
+            }
+        }
+
+        // Step 2: no container shrank, keep `_containers` empty for the direct fast path.
+        if (_containers.empty()) {
+            return;
+        }
+
+        // Step 3: fall back to `src` if run-bitset header overhead makes output exceed `getSizeInBytes`.
+        const auto view = _make_bitmap_view();
+        const size_t opt_size = is_v1 ? roaring::api::roaring_bitmap_portable_size_in_bytes(&view)
+                                      : roaring::api::roaring_bitmap_size_in_bytes(&view);
+        if (opt_size > src.getSizeInBytes(is_v1)) {
+            _containers.clear();
+            _typecodes.clear();
+            _owned_temps.clear();
+        }
+    }
+
+    // Write serialized bytes into `buf` (at least `_src->getSizeInBytes(_is_v1)` bytes); returns bytes written.
+    size_t write(char* buf) const {
+        if (_containers.empty()) {
+            return _src->write(buf, _is_v1);
+        }
+        const auto view = _make_bitmap_view();
+        return _is_v1 ? roaring::api::roaring_bitmap_portable_serialize(&view, buf)
+                      : roaring::api::roaring_bitmap_serialize(&view, buf);
+    }
+
+private:
+    struct ContainerDeleter {
+        uint8_t typecode {0};
+        void operator()(roaring::internal::container_t* p) const {
+            if (p != nullptr) {
+                roaring::internal::container_free(p, typecode);
+            }
+        }
+    };
+    using OwnedContainer = std::unique_ptr<roaring::internal::container_t, ContainerDeleter>;
+
+    // Convert `c` (`orig_type` -> `*new_type`) if ARRAY/BITSET/RUN shrinks; returns nullptr or `c` otherwise.
+    static roaring::internal::container_t* _try_convert_container(
+            const roaring::internal::container_t* c, uint8_t orig_type, uint8_t* new_type) {
+        switch (orig_type) {
+        case ARRAY_CONTAINER_TYPE: {
+            const auto* ac = static_cast<const roaring::internal::array_container_t*>(c);
+            const int32_t n_runs = roaring::internal::array_container_number_of_runs(ac);
+            if (roaring::internal::run_container_serialized_size_in_bytes(n_runs) <
+                roaring::internal::array_container_serialized_size_in_bytes(ac->cardinality)) {
+                *new_type = RUN_CONTAINER_TYPE;
+                return roaring::internal::run_container_from_array(ac);
+            }
+            return nullptr;
+        }
+        case BITSET_CONTAINER_TYPE: {
+            const auto* bc = static_cast<const roaring::internal::bitset_container_t*>(c);
+            const int32_t n_runs = roaring::internal::bitset_container_number_of_runs(
+                    const_cast<roaring::internal::bitset_container_t*>(bc));
+            if (roaring::internal::run_container_serialized_size_in_bytes(n_runs) <
+                roaring::internal::bitset_container_serialized_size_in_bytes()) {
+                return roaring::internal::convert_run_optimize(
+                        roaring::internal::bitset_container_clone(bc), BITSET_CONTAINER_TYPE,
+                        new_type);
+            }
+            return nullptr;
+        }
+        case RUN_CONTAINER_TYPE: {
+            const auto* rc = static_cast<const roaring::internal::run_container_t*>(c);
+            return roaring::internal::convert_run_to_efficient_container(
+                    const_cast<roaring::internal::run_container_t*>(rc), new_type);
+        }
+        default:
+            return nullptr;
+        }
+    }
+
+    // Assemble a stack-allocated roaring_bitmap_t view combining `_src`'s keys with `_containers`
+    // and `_typecodes` (example with 3 containers where only slot 1 shrank):
+    //   view.size       = 3
+    //   view.keys       = src.keys    --> [ 0,      1,      2      ]  (non-owning ptr to src keys)
+    //   view.containers = _containers --> [ orig_0, new_1,  orig_2 ]  (non-owning src ptrs + owned temps)
+    //   view.typecodes  = _typecodes  --> [ ARRAY,  RUN,    ARRAY  ]
+    roaring::api::roaring_bitmap_t _make_bitmap_view() const {
+        roaring::api::roaring_bitmap_t view {};
+        view.high_low_container.size = static_cast<int32_t>(_containers.size());
+        view.high_low_container.allocation_size = static_cast<int32_t>(_containers.size());
+        view.high_low_container.containers =
+                const_cast<roaring::internal::container_t**>(_containers.data());
+        view.high_low_container.keys = _src->roaring.high_low_container.keys;
+        view.high_low_container.typecodes = const_cast<uint8_t*>(_typecodes.data());
+        return view;
+    }
+
+    const roaring::Roaring* _src {nullptr}; // Immutable source bitmap (owns `keys` and original containers)
+    bool _is_v1 {true};                     // Format flag: true = portable (v1), false = native (v2)
+    std::vector<roaring::internal::container_t*> _containers; // Non-owning `_src` ptrs + `_owned_temps` ptrs
+    std::vector<uint8_t> _typecodes;                          // 1: BITSET, 2: ARRAY, 3: RUN
+    std::vector<OwnedContainer> _owned_temps;                 // Owns newly allocated converted containers
+};
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v4.7.2/cpp/roaring/roaring64map.hh
 // What we change includes
 // - a custom serialization format is used inside read()/write()/getSizeInBytes()
@@ -756,8 +902,7 @@ public:
     }
 
     /**
-     * write a bitmap to a char buffer.
-     * Returns how many bytes were written which should be getSizeInBytes().
+     * Write bitmap to `buf` in compact form without mutating it (returns <= getSizeInBytes()).
      */
     size_t write(char* buf, int serialize_version) const {
         bool is_v1 = serialize_version == 1;
@@ -773,7 +918,7 @@ public:
                 roaring::Roaring r;
                 return r.write(buf, is_v1) + 1;
             }
-            return it->second.write(buf, is_v1) + 1;
+            return OptimizedRoaringView(it->second, is_v1).write(buf) + 1;
         }
 
         const char* orig = buf;
@@ -787,7 +932,7 @@ public:
                           encode_fixed32_le((uint8_t*)buf, map_entry.first);
                           buf += sizeof(uint32_t);
                           // push map value Roaring
-                          buf += map_entry.second.write(buf, is_v1);
+                          buf += OptimizedRoaringView(map_entry.second, is_v1).write(buf);
                       });
         return buf - orig;
     }
@@ -2382,31 +2527,10 @@ public:
         }
     }
 
-    // Request exactly enough destination space for the representation that will be written.
-    template <typename Allocate>
-    size_t write_optimized(Allocate&& allocate) const {
-        if (_type == BITMAP) {
-            auto optimized = _make_optimized_roaring();
-            const auto version = config::bitmap_serialize_version;
-            return optimized.write(allocate(optimized.getSizeInBytes(version)), version);
-        }
-        return write_to(allocate(getSizeInBytes()));
-    }
-
-    // Write the compact representation into a caller-sized buffer (at least getSizeInBytes() bytes)
-    // and return the number of bytes written.
-    size_t write_optimized_to(char* dst) const {
-        if (_type == BITMAP) {
-            return _make_optimized_roaring().write(dst, config::bitmap_serialize_version);
-        }
-        return write_to(dst);
-    }
-
-    void serialize_optimized(std::string& dst) const {
-        write_optimized([&](size_t size) {
-            dst.resize(size);
-            return dst.data();
-        });
+    // Serialize to `dst`; BITMAP payloads are compressed read-only via OptimizedRoaringView.
+    void write(std::string& dst) const {
+        dst.resize(getSizeInBytes());
+        dst.resize(write_to(dst.data()));
     }
 
     // Return how many bytes are required to serialize this bitmap.
@@ -2435,8 +2559,8 @@ public:
         return res;
     }
 
-    // Serialize the bitmap value to dst and return the number of bytes written.
-    // Client should call `getSizeInBytes` first to get the serialized size.
+    // Serialize to `dst` (at least `getSizeInBytes()` bytes) and return bytes written; BITMAP payloads
+    // are compressed read-only via OptimizedRoaringView without mutating this BitmapValue.
     size_t write_to(char* dst) const {
         switch (_type) {
         case EMPTY:
@@ -2957,13 +3081,6 @@ private:
             *empty = is_empty;
         }
         return result;
-    }
-
-    detail::Roaring64Map _make_optimized_roaring() const {
-        detail::Roaring64Map optimized(*_bitmap);
-        optimized.runOptimize();
-        optimized.shrinkToFit();
-        return optimized;
     }
 
     void _prepare_bitmap_for_write() {

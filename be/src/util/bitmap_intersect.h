@@ -160,11 +160,12 @@ void serialize_intersect(const Map& bitmaps, std::string& data) {
     data.resize(sizeof(int32_t));
     Helper::write_to(cast_set<int32_t>(bitmaps.size()), data.data());
     for (const auto& [key, bitmap] : bitmaps) {
-        bitmap.write_optimized([&](size_t size) {
-            const size_t start = data.size();
-            data.resize(start + Helper::serialize_size(key) + size);
-            return Helper::write_to(key, data.data() + start);
-        });
+        const size_t start = data.size();
+        const size_t key_size = Helper::serialize_size(key);
+        data.resize(start + key_size + bitmap.getSizeInBytes());
+        char* dst = Helper::write_to(key, data.data() + start);
+        const size_t written = bitmap.write_to(dst);
+        data.resize(start + key_size + written);
     }
 }
 } // namespace detail

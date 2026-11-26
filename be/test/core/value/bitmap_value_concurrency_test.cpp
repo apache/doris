@@ -26,12 +26,14 @@
 
 namespace doris {
 
-static void check_serialized_bytes(const BitmapValue& source, const std::string& expected,
-                                   const std::string& expected_compact, std::string& bytes) {
+static void check_serialized_bytes(const BitmapValue& source, const std::string& expected_compact,
+                                   std::string& bytes) {
     bytes.resize(source.getSizeInBytes());
-    ASSERT_EQ(source.write_to(bytes.data()), bytes.size());
-    ASSERT_EQ(bytes, expected);
-    source.serialize_optimized(bytes);
+    const size_t written = source.write_to(bytes.data());
+    ASSERT_EQ(written, expected_compact.size());
+    bytes.resize(written);
+    ASSERT_EQ(bytes, expected_compact);
+    source.write(bytes);
     ASSERT_EQ(bytes, expected_compact);
 }
 
@@ -42,13 +44,12 @@ TEST(BitmapValueConcurrencyTest, ConcurrentCopySizeAndSerialization) {
         source.add((uint64_t {1} << 40) + i);
     }
     ASSERT_EQ(source.cardinality(), 8192);
-    std::string expected(source.getSizeInBytes(), '\0');
-    ASSERT_EQ(source.write_to(expected.data()), expected.size());
+    const size_t source_size = source.getSizeInBytes();
     BitmapValue optimized(source);
     optimized.optimize();
     std::string expected_compact;
-    optimized.serialize_optimized(expected_compact);
-    ASSERT_GT(source.getSizeInBytes(), expected_compact.size());
+    optimized.write(expected_compact);
+    ASSERT_GT(source_size, expected_compact.size());
     std::barrier start(4);
     std::vector<std::jthread> threads;
     for (int thread = 0; thread < 4; ++thread) {
@@ -60,14 +61,14 @@ TEST(BitmapValueConcurrencyTest, ConcurrentCopySizeAndSerialization) {
                 BitmapValue assigned;
                 assigned = source;
                 EXPECT_EQ(constructed.cardinality(), 8192);
-                check_serialized_bytes(source, expected, expected_compact, bytes);
+                check_serialized_bytes(source, expected_compact, bytes);
                 EXPECT_EQ(assigned.cardinality(), 8192);
             }
         });
     }
     threads.clear();
     EXPECT_EQ(source.cardinality(), 8192);
-    EXPECT_EQ(source.getSizeInBytes(), expected.size());
+    EXPECT_EQ(source.getSizeInBytes(), source_size);
 }
 
 } // namespace doris

@@ -64,7 +64,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
     char* data_ptr = buf + sizeof(size_t) * real_need_copy_num;
     for (size_t i = 0; i < real_need_copy_num; ++i) {
         auto& bitmap = data_column.get_element(i);
-        const auto size = bitmap.write_optimized_to(data_ptr);
+        const auto size = bitmap.write_to(data_ptr);
         unaligned_store<size_t>(&meta_ptr[i], size);
         data_ptr += size;
     }
@@ -101,7 +101,7 @@ Status DataTypeBitMap::check_column(const IColumn& column) const {
 
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     std::string memory_buffer;
-    cvalue.serialize_optimized(memory_buffer);
+    cvalue.write(memory_buffer);
     buf.write_binary(memory_buffer);
 }
 

@@ -83,11 +83,14 @@ TEST(AggBitmapTest, bitmap_union_test) {
     agg_function->add(place, column, agg_test_batch_size, arena);
     agg_function->insert_result_into_range(place, ans, 0, 3);
     EXPECT_EQ(ans.size(), 4);
-    EXPECT_LT(ans.get_element(1).getSizeInBytes(), dense.getSizeInBytes());
+    std::string compact_bytes;
+    ans.get_element(1).write(compact_bytes);
+    EXPECT_LT(compact_bytes.size(), dense.getSizeInBytes());
     EXPECT_EQ(ans.get_element(1)._bitmap, ans.get_element(3)._bitmap);
     agg_function->insert_result_into_vec({place}, 0, ans, 1);
     EXPECT_EQ(ans.size(), 5);
-    EXPECT_LT(ans.get_element(4).getSizeInBytes(), dense.getSizeInBytes());
+    ans.get_element(4).write(compact_bytes);
+    EXPECT_LT(compact_bytes.size(), dense.getSizeInBytes());
     EXPECT_EQ(ans.get_element(4).cardinality(), dense.cardinality());
     agg_function->destroy(place);
 

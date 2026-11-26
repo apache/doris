@@ -255,7 +255,6 @@ struct BitmapFromString {
                 continue;
             }
             res.emplace_back(bits);
-            res.back().optimize();
         }
         return Status::OK();
     }
@@ -347,7 +346,6 @@ struct BitmapFromArray {
             //input is valid value
             if (!null_map[i]) {
                 res.emplace_back(bits);
-                res.back().optimize();
             }
             bits.clear();
         }
@@ -950,7 +948,7 @@ struct BitmapToBase64 {
         std::string ser_buff;
         size_t encoded_offset = 0;
         for (size_t i = 0; i < size; ++i) {
-            data[i].serialize_optimized(ser_buff);
+            data[i].write(ser_buff);
             const size_t encoded_size = 4 * ((ser_buff.size() + 2) / 3);
             ColumnString::check_chars_length(encoded_offset + encoded_size, size);
             chars.resize(encoded_offset + encoded_size);

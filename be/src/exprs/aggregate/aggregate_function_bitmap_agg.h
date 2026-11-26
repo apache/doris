@@ -135,25 +135,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        insert_result_into_range(place, to, 0, 1);
-    }
-
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to, size_t start,
-                                  size_t end) const override {
-        auto& results = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        BitmapValue value = this->data(place).value;
-        value.optimize();
-        results.insert(results.end(), end - start, value);
-    }
-
-    void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
-                                IColumn& to, size_t num_rows) const override {
-        auto& results = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            auto& value = this->data(places[i] + offset).value;
-            value.optimize();
-            results.push_back(value);
-        }
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
+        column.get_data().push_back(this->data(place).value);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -176,7 +159,6 @@ public:
             DEFER({ this->destroy(place); });
             this->add(place, columns, i, arena);
             data[i] = std::move(this->data(place).value);
-            data[i].optimize();
         }
     }
 
@@ -187,7 +169,6 @@ public:
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             data[i] = std::move(this->data(places[i] + offset).value);
-            data[i].optimize();
         }
     }
 
@@ -240,7 +221,6 @@ public:
         size_t old_size = col.size();
         col.resize(old_size + 1);
         col.get_data()[old_size] = this->data(place).value;
-        col.get_data()[old_size].optimize();
     }
 
     [[nodiscard]] MutableColumnPtr create_serialize_column() const override {
