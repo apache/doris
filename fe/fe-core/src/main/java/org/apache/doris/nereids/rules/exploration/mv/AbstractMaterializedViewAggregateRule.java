@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.AggFunctionRollUpHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.BothCombinatorRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.ContainDistinctFunctionRollupHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.DataSketchesHllRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.DirectRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.MappingRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.SingleCombinatorRollupHandler;
@@ -75,6 +76,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     public static final List<AggFunctionRollUpHandler> ROLL_UP_HANDLERS =
             ImmutableList.of(DirectRollupHandler.INSTANCE,
+                    DataSketchesHllRollupHandler.INSTANCE,
                     MappingRollupHandler.INSTANCE,
                     SingleCombinatorRollupHandler.INSTANCE,
                     BothCombinatorRollupHandler.INSTANCE,

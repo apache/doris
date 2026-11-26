@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -191,6 +193,30 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                     logicalFilter(logicalOlapScan()).when(filter ->
                                             filter.getConjuncts().equals(ImmutableSet.of(isNotNull)))
                             ).when(agg -> agg.getAggregateFunctions().equals(ImmutableSet.of(function)))
+                    );
+        }
+    }
+
+    @Test
+    void testInferDataSketchesHllUnionWithOptionalArgs() {
+        Expression sketch = scan1.getOutput().get(1);
+        Not isNotNull = new Not(new IsNull(sketch), true);
+        for (DataSketchesHllUnion function : ImmutableList.of(
+                new DataSketchesHllUnion(sketch),
+                new DataSketchesHllUnion(sketch, new IntegerLiteral(8)),
+                new DataSketchesHllUnion(sketch, new IntegerLiteral(8), new StringLiteral("HLL_8")))) {
+            LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                    .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(function, "sketch_union")))
+                    .build();
+
+            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                    .applyTopDown(new InferAggNotNull())
+                    .matches(
+                            logicalAggregate(
+                                    logicalFilter(logicalOlapScan()).when(filter ->
+                                            filter.getConjuncts().equals(ImmutableSet.of(isNotNull)))
+                            ).when(agg -> agg.getAggregateFunctions().equals(
+                                    ImmutableSet.of(function.withAlwaysNullable(true))))
                     );
         }
     }

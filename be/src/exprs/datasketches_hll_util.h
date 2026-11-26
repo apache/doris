@@ -135,4 +135,7 @@ private:
 // the library means the bytes are not a valid sketch and becomes CORRUPTION.
 Sketch deserialize(const StringRef& value, std::string_view action);
 
+// Parses a DataSketches HLL target type ("HLL_4", "HLL_6", or "HLL_8", case-insensitive).
+bool parse_tgt_type(std::string_view value, datasketches::target_hll_type& tgt_type);
+
 } // namespace doris::datasketches_hll

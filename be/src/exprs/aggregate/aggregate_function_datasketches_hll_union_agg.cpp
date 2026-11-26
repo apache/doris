@@ -35,6 +35,14 @@ AggregateFunctionPtr create_aggregate_function_datasketches_hll_union_agg(
             AggregateFunctionDataSketchesHllUnionAgg, Data>(argument_types, result_is_nullable,
                                                             attr);
 }
+template <template <PrimitiveType> class Data>
+AggregateFunctionPtr create_aggregate_function_datasketches_hll_union(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 3);
+    return creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_VARBINARY>::create<
+            AggregateFunctionDataSketchesHllUnion, Data>(argument_types, result_is_nullable, attr);
+}
 void register_aggregate_function_datasketches_HLL_union_agg(
         AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
@@ -42,5 +50,10 @@ void register_aggregate_function_datasketches_HLL_union_agg(
     factory.register_function_both("datasketches_hll_union_agg", creator);
     factory.register_alias("datasketches_hll_union_agg", "ds_hll_estimate");
     factory.register_alias("datasketches_hll_union_agg", "datasketches_hll_estimate");
+
+    AggregateFunctionCreator union_creator =
+            create_aggregate_function_datasketches_hll_union<DataSketchesHllUnionData>;
+    factory.register_function_both("datasketches_hll_union", union_creator);
+    factory.register_alias("datasketches_hll_union", "ds_hll_union");
 }
 } // namespace doris

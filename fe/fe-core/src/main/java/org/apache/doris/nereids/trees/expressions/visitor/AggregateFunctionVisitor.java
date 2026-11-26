@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
@@ -258,6 +259,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitHistogram(Histogram histogram, C context) {
         return visitAggregateFunction(histogram, context);
+    }
+
+    default R visitDataSketchesHllUnion(DataSketchesHllUnion datasketchesHllUnion, C context) {
+        return visitNullableAggregateFunction(datasketchesHllUnion, context);
     }
 
     default R visitDataSketchesHllUnionAgg(DataSketchesHllUnionAgg datasketchesHllUnionAgg, C context) {
