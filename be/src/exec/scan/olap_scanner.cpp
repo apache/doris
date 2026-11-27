@@ -704,39 +704,46 @@ void OlapScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             stats.uncompressed_bytes_read);
 
-    // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
-    if (stats.file_cache_stats.bytes_read_from_local == 0 &&
-        stats.file_cache_stats.bytes_read_from_remote == 0) {
+    const auto bytes_read_from_local_delta =
+            stats.file_cache_stats.bytes_read_from_local - _last_updated_bytes_read_from_local;
+    const auto bytes_read_from_remote_delta =
+            stats.file_cache_stats.bytes_read_from_remote - _last_updated_bytes_read_from_remote;
+    const auto bytes_write_into_cache_delta =
+            stats.file_cache_stats.bytes_write_into_cache - _last_updated_bytes_write_into_cache;
+
+    // A page-cache-only batch has no new FileCache reads even after earlier cache I/O.
+    // Use its compressed bytes for local accounting, not the reader's cumulative cache bytes.
+    if (bytes_read_from_local_delta == 0 && bytes_read_from_remote_delta == 0) {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
                 stats.compressed_bytes_read);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
+                bytes_read_from_local_delta);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
-                ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote);
+                ->update_scan_bytes_from_remote_storage(bytes_read_from_remote_delta);
 
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local);
+                bytes_read_from_local_delta);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote);
+                bytes_read_from_remote_delta);
     }
 
-    if (has_file_cache_statistics(stats.file_cache_stats)) {
-        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                stats.file_cache_stats.bytes_write_into_cache);
-    }
+    COUNTER_UPDATE(local_state->_bytes_scanned_from_cache, bytes_read_from_local_delta);
+    COUNTER_UPDATE(local_state->_bytes_scanned_from_remote, bytes_read_from_remote_delta);
+    COUNTER_UPDATE(local_state->_bytes_write_into_cache, bytes_write_into_cache_delta);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+            bytes_write_into_cache_delta);
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats = {};
+    _last_updated_bytes_read_from_local = stats.file_cache_stats.bytes_read_from_local;
+    _last_updated_bytes_read_from_remote = stats.file_cache_stats.bytes_read_from_remote;
+    _last_updated_bytes_write_into_cache = stats.file_cache_stats.bytes_write_into_cache;
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -874,11 +881,17 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    if (has_file_cache_statistics(stats.file_cache_stats)) {
+    // Keep the reader totals intact and exclude bytes already reported in realtime.
+    // For example, a total of 15 after publishing 10 must add only 5 at close.
+    auto file_cache_stats = stats.file_cache_stats;
+    file_cache_stats.bytes_read_from_local -= _last_updated_bytes_read_from_local;
+    file_cache_stats.bytes_read_from_remote -= _last_updated_bytes_read_from_remote;
+    file_cache_stats.bytes_write_into_cache -= _last_updated_bytes_write_into_cache;
+    if (has_file_cache_statistics(file_cache_stats)) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
+        cache_profile.update(&file_cache_stats);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                stats.file_cache_stats.bytes_write_into_cache);
+                file_cache_stats.bytes_write_into_cache);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

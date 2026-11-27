@@ -131,6 +131,15 @@ Status OlapScanLocalState::_init_profile() {
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
+    // Match FileCacheProfileReporter so realtime bytes retain their level-1 hierarchy.
+    static const char* cache_profile = "FileCache";
+    ADD_TIMER(_segment_profile, cache_profile);
+    _bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _segment_profile, "BytesScannedFromCache", TUnit::BYTES, cache_profile, 1);
+    _bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _segment_profile, "BytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
+    _bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(_segment_profile, "BytesWriteIntoCache",
+                                                           TUnit::BYTES, cache_profile, 1);
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
