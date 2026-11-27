@@ -211,7 +211,8 @@ curl -X POST "http://<node_b>:18081/MicrobenchService/submit_job" -d '{
 
 Key options for `job_type: "peer_read"`:
 - `use_s3_fallback`: `false` (default) disables S3 fallback so no S3 config is required and any unexpected fallback fails fast; set `true` to benchmark real S3 fallback or `enable_peer_s3_race = true`.
-- `clear_local_cache_each_repeat`: `true` removes the file from Node B local cache before each repeat so `repeat > 1` keeps hitting Peer Server instead of Node B local disk.
+- `clear_local_cache_each_repeat`: `true` drains pending async cache writes / inflight write buffers and removes the file from Node B local cache before each repeat so `repeat > 1` keeps hitting Peer Server instead of Node B local disk or inflight memory.
+- Metrics: `throughput_mb_s` measures application logical bytes delivered; `peer_wire_bytes_read` / `peer_wire_throughput_mb_s` consistently measure actual successful peer RPC payload bytes in both cached and `direct_peer_rpc` modes (excluding failed attempts and losing race responses). `max_read_us` is exact across all ops, while `p50/p95/p99_read_us` use per-worker weighted reservoir sampling (up to 2M samples).
 - `cache_write_mode`: `DEFAULT`, `SYNC_WRITE`, or `ASYNC_WRITE` to compare sync vs async local cache writeback on peer reads.
 - `direct_peer_rpc`: `true` invokes `PeerFileCacheReader::fetch_blocks` directly (bypassing Client local cache lookup/writeback) to measure raw Peer BRPC + Peer Server disk IO ceiling.
 - `verify_data`: `true` (default) verifies every byte against deterministic `DataVerifier` tags; set `false` for pure throughput testing without verification CPU overhead.
