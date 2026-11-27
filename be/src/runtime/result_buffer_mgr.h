@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <atomic>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -93,6 +94,8 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    // Publish the size under _buffer_map_lock so the metric hook needs no nested lock.
+    std::atomic<size_t> _buffer_count {0};
     std::unordered_map<TUniqueId, std::unordered_set<TUniqueId>> _arrow_flight_query_buffers;
     // Keep only the failure after releasing unread blocks, until the normal timed cleanup.
     std::unordered_map<TUniqueId, Status> _cancelled_arrow_flight_statuses;

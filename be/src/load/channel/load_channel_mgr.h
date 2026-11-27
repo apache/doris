@@ -20,6 +20,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -112,6 +113,8 @@ protected:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
+    // Publish the size under _lock so the metric hook can read it without a nested lock.
+    std::atomic<size_t> _load_channel_count {0};
     // load id window, remember the recently initiated load id, regardless of whether they succeed or fail
     std::unique_ptr<LoadStateChannelCache> _load_state_channels;
 

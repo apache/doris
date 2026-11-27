@@ -165,7 +165,10 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         RETURN_IF_ERROR(channel->open(params));
     }
 
-    _opened = true;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _opened = true;
+    }
     _last_updated_time.store(time(nullptr));
     return Status::OK();
 }
@@ -301,11 +304,8 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
 }
 
 bool LoadChannel::is_finished() {
-    if (!_opened) {
-        return false;
-    }
     std::lock_guard<std::mutex> l(_lock);
-    return _tablets_channels.empty();
+    return _opened && _tablets_channels.empty();
 }
 
 Status LoadChannel::cancel(const Status& reason) {
