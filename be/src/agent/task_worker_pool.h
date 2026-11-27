@@ -19,10 +19,12 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -73,7 +75,8 @@ public:
     ~PublishVersionWorkerPool() override;
 
 private:
-    void publish_version_callback(const TAgentTaskRequest& task);
+    void publish_version_callback(const TAgentTaskRequest& task,
+                                  std::set<int64_t> reported_tablets = {});
 
     StorageEngine& _engine;
 };

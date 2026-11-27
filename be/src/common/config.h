@@ -288,6 +288,8 @@ DECLARE_Int32(publish_version_worker_count);
 DECLARE_Int32(tablet_publish_txn_max_thread);
 // the timeout of EnginPublishVersionTask
 DECLARE_Int32(publish_version_task_timeout_s);
+// Enable only after all FEs support INCOMPLETE publish progress reports.
+DECLARE_Bool(enable_publish_version_partial_report);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the num of threads to calc delete bitmap when building rowset
