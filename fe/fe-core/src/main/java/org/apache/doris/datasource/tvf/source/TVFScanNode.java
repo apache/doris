@@ -28,6 +28,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.datasource.scan.TableFormatType;
 import org.apache.doris.datasource.split.FileSplit;
@@ -150,6 +151,7 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        boolean formatSplittable = isFormatSplittable();
         long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
@@ -160,7 +162,8 @@ public class TVFScanNode extends FileQueryScanNode {
                         null,
                         fileStatus.getSize(),
                         fileStatus.getModificationTime(),
-                        fileStatus.isSplitable && needSplit,
+                        fileStatus.isSplitable && needSplit && formatSplittable,
+                        tableValuedFunction.getTFileCompressType(),
                         null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
@@ -169,6 +172,32 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    private boolean isFormatSplittable() {
+        TFileFormatType format = tableValuedFunction.getTFileFormatType();
+        if (format == TFileFormatType.FORMAT_JSON) {
+            // Document mode parses each range as a complete JSON value, including implicit array mode.
+            return getFileAttributes().isReadJsonByLine();
+        }
+        if (Util.isCsvFormat(format) || format == TFileFormatType.FORMAT_TEXT) {
+            TFileAttributes attributes = getFileAttributes();
+            if (Util.isCsvFormat(format) && attributes.getTextParams().getEnclose() != 0) {
+                // A byte boundary may lie inside a quoted multiline field; ranges cannot recover quote state.
+                return false;
+            }
+            int skippedLines = attributes.getSkipLines();
+            // Header modes override skip_lines in the reader.
+            if (FileFormatProperties.FORMAT_CSV_WITH_NAMES.equalsIgnoreCase(attributes.getHeaderType())) {
+                skippedLines = 1;
+            } else if (FileFormatProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES
+                    .equalsIgnoreCase(attributes.getHeaderType())) {
+                skippedLines = 2;
+            }
+            // Non-first ranges skip one partial record, but cannot consume a remaining multi-record prefix.
+            return skippedLines <= 1;
+        }
+        return true;
     }
 
     @Override
