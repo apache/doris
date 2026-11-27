@@ -42,6 +42,14 @@ public:
         }
     }
 
+    bool in_graceful_shutdown() const {
+        return _in_graceful_shutdown.load(std::memory_order_acquire);
+    }
+
+    void set_in_graceful_shutdown(bool enabled) {
+        _in_graceful_shutdown.store(enabled, std::memory_order_release);
+    }
+
     // Unique cluster id
     int32_t cluster_id = 0;
     // Master FE addr: ip:rpc_port
@@ -60,6 +68,7 @@ public:
 
 private:
     std::atomic<int64_t> _changelog_ttl_reference_tso {0};
+    std::atomic<bool> _in_graceful_shutdown {false};
 };
 
 } // namespace doris

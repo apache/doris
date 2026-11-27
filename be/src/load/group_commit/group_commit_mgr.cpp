@@ -505,13 +505,13 @@ Status GroupCommitTable::_create_group_commit_load(
         } else {
             LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
         }
-        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
-        st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
+        st = ThriftRpcHelper::rpc_fe_with_master_refresh(
+                [this]() { return _exec_env->cluster_info()->master_fe_addr; },
                 [&result, &request](FrontendServiceConnection& client) {
+                    result = {};
                     client->streamLoadPut(result, request);
                 },
-                10000L);
+                [&result]() { return result.status; }, 10000L);
         if (!st.ok()) {
             LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
             return st;

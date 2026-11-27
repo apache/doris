@@ -23,14 +23,17 @@
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <thread>
 
 #include "common/status.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h" // IWYU pragma: keep
 #include "util/client_cache.h"
 #include "util/debug_points.h"
+#include "util/dns_cache.h"
 #include "util/network_util.h"
 
 namespace apache {
@@ -150,5 +153,74 @@ template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
         const std::string& ip, const int32_t port,
         std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms,
         ClientCache<TPaloBrokerServiceClient>* client_cache);
+
+Status ThriftRpcHelper::rpc_fe_with_master_refresh(
+        std::function<TNetworkAddress()> address_provider,
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback,
+        std::function<TStatus()> response_status, int timeout_ms) {
+    const int64_t retry_timeout_ms = config::stream_load_fe_rpc_retry_timeout_ms;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(std::max<int64_t>(0, retry_timeout_ms));
+    const bool enabled = _s_exec_env->cluster_info()->in_graceful_shutdown();
+    // With graceful mode disabled, preserve the existing transport retry's live
+    // provider: a new-master heartbeat may arrive after the old master's socket closes.
+    if (!enabled) {
+        auto status = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+        if (!status.ok() || response_status().status_code != TStatusCode::FE_SHUTTING_DOWN) {
+            return status;
+        }
+        // A pre-execution rejection is safe to retry even without BE graceful mode.
+    }
+    return _retry_fe_rpc(
+            address_provider,
+            [&](const TNetworkAddress& address) {
+                const auto remaining_ms =
+                        std::max<int64_t>(1, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                     deadline - std::chrono::steady_clock::now())
+                                                     .count());
+                const int attempt_timeout_ms = static_cast<int>(std::min<int64_t>(
+                        timeout_ms > 0 ? timeout_ms : config::thrift_rpc_timeout_ms, remaining_ms));
+                auto status = rpc<FrontendServiceClient>(address.hostname, address.port, callback,
+                                                         attempt_timeout_ms);
+                // A restarted FE can keep its hostname but get a different pod IP.
+                // Reopening a socket against the cached old IP cannot recover.
+                if (!status.ok()) {
+                    _s_exec_env->dns_cache()->invalidate(address.hostname);
+                }
+                return status;
+            },
+            response_status, 1000,
+            std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         deadline - std::chrono::steady_clock::now())
+                                         .count()));
+}
+
+Status ThriftRpcHelper::_retry_fe_rpc(const std::function<TNetworkAddress()>& address_provider,
+                                      const std::function<Status(const TNetworkAddress&)>& attempt,
+                                      const std::function<TStatus()>& response_status,
+                                      int retry_interval_ms, int64_t retry_timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(std::max<int64_t>(0, retry_timeout_ms));
+    for (int retry = 0;; ++retry) {
+        // Heartbeats already publish the elected master. Re-read it for every attempt,
+        // including NOT_MASTER replies received before the new heartbeat arrives.
+        TNetworkAddress target = address_provider();
+        Status st = attempt(target);
+        if ((st.ok() && response_status().status_code != TStatusCode::NOT_MASTER &&
+             response_status().status_code != TStatusCode::FE_SHUTTING_DOWN) ||
+            std::chrono::steady_clock::now() >= deadline) {
+            return st;
+        }
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        const auto backoff =
+                std::chrono::milliseconds(static_cast<int64_t>(std::max(0, retry_interval_ms)) *
+                                          (2 * std::min(retry, 2) + 1));
+        if (remaining <= backoff) {
+            return st;
+        }
+        LOG(INFO) << "retry stream-load FE RPC " << retry + 1 << ", previous target=" << target;
+        std::this_thread::sleep_for(backoff);
+    }
+}
 
 } // namespace doris
