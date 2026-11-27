@@ -58,7 +58,7 @@ bool contains_nanosecond_timestamp(const iceberg::Type& type) {
 } // namespace
 
 VIcebergPartitionWriter::VIcebergPartitionWriter(
-        const TDataSink& t_sink, std::vector<std::string> partition_values,
+        const TDataSink& t_sink, std::vector<std::optional<std::string>> partition_values,
         const VExprContextSPtrs& write_output_expr_ctxs, const iceberg::Schema& schema,
         const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
         WriteInfo write_info, std::string file_name, int file_name_index,
@@ -212,7 +212,17 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
-    commit_data->__set_partition_values(_partition_values);
+    std::vector<std::string> partition_values;
+    std::vector<bool> partition_values_is_null;
+    partition_values.reserve(_partition_values.size());
+    partition_values_is_null.reserve(_partition_values.size());
+    for (const auto& value : _partition_values) {
+        // Keep the legacy token for older FEs; the bitmap preserves literal "null" for new FEs.
+        partition_values.emplace_back(value.value_or("null"));
+        partition_values_is_null.emplace_back(!value.has_value());
+    }
+    commit_data->__set_partition_values(partition_values);
+    commit_data->__set_partition_values_is_null(partition_values_is_null);
     // Split offsets describe the physical file, even when the table disables all column metrics.
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         std::vector<int64_t> offsets;

@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <functional>
+#include <optional>
 
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_fwd.h"
@@ -48,16 +49,14 @@ public:
     using ClosedFileCallback =
             std::function<void(std::shared_ptr<io::FileSystem>, const std::string&)>;
 
-    VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,
-                            const VExprContextSPtrs& write_output_expr_ctxs,
-                            const doris::iceberg::Schema& schema,
-                            const std::string* iceberg_schema_json,
-                            std::vector<std::string> write_column_names, WriteInfo write_info,
-                            std::string file_name, int file_name_index,
-                            TFileFormatType::type file_format_type,
-                            TFileCompressType::type compress_type,
-                            const std::map<std::string, std::string>& hadoop_conf,
-                            ClosedFileCallback closed_file_callback = nullptr);
+    VIcebergPartitionWriter(
+            const TDataSink& t_sink, std::vector<std::optional<std::string>> partition_values,
+            const VExprContextSPtrs& write_output_expr_ctxs, const doris::iceberg::Schema& schema,
+            const std::string* iceberg_schema_json, std::vector<std::string> write_column_names,
+            WriteInfo write_info, std::string file_name, int file_name_index,
+            TFileFormatType::type file_format_type, TFileCompressType::type compress_type,
+            const std::map<std::string, std::string>& hadoop_conf,
+            ClosedFileCallback closed_file_callback = nullptr);
 
     Status open(RuntimeState* state, RuntimeProfile* profile,
                 const RowDescriptor* row_desc) override;
@@ -88,7 +87,7 @@ private:
 
     std::string _path;
 
-    std::vector<std::string> _partition_values;
+    std::vector<std::optional<std::string>> _partition_values;
 
     size_t _row_count = 0;
 

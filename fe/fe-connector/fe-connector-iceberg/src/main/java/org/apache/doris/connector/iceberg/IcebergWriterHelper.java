@@ -56,11 +56,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -80,6 +80,9 @@ final class IcebergWriterHelper {
 
     private static final Logger LOG = LogManager.getLogger(IcebergWriterHelper.class);
 
+    // Older FEs supply a Thrift class without this field when loading a newer connector.
+    private static final TIcebergCommitData._Fields PARTITION_VALUES_IS_NULL_FIELD =
+            TIcebergCommitData._Fields.findByName("partition_values_is_null");
     private static final String WRITE_FORMAT = "write-format";
     private static final String PARQUET_NAME = "parquet";
     private static final String ORC_NAME = "orc";
@@ -139,7 +142,7 @@ final class IcebergWriterHelper {
     /**
      * Converts the BE data-file commit fragments into an iceberg {@link WriteResult} of {@link DataFile}s
      * (the INSERT / OVERWRITE / MERGE-data path). A partitioned table requires non-empty partition values per
-     * file; {@code "null"} partition tokens map to a real {@code null}.
+     * file. The commit's NULL bitmap distinguishes SQL NULL from the literal string {@code "null"}.
      */
     static WriteResult convertToWriterResult(Table table, List<TIcebergCommitData> commitDataList, ZoneId zone) {
         return convertToWriterResult(table, SortOrder.unsorted(), commitDataList, zone);
@@ -182,12 +185,10 @@ final class IcebergWriterHelper {
             Metrics metrics = buildDataFileMetrics(commitData, schema, metricsConfig, fileFormat);
             Optional<PartitionData> partitionData = Optional.empty();
             if (spec.isPartitioned()) {
-                List<String> partitionValues = commitData.getPartitionValues();
-                if (Objects.isNull(partitionValues) || partitionValues.isEmpty()) {
+                List<String> partitionValues = extractPartitionValues(commitData);
+                if (partitionValues.isEmpty()) {
                     throw new VerifyException("No partition data for partitioned table");
                 }
-                partitionValues = partitionValues.stream().map(s -> s.equals("null") ? null : s)
-                        .collect(Collectors.toList());
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec, zone));
             }
             DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, recordCount, fileSize,
@@ -217,6 +218,34 @@ final class IcebergWriterHelper {
         return builder.build();
     }
 
+    /** Decode commit partition values once for file metadata and conflict detection. */
+    static List<String> extractPartitionValues(TIcebergCommitData commitData) {
+        List<String> values = commitData.getPartitionValues();
+        if (PARTITION_VALUES_IS_NULL_FIELD != null && commitData.isSet(PARTITION_VALUES_IS_NULL_FIELD)) {
+            List<?> isNull = (List<?>) commitData.getFieldValue(PARTITION_VALUES_IS_NULL_FIELD);
+            // A missing value or a shifted bitmap would commit the file under a different partition.
+            if (values == null || values.size() != isNull.size()) {
+                throw new VerifyException("Partition values and NULL bitmap size mismatch for "
+                        + commitData.getFilePath());
+            }
+            List<String> decoded = new ArrayList<>(values.size());
+            for (int i = 0; i < values.size(); i++) {
+                decoded.add((boolean) isNull.get(i) ? null : values.get(i));
+            }
+            return decoded;
+        }
+        if (values != null && !values.isEmpty()) {
+            // Older BEs lose the distinction between SQL NULL and the literal "null" before reporting.
+            return values.stream().map(value -> "null".equals(value) ? null : value)
+                    .collect(Collectors.toList());
+        }
+        if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
+            // JSON already distinguishes null from "null"; never apply the legacy token conversion to it.
+            return IcebergPartitionUtils.parsePartitionValuesFromJson(commitData.getPartitionDataJson());
+        }
+        return Collections.emptyList();
+    }
+
     /**
      * Convert human-readable partition values (from BE) to {@link PartitionData}: DATE strings like
      * {@code "2025-01-25"} and DATETIME strings like {@code "2025-01-25 10:00:00"} become the iceberg internal
@@ -227,6 +256,11 @@ final class IcebergWriterHelper {
         PartitionData partitionData = new PartitionData(spec.partitionType());
         Types.StructType partitionType = spec.partitionType();
         List<Types.NestedField> partitionTypeFields = partitionType.fields();
+        if (humanReadableValues.size() != partitionTypeFields.size()) {
+            throw new VerifyException("Partition value count " + humanReadableValues.size()
+                    + " does not match partition spec " + spec.specId() + " field count "
+                    + partitionTypeFields.size());
+        }
 
         for (int i = 0; i < humanReadableValues.size(); i++) {
             String humanReadableValue = humanReadableValues.get(i);
@@ -423,25 +457,11 @@ final class IcebergWriterHelper {
             }
 
             if (spec.isPartitioned()) {
-                PartitionData partitionData;
-                if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
-                    List<String> partitionValues = commitData.getPartitionValues().stream()
-                            .map(s -> s.equals("null") ? null : s)
-                            .collect(Collectors.toList());
-                    partitionData = convertToPartitionData(partitionValues, spec, zone);
-                } else if (commitData.getPartitionDataJson() != null
-                        && !commitData.getPartitionDataJson().isEmpty()) {
-                    List<String> partitionValues = IcebergPartitionUtils.parsePartitionValuesFromJson(
-                            commitData.getPartitionDataJson());
-                    if (!partitionValues.isEmpty()) {
-                        partitionData = convertToPartitionData(partitionValues, spec, zone);
-                    } else {
-                        partitionData = new PartitionData(spec.partitionType());
-                    }
-                } else {
+                List<String> partitionValues = extractPartitionValues(commitData);
+                if (partitionValues.isEmpty()) {
                     throw new VerifyException("No partition data for partitioned table");
                 }
-                deleteBuilder.withPartition(partitionData);
+                deleteBuilder.withPartition(convertToPartitionData(partitionValues, spec, zone));
             }
 
             deleteFiles.add(deleteBuilder.build());
