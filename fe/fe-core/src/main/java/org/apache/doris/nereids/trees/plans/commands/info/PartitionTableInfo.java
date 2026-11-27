@@ -143,11 +143,6 @@ public class PartitionTableInfo {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
-        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && isAutoPartition) {
-            if (column.isNullable()) {
-                throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
-            }
-        }
     }
 
     /**

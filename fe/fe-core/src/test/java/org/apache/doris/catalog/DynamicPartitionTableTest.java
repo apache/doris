@@ -3732,4 +3732,49 @@ public class DynamicPartitionTableTest extends TestWithFeService {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
     }
+
+    private void checkAutoRangeRetentionWithMinPartition(String table, boolean nullable, boolean minKept)
+            throws Exception {
+        createTableStmt("CREATE TABLE test.`" + table + "` (\n"
+                + "  `k1` DATETIME " + (nullable ? "NULL" : "NOT NULL") + ",\n"
+                + "  `v` INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(k1, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(`v`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"partition.retention_count\" = \"1\"\n"
+                + ");");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrAnalysisException(table);
+        // The partition auto partition creates for NULL (and for 0000-01-01): its lower bound is MIN_VALUE.
+        alterTable("ALTER TABLE test." + table + " ADD PARTITION p00000101000000 VALUES "
+                + "[('0000-01-01 00:00:00'), ('0000-01-02 00:00:00'))");
+        alterTable("ALTER TABLE test." + table + " ADD PARTITION p_old VALUES "
+                + "[('2000-01-01 00:00:00'), ('2000-01-02 00:00:00'))");
+        alterTable("ALTER TABLE test." + table + " ADD PARTITION p_mid VALUES "
+                + "[('2020-01-01 00:00:00'), ('2020-01-02 00:00:00'))");
+        Assertions.assertEquals(3, tbl.getPartitionNames().size());
+
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
+
+        // retention_count = 1 keeps p_mid, the latest history partition, and drops p_old.
+        Assertions.assertTrue(tbl.getPartitionNames().contains("p_mid"));
+        Assertions.assertFalse(tbl.getPartitionNames().contains("p_old"));
+        Assertions.assertEquals(minKept, tbl.getPartitionNames().contains("p00000101000000"));
+    }
+
+    @Test
+    public void testAutoRangeRetentionKeepsNullPartition() throws Exception {
+        // On a nullable column the MIN_VALUE partition holds the NULL rows: it is not a time period, so
+        // retention neither drops it nor counts it.
+        checkAutoRangeRetentionWithMinPartition("auto_retention_nullable", true, true);
+    }
+
+    @Test
+    public void testAutoRangeRetentionDropsMinPartitionOfNotNullColumn() throws Exception {
+        // A NOT NULL column has no NULL rows, so the MIN_VALUE partition is an ordinary old period.
+        checkAutoRangeRetentionWithMinPartition("auto_retention_not_null", false, false);
+    }
 }

@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -30,9 +32,11 @@ import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Range;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -267,5 +271,92 @@ public class PartitionExprUtilTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
+    }
+
+    private static TNullableStringLiteral partitionValue(String value) {
+        TNullableStringLiteral literal = new TNullableStringLiteral();
+        if (value == null) {
+            literal.setIsNull(true);
+        } else {
+            literal.setValue(value);
+        }
+        return literal;
+    }
+
+    private TCreatePartitionResult createPartitions(OlapTable table, String... values) throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        for (String value : values) {
+            List<TNullableStringLiteral> row = new ArrayList<>();
+            row.add(partitionValue(value));
+            partitionValues.add(row);
+        }
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        return new FrontendServiceImpl(exeEnv).createPartition(request);
+    }
+
+    private static Range<PartitionKey> rangeOf(OlapTable table, String partitionName) {
+        RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
+        return info.getItem(table.getPartition(partitionName).getId()).getItems();
+    }
+
+    @Test
+    public void testAutoRangeNullableColumnPutsNullInMinPartition() throws Exception {
+        createTable("CREATE TABLE test.auto_range_nullable_dt (\n"
+                + "  event_time DATETIME(6) NULL,\n"
+                + "  v INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_time)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_time, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(v) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\"=\"1\");");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("auto_range_nullable_dt");
+        Assertions.assertTrue(table.getPartitionInfo().getPartitionColumns().get(0).isAllowNull());
+
+        TCreatePartitionResult result = createPartitions(table, (String) null);
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode(), result.toString());
+        Assertions.assertEquals(1, table.getPartitionNames().size());
+        Range<PartitionKey> nullRange = rangeOf(table, "p00000101000000");
+        Assertions.assertTrue(nullRange.lowerEndpoint().isMinValue());
+        String upper = nullRange.upperEndpoint().getKeys().get(0).getStringValue();
+        Assertions.assertTrue(upper.startsWith("0000-01-02 00:00:00"), upper);
+        // BE routes NULL by the absence of a start key: NULL is below every bound, so only an open lower
+        // bound contains it.
+        Assertions.assertEquals(1, result.getPartitions().size());
+        TOlapTablePartition tPartition = result.getPartitions().get(0);
+        Assertions.assertFalse(tPartition.isSetStartKeys());
+        Assertions.assertTrue(tPartition.isSetEndKeys());
+
+        // NULL again, the type's minimum in the same batch, and an ordinary day (BE sends values already
+        // truncated by the partition function): the first two share the
+        // partition that already exists.
+        result = createPartitions(table, null, "0000-01-01 00:00:00", "2024-03-05 00:00:00");
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode(), result.toString());
+        Assertions.assertEquals(2, table.getPartitionNames().size());
+        Assertions.assertNotNull(table.getPartition("p20240305000000"));
+    }
+
+    @Test
+    public void testAutoRangeNullableDateMonth() throws Exception {
+        createTable("CREATE TABLE test.auto_range_nullable_month (\n"
+                + "  d DATE NULL,\n"
+                + "  v INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(d)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(d, 'month')) ()\n"
+                + "DISTRIBUTED BY HASH(v) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\"=\"1\");");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("auto_range_nullable_month");
+
+        TCreatePartitionResult result = createPartitions(table, (String) null);
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode(), result.toString());
+        Range<PartitionKey> nullRange = rangeOf(table, "p00000101000000");
+        Assertions.assertTrue(nullRange.lowerEndpoint().isMinValue());
+        Assertions.assertEquals("0000-02-01", nullRange.upperEndpoint().getKeys().get(0).getStringValue());
     }
 }
