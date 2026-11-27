@@ -20,15 +20,17 @@ package org.apache.doris.mysql.authenticate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -49,17 +51,10 @@ public class DefaultAuthenticatorTest {
             new NativePassword(new byte[2], new byte[2]), IP);
 
     @BeforeEach
-    public void setUp() throws DdlException, AuthenticationException, IOException {
+    public void setUp() {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getAuth()).thenReturn(auth);
-
-        Mockito.doAnswer(inv -> {
-            List<UserIdentity> currentUser = inv.getArgument(4);
-            UserIdentity userIdentity = new UserIdentity(USER_NAME, IP);
-            currentUser.add(userIdentity);
-            return null;
-        }).when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
     }
 
     @AfterEach
@@ -67,18 +62,29 @@ public class DefaultAuthenticatorTest {
         mockedEnvStatic.close();
     }
 
-    @Test
-    public void testAuthenticate() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testAuthenticate(boolean passwordResetRequired) throws IOException, AuthenticationException {
+        Mockito.doAnswer(inv -> {
+            List<UserIdentity> currentUser = inv.getArgument(4);
+            currentUser.add(new UserIdentity(USER_NAME, IP));
+            return passwordResetRequired;
+        }).when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class),
+                ArgumentMatchers.eq(AuthenticationProtocol.MYSQL));
         AuthenticateResponse response = defaultAuthenticator.authenticate(request);
         Assertions.assertTrue(response.isSuccess());
         Assertions.assertFalse(response.isTemp());
+        Assertions.assertEquals(passwordResetRequired, response.isPasswordResetRequired());
         Assertions.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
     }
 
     @Test
     public void testAuthenticateFailed() throws IOException, AuthenticationException {
         Mockito.doThrow(new AuthenticationException("exception"))
-                .when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
+                .when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                        ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class),
+                        ArgumentMatchers.any(List.class), ArgumentMatchers.eq(AuthenticationProtocol.MYSQL));
         AuthenticateResponse response = defaultAuthenticator.authenticate(request);
         Assertions.assertFalse(response.isSuccess());
     }

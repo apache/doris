@@ -140,6 +140,8 @@ class Fixture:
                 config = dict(node_ports, priority_networks="127.0.0.1/32",
                               enable_tls=str(tls).lower())
                 if role == "fe":
+                    # Both disposable FE endpoints use empty root passwords for this TLS regression.
+                    config["allow_empty_password_for_root_admin"] = "true"
                     config.update(JAVA_OPTS_FOR_JDK_17='"-Xms256m -Xmx1024m '
                                   '-XX:ActiveProcessorCount=2 -XX:-HeapDumpOnOutOfMemoryError"',
                                   meta_dir=node / "doris-meta", thrift_server_type="THREAD_POOL")

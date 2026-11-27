@@ -44,6 +44,12 @@ import java.util.List;
 public class AccountLockTest extends TestWithFeService {
 
     private static final String HOST = "192.168.1.1";
+    private static final String ROOT_PASSWORD = "Root_password1";
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        run("SET PASSWORD = PASSWORD('" + ROOT_PASSWORD + "')");
+    }
 
     private Auth auth() {
         return Env.getCurrentEnv().getAuth();
@@ -187,7 +193,7 @@ public class AccountLockTest extends TestWithFeService {
     public void testRootCannotBeLocked() throws Exception {
         Exception e = Assertions.assertThrows(Exception.class, () -> run("ALTER USER 'root'@'%' ACCOUNT_LOCK"));
         Assertions.assertTrue(e.getMessage().contains("Can not lock root user"), e.getMessage());
-        Assertions.assertTrue(canLogin("root", ""));
+        Assertions.assertTrue(canLogin("root", ROOT_PASSWORD));
     }
 
     @Test
@@ -201,7 +207,7 @@ public class AccountLockTest extends TestWithFeService {
         Exception e = Assertions.assertThrows(AuthenticationException.class,
                 () -> auth().checkPlainPasswordForUserIdentity(rootAtHost, "p8", null));
         Assertions.assertTrue(e.getMessage().contains("Account is locked"), e.getMessage());
-        Assertions.assertTrue(canLogin("root", ""));
+        Assertions.assertTrue(canLogin("root", ROOT_PASSWORD));
     }
 
     @Test

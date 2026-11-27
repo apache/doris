@@ -112,6 +112,8 @@ import java.util.stream.Collectors;
 
 public class FrontendServiceImplTest extends TestWithFeService {
 
+    private static final String ROOT_PASSWORD = "Root_password1";
+
     private ExecuteEnv exeEnv = Mockito.mock(ExecuteEnv.class);
 
     @Override
@@ -124,6 +126,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        executeCommand("SET PASSWORD = PASSWORD('" + ROOT_PASSWORD + "')");
         createDatabase("test");
     }
 
@@ -223,7 +226,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
     private static TCheckAuthRequest rootCheckAuthRequest(TPrivilegeCtrl privilegeCtrl) {
         TCheckAuthRequest request = new TCheckAuthRequest();
         request.setUser("root");
-        request.setPasswd("");
+        request.setPasswd(ROOT_PASSWORD);
         request.setUserIp("127.0.0.1");
         request.setPrivCtrl(privilegeCtrl);
         request.setPrivType(TPrivilegeType.LOAD);
@@ -1331,7 +1334,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TCommitTxnRequest request = new TCommitTxnRequest();
         request.setUser("root");
-        request.setPasswd("");
+        request.setPasswd(ROOT_PASSWORD);
         request.setDb("test");
         request.setTxnId(100L);
         request.setCommitInfos(Collections.emptyList());
@@ -1355,7 +1358,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
         FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
         TRollbackTxnRequest request = new TRollbackTxnRequest();
         request.setUser("root");
-        request.setPasswd("");
+        request.setPasswd(ROOT_PASSWORD);
         request.setDb("test");
         request.setTxnId(100L);
         if (legacyAuthCode) {
@@ -1404,7 +1407,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
             Assertions.assertTrue(badToken.getStatus().getErrorMsgs().get(0).contains("Invalid token"));
 
             TStreamLoadPutResult authorized = impl.streamLoadPut(
-                    groupCommitStreamLoadRequest("root", "", "missing_table"));
+                    groupCommitStreamLoadRequest("root", ROOT_PASSWORD, "missing_table"));
             Assertions.assertEquals(TStatusCode.NOT_FOUND, authorized.getStatus().getStatusCode());
             Assertions.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
         } finally {

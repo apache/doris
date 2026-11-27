@@ -20,7 +20,6 @@ package org.apache.doris.mysql;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -42,6 +41,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
@@ -49,7 +50,6 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
-import java.util.List;
 
 public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);
@@ -69,7 +69,7 @@ public class MysqlProtoTest {
     private MockedStatic<Env> mockedEnv;
 
     @BeforeEach
-    public void setUp() throws DdlException, AuthenticationException, IOException {
+    public void setUp() throws DdlException, IOException {
         FeConstants.runningUnitTest = true;
 
         // static mocks
@@ -82,14 +82,6 @@ public class MysqlProtoTest {
         // mock auth
         Mockito.when(accessManager.checkGlobalPriv(Mockito.nullable(ConnectContext.class),
                 Mockito.any(PrivPredicate.class))).thenReturn(true);
-
-        Mockito.doAnswer(inv -> {
-            List<UserIdentity> currentUser = inv.getArgument(4);
-            UserIdentity userIdentity = new UserIdentity("user", "192.168.1.1");
-            currentUser.add(userIdentity);
-            return null;
-        }).when(auth).checkPassword(Mockito.anyString(), Mockito.anyString(), Mockito.any(byte[].class),
-                Mockito.any(byte[].class), Mockito.any(List.class));
 
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
         Mockito.when(env.getAuthenticatorManager()).thenReturn(authenticatorManager);
@@ -122,6 +114,10 @@ public class MysqlProtoTest {
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {
+        mockChannel(user, sendOk, "database");
+    }
+
+    private void mockChannel(String user, boolean sendOk, String database) throws Exception {
         // mock channel
         Mockito.doAnswer(inv -> {
             if (!sendOk) {
@@ -151,7 +147,7 @@ public class MysqlProtoTest {
         }
         serializer.writeBytes(buf);
         // database
-        serializer.writeNulTerminateString("database");
+        serializer.writeNulTerminateString(database);
 
         ByteBuffer buffer = serializer.toByteBuffer();
         Mockito.when(channel.fetchOnePacket()).thenReturn(buffer);
@@ -271,6 +267,34 @@ public class MysqlProtoTest {
         Assertions.assertTrue(MysqlProto.negotiate(context));
 
         Mockito.verify(env, Mockito.times(1)).changeCatalog(context, initCatalog);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "database"})
+    public void testBootstrapHandshakeRequiresPasswordBeforeSelectingNamespace(String database)
+            throws Exception {
+        mockChannel("root", true, database);
+        ConnectContext context = createContext();
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        mockInitCatalog(Mockito.mock(CatalogMgr.class), context, "external_catalog");
+        Mockito.doAnswer(invocation -> {
+            ConnectContext authenticated = invocation.getArgument(0);
+            authenticated.setCurrentUserIdentity(UserIdentity.ROOT);
+            authenticated.setPasswordResetRequired(true);
+            return true;
+        }).when(authenticatorManager).authenticate(Mockito.eq(context), Mockito.eq("root"),
+                Mockito.any(MysqlChannel.class), Mockito.any(MysqlSerializer.class),
+                Mockito.any(MysqlAuthPacket.class), Mockito.any(MysqlHandshakePacket.class));
+
+        Assertions.assertEquals(database.isEmpty(), MysqlProto.negotiate(context));
+        if (!database.isEmpty()) {
+            Assertions.assertEquals(ErrorCode.ERR_MUST_CHANGE_PASSWORD, context.getState().getErrorCode());
+        }
+        Assertions.assertTrue(context.isPasswordResetRequired());
+        Mockito.verify(auth, Mockito.never()).getInitCatalog(Mockito.anyString());
+        Mockito.verify(env, Mockito.never()).changeCatalog(Mockito.any(), Mockito.anyString());
+        Mockito.verify(env, Mockito.never()).changeDb(Mockito.any(), Mockito.anyString());
     }
 
     @Test

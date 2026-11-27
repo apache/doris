@@ -49,6 +49,19 @@ public class Frontend implements Writable {
     @SerializedName("cloudUniqueId")
     private String cloudUniqueId;
 
+    // Set on the first FE record only. Sharing OP_ADD_FIRST_FRONTEND makes membership and the
+    // authentication policy one durable bootstrap operation without introducing a journal opcode.
+    @SerializedName("secureInitialization")
+    private boolean secureInitialization;
+
+    public boolean isSecureInitialization() {
+        return secureInitialization;
+    }
+
+    public void setSecureInitialization() {
+        secureInitialization = true;
+    }
+
     private String version;
     private transient String localResourceGroup = "";
 
