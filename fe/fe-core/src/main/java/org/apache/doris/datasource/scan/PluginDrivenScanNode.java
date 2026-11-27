@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -2993,7 +2994,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Builds the remaining filter expression from unconsumed conjuncts.
      * If no conjuncts remain, returns {@link Optional#empty()}.
      * Filters out CAST-containing predicates when the connector does not support CAST pushdown, and
-     * TIMESTAMPTZ and complex-kind casts ({@link #containsComplexKindCast}) for every connector.
+     * TIMESTAMPTZ, complex-kind ({@link #containsComplexKindCast}) and column-to-string
+     * ({@link #containsColumnCastToString}) casts for every connector.
      */
     private Optional<ConnectorExpression> buildRemainingFilter() {
         if (conjuncts == null || conjuncts.isEmpty()) {
@@ -3006,10 +3008,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (int i = 0; i < conjuncts.size(); i++) {
             Expr conjunct = conjuncts.get(i);
             // The neutral converter strips CASTs. Instant casts can depend on the Doris session
-            // timezone, and a cast into or out of a complex type changes the shape of the value, so in
-            // both cases the predicate and its LIMIT must stay local before type information is lost.
+            // timezone, a cast into or out of a complex type changes the shape of the value, and a column cast
+            // to a string compares in a different order than the column itself, so in each case the predicate
+            // and its LIMIT must stay local before type information is lost.
             if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)
-                    || containsComplexKindCast(conjunct)) {
+                    || containsComplexKindCast(conjunct) || containsColumnCastToString(conjunct)) {
                 continue;
             }
             pushableConjuncts.add(conjunct);
@@ -3048,6 +3051,31 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private static boolean changesComplexKind(Type from, Type to) {
         return from.isArrayType() != to.isArrayType() || from.isMapType() != to.isMapType()
                 || from.isStructType() != to.isStructType();
+    }
+
+    /**
+     * Whether {@code expr} casts a column to a string type through a non-string value. The converter strips
+     * every CAST in the chain, so a connector would bind the string literal to the column's own type and
+     * prune on that order instead: {@code CAST(int_col AS VARCHAR) >= '100'}, or the nested
+     * {@code CAST(CAST(int_col AS BIGINT) AS VARCHAR) >= '100'}, becomes {@code int_col >= 100}, which skips
+     * a file holding only {@code 15} although {@code '15' >= '100'}. A cast of a constant, or a chain of
+     * string casts over a string column, compares in string order on both sides and is not matched.
+     */
+    static boolean containsColumnCastToString(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr && node.getType().isStringType()
+                && castsColumnThroughNonString(node.getChild(0)), casts);
+        return !casts.isEmpty();
+    }
+
+    /** Whether {@code expr} is a column, under zero or more CASTs, with a non-string type on the way. */
+    private static boolean castsColumnThroughNonString(Expr expr) {
+        boolean nonString = !expr.getType().isStringType();
+        while (expr instanceof CastExpr) {
+            expr = expr.getChild(0);
+            nonString |= !expr.getType().isStringType();
+        }
+        return expr instanceof SlotRef && nonString;
     }
 
     static boolean containsCastExpr(Expr expr) {
