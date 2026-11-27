@@ -311,6 +311,13 @@ under the License.
             <artifactId>hadoop-mapreduce-client-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Tests the SDK JDBC lease-expiry contract without a remote database. -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.44.0.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <!-- Huawei OBS support. Active by default; disabled by -Ddisable.obs=true

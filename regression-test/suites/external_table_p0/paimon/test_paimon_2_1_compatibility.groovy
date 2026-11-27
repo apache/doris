@@ -29,6 +29,7 @@ suite("test_paimon_2_1_compatibility", "p0,external,paimon") {
 
     sql "DROP CATALOG IF EXISTS paimon_2_1_compatibility"
     sql """CREATE CATALOG paimon_2_1_compatibility PROPERTIES (
+        'paimon.allow-unsafe-writes' = 'true',
         'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
         'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
         's3.access_key'='admin', 's3.secret_key'='password',

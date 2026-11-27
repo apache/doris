@@ -46,6 +46,20 @@ public class PaimonCatalogPropertiesTest {
                 current, Map.of("meta.cache.paimon.partiton_view.max-weight", "1MB")));
     }
 
+    @Test
+    public void unsafeWritesDefaultOffAndAreStrictlyValidatedOnCreateAndAlter() {
+        Assertions.assertFalse(PaimonCatalogProperties.of(props("warehouse", "/wh")).isAllowUnsafeWrites());
+        Assertions.assertTrue(PaimonCatalogProperties.of(props(
+                "warehouse", "/wh", PaimonCatalogProperties.ALLOW_UNSAFE_WRITES, "true")).isAllowUnsafeWrites());
+        PaimonConnectorProvider provider = new PaimonConnectorProvider();
+        Map<String, String> invalid = props("warehouse", "/wh", PaimonCatalogProperties.ALLOW_UNSAFE_WRITES, "typo");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(invalid));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                invalid, props(PaimonCatalogProperties.ALLOW_UNSAFE_WRITES, "typo")));
+        // Replay remains able to construct the catalog; a malformed boolean never enables unsafe writes.
+        Assertions.assertFalse(PaimonCatalogProperties.of(invalid).isAllowUnsafeWrites());
+    }
+
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {

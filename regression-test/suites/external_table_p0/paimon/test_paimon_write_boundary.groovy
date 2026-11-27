@@ -64,6 +64,24 @@ suite("test_paimon_write_boundary",
         qt_before_rows """select id, score, note from write_boundary order by id"""
         qt_before_snapshots """select count(*) from write_boundary\$snapshots"""
 
+        // The filesystem catalog has no shared lock even when lock.enabled is set.
+        sql """ALTER CATALOG ${catalogName} SET PROPERTIES ('paimon.lock.enabled'='true')"""
+        [
+            "insert into write_boundary values (99, 99, 'rejected')",
+            "insert overwrite table write_boundary values (99, 99, 'rejected')",
+            "update write_boundary set score = 99 where id = 1",
+            "delete from write_boundary where id = 1",
+            """merge into write_boundary t using (select 1 as id, 99 as score) s
+                on t.id = s.id when matched then update set score = s.score"""
+        ].each { statement ->
+            test {
+                sql statement
+                exception "snapshot publication has no supported concurrency protection"
+            }
+        }
+        // This suite runs Spark seeding and Doris writes sequentially on its own table.
+        sql """ALTER CATALOG ${catalogName} SET PROPERTIES ('paimon.allow-unsafe-writes'='true')"""
+
         // Exercise both append/overwrite writes and row-level changelog writes through the
         // external-table boundary suite.
         sql """insert into write_boundary values (3, 30, 'insert-values')"""
@@ -88,6 +106,12 @@ suite("test_paimon_write_boundary",
         sql """delete from write_boundary where id = 5"""
 
         sql """refresh table write_boundary"""
+        sql """ALTER CATALOG ${catalogName} SET PROPERTIES ('paimon.allow-unsafe-writes'='false')"""
+        test {
+            sql """insert into write_boundary values (99, 99, 'rejected-again')"""
+            exception "snapshot publication has no supported concurrency protection"
+        }
+        // Reads and existing results remain available after disabling the opt-in.
         qt_after_rows """select id, score, note from write_boundary order by id"""
         qt_after_snapshots """select count(*) from write_boundary\$snapshots"""
     } finally {

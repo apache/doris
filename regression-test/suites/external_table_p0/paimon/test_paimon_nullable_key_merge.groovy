@@ -23,6 +23,7 @@ suite("test_paimon_nullable_key_merge", "p0,external,paimon") {
     def port = context.config.otherConfigs.get("iceberg_minio_port")
     sql "DROP CATALOG IF EXISTS paimon_nullable_key_merge"
     sql """CREATE CATALOG paimon_nullable_key_merge PROPERTIES (
+        'paimon.allow-unsafe-writes' = 'true',
         'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
         'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
         's3.access_key'='admin', 's3.secret_key'='password',

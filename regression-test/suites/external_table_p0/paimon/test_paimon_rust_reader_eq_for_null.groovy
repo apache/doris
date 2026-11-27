@@ -178,6 +178,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     sql """drop catalog if exists ${catalogName}"""
     sql """
         CREATE CATALOG ${catalogName} PROPERTIES (
+            'paimon.allow-unsafe-writes' = 'true',
             'type' = 'paimon',
             'paimon.catalog.type' = 'filesystem',
             'warehouse' = 's3://warehouse/wh',
