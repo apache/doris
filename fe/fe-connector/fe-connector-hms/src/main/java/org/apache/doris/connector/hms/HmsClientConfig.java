@@ -35,11 +35,12 @@ public final class HmsClientConfig {
     /** Property key: HMS Thrift URI (e.g. "thrift://host:9083"). */
     public static final String HMS_URI_KEY = "hive.metastore.uris";
 
-    /** Property key: metastore type — "hms" (the default, and the only routable value). */
+    /** Property key: metastore type — "hms" (the default) or "dlf". */
     public static final String METASTORE_TYPE_KEY = "hive.metastore.type";
 
     /** Standard HMS (Thrift). */
     public static final String METASTORE_TYPE_HMS = "hms";
+    public static final String METASTORE_TYPE_DLF = "dlf";
 
     public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
 
@@ -49,7 +50,7 @@ public final class HmsClientConfig {
      * Metastore types that have been REMOVED and are no longer routable, mapped to what each one was.
      *
      * <p>Retained only so each removal can be recognised and rejected explicitly. The dispatch in
-     * {@link ThriftHmsClient#getMetastoreClientClassName} ends in a plain-HMS fallback, so a removed value that
+     * {@link ThriftHmsClient} ends in a plain-HMS fallback, so a removed value that
      * is merely absent from the dispatch silently connects somewhere the user never configured.
      */
     private static final Map<String, String> REMOVED_METASTORE_TYPES;
@@ -57,7 +58,6 @@ public final class HmsClientConfig {
     static {
         Map<String, String> removed = new HashMap<>();
         removed.put("glue", "AWS Glue as an HMS thrift metastore");
-        removed.put("dlf", "Alibaba Cloud DLF 1.0 as an HMS thrift metastore");
         REMOVED_METASTORE_TYPES = Collections.unmodifiableMap(removed);
     }
 
@@ -69,7 +69,7 @@ public final class HmsClientConfig {
      * raise {@link IllegalArgumentException} (the only type the catalog layer unwraps into a clean DdlException),
      * while the lazy client path raises DorisConnectorException like its neighbours.
      *
-     * <p>Must be checked BEFORE the HMS URI requirement — a glue/dlf catalog carries no
+     * <p>Must be checked BEFORE the HMS URI requirement — a glue catalog carries no
      * {@code hive.metastore.uris}, so the URI check would otherwise shadow this with an error that never mentions
      * the removed type.
      */
@@ -83,7 +83,12 @@ public final class HmsClientConfig {
             return null;
         }
         return METASTORE_TYPE_KEY + " = " + type.toLowerCase(Locale.ROOT) + " is no longer supported: "
-                + removed + " has been removed. Supported types: " + METASTORE_TYPE_HMS + ".";
+                + removed + " has been removed. Supported types: "
+                + METASTORE_TYPE_HMS + ", " + METASTORE_TYPE_DLF + ".";
+    }
+
+    public static boolean isDlfMetastore(Map<String, String> properties) {
+        return METASTORE_TYPE_DLF.equalsIgnoreCase(properties.get(METASTORE_TYPE_KEY));
     }
 
     private final Map<String, String> properties;

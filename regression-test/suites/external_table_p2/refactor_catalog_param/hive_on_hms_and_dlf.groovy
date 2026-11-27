@@ -19,18 +19,16 @@ import java.util.concurrent.ThreadLocalRandom
 
 suite("hive_on_hms_and_dlf", "p2,external") {
 
-    // DLF 1.0 is no longer an HMS metastore. Check its explicit rejection without cloud
-    // credentials, while retaining the HMS storage and authentication matrix below.
-    sql """DROP CATALOG IF EXISTS hive_dlf_unsupported_catalog"""
+    // DLF metadata credentials are validated without contacting a cloud service.
+    sql """DROP CATALOG IF EXISTS hive_dlf_missing_credentials_catalog"""
     test {
         sql """
-            CREATE CATALOG hive_dlf_unsupported_catalog PROPERTIES (
+            CREATE CATALOG hive_dlf_missing_credentials_catalog PROPERTIES (
                 'type' = 'hms',
                 'hive.metastore.type' = 'dlf'
             )
         """
-        exception "hive.metastore.type = dlf is no longer supported: " +
-                "Alibaba Cloud DLF 1.0 as an HMS thrift metastore has been removed. Supported types: hms."
+        exception "dlf.access_key is required"
     }
 
     // Keep generated identifiers under the FE 64-character limit for long prefixes.

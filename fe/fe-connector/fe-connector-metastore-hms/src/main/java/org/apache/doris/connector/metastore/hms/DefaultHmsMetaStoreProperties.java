@@ -30,8 +30,14 @@ import java.util.Map;
  */
 public final class DefaultHmsMetaStoreProperties extends AbstractHmsMetaStoreProperties {
 
+    private final HmsDlfMetaStoreProperties dlf;
+
     private DefaultHmsMetaStoreProperties(Map<String, String> raw, Map<String, String> storageHadoopConfig) {
         super(raw, storageHadoopConfig);
+        // DLF is a backend of the HMS gateway; registering another "dlf" provider would capture
+        // the native Iceberg/Paimon providers in ServiceLoader discovery order.
+        dlf = "dlf".equalsIgnoreCase(raw.get("hive.metastore.type"))
+                ? HmsDlfMetaStoreProperties.of(raw, storageHadoopConfig) : null;
     }
 
     public static DefaultHmsMetaStoreProperties of(Map<String, String> raw, Map<String, String> storageHadoopConfig) {
@@ -42,6 +48,19 @@ public final class DefaultHmsMetaStoreProperties extends AbstractHmsMetaStorePro
 
     @Override
     public void validate() {
-        validateConnection();
+        if (dlf != null) {
+            dlf.validate();
+        } else {
+            validateConnection();
+        }
+    }
+
+    @Override
+    public Map<String, String> toHiveConfOverrides(String defaultClientSocketTimeoutSeconds) {
+        Map<String, String> conf = super.toHiveConfOverrides(defaultClientSocketTimeoutSeconds);
+        if (dlf != null) {
+            conf.putAll(dlf.toDlfCatalogConf());
+        }
+        return conf;
     }
 }

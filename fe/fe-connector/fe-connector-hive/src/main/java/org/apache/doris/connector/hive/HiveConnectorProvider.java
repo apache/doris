@@ -85,12 +85,13 @@ public class HiveConnectorProvider implements ConnectorProvider {
 
     @Override
     public ConnectorSecuritySurface securitySurface() {
-        // Every key the HMS client may take its thrift endpoint from: hive.metastore.uris, its documented alias
+        // Every key the HMS client may take its endpoint from: hive.metastore.uris, its documented alias
         // uri, and Hive 3's metastore.thrift.uris, which the client reads first. The engine's SSRF gate rejects
-        // an intranet target there at CREATE / ALTER CATALOG. The secrets are the metastore's sensitive
-        // properties (none today: a keytab is named by its path).
+        // an intranet target there at CREATE / ALTER CATALOG, including both DLF endpoint spellings.
+        // Credential aliases come from the metastore binder; keytab paths are not secret values.
         return ConnectorSecuritySurface.ofSsrfEndpoints(HiveCatalogProperties.HIVE_METASTORE_URIS,
-                HiveCatalogProperties.URI, HiveCatalogProperties.METASTORE_THRIFT_URIS)
+                HiveCatalogProperties.URI, HiveCatalogProperties.METASTORE_THRIFT_URIS,
+                "dlf.endpoint", "dlf.catalog.endpoint")
                 .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
     }
 }

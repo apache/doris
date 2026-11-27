@@ -21,6 +21,7 @@ import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -39,7 +40,11 @@ public final class HmsMetaStoreProvider implements MetaStoreProvider<HmsMetaStor
 
     @Override
     public Set<String> sensitivePropertyKeys() {
-        return ConnectorPropertiesUtils.getSensitiveKeys(DefaultHmsMetaStoreProperties.class);
+        Set<String> keys = new HashSet<>(
+                ConnectorPropertiesUtils.getSensitiveKeys(DefaultHmsMetaStoreProperties.class));
+        // Composed DLF fields are not inherited by the HMS holder's annotation scan.
+        keys.addAll(ConnectorPropertiesUtils.getSensitiveKeys(HmsDlfMetaStoreProperties.class));
+        return keys;
     }
 
     @Override

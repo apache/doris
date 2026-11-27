@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsClientConfig;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,7 +29,7 @@ import java.util.Map;
  * <p>The sibling is built once per gateway catalog (not per table) via
  * {@code ConnectorContext.createSiblingConnector("iceberg", synthesize(catalogProps))}, sharing the gateway's
  * context (metastore auth + storage). The only synthesis needed is to declare the iceberg catalog <b>flavor</b>
- * as {@code hms}: the Iceberg connector then reads {@code hive.metastore.uris}/{@code uri},
+ * as {@code hms} or {@code dlf}: the Iceberg connector then reads {@code hive.metastore.uris}/{@code uri},
  * {@code hive.conf.resources}, and the raw {@code hive.*}/{@code fs.*}/{@code dfs.*}/{@code hadoop.*} storage +
  * kerberos passthrough straight from this map. That is the SAME map shape a native
  * {@code type=iceberg, iceberg.catalog.type=hms} catalog already hands the connector — fe-core builds that
@@ -54,13 +56,14 @@ final class IcebergSiblingProperties {
 
     /**
      * Returns a NEW property map = the gateway catalog's properties verbatim with the iceberg catalog flavor
-     * forced to {@code hms}. The input is never mutated (the gateway holds it unmodifiable and shared). An
-     * existing {@code iceberg.catalog.type} is overridden unconditionally — an iceberg-on-HMS sibling is always
-     * the hms flavor.
+     * chosen from the gateway's metadata backend. The input is never mutated; an existing
+     * {@code iceberg.catalog.type} cannot redirect a sibling to another metadata service.
      */
     static Map<String, String> synthesize(Map<String, String> gatewayCatalogProperties) {
         Map<String, String> siblingProperties = new HashMap<>(gatewayCatalogProperties);
-        siblingProperties.put(ICEBERG_CATALOG_TYPE_KEY, ICEBERG_CATALOG_TYPE_HMS);
+        // The sibling must use the same metadata service rather than dialing an absent Thrift URI.
+        siblingProperties.put(ICEBERG_CATALOG_TYPE_KEY,
+                HmsClientConfig.isDlfMetastore(gatewayCatalogProperties) ? "dlf" : ICEBERG_CATALOG_TYPE_HMS);
         return siblingProperties;
     }
 }

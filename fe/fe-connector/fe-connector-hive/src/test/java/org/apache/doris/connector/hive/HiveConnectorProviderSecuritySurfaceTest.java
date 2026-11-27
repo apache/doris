@@ -26,7 +26,7 @@ import java.util.Arrays;
 
 /**
  * Pins the HMS connector's SSRF endpoint declaration: the engine's CREATE / ALTER CATALOG gate probes
- * exactly these user-supplied thrift-endpoint property keys (see
+ * exactly these user-supplied metadata endpoint property keys (see
  * {@code PluginDrivenExternalCatalog#checkEndpointsAgainstSsrf}).
  */
 public class HiveConnectorProviderSecuritySurfaceTest {
@@ -36,7 +36,8 @@ public class HiveConnectorProviderSecuritySurfaceTest {
         ConnectorSecuritySurface surface = new HiveConnectorProvider().securitySurface();
         // metastore.thrift.uris wins over hive.metastore.uris in Hive 3's MetastoreConf.getVar, so dropping it
         // would let an ALTER of only that key repoint the client unprobed.
-        Assertions.assertEquals(Arrays.asList("hive.metastore.uris", "uri", "metastore.thrift.uris"),
+        Assertions.assertEquals(Arrays.asList("hive.metastore.uris", "uri", "metastore.thrift.uris",
+                        "dlf.endpoint", "dlf.catalog.endpoint"),
                 surface.ssrfEndpointKeys());
         // An HMS catalog loads no driver jar.
         Assertions.assertTrue(surface.jdbcDriverUrlKeys().isEmpty());
@@ -50,6 +51,10 @@ public class HiveConnectorProviderSecuritySurfaceTest {
         ConnectorSecuritySurface surface = new HiveConnectorProvider().securitySurface();
         Assertions.assertFalse(surface.sensitiveKeys().contains("hive.metastore.client.keytab"));
         Assertions.assertFalse(surface.sensitiveKeys().contains("hadoop.kerberos.keytab"));
+        for (String key : Arrays.asList("dlf.access_key", "dlf.secret_key", "dlf.session_token",
+                "dlf.catalog.accessKeyId", "dlf.catalog.accessKeySecret", "dlf.catalog.securityToken")) {
+            Assertions.assertTrue(surface.sensitiveKeys().contains(key), key);
+        }
         Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }
 }
