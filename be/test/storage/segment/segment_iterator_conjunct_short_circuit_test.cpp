@@ -148,7 +148,7 @@ TabletSchemaSPtr make_tablet_schema() {
     return tablet_schema;
 }
 
-// Minimal Segment stub: _apply_index_expr only consults num_rows().
+// These tests use schema metadata and row counts without reading stored columns.
 std::shared_ptr<Segment> make_stub_segment(uint32_t num_rows,
                                            const TabletSchemaSPtr& tablet_schema) {
     auto seg = std::make_shared<Segment>(0, RowsetId(), tablet_schema, InvertedIndexFileInfo());
@@ -179,13 +179,15 @@ protected:
         _segment = make_stub_segment(100, _tablet_schema);
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
         StorageReadOptions opts(_stats);
+        opts.runtime_state = &_runtime_state;
         _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         TQueryOptions query_options;
         query_options.__set_enable_fallback_on_missing_inverted_index(true);
         _runtime_state.set_query_options(query_options);
 
-        _iter->_opts.runtime_state = &_runtime_state;
+        auto status = _iter->init(opts);
+        ASSERT_TRUE(status.ok()) << status;
     }
 
     std::shared_ptr<Segment> _segment;

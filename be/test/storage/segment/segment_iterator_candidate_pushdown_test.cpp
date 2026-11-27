@@ -41,6 +41,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_iterator.h"
@@ -51,6 +52,7 @@
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/condition_cache.h"
+#include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -84,6 +86,8 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
+
+    bool is_constant() const override { return false; }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -371,6 +375,20 @@ protected:
         _iter->_opts.col_id_to_predicates.emplace(0, std::move(block_predicate));
     }
 
+    Status prepare_and_open(VExprContext& ctx) {
+        RETURN_IF_ERROR(ctx.prepare(&_runtime_state, RowDescriptor {}));
+        return ctx.open(&_runtime_state);
+    }
+
+    void set_projection(const VExprSPtr& expr) {
+        auto ctx = std::make_shared<VExprContext>(expr);
+        auto status = prepare_and_open(*ctx);
+        ASSERT_TRUE(status.ok()) << status;
+        // This fixture uses a physical column as a stand-in for the virtual projection slot.
+        _iter->_column_iterators[0] = std::make_unique<VirtualColumnIterator>();
+        _iter->_virtual_column_exprs[0] = std::move(ctx);
+    }
+
     double _saved_ratio = 0;
     std::shared_ptr<Segment> _segment;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -447,12 +465,16 @@ TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_co
     constexpr uint64_t digest = 12345;
     OlapReaderStatistics older_stats;
     StorageReadOptions older_opts(older_stats);
+    older_opts.condition_cache_digest = digest;
     auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema, older_opts);
-    older_reader->_opts.condition_cache_digest = digest;
-    older_reader->_common_expr_ctxs_push_down = {
-            make_capturing_ctx(std::make_shared<CapturingExpr>(older_reader.get()))};
+    older_reader->_opts.common_expr_ctxs_push_down = {
+            std::make_shared<VExprContext>(std::make_shared<CapturingExpr>(older_reader.get()))};
 
     _iter->_opts.condition_cache_digest = digest;
+    auto ctx = std::make_shared<VExprContext>(_expr);
+    ASSERT_TRUE(prepare_and_open(*ctx).ok());
+    _iter->_opts.common_expr_ctxs_push_down = {std::move(ctx)};
+    _iter->_common_expr_ctxs_push_down.clear();
     _iter->_row_bitmap.addRange(0, 100);
     auto deleted_rows = std::make_shared<roaring::Roaring>();
     deleted_rows->addRange(0, 100);
@@ -480,20 +502,22 @@ TEST_F(SegmentIteratorCandidatePushdownTest,
     ScopedConditionCache cache;
     constexpr uint64_t digest = 12345;
     _iter->_opts.condition_cache_digest = digest;
+    _iter->_opts.common_expr_ctxs_push_down = {std::make_shared<VExprContext>(_expr)};
     _iter->_row_bitmap.addRange(0, 100);
     _iter->_init_row_bitmap_by_condition_cache();
     EXPECT_FALSE(_iter->_find_condition_cache);
     EXPECT_EQ(_stats.condition_cache_lookup_count, 1);
     EXPECT_EQ(_stats.condition_cache_hit_seg_nums, 0);
 
+    ASSERT_NE(_iter->_condition_cache, nullptr);
     ConditionCache::CacheKey key(_iter->_opts.rowset_id, _iter->segment_id(), digest);
     cache.get()->insert(key, std::move(_iter->_condition_cache));
 
     OlapReaderStatistics second_stats;
     StorageReadOptions second_opts(second_stats);
+    second_opts.condition_cache_digest = digest;
+    second_opts.common_expr_ctxs_push_down = _iter->_opts.common_expr_ctxs_push_down;
     auto second_reader = std::make_unique<SegmentIterator>(_segment, _read_schema, second_opts);
-    second_reader->_opts.condition_cache_digest = digest;
-    second_reader->_common_expr_ctxs_push_down = _iter->_common_expr_ctxs_push_down;
     second_reader->_row_bitmap.addRange(0, 100);
     second_reader->_init_row_bitmap_by_condition_cache();
     EXPECT_TRUE(second_reader->_find_condition_cache);
@@ -507,11 +531,12 @@ TEST_F(SegmentIteratorCandidatePushdownTest,
 TEST_F(SegmentIteratorCandidatePushdownTest, condition_cache_bypass_does_not_count_lookups) {
     ScopedConditionCache cache;
     _iter->_opts.condition_cache_digest = 0;
+    _iter->_opts.common_expr_ctxs_push_down = {std::make_shared<VExprContext>(_expr)};
     _iter->_init_row_bitmap_by_condition_cache();
     EXPECT_EQ(_stats.condition_cache_lookup_count, 0);
 
     _iter->_opts.condition_cache_digest = 12345;
-    _iter->_common_expr_ctxs_push_down.clear();
+    _iter->_opts.common_expr_ctxs_push_down.clear();
     _iter->_init_row_bitmap_by_condition_cache();
     EXPECT_EQ(_stats.condition_cache_lookup_count, 0);
     EXPECT_EQ(_iter->_opts.condition_cache_digest, 0);
@@ -564,7 +589,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_can
 
     auto vcol_compound_expr = std::make_shared<CapturingExpr>(_iter.get());
     vcol_compound_expr->set_node_type(TExprNodeType::COMPOUND_PRED);
-    _iter->_virtual_column_exprs[0] = make_capturing_ctx(vcol_compound_expr);
+    ASSERT_NO_FATAL_FAILURE(set_projection(vcol_compound_expr));
 
     ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
 
@@ -700,7 +725,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, last_conjunct_engages_candidate_for
             _iter.get(), std::initializer_list<uint32_t> {0, 1, 2, 3, 4},
             std::initializer_list<uint32_t> {});
     _iter->_common_expr_ctxs_push_down = {make_capturing_ctx(selective_expr)};
-    _iter->_virtual_column_exprs[0] = make_capturing_ctx(_expr);
+    ASSERT_NO_FATAL_FAILURE(set_projection(_expr));
 
     ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
 
