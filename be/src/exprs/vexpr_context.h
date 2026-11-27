@@ -45,6 +45,7 @@
 #include "storage/segment/column_iterator_options.h"
 
 namespace doris {
+class PathInData;
 class RowDescriptor;
 class ReadSchema;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
@@ -106,6 +107,13 @@ public:
     const ReadSchemaSPtr& read_schema() const { return _read_schema; }
 
     const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
+
+    // Sets *absent to whether this segment proves that the VARIANT root read at `read_ordinal`
+    // stores nothing at `relative_path`, so every row of the segment reads NULL there. A missing
+    // index iterator proves nothing: `v.a` may live in the sparse or doc-value column, or in a
+    // segment written before its index existed. Requires a segment.
+    Status is_variant_path_absent(int32_t read_ordinal, const PathInData& relative_path,
+                                  bool* absent) const;
 
     bool has_index_result_for_expr(const VExpr* expr) const {
         return _index_result_bitmap.contains(expr);

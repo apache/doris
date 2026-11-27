@@ -75,6 +75,45 @@ private:
     float _score;
 };
 
+// Publishes a fixed exact three-valued index result without scores.
+class ThreeValuedBitmapExpr final : public VExpr {
+public:
+    ThreeValuedBitmapExpr(std::initializer_list<uint32_t> true_rows,
+                          std::initializer_list<uint32_t> null_rows) {
+        set_node_type(TExprNodeType::MATCH_PRED);
+        for (uint32_t row : true_rows) {
+            _true_rows.add(row);
+        }
+        for (uint32_t row : null_rows) {
+            _null_rows.add(row);
+        }
+    }
+
+    const std::string& expr_name() const override {
+        static const std::string name = "ThreeValuedBitmapExpr";
+        return name;
+    }
+
+    Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::OK();
+    }
+
+    Status evaluate_inverted_index(VExprContext* context, uint32_t) override {
+        context->get_index_context()->set_index_result_for_expr(
+                this, segment_v2::InvertedIndexResultBitmap(
+                              std::make_shared<roaring::Roaring>(_true_rows),
+                              std::make_shared<roaring::Roaring>(_null_rows)));
+        return Status::OK();
+    }
+
+private:
+    roaring::Roaring _true_rows;
+    roaring::Roaring _null_rows;
+};
+
 class UnindexedExpr final : public VExpr {
 public:
     const std::string& expr_name() const override {
@@ -220,6 +259,34 @@ TEST(VCompoundPredScoreTest, IncompleteScoredBranchReturnsErrorWithoutPublishing
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_EQ(query_context->collection_similarity, parent_similarity);
     EXPECT_TRUE(parent_similarity->release_scores().empty());
+}
+
+TEST(VCompoundPredScoreTest, AndWithOnlyNullRowsLeftEvaluatesLaterBranches) {
+    // NOT (NULL AND FALSE) is TRUE on both rows. An AND that stopped after its first branch
+    // would keep both rows NULL, and NOT would then reject them.
+    auto conjunction = make_compound(
+            TExprOpcode::COMPOUND_AND,
+            std::make_shared<ThreeValuedBitmapExpr>(std::initializer_list<uint32_t> {},
+                                                    std::initializer_list<uint32_t> {0, 1}),
+            std::make_shared<ThreeValuedBitmapExpr>(std::initializer_list<uint32_t> {},
+                                                    std::initializer_list<uint32_t> {}));
+    auto root = make_not(conjunction);
+
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    segment_v2::ColumnIteratorOptions iterator_options;
+    auto index_context = std::make_shared<IndexExecContext>(
+            iterators, storage_types, status_map, nullptr, nullptr, iterator_options,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
+    auto expr_context = VExprContext::create_shared(root);
+    expr_context->set_index_context(index_context);
+
+    ASSERT_TRUE(root->evaluate_inverted_index(expr_context.get(), 2).ok());
+    const auto* result = index_context->get_index_result_for_expr(root.get());
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->get_data_bitmap()->cardinality(), 2);
+    EXPECT_TRUE(result->get_null_bitmap()->isEmpty());
 }
 
 } // namespace
