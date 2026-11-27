@@ -61,4 +61,23 @@ TEST_F(CloudServerStarterFactoryTest, NullServerIsRejected) {
     EXPECT_FALSE(starter->validate_config());
 }
 
+TEST_F(CloudServerStarterFactoryTest, StartBindsIpv6WildcardWhenV6Selected) {
+    bool enable_loopback_backup = config::enable_loopback_address_for_ms;
+    config::enable_loopback_address_for_ms = true;
+    config::priority_networks = "::1/128";
+    {
+        brpc::Server server;
+        std::unique_ptr<ICloudServerStarter> starter;
+        ASSERT_TRUE(create_meta_brpc_starter(&server, 0, &starter));
+
+        config::enable_tls = false;
+        // With an IPv6 priority network the starter must bind [::0] (ephemeral
+        // port); a wrong address family makes start() fail.
+        EXPECT_TRUE(starter->start());
+        server.Stop(1000);
+    }
+    config::priority_networks = "";
+    config::enable_loopback_address_for_ms = enable_loopback_backup;
+}
+
 } // namespace doris::cloud
