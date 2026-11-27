@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.jfs.properties;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.HdfsCompatibleProperties;
 import org.apache.doris.filesystem.hdfs.properties.HdfsPropertiesUtils;
+import org.apache.doris.filesystem.properties.HadoopClientOptions;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.NoPathTraversalValidator;
 
@@ -91,8 +92,7 @@ public class JfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")
-                    || key.startsWith("juicefs.")) {
+            if (HadoopClientOptions.isHdfsOption(key, value)) {
                 userOverriddenConfig.put(key, value);
             }
         });

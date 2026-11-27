@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
@@ -50,6 +51,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         this.storageAdapter = StorageAdapter.of(props);
+        storageAdapter.checkStorageKind(StorageKind.OBJECT_STORAGE);
         this.backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
         String uri = storageAdapter.validateAndGetUri(props);
         filePath = storageAdapter.validateAndNormalizeUri(uri);

@@ -66,6 +66,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 import org.apache.doris.dictionary.LayoutType;
+import org.apache.doris.filesystem.properties.HadoopClientOptions;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
@@ -1463,7 +1464,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitInsertIntoTVF(InsertIntoTVFContext ctx) {
         String tvfName = ctx.tvfName.getText();
-        Map<String, String> properties = visitPropertyItemList(ctx.tvfProperties);
+        Map<String, String> properties = HadoopClientOptions.forStatement(visitPropertyItemList(ctx.tvfProperties));
         Optional<String> labelName = ctx.labelName == null
                 ? Optional.empty() : Optional.of(ctx.labelName.getText());
         LogicalPlan plan = visitQuery(ctx.query());
@@ -2266,7 +2267,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
         BrokerDesc brokerDesc = null;
 
-        Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
+        Map<String, String> brokerPropertiesMap =
+                HadoopClientOptions.forStatement(visitPropertyItemList(ctx.brokerProperties));
 
         if (ctx.S3() != null) {
             brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
@@ -4577,7 +4579,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         Map<String, String> properties = ImmutableMap.of();
         if (ctx.propertyClause() != null) {
-            properties = visitPropertyClause(ctx.propertyClause());
+            properties = HadoopClientOptions.forStatement(visitPropertyClause(ctx.propertyClause()));
         }
         Literal filePath = (Literal) visit(ctx.filePath);
         return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);

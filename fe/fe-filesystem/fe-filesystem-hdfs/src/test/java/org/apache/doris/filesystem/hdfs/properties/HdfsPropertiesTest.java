@@ -37,6 +37,13 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void selectsSupportedClientOptions() {
+        Map<String, String> resolved = resolve(Map.of("dfs.replication", "2", "dfs.fixture.option", "unused"));
+        Assertions.assertEquals("2", resolved.get("dfs.replication"));
+        Assertions.assertFalse(resolved.containsKey("dfs.fixture.option"));
+    }
+
+    @Test
     void kerberosAuthParamsAreTranslatedToHadoopKeys() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");

@@ -44,6 +44,18 @@ class OssHdfsPropertiesTest {
     }
 
     @Test
+    void selectsSupportedClientOptions() {
+        Map<String, String> raw = baseProps();
+        raw.put("fs.oss.connection.timeout", "3000");
+        raw.put("fs.fixture.option", "unused");
+        raw.put("fs.oss.impl", "test.Unconfigured");
+        Map<String, String> resolved = resolve(raw);
+        Assertions.assertEquals("3000", resolved.get("fs.oss.connection.timeout"));
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", resolved.get("fs.oss.impl"));
+        Assertions.assertFalse(resolved.containsKey("fs.fixture.option"));
+    }
+
+    @Test
     void jindoImplAndCredentialsArePopulated() {
         Map<String, String> resolved = resolve(baseProps());
 
