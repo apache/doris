@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <span>
-#include <vector>
 
 #include "common/status.h"
 #include "core/column/column_string.h"
@@ -66,7 +64,6 @@ private:
                                OlapBlockDataConvertor* converter, int& column_id);
     Status _write_binary(const VariantShreddedColumns& shredded, OlapBlockDataConvertor* converter,
                          int& column_id);
-    Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& function);
 
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
@@ -78,9 +75,6 @@ private:
     bool _is_finalized = false;
 
     std::unique_ptr<ColumnWriter> _root_writer;
-    std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
-    std::vector<ColumnWriterOptions> _subcolumn_opts;
-    std::vector<TabletIndexes> _subcolumn_indexes;
     std::unique_ptr<VariantBinaryWriter> _binary_writer;
 };
 

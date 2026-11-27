@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -65,6 +66,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
 #include "storage/segment/variant/nested_group_path.h"
@@ -1684,7 +1686,8 @@ protected:
             const ColumnPtr& source, const DataTypePtr& source_type, std::string_view rowset_id,
             SegmentFooterPB* footer, std::string* file_path, size_t first_batch_rows = 0,
             uint64_t* buffered_bytes = nullptr,
-            VariantIndexWritePolicy index_write_policy = VariantIndexWritePolicy::NONE) {
+            VariantIndexWritePolicy index_write_policy = VariantIndexWritePolicy::NONE,
+            std::vector<segment_v2::SegmentIndexFileCacheRange>* early_index_ranges = nullptr) {
         DCHECK(source);
         DCHECK(source_type != nullptr);
         DCHECK(footer != nullptr);
@@ -1716,6 +1719,7 @@ protected:
         opts.index_file_writer = index_file_writer.get();
         opts.compression_type = CompressionTypePB::LZ4;
         opts.file_writer = file_writer.get();
+        opts.early_index_ranges = early_index_ranges;
         opts.footer = footer;
         opts.rowset_ctx = &rowset_ctx;
         opts.storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
@@ -2105,9 +2109,11 @@ TEST_P(VariantWriterCompatibilityTest, ordinary_materialized_sparse_round_trip) 
     SegmentFooterPB footer;
     std::string file_path;
     uint64_t buffered_bytes = 0;
+    std::vector<segment_v2::SegmentIndexFileCacheRange> early_index_ranges;
     const std::string rowset_id = "shared_ordinary_" + variant_writer_input_name(GetParam());
     ASSERT_TRUE(write_variant_segment(source, source_type, rowset_id, &footer, &file_path, 4,
-                                      &buffered_bytes)
+                                      &buffered_bytes, VariantIndexWritePolicy::NONE,
+                                      &early_index_ranges)
                         .ok());
     EXPECT_GT(buffered_bytes, jsons.size());
 
@@ -2115,6 +2121,17 @@ TEST_P(VariantWriterCompatibilityTest, ordinary_materialized_sparse_round_trip) 
     collect_variant_footer_stats(footer, 0, &footer_stats);
     EXPECT_GT(footer_stats.materialized_columns, 0);
     EXPECT_GT(footer_stats.sparse_columns, 0);
+
+    if (GetParam() == VariantWriterInput::V2) {
+        ASSERT_FALSE(early_index_ranges.empty());
+        const auto file_size = std::filesystem::file_size(file_path);
+        uint64_t previous_end = 0;
+        for (const auto& range : early_index_ranges) {
+            EXPECT_TRUE(range.is_valid_for(file_size));
+            EXPECT_GE(range.offset, previous_end);
+            previous_end = range.offset + range.size;
+        }
+    }
 
     const std::vector<std::string_view> expected {
             jsons[0],

@@ -220,6 +220,7 @@ private:
 
     SegmentFooterPB _footer;
     SegmentIndexFileCacheInfo _index_file_cache_info;
+    std::vector<SegmentIndexFileCacheRange> _early_index_ranges;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

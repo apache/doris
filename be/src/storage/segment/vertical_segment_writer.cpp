@@ -313,6 +313,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
     opts.rowset_ctx = _opts.rowset_ctx;
     opts.file_writer = _file_writer;
+    opts.early_index_ranges = &_early_index_ranges;
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
@@ -1355,6 +1356,9 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         *index_size = _file_writer->bytes_appended() - index_start;
     }
     uint64_t file_index_end = _file_writer->bytes_appended();
+    *index_size += _index_file_cache_info.add_inline_index_ranges(
+            _early_index_ranges, config::file_cache_each_block_size);
+    _early_index_ranges.clear();
     _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
 
     // reset all column writers and data_conveter

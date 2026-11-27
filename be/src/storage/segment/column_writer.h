@@ -66,6 +66,8 @@ enum class VariantWriterInputFormat : uint8_t {
     V2,
 };
 
+struct SegmentIndexFileCacheRange;
+
 struct ColumnWriterOptions {
     // input and output parameter:
     // - input: column_id/unique_id/type/length/encoding/compression/is_nullable members
@@ -89,6 +91,8 @@ struct ColumnWriterOptions {
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;
+    // Materialized VARIANT paths can write index pages alongside their data pages.
+    std::vector<SegmentIndexFileCacheRange>* early_index_ranges = nullptr;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
     RowsetWriterContext* rowset_ctx = nullptr;
     // For collect segment statistics for compaction
