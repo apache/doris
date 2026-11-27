@@ -42,6 +42,14 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
     def mode = new AtomicReference<String>("forward")
     def accepted = new ConcurrentHashMap<String, AtomicInteger>()
     def rejected = new AtomicInteger()
+    def fallbackReads = new AtomicInteger()
+    Map<String, Map<String, String>> invalidConfigs = [:]
+    ["gs.oauth2.token", "gcs.oauth2.token"].eachWithIndex { String key, int alias ->
+        ["", " ", "invalid secret token"].eachWithIndex { String token, int value ->
+            invalidConfigs.put("invalid_${alias}_${value}".toString(), [(key): token])
+        }
+    }
+    def tableNames = ["forward", "reverse", "same_prefix", "legacy"] + invalidConfigs.keySet()
     def requests = new ConcurrentLinkedQueue<String>()
     def executor = Executors.newFixedThreadPool(4)
     HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
@@ -70,11 +78,11 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
             } else if (path == "/v1/namespaces/fixture_db") {
                 jsonResponse(exchange, 200, [namespace: ["fixture_db"], properties: [:]])
             } else if (path == "/v1/namespaces/fixture_db/tables") {
-                jsonResponse(exchange, 200, [identifiers: ["forward", "reverse", "same_prefix", "legacy"].collect {
+                jsonResponse(exchange, 200, [identifiers: tableNames.collect {
                     [namespace: ["fixture_db"], name: it]
                 }])
             } else if (path.startsWith("/v1/namespaces/fixture_db/tables/")
-                    && ["forward", "reverse", "same_prefix", "legacy"].contains(
+                    && tableNames.contains(
                             path.substring(path.lastIndexOf('/') + 1))) {
                 String table = path.substring(path.lastIndexOf('/') + 1)
                 def broad = [prefix: "gs://fixture-bucket/", config: sdkConfig("broad-token")]
@@ -87,8 +95,14 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
                     credentials = [broad, [prefix: narrow.prefix, config: sdkConfig("wrong-token")],
                             unrelated, narrow]
                 }
+                boolean invalid = invalidConfigs.containsKey(table)
+                Map invalidConfig = invalid ? invalidConfigs.get(table) : [:]
+                if (invalidConfig.containsKey("gcs.oauth2.token")) {
+                    invalidConfig = ["gcs.project-id": "fixture-project", "gcs.service.host": endpoint] + invalidConfig
+                }
                 jsonResponse(exchange, 200, ["metadata-location": "gs://fixture-bucket/v1.metadata.json",
-                        metadata: metadata, "storage-credentials": credentials, config: [:]])
+                        metadata: metadata, "storage-credentials": invalid ? [] : credentials,
+                        config: invalidConfig])
             } else {
                 boolean nativeApi = path.startsWith("/storage/v1/b/fixture-bucket/o/")
                         || path.startsWith("/download/storage/v1/b/fixture-bucket/o/")
@@ -100,7 +114,8 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
                     return
                 }
                 String authorization = exchange.requestHeaders.getFirst("Authorization")
-                boolean hmac = mode.get() == "legacy" && object.startsWith("private/")
+                boolean invalid = mode.get().startsWith("invalid_")
+                boolean hmac = invalid || mode.get() == "legacy" && object.startsWith("private/")
                 String token = object.startsWith("private/") ? "narrow-token" : "broad-token"
                 boolean authorized = hmac ? !nativeApi && authorization != null
                         && authorization.startsWith("AWS4-HMAC-SHA256 ")
@@ -110,6 +125,10 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
                     rejected.incrementAndGet()
                     exchange.sendResponseHeaders(403, -1)
                     return
+                }
+                if (invalid) {
+                    // Keep the base identity usable: a silent fallback would succeed and fail this test.
+                    fallbackReads.incrementAndGet()
                 }
                 accepted.computeIfAbsent(mode.get() + ":" + object, { new AtomicInteger() }).incrementAndGet()
                 boolean media = exchange.requestURI.rawQuery?.split('&')?.contains("alt=media")
@@ -174,6 +193,15 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
             }
         }
         assertEquals(0, rejected.get())
+        invalidConfigs.each { String table, Map<String, String> invalid ->
+            mode.set(table)
+            test {
+                sql "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.${table}"
+                exception "Invalid vended GCS credential: ${invalid.keySet().first()}"
+            }
+        }
+        assertEquals(0, fallbackReads.get(), "Invalid tokens must not read with catalog HMAC credentials")
+        assertEquals(0, rejected.get(), "Invalid tokens must fail before any storage request")
     } finally {
         logger.info("GCS fixture requests: ${requests}")
         server.stop(0)

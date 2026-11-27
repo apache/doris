@@ -17,6 +17,9 @@
 
 package org.apache.iceberg.io;
 
+import org.apache.doris.filesystem.gcs.auth.GcsOAuthTokenValidator;
+
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -43,8 +46,7 @@ public class NativeGcsResolvingFileIO extends ResolvingFileIO {
     private static final String HADOOP_FILE_IO_IMPL = "org.apache.iceberg.hadoop.HadoopFileIO";
 
     public static boolean hasSdkGcsProperties(Map<String, String> properties) {
-        return properties.entrySet().stream()
-                .anyMatch(entry -> entry.getKey().startsWith("gcs.") && entry.getValue() != null);
+        return properties.keySet().stream().anyMatch(key -> key != null && key.startsWith("gcs."));
     }
 
     @Override
@@ -53,17 +55,19 @@ public class NativeGcsResolvingFileIO extends ResolvingFileIO {
         if (!GCS_FILE_IO_IMPL.equals(impl)) {
             return impl;
         }
-        // REST/table configuration and matching storage credentials can arrive after FE selected this class.
-        // HadoopFileIO ignores SDK encryption, billing and token options, so those retain the native path.
-        if (hasSdkGcsProperties(properties())) {
-            return GCS_FILE_IO_IMPL;
-        }
         StorageCredential matching = null;
         for (StorageCredential credential : credentials()) {
             if (location.startsWith(credential.prefix())
                     && (matching == null || credential.prefix().length() >= matching.prefix().length())) {
                 matching = credential;
             }
+        }
+        // Validate the effective scope before choosing an identity: a present null token is not an absent token.
+        GcsOAuthTokenValidator.validate(properties(), matching == null ? Collections.emptyMap() : matching.config());
+        // REST/table configuration and matching storage credentials can arrive after FE selected this class.
+        // HadoopFileIO ignores SDK encryption, billing and token options, so those retain the native path.
+        if (hasSdkGcsProperties(properties())) {
+            return GCS_FILE_IO_IMPL;
         }
         // The SDK uses the longest prefix and the last duplicate; broader credentials cannot supply its options.
         return matching != null && hasSdkGcsProperties(matching.config()) ? GCS_FILE_IO_IMPL : HADOOP_FILE_IO_IMPL;

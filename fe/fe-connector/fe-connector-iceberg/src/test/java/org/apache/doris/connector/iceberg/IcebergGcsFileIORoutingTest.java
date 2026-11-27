@@ -44,6 +44,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -59,6 +60,66 @@ class IcebergGcsFileIORoutingTest {
     private static final String HADOOP = "org.apache.iceberg.hadoop.HadoopFileIO";
     private static final String LOCATION = "gs://fixture-bucket/v1.metadata.json";
     private static final String KEY = Base64.getEncoder().encodeToString(new byte[32]);
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gs.oauth2.token", "gcs.oauth2.token"})
+    void invalidGlobalTokenCannotSelectHadoopOrAmbientCredentials(String key) throws Exception {
+        for (String value : Arrays.asList(null, "", " ", "invalid secret token", "secret\nvalue")) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(key, value);
+            try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+                io.setConf(new Configuration(false));
+                io.initialize(properties);
+                IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> io.ioClass(LOCATION));
+                Assertions.assertEquals("Invalid vended GCS credential: " + key, failure.getMessage());
+                Assertions.assertNull(failure.getCause());
+                try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
+                        SerializationUtil.serializeToBytes(io))) {
+                    Assertions.assertEquals(failure.getMessage(), Assertions.assertThrows(
+                            IllegalArgumentException.class, () -> restored.ioClass(LOCATION)).getMessage());
+                }
+            }
+        }
+    }
+
+    @Test
+    void validatesOnlyTheEffectiveTokenAfterScopeSelection() throws Exception {
+        StorageCredential valid = StorageCredential.create("gs://fixture-bucket/private/",
+                Map.of("gcs.oauth2.token", "fixture-token"));
+        StorageCredential invalid = StorageCredential.create("gs://fixture-bucket/",
+                Map.of("gcs.oauth2.token", "invalid secret token"));
+        StorageCredential duplicate = StorageCredential.create(valid.prefix(), invalid.config());
+        for (List<StorageCredential> credentials : List.of(List.of(invalid, valid), List.of(valid, invalid),
+                List.of(invalid, duplicate, valid))) {
+            try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+                io.setConf(new Configuration(false));
+                io.initialize(Map.of("gcs.oauth2.token", " "));
+                io.setCredentials(credentials);
+                Assertions.assertEquals(GCS, io.ioClass("gs://fixture-bucket/private/object").getName());
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> io.ioClass("gs://fixture-bucket/public/object"));
+                Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO",
+                        io.ioClass("s3://fixture-bucket/object").getName());
+            }
+        }
+        try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+            io.setConf(new Configuration(false));
+            io.initialize(Map.of("gcs.oauth2.token", "fixture-token"));
+            io.setCredentials(List.of(valid, duplicate));
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> io.ioClass("gs://fixture-bucket/private/object"));
+        }
+    }
+
+    @Test
+    void validExpiredTokensRemainAvailableForSdkRefresh() throws Exception {
+        try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+            io.setConf(new Configuration(false));
+            io.initialize(Map.of("gcs.oauth2.token", "fixture-token", "gcs.oauth2.token-expires-at", "0"));
+            Assertions.assertEquals(GCS, io.ioClass(LOCATION).getName());
+        }
+    }
 
     @Test
     void gcsEncryptionKeysAreDeclaredSensitive() {
