@@ -177,6 +177,7 @@ struct TableColumnMapperOptions {
     bool enable_row_lineage_virtual_columns = false;
     bool enable_iceberg_metadata_virtual_columns = false;
     bool enable_paimon_metadata_virtual_columns = false;
+    bool delta_change_feed = false;
     // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
     // behavior, which rounds when reducing DATETIMEV2 scale.
     bool truncate_datetimev2_precision_for_paimon = false;
@@ -196,6 +197,9 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
 const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
                                                 const std::vector<ColumnDefinition>& file_schema,
                                                 bool allow_idless_complex_wrapper_projection);
+// True when the file column or one of its descendants carries a table-format timestamp marker.
+bool has_timestamp_semantics(const ColumnDefinition& column);
+
 // Put the timestamp semantics recorded on an annotated file column and its descendants onto a
 // projection of that column. A full projection gains a child only for a subtree that carries a
 // semantic; a partial projection keeps its selection. Callers that project a file column without

@@ -48,10 +48,23 @@ final class DeltaLakeTableReference implements Serializable {
             Optional<Long> version) {
         Snapshot snapshot;
         if (managed) {
-            snapshot = resolver.managedSnapshot(engine, database, table, this, version);
+            snapshot = resolver.managedSnapshot(engine, database, table, this, version, Optional.empty());
         } else {
             SnapshotBuilder builder = TableManager.loadSnapshot(path);
             snapshot = version.map(builder::atVersion).orElse(builder).build(engine);
+        }
+        DeltaLakeFeatureCheck.check(snapshot, managed);
+        return snapshot;
+    }
+
+    Snapshot loadAtTimestamp(Engine engine, DeltaLakeTableResolver resolver, String database, String table,
+            long timestampMillis, Snapshot latest) {
+        Snapshot snapshot;
+        if (managed) {
+            snapshot = resolver.managedSnapshot(engine, database, table, this, Optional.empty(),
+                    Optional.of(timestampMillis));
+        } else {
+            snapshot = TableManager.loadSnapshot(path).atTimestamp(timestampMillis, latest).build(engine);
         }
         DeltaLakeFeatureCheck.check(snapshot, managed);
         return snapshot;

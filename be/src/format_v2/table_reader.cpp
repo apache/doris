@@ -1659,6 +1659,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
+    _deletion_vector_keep_only = false;
     _aggregate_pushdown_tried = false;
     _metadata_aggregate_result.reset();
     _remaining_table_level_count = -1;
@@ -1920,81 +1921,86 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
     RETURN_IF_ERROR(_parse_deletion_vector_file(options.current_range.table_format_params, &desc,
                                                 &has_delete_file));
     if (has_delete_file) {
-        DORIS_CHECK(options.cache != nullptr);
-        Status create_status = Status::OK();
+        return _load_deletion_vector(options, desc, &_deletion_vector);
+    }
+    return Status::OK();
+}
 
-        bool decoded_cache_hit = false;
-        _deletion_vector = options.cache->get<DeletionVector>(
-                desc.key,
-                [&]() -> std::shared_ptr<DeletionVector> {
-                    auto deletion_vector = std::make_shared<DeletionVector>();
+Status TableReader::_load_deletion_vector(const SplitReadOptions& options,
+                                          const DeleteFileDesc& desc,
+                                          std::shared_ptr<DeletionVector>* result) {
+    DORIS_CHECK(options.cache != nullptr);
+    Status create_status = Status::OK();
 
-                    std::vector<char> buffer;
-                    std::string_view encoded;
-                    if (desc.inline_data.has_value()) {
-                        encoded = *desc.inline_data;
-                    } else {
-                        DeletionVectorReader dv_reader(_runtime_state, _scanner_profile,
-                                                       *_scan_params, desc, _io_ctx.get());
-                        create_status = dv_reader.open();
-                        if (!create_status.ok()) [[unlikely]] {
-                            return nullptr;
-                        }
+    bool decoded_cache_hit = false;
+    *result = options.cache->get<DeletionVector>(
+            desc.key,
+            [&]() -> std::shared_ptr<DeletionVector> {
+                auto deletion_vector = std::make_shared<DeletionVector>();
 
-                        DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
-                            create_status = Status::IOError(
-                                    "injected format v2 deletion vector read failure");
-                            return nullptr;
-                        });
-                        DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
-                            create_status = Status::EndOfFile("stop read.");
-                            return nullptr;
-                        });
-                        if (desc.format == DeleteFileDesc::Format::PAIMON) {
-                            create_status =
-                                    read_paimon_deletion_vector_buffer(dv_reader, desc, buffer);
-                        } else {
-                            buffer.resize(desc.size);
-                            create_status = dv_reader.read_at(desc.start_offset,
-                                                              {buffer.data(), buffer.size()});
-                        }
-                        const auto& file_cache_stats = dv_reader.file_cache_statistics();
-                        COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
-                                       file_cache_stats.num_local_io_total);
-                        COUNTER_UPDATE(_profile.dv_file_cache_miss_count,
-                                       file_cache_stats.num_remote_io_total);
-                        COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count,
-                                       file_cache_stats.num_peer_io_total);
-                        if (!create_status.ok()) [[unlikely]] {
-                            return nullptr;
-                        }
-                        encoded = {buffer.data(), buffer.size()};
-                    }
-
-                    SCOPED_TIMER(_profile.parse_delete_file_time);
-                    create_status = parse_deletion_vector(encoded.data(), encoded.size(), desc,
-                                                          deletion_vector.get());
+                std::vector<char> buffer;
+                std::string_view encoded;
+                if (desc.inline_data.has_value()) {
+                    encoded = *desc.inline_data;
+                } else {
+                    DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
+                                                   desc, _io_ctx.get());
+                    create_status = dv_reader.open();
                     if (!create_status.ok()) [[unlikely]] {
                         return nullptr;
                     }
-                    COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
-                    return deletion_vector;
-                },
-                &decoded_cache_hit);
-        RETURN_IF_ERROR(create_status);
-        // Check on cache hits as well: a corrupt log entry can reuse a valid bitmap while
-        // advertising a different cardinality, which would make metadata count disagree.
-        if (desc.expected_cardinality.has_value() &&
-            _deletion_vector->cardinality() != *desc.expected_cardinality) {
-            return Status::DataQualityError(
-                    "Deletion vector cardinality mismatch, expected: {}, actual: {}",
-                    *desc.expected_cardinality, _deletion_vector->cardinality());
-        }
-        COUNTER_UPDATE(decoded_cache_hit ? _profile.decoded_dv_cache_hit_count
-                                         : _profile.decoded_dv_cache_miss_count,
-                       1);
-    }
 
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
+                        create_status =
+                                Status::IOError("injected format v2 deletion vector read failure");
+                        return nullptr;
+                    });
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
+                        create_status = Status::EndOfFile("stop read.");
+                        return nullptr;
+                    });
+                    if (desc.format == DeleteFileDesc::Format::PAIMON) {
+                        create_status = read_paimon_deletion_vector_buffer(dv_reader, desc, buffer);
+                    } else {
+                        buffer.resize(desc.size);
+                        create_status = dv_reader.read_at(desc.start_offset,
+                                                          {buffer.data(), buffer.size()});
+                    }
+                    const auto& file_cache_stats = dv_reader.file_cache_statistics();
+                    COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
+                                   file_cache_stats.num_local_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_miss_count,
+                                   file_cache_stats.num_remote_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count,
+                                   file_cache_stats.num_peer_io_total);
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
+                    encoded = {buffer.data(), buffer.size()};
+                }
+
+                SCOPED_TIMER(_profile.parse_delete_file_time);
+                create_status = parse_deletion_vector(encoded.data(), encoded.size(), desc,
+                                                      deletion_vector.get());
+                if (!create_status.ok()) [[unlikely]] {
+                    return nullptr;
+                }
+                COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector;
+            },
+            &decoded_cache_hit);
+    RETURN_IF_ERROR(create_status);
+    // Check on cache hits as well: a corrupt log entry can reuse a valid bitmap while
+    // advertising a different cardinality, which would make metadata count disagree.
+    if (desc.expected_cardinality.has_value() &&
+        (*result)->cardinality() != *desc.expected_cardinality) {
+        return Status::DataQualityError(
+                "Deletion vector cardinality mismatch, expected: {}, actual: {}",
+                *desc.expected_cardinality, (*result)->cardinality());
+    }
+    COUNTER_UPDATE(decoded_cache_hit ? _profile.decoded_dv_cache_hit_count
+                                     : _profile.decoded_dv_cache_miss_count,
+                   1);
     return Status::OK();
 }
 } // namespace doris::format

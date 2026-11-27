@@ -64,11 +64,21 @@ class DeltaLakeFeatureCheckTest {
     }
 
     @Test
+    void acceptsStableAndPreviewVariantFeatures() {
+        for (String variant : Set.of("variantType", "variantType-preview")) {
+            DeltaLakeFeatureCheck.check("plain", Set.of(variant));
+            for (String shredding : Set.of("variantShredding", "variantShredding-preview")) {
+                DeltaLakeFeatureCheck.check("shredded", Set.of(variant, shredding));
+            }
+        }
+    }
+
+    @Test
     void unsupportedFeatureErrorsIdentifyTableAndEveryFeature() {
         DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                () -> DeltaLakeFeatureCheck.check("warehouse/db/table", Set.of("variantType", "catalogManaged")));
+                () -> DeltaLakeFeatureCheck.check("warehouse/db/table", Set.of("geospatial", "catalogManaged")));
         Assertions.assertTrue(error.getMessage().contains("warehouse/db/table"));
-        Assertions.assertTrue(error.getMessage().contains("variantType"));
+        Assertions.assertTrue(error.getMessage().contains("geospatial"));
         Assertions.assertTrue(error.getMessage().contains("catalogManaged"));
         DeltaLakeFeatureCheck.check("empty", Collections.emptySet());
     }

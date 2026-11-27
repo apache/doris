@@ -51,6 +51,7 @@ import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
 import io.delta.kernel.types.TypeChange;
+import io.delta.kernel.types.VariantType;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -263,15 +264,20 @@ final class DeltaLakePredicateConverter {
                     return null;
                 }
                 // The SPI currently carries root-column references, not nested field paths.
-                return (type instanceof BasePrimitiveType || type instanceof DecimalType) ? field : null;
+                return supportsPredicate(type) ? field : null;
             }
         }
         return null;
     }
 
+    private static boolean supportsPredicate(DataType type) {
+        // Variant is a Kernel primitive. Leave even null checks to the reader, which distinguishes
+        // a SQL NULL from an encoded JSON null.
+        return !(type instanceof VariantType) && (type instanceof BasePrimitiveType || type instanceof DecimalType);
+    }
+
     Literal literal(DataType type, ConnectorExpression expression) {
-        if (!(expression instanceof ConnectorLiteral)
-                || !(type instanceof BasePrimitiveType || type instanceof DecimalType)) {
+        if (!(expression instanceof ConnectorLiteral) || !supportsPredicate(type)) {
             return null;
         }
         ConnectorLiteral literal = (ConnectorLiteral) expression;

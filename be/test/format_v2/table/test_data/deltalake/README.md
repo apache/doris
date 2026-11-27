@@ -45,3 +45,26 @@ nested field 13/15/16 both contain rows 0 and 4; the reader test renames every
 projected logical field while retaining those IDs. The byte-range test generates
 a separate Parquet file at runtime with six row groups and applies the real DV
 above to positions 0, 7, and 14 across row-group boundaries.
+
+The two Variant fixtures use the unannotated binary carriers from Spark 4.0.1 / Delta Spark 4.4.1.
+The plain rows are `{"a":1,"b":"one"}` and `[1,"x"]`. The shredded rows have integer
+`a` values 2 and 3 and string `b` values "typed" and "three" (shredding schema `a INT, b STRING`).
+PyArrow 26.0.1 placed the same carriers at `v`, `box.inner`, `arr.element` and `m.value`.
+The field IDs are `v=7`, `box=8`, `inner=9`, `arr=10`, `m=11` and `ordinary=12`.
+The ordinary binary struct contains `metadata="m"` (ID 13) and `value="v"` (ID 14).
+Both files use Snappy compression with `store_schema=False`. The shredded file
+reverses the top-level column order. The existing one-position DV
+removes its first row, leaving the object with `a=3`.
+
+| File | SHA-256 |
+| --- | --- |
+| `variant-plain.parquet` | `f25259445c30f899a34f33c887e595f031cf64bbbe02c1f6578660d611843ff6` |
+| `variant-shredded.parquet` | `4fb844ac57b3a82cf04d5f526d37223d73fc3eef00af26bea914a40ed6107de5` |
+
+## Change data file
+
+Spark 4.0.1 with Delta 4.4.1 produced `spark-cdf-update.parquet` by updating
+`p` from `before` to `after` on a row with `id=1` in a change-feed table
+using ID column mapping. The data columns have physical names and field IDs.
+Both update images use the literal Parquet column `_change_type` without a
+field ID. The file's SHA-256 is `3b4c9eb1ca5c143b4a0a5983256db0fcc642f36884e2344a28bcc5593d15b02e`.

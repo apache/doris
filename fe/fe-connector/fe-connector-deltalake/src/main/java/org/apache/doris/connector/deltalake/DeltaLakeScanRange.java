@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
+import org.apache.doris.thrift.TDeltaLakeSysTableBatch;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -75,6 +76,12 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
         this.varbinaryPartitions = Set.copyOf(varbinaryPartitions);
         this.descriptor = descriptor.deepCopy();
         this.rowCount = rowCount;
+    }
+
+    static DeltaLakeScanRange systemTable(String name, long splitId, TDeltaLakeSysTableBatch batch) {
+        String path = "file:///__doris_delta_" + name + "__/" + splitId;
+        TDeltaLakeFileDesc descriptor = new TDeltaLakeFileDesc().setSysTableBatch(batch);
+        return new DeltaLakeScanRange(path, 0, batch.getRowsSize(), batch.getRowsSize(), 0, 0, Map.of(), descriptor);
     }
 
     DeltaLakeScanRange withByteRange(long offset, long size) {
@@ -160,7 +167,8 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
 
     @Override
     public String getTableFormatType() {
-        return "deltalake";
+        // An older BE must reject CDF splits instead of silently treating them as ordinary data.
+        return descriptor.isSetCdf() ? "deltalake_cdf" : "deltalake";
     }
 
     @Override

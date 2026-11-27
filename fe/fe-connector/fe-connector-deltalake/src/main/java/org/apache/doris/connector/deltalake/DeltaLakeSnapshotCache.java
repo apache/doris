@@ -42,7 +42,7 @@ import java.util.function.Supplier;
 final class DeltaLakeSnapshotCache {
     static final String LATEST = "latest";
     static final String SNAPSHOT = "snapshot";
-    private static final long DEFAULT_SNAPSHOT_BYTES = 256L << 20;
+    private static final long DEFAULT_MAX_BYTES = 256L << 20;
     private final MetaCache<TableKey, Latest> latest;
     private final MetaCache<SnapshotKey, CachedSnapshot> snapshots;
     private final long latestTtlNanos;
@@ -65,7 +65,7 @@ final class DeltaLakeSnapshotCache {
                         latestSpec.getMaxWeight().getAsLong())
                 : CacheSpec.of(latestSpec.isEnable(), physicalTtl, latestSpec.getCapacity());
         latest = owner.create(MetaCacheDefinition.<TableKey, Latest>builder("deltalake-latest", physicalSpec,
-                        key -> ScopePath.table(key.database, key.table))
+                        TableKey::scope)
                 .sizeEstimator(MetaCacheSizeEstimators.reflective()).build());
         snapshots = owner.create(MetaCacheDefinition.<SnapshotKey, CachedSnapshot>builder("deltalake-snapshot",
                         spec(properties, SNAPSHOT), key -> ScopePath.table(key.table.database, key.table.table))
@@ -76,21 +76,24 @@ final class DeltaLakeSnapshotCache {
 
     static CacheSpec spec(Map<String, String> properties, String entry) {
         Map<String, String> configured = new HashMap<>(properties);
-        if (SNAPSHOT.equals(entry)) {
-            configured.putIfAbsent("meta.cache.deltalake.snapshot.max-weight", String.valueOf(DEFAULT_SNAPSHOT_BYTES));
+        if (SNAPSHOT.equals(entry) || DeltaLakePartitionFreshness.CACHE_NAME.equals(entry)) {
+            configured.putIfAbsent("meta.cache.deltalake." + entry + ".max-weight",
+                    String.valueOf(DEFAULT_MAX_BYTES));
         }
         return CacheSpec.fromProperties(configured, "deltalake", entry,
                 CacheSpec.of(true, LATEST.equals(entry) ? 30 : 1800, 1000));
     }
 
     static void validate(Map<String, String> properties) {
-        for (String entry : new String[] {LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS}) {
+        for (String entry : new String[] {LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS,
+                DeltaLakePartitionFreshness.CACHE_NAME}) {
             String prefix = "meta.cache.deltalake." + entry;
             CacheSpec.checkBooleanProperty(properties.get(prefix + ".enable"), prefix + ".enable");
             CacheSpec.checkLongProperty(properties.get(prefix + ".ttl-second"), -1, prefix + ".ttl-second");
             CacheSpec.checkLongProperty(properties.get(prefix + ".capacity"), 0, prefix + ".capacity");
         }
-        CacheSpec.checkWeightProperties(properties, "deltalake", LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS);
+        CacheSpec.checkWeightProperties(properties, "deltalake", LATEST, SNAPSHOT,
+                DeltaLakeStatisticsCache.STATISTICS, DeltaLakePartitionFreshness.CACHE_NAME);
     }
 
     Snapshot latest(ConnectorSession session, String database, String table, DeltaLakeTableReference reference,
@@ -162,7 +165,11 @@ final class DeltaLakeSnapshotCache {
             this.registrationId = reference.registrationId;
         }
 
-        private long estimatedBytes() {
+        ScopePath scope() {
+            return ScopePath.table(database, table);
+        }
+
+        long estimatedBytes() {
             return 128L + JvmSizeUtils.stringSize(user) + JvmSizeUtils.stringSize(database)
                     + JvmSizeUtils.stringSize(table) + JvmSizeUtils.stringSize(path)
                     + JvmSizeUtils.stringSize(registrationId);
@@ -202,7 +209,7 @@ final class DeltaLakeSnapshotCache {
         }
 
         ScopePath scope() {
-            return ScopePath.table(table.database, table.table);
+            return table.scope();
         }
 
         @Override

@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.CommitRange;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
@@ -108,12 +109,17 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
     }
 
     @Override
+    public String registeredTableName(String database, String table) {
+        return catalog + "." + database + "." + table;
+    }
+
+    @Override
     public Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException {
         // UC's tables API identifies tables by one three-part name; dots in a part are not valid UC names.
         if (database.contains(".") || table.contains(".")) {
             return Optional.empty();
         }
-        String name = catalog + "." + database + "." + table;
+        String name = registeredTableName(database, table);
         JsonNode entry = request("tables/" + encode(name), null, true);
         if (entry == null || !isDelta(entry)) {
             return Optional.empty();
@@ -166,7 +172,8 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
         return true;
     }
 
-    Engine engine(DeltaLakeTableReference reference, Engine configured) {
+    @Override
+    public Engine engine(DeltaLakeTableReference reference, Engine configured) {
         if (!needsVendedStorage(reference)) {
             return configured;
         }
@@ -186,7 +193,8 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
                 response.path("expiration_time").asLong(0));
     }
 
-    Map<String, String> backendProperties(DeltaLakeTableReference reference, Map<String, String> configured)
+    @Override
+    public Map<String, String> backendProperties(DeltaLakeTableReference reference, Map<String, String> configured)
             throws IOException {
         // A cached handle may predate a revocation. Recheck UC before preparing each BE scan.
         JsonNode grant = readGrant(reference);
@@ -218,9 +226,17 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
 
     @Override
     public Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
-            Optional<Long> version) {
+            Optional<Long> version, Optional<Long> timestampMillis) {
         return managedTables.loadSnapshot(engine, reference.registrationId, reference.path,
-                new UCTableIdentifier(catalog, database, table), version, Optional.empty());
+                new UCTableIdentifier(catalog, database, table), version, timestampMillis);
+    }
+
+    @Override
+    public CommitRange managedCommitRange(Engine engine, String database, String table,
+            DeltaLakeTableReference reference, long start, long end) {
+        return managedTables.loadCommitRange(engine, reference.registrationId, reference.path,
+                new UCTableIdentifier(catalog, database, table), Optional.of(start), Optional.empty(),
+                Optional.of(end), Optional.empty());
     }
 
     private JsonNode request(String resource, JsonNode body, boolean allowMissing) throws IOException {

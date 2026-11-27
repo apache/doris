@@ -30,6 +30,8 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -41,30 +43,32 @@ import io.delta.kernel.types.FloatType;
 import io.delta.kernel.types.StructType;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
-    private static final String TABLE_ID = "deltalake.table-id";
+    static final String TABLE_ID = "deltalake.table-id";
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeCatalogProperties properties;
     private final DeltaLakeSnapshotCache snapshots;
     private final DeltaLakeStatisticsCache statistics;
+    private final DeltaLakePartitionFreshness freshness;
 
     DeltaLakeConnectorMetadata(DeltaLakeRuntime runtime, DeltaLakeCatalogProperties properties,
-            DeltaLakeSnapshotCache snapshots, DeltaLakeStatisticsCache statistics) {
+            DeltaLakeSnapshotCache snapshots, DeltaLakeStatisticsCache statistics,
+            DeltaLakePartitionFreshness freshness) {
         this.runtime = runtime;
         this.properties = properties;
         this.snapshots = snapshots;
         this.statistics = statistics;
+        this.freshness = freshness;
     }
 
     @Override
@@ -101,8 +105,23 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<String> listSupportedSysTables(ConnectorSession session, ConnectorTableHandle baseTableHandle) {
+        return DeltaLakeTableKind.systemTableNames();
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        return DeltaLakeTableKind.systemTableNamed(sysName)
+                .map(((DeltaLakeTableHandle) baseTableHandle)::asSystemTable);
+    }
+
+    @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.kind().systemTable != null) {
+            return runtime.execute(() -> delta.kind().systemTable.schema(runtime, delta));
+        }
         return runtime.execute(() -> DeltaLakeSchemaBuilder.build(delta.getTable(),
                 delta.snapshot(runtime), properties));
     }
@@ -116,7 +135,9 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
-        return runtime.execute(() -> statistics.get(session, (DeltaLakeTableHandle) handle, runtime));
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        return delta.kind() != DeltaLakeTableKind.DATA ? Optional.empty()
+                : runtime.execute(() -> statistics.get(session, delta, runtime));
     }
 
     @Override
@@ -135,6 +156,17 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getColumnHandles(session, applySnapshot(session, handle, snapshot));
+    }
+
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         return listPartitions(session, handle, Optional.empty()).stream()
                 .map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList());
@@ -143,35 +175,32 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.kind() != DeltaLakeTableKind.DATA) {
+            return List.of();
+        }
         return runtime.execute(() -> {
-            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
             Snapshot snapshot = delta.snapshot(runtime);
             List<String> columns = snapshot.getPartitionColumnNames();
             if (columns.isEmpty()) {
                 return Collections.emptyList();
             }
-            StructType schema = snapshot.getSchema();
-            boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
             ZoneId zone = DeltaLakePartitionValues.sessionZone(session);
-            Set<String> normalizedPartitionColumns = new HashSet<>();
-            Consumer<String> requireNormalizedFilter = normalizedPartitionColumns::add;
-            Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
-            long[] files = {0};
             LongConsumer fileCountObserver = statistics.fileCountObserver(session, delta, runtime);
-            DeltaLakeScanFiles.forEach(snapshot, runtime.engine(delta.reference()), false, row -> {
-                files[0]++;
-                Map<String, String> values = DeltaLakePartitionValues.normalize(
-                        schema, columns, mapped, DeltaKernelCompat.partitionValues(row), zone, requireNormalizedFilter);
-                String name = DeltaLakePartitionValues.partitionName(values);
-                partitions.computeIfAbsent(name, ignored -> new ConnectorPartitionInfo(name, values,
-                        Collections.emptyMap(), values.values().stream().map(value -> value == null ? "" : value)
-                                .collect(Collectors.toList()),
-                        values.values().stream().map(value -> value == null).collect(Collectors.toList())));
-            });
-            runtime.recordNormalizedPartitionColumns(snapshot, normalizedPartitionColumns);
-            DeltaLakeStatementScope.fileCount(session, delta).value = files[0];
-            fileCountObserver.accept(files[0]);
-            return List.copyOf(partitions.values());
+            DeltaLakePartitionFreshness.State state = freshness.atSnapshot(session, delta, runtime, snapshot, zone,
+                    () -> DeltaLakePartitionFreshness.Partitions.collect(snapshot, runtime.engine(delta.reference()),
+                            zone));
+            var partitions = state.partitions();
+            runtime.recordNormalizedPartitionColumns(snapshot, partitions.normalizedColumns());
+            DeltaLakeStatementScope.fileCount(session, delta).value = partitions.fileCount();
+            fileCountObserver.accept(partitions.fileCount());
+            List<ConnectorPartitionInfo> result = new ArrayList<>(partitions.values().size());
+            partitions.values().forEach((name, values) -> result.add(new ConnectorPartitionInfo(name, values, Map.of(),
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, state.lastChanged(name),
+                    ConnectorPartitionInfo.UNKNOWN, values.values().stream().map(value -> value == null ? "" : value)
+                            .collect(Collectors.toList()),
+                    values.values().stream().map(value -> value == null).collect(Collectors.toList()))));
+            return result;
         });
     }
 
@@ -183,15 +212,20 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
         // Each AddFile carries its partition values, so ordinary scans can filter while enumerating files.
-        return runtime.execute(() -> !((DeltaLakeTableHandle) handle).snapshot(runtime)
-                .getPartitionColumnNames().isEmpty());
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        return delta.kind() == DeltaLakeTableKind.DATA
+                && runtime.execute(() -> !delta.snapshot(runtime).getPartitionColumnNames().isEmpty());
     }
 
     @Override
     public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.kind() != DeltaLakeTableKind.DATA) {
+            return Optional.of(ConnectorMvccPartitionView.unpartitioned());
+        }
         return runtime.execute(() -> {
-            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
+            Snapshot snapshot = delta.snapshot(runtime);
             StructType schema = snapshot.getSchema();
             // FE LIST keys distinguish signed zeros and can narrow DOUBLE to FLOAT. Other types
             // can expose their normal LIST view to consumers such as partitioned materialized views.
@@ -203,11 +237,72 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        if (delta.kind() != DeltaLakeTableKind.DATA) {
+            return Optional.empty();
+        }
+        // The identity covers data, schema and recreation. The quiet window only needs the pinned commit's
+        // wall-clock time, even when the newest changed partition was subsequently removed.
+        return runtime.execute(() -> Optional.of(new ConnectorSqlCacheVersion(
+                String.join("\0", delta.getPath(), Objects.toString(delta.reference().registrationId, ""),
+                        delta.getTableId(), Long.toString(delta.getVersion())),
+                delta.snapshot(runtime).getTimestamp(runtime.engine(delta.reference())))));
+    }
+
+    @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(delta.getVersion())
                 .schemaId(delta.getVersion()).retainSchema(true)
                 .properties(Collections.singletonMap(TABLE_ID, delta.getTableId())).build());
+    }
+
+    @Override
+    public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorTimeTravelSpec spec) {
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.INCREMENTAL) {
+            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+            return Optional.of(runtime.execute(() -> DeltaLakeCdfRange.resolve(session, runtime, delta,
+                    spec.getIncrementalParams()).pin(delta.getTableId())));
+        }
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.VERSION_REF) {
+            throw invalidVersion(spec.getStringValue());
+        }
+        long coordinate;
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.TIMESTAMP) {
+            coordinate = DeltaLakeTimeTravel.parseTimestampMillis(session, spec);
+        } else if (spec.getKind() == ConnectorTimeTravelSpec.Kind.SNAPSHOT_ID) {
+            coordinate = parseVersion(spec.getStringValue());
+        } else {
+            return Optional.empty();
+        }
+        DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+        DeltaLakeTableHandle resolved = DeltaLakeStatementScope.timeTravel(session, delta, spec.getKind(), coordinate,
+                () -> runtime.execute(() -> delta.timeTravel(runtime, spec.getKind(), coordinate)));
+        // applySnapshot reuses the admitted version without re-reading the log or rechecking the clock.
+        DeltaLakeTableHandle pinned = DeltaLakeStatementScope.atVersion(session, delta, resolved.getVersion(),
+                () -> resolved);
+        return beginQuerySnapshot(session, pinned);
+    }
+
+    private static long parseVersion(String value) {
+        long version;
+        try {
+            version = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw invalidVersion(value);
+        }
+        if (version < 0) {
+            throw invalidVersion(value);
+        }
+        return version;
+    }
+
+    private static DorisConnectorException invalidVersion(String value) {
+        return new DorisConnectorException("Delta Lake FOR VERSION AS OF requires a non-negative 64-bit integer: "
+                + value);
     }
 
     @Override
@@ -217,7 +312,20 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         if (!delta.getTableId().equals(snapshot.getProperties().get(TABLE_ID))) {
             throw new DorisConnectorException("Delta snapshot belongs to another table: " + delta.getPath());
         }
-        return runtime.execute(() -> delta.atVersion(runtime, snapshot.getSnapshotId()));
+        if (snapshot.getProperties().containsKey(DeltaLakeCdfRange.START)) {
+            if (delta.kind() != DeltaLakeTableKind.CHANGES) {
+                throw new DorisConnectorException("Delta Lake data tables do not support @incr; use table_changes");
+            }
+            DeltaLakeCdfRange range = DeltaLakeCdfRange.fromPin(snapshot);
+            return loadVersion(session, delta, snapshot.getSchemaId()).withCdf(range);
+        }
+        return delta.getVersion() == snapshot.getSnapshotId()
+                ? delta : loadVersion(session, delta, snapshot.getSnapshotId());
+    }
+
+    private DeltaLakeTableHandle loadVersion(ConnectorSession session, DeltaLakeTableHandle delta, long version) {
+        return DeltaLakeStatementScope.atVersion(session, delta, version,
+                () -> runtime.execute(() -> delta.atVersion(runtime, version)));
     }
 
     @Override

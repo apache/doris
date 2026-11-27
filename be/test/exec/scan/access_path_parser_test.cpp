@@ -346,6 +346,37 @@ TEST(AccessPathParserTest, StructAccessPathMatrix) {
     }
 }
 
+TEST(AccessPathParserTest, NamePathsDistinguishNumericStructNamesFromFieldIds) {
+    auto scalar = std::make_shared<DataTypeInt32>();
+    auto type =
+            std::make_shared<DataTypeStruct>(DataTypes {scalar, scalar}, Strings {"8", "other"});
+    auto schema = field(100, "s", type, {field(7, "8", scalar), field(8, "other", scalar)});
+    auto column = root_column(100, "s", type);
+    auto path = data_access_path({"s", "8"});
+    auto status =
+            AccessPathParser::build_nested_children(&column, {path}, {path}, &schema, false, false);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    expect_child(column.children.front(), 7, "8");
+    ASSERT_EQ(column.predicate_children.size(), 1);
+    expect_child(column.predicate_children.front(), 7, "8");
+    auto root_id = data_access_path({"100", "8"});
+    EXPECT_FALSE(AccessPathParser::build_nested_children(&column, {root_id}, &schema, false, false)
+                         .ok());
+    column = root_column(100, "s", type);
+    ASSERT_TRUE(AccessPathParser::build_nested_children(&column, {root_id}, &schema).ok());
+    ASSERT_EQ(column.children.size(), 1);
+    expect_child(column.children.front(), 8, "other");
+
+    auto v = root_column(20, "v", std::make_shared<DataTypeVariantV2>());
+    status = AccessPathParser::build_nested_children(
+            &v, {data_access_path({"v", "8"}), data_access_path({"v", "items", "0"})}, nullptr,
+            false, false);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(v.variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"8"}, {"items", "0"}}));
+}
+
 TEST(AccessPathParserTest, CurrentStructNameTakesPriorityOverHistoricalAlias) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},

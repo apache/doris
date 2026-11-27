@@ -49,6 +49,7 @@ import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
 import io.delta.kernel.types.TypeChange;
+import io.delta.kernel.types.VariantType;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -133,6 +134,24 @@ class DeltaLakePredicateConverterTest {
             Assertions.assertTrue(converter.convert(new ConnectorIn(column,
                     List.of(ConnectorLiteral.ofString("one")), negated)).isEmpty());
         }
+    }
+
+    @Test
+    void keepsVariantNullPredicatesResidual() {
+        var schema = new StructType().add("mixed", LongType.LONG).add("v", VariantType.VARIANT);
+        var predicates = new DeltaLakePredicateConverter(schema, ZoneOffset.UTC, List.of(), List.of());
+        var type = ConnectorType.of("VARIANT_COMPUTE_V2");
+        var v = new ConnectorColumnRef("v", type);
+        var nullValue = ConnectorLiteral.ofNull(type);
+        var isNull = new ConnectorIsNull(v, false);
+        Assertions.assertTrue(predicates.convert(isNull).isEmpty());
+        Assertions.assertTrue(predicates.convert(new ConnectorIsNull(v, true)).isEmpty());
+        Assertions.assertTrue(predicates.convert(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ_FOR_NULL, v, nullValue)).isEmpty());
+        Assertions.assertNull(predicates.literal(VariantType.VARIANT, nullValue));
+        var safe = new ConnectorComparison(ConnectorComparison.Operator.EQ, column, ConnectorLiteral.ofLong(1));
+        Assertions.assertEquals(predicates.convert(safe).orElseThrow().toString(),
+                predicates.convert(new ConnectorAnd(List.of(isNull, safe))).orElseThrow().toString());
     }
 
     @Test

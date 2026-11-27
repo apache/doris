@@ -18,6 +18,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.metastore.deltalake.glue.GlueCatalogProperties;
 import org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
@@ -46,7 +47,8 @@ public final class DeltaLakeConnectorProvider implements ConnectorProvider {
     @Override
     public ConnectorSecuritySurface securitySurface() {
         return ConnectorSecuritySurface.ofSsrfEndpoints(
-                UnityCatalogProperties.URI_KEY, UnityCatalogProperties.TOKEN_URI)
+                UnityCatalogProperties.URI_KEY, UnityCatalogProperties.TOKEN_URI, GlueCatalogProperties.ENDPOINT,
+                GlueCatalogProperties.AWS_ENDPOINT, GlueCatalogProperties.AWS_GLUE_ENDPOINT)
                 .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
     }
 

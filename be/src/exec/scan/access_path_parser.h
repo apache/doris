@@ -32,18 +32,21 @@ public:
     static Status build_nested_children(format::ColumnDefinition* column,
                                         const SlotDescriptor* slot_desc,
                                         const format::ColumnDefinition* schema_column,
-                                        bool prefer_exact_name_match = true);
+                                        bool prefer_exact_name_match = true,
+                                        bool match_field_id_paths = true);
 
     static Status build_nested_children(format::ColumnDefinition* column,
                                         const std::vector<TColumnAccessPath>& access_paths,
                                         const format::ColumnDefinition* schema_column,
-                                        bool prefer_exact_name_match = true);
+                                        bool prefer_exact_name_match = true,
+                                        bool match_field_id_paths = true);
 
     static Status build_nested_children(
             format::ColumnDefinition* column,
             const std::vector<TColumnAccessPath>& all_access_paths,
             const std::vector<TColumnAccessPath>& predicate_access_paths,
-            const format::ColumnDefinition* schema_column, bool prefer_exact_name_match = true);
+            const format::ColumnDefinition* schema_column, bool prefer_exact_name_match = true,
+            bool match_field_id_paths = true);
 };
 
 } // namespace doris

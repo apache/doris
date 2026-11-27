@@ -43,11 +43,15 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/endian.h"
+#include "exec/scan/access_path_parser.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
@@ -140,6 +144,16 @@ schema::external::TSchema schema(int64_t id, std::vector<schema::external::TFiel
     schema::external::TSchema result;
     result.__set_schema_id(id);
     result.__set_root_field(root);
+    return result;
+}
+
+schema::external::TFieldPtr struct_field(const std::string& name, int id,
+                                         std::vector<schema::external::TFieldPtr> fields) {
+    auto result = schema_field(name, id);
+    schema::external::TStructField nested;
+    nested.__set_fields(fields);
+    result.field_ptr->nestedField.__set_struct_field(nested);
+    result.field_ptr->__isset.nestedField = true;
     return result;
 }
 
@@ -253,6 +267,107 @@ protected:
     ShardedKVCache cache {1};
     std::vector<ColumnDefinition> columns {table_column(0, "id")};
 };
+
+TEST_F(DeltaReaderTest, ChangeFeedKeepsBothDirectionsOfVectorDifferencesAndPreservesCachedBitmaps) {
+    deltalake::DeltaReader reader;
+    ASSERT_TRUE(init(&reader).ok());
+    for (const auto& [primary, base, expected] :
+         std::vector<std::tuple<size_t, int, std::vector<std::optional<int64_t>>>> {
+                 {1, -1, {0, 7}},
+                 {2, 1, {14}},
+                 {1, 2, {}},
+                 {0, 0, {}},
+                 {2, 0, {7, 14}},
+                 {2, -1, {0, 7, 14}}}) {
+        auto params = table_params(inline_dv(primary));
+        TDeltaLakeCdfDesc cdf;
+        cdf.__set_commit_version(15);
+        cdf.__set_commit_timestamp_millis(0);
+        cdf.__set_constant_change_type("delete");
+        cdf.__set_row_filter_mode(TDeltaLakeCdfRowFilterMode::KEEP_DELETION_VECTOR_DIFF);
+        if (base >= 0) {
+            cdf.__set_base_deletion_vector(inline_dv(base));
+        }
+        params.deltalake_params.__set_cdf(cdf);
+        auto options = split(params);
+        options.all_runtime_filters_applied = true;
+        if (expected.empty()) {
+            options.current_range.__set_path("/missing-cdf-file-should-never-be-opened");
+        }
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        EXPECT_EQ(reader.current_split_pruned(), expected.empty());
+        EXPECT_FALSE(reader._supports_aggregate_pushdown(TPushAggOp::COUNT));
+        EXPECT_FALSE(reader._supports_aggregate_pushdown(TPushAggOp::MINMAX));
+        EXPECT_FALSE(reader._should_enable_condition_cache(FileScanRequest {}));
+        if (!expected.empty()) {
+            std::vector<std::optional<int64_t>> ids;
+            read(&reader, &ids);
+            EXPECT_EQ(ids, expected);
+        }
+    }
+    ASSERT_TRUE(reader.prepare_split(split(table_params(inline_dv(2)))).ok());
+    std::vector<std::optional<int64_t>> ordinary;
+    read(&reader, &ordinary);
+    EXPECT_EQ(ordinary.size(), 47);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(DeltaReaderTest, PhysicalChangeTypeUsesItsLiteralNameInEveryMappingMode) {
+    columns = {typed_column(-1, "_change_type", std::make_shared<DataTypeString>())};
+    for (auto mode : {TDeltaLakeColumnMappingMode::NONE, TDeltaLakeColumnMappingMode::NAME,
+                      TDeltaLakeColumnMappingMode::ID}) {
+        SCOPED_TRACE(mode);
+        scan_params.__set_deltalake_column_mapping_mode(mode);
+        scan_params.__set_current_schema_id(42);
+        scan_params.__set_history_schema_info(
+                {schema(42, {schema_field("some_physical_name", 1)})});
+        deltalake::DeltaReader reader;
+        ASSERT_TRUE(init(&reader).ok());
+        auto params = table_params(std::nullopt, 42);
+        TDeltaLakeCdfDesc cdf;
+        cdf.__set_commit_version(2);
+        cdf.__set_commit_timestamp_millis(0);
+        params.deltalake_params.__set_cdf(cdf);
+        ASSERT_TRUE(reader.prepare_split(split(params, "spark-cdf-update.parquet")).ok());
+        std::vector<std::vector<std::string>> rows;
+        read_strings(&reader, &rows);
+        std::ranges::sort(rows);
+        EXPECT_EQ(rows, (std::vector<std::vector<std::string>> {{"update_postimage"},
+                                                                {"update_preimage"}}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(DeltaReaderTest, ChangeFeedConstantsUseSessionZoneOnlyForWallClockTimestamps) {
+    auto& factory = DataTypeFactory::instance();
+    for (auto type : {TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ}) {
+        for (const auto* zone : {"UTC", "America/Los_Angeles"}) {
+            state.set_timezone(zone);
+            columns = {typed_column(-1, "_commit_timestamp",
+                                    factory.create_data_type(type, false, 0, 6)),
+                       typed_column(-1, "_commit_version", std::make_shared<DataTypeInt64>()),
+                       typed_column(-1, "_change_type", std::make_shared<DataTypeString>())};
+            deltalake::DeltaReader reader;
+            ASSERT_TRUE(init(&reader).ok());
+            auto params = table_params();
+            TDeltaLakeCdfDesc cdf;
+            cdf.__set_commit_version(19);
+            cdf.__set_commit_timestamp_millis(-1);
+            cdf.__set_constant_change_type("insert");
+            params.deltalake_params.__set_cdf(cdf);
+            ASSERT_TRUE(reader.prepare_split(split(params)).ok());
+            std::vector<std::vector<std::string>> rows;
+            read_strings(&reader, &rows);
+            ASSERT_EQ(50, rows.size());
+            bool local = type == TYPE_DATETIMEV2 && std::string_view(zone) == "America/Los_Angeles";
+            EXPECT_EQ(rows[0][0].substr(0, 26),
+                      local ? "1969-12-31 15:59:59.999000" : "1969-12-31 23:59:59.999000");
+            EXPECT_EQ(rows[0][1], "19");
+            EXPECT_EQ(rows[0][2], "insert");
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+}
 
 TEST_F(DeltaReaderTest, ReadsSparkDataWithPartitionAndNoDeletionVector) {
     columns.push_back(table_column(1, "partition"));
@@ -533,7 +648,194 @@ TEST_F(DeltaReaderTest, DeletionVectorsUseFileGlobalPositionsAcrossByteRanges) {
     }
     EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheMissCount")->value(), 2);
     EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheHitCount")->value(), 10);
+    auto changes = table_params(inline_dv(2));
+    TDeltaLakeCdfDesc cdf;
+    cdf.__set_commit_version(3);
+    cdf.__set_commit_timestamp_millis(1000);
+    cdf.__set_constant_change_type("delete");
+    cdf.__set_base_deletion_vector(inline_dv(0));
+    cdf.__set_row_filter_mode(TDeltaLakeCdfRowFilterMode::KEEP_DELETION_VECTOR_DIFF);
+    changes.deltalake_params.__set_cdf(cdf);
+    std::vector<std::optional<int64_t>> changed_ids;
+    for (int group = 0; group < metadata->num_row_groups(); ++group) {
+        const auto chunk = metadata->RowGroup(group)->ColumnChunk(0);
+        auto options = split(changes, path.c_str());
+        options.current_range.__set_start_offset(chunk->data_page_offset());
+        options.current_range.__set_size(chunk->total_compressed_size());
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        read(&reader, &changed_ids);
+    }
+    EXPECT_EQ(changed_ids, (std::vector<std::optional<int64_t>> {7, 14}));
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(DeltaReaderTest, ReadsUnannotatedVariantsAcrossSplitsWithColumnMappingAndDeletes) {
+    for (auto mode : {TDeltaLakeColumnMappingMode::NONE, TDeltaLakeColumnMappingMode::NAME,
+                      TDeltaLakeColumnMappingMode::ID}) {
+        SCOPED_TRACE(mode);
+        const bool mapped = mode != TDeltaLakeColumnMappingMode::NONE;
+        const std::string logical_name = mapped ? "renamed" : "v";
+        scan_params.__set_deltalake_column_mapping_mode(mode);
+        if (mapped) {
+            scan_params.__set_current_schema_id(0);
+            scan_params.__set_history_schema_info({schema(0, {schema_field(logical_name, 7)}),
+                                                   schema(1, {schema_field("v", 7)})});
+        }
+        columns = {typed_column(7, logical_name, std::make_shared<DataTypeVariantV2>())};
+        deltalake::DeltaReader reader;
+        ASSERT_TRUE(init(&reader).ok());
+        const std::optional<int64_t> file_schema =
+                mapped ? std::optional<int64_t>(1) : std::nullopt;
+        // The Variant's file-local ordinal changes between these two files. The second split
+        // also deletes its first row, so both the fresh override and the base delete filter are required.
+        ASSERT_TRUE(reader.prepare_split(split(table_params(std::nullopt, file_schema),
+                                               "variant-plain.parquet"))
+                            .ok());
+        std::vector<std::vector<std::string>> rows;
+        read_strings(&reader, &rows);
+        ASSERT_TRUE(reader.prepare_split(split(table_params(inline_dv(0), file_schema),
+                                               "variant-shredded.parquet"))
+                            .ok());
+        read_strings(&reader, &rows);
+        EXPECT_EQ(rows,
+                  (std::vector<std::vector<std::string>> {
+                          {R"({"a":1,"b":"one"})"}, {R"([1,"x"])"}, {R"({"a":3,"b":"three"})"}}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(DeltaReaderTest, ReadsVariantsInsideContainersWithoutReinterpretingOrdinaryStructs) {
+    for (auto mode : {TDeltaLakeColumnMappingMode::NONE, TDeltaLakeColumnMappingMode::NAME,
+                      TDeltaLakeColumnMappingMode::ID}) {
+        SCOPED_TRACE(mode);
+        scan_params.__set_deltalake_column_mapping_mode(mode);
+        const bool mapped = mode != TDeltaLakeColumnMappingMode::NONE;
+        if (mapped) {
+            scan_params.__set_current_schema_id(0);
+            scan_params.__set_history_schema_info({schema(
+                    0, {struct_field("box", 8, {schema_field("inner", 9)}), schema_field("arr", 10),
+                        schema_field("m", 11),
+                        struct_field("ordinary", 12,
+                                     {schema_field("metadata", 13), schema_field("value", 14)})})});
+        }
+        const std::optional<int64_t> file_schema =
+                mapped ? std::optional<int64_t>(0) : std::nullopt;
+        auto variant = make_nullable(std::make_shared<DataTypeVariantV2>());
+        auto string = make_nullable(std::make_shared<DataTypeString>());
+        columns = {typed_column(8, "box",
+                                std::make_shared<DataTypeStruct>(DataTypes {variant},
+                                                                 Strings {"inner"})),
+                   typed_column(10, "arr", std::make_shared<DataTypeArray>(variant)),
+                   typed_column(11, "m", std::make_shared<DataTypeMap>(string, variant)),
+                   typed_column(12, "ordinary",
+                                std::make_shared<DataTypeStruct>(DataTypes {string, string},
+                                                                 Strings {"metadata", "value"}))};
+        deltalake::DeltaReader reader;
+        for (auto& column : columns) {
+            ProjectedColumnBuildContext context {.scan_params = &scan_params};
+            ASSERT_TRUE(
+                    reader.annotate_projected_column(TFileScanSlotInfo {}, &context, &column).ok());
+            ASSERT_TRUE(AccessPathParser::build_nested_children(
+                                &column, std::vector<TColumnAccessPath> {},
+                                context.schema_column ? &*context.schema_column : nullptr, false,
+                                reader.uses_field_id_access_paths())
+                                .ok());
+        }
+        ASSERT_TRUE(init(&reader).ok());
+        std::vector<std::string> actual;
+        for (const char* file : {"variant-plain.parquet", "variant-shredded.parquet"}) {
+            ASSERT_TRUE(reader.prepare_split(split(table_params(std::nullopt, file_schema), file))
+                                .ok());
+            bool eos = false;
+            while (!eos) {
+                Block block;
+                for (const auto& column : columns) {
+                    block.insert({column.type->create_column(), column.type, column.name});
+                }
+                auto status = reader.get_block(&block, &eos);
+                ASSERT_TRUE(status.ok()) << status;
+                auto nested = [&](size_t index) -> const IColumn& {
+                    return assert_cast<const ColumnNullable&>(*block.get_by_position(index).column)
+                            .get_nested_column();
+                };
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    const auto& inner = assert_cast<const ColumnStruct&>(nested(0)).get_column(0);
+                    const auto& array = assert_cast<const ColumnArray&>(nested(1));
+                    const auto& map = assert_cast<const ColumnMap&>(nested(2));
+                    actual.push_back(variant->to_string(inner, row));
+                    EXPECT_EQ(variant->to_string(array.get_data(), array.offset_at(row)),
+                              actual.back());
+                    EXPECT_EQ(variant->to_string(map.get_values(), map.offset_at(row)),
+                              actual.back());
+                    const auto& ordinary = assert_cast<const ColumnStruct&>(nested(3));
+                    EXPECT_EQ(string->to_string(ordinary.get_column(0), row), "m");
+                    EXPECT_EQ(string->to_string(ordinary.get_column(1), row), "v");
+                }
+            }
+        }
+        EXPECT_EQ(actual,
+                  (std::vector<std::string> {R"({"a":1,"b":"one"})", R"([1,"x"])",
+                                             R"({"a":2,"b":"typed"})", R"({"a":3,"b":"three"})"}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(DeltaReaderTest, NameMappingRestoresTheNestedFileTimestampType) {
+    auto instant = schema_field("ts", 7);
+    instant.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::NAME);
+    scan_params.__set_current_schema_id(0);
+    scan_params.__set_history_schema_info({schema(0, {struct_field("s", 1, {instant})})});
+    auto ts = typed_column(7, "ts", create_datetimev2(6));
+    auto root = typed_column(1, "s",
+                             std::make_shared<DataTypeStruct>(DataTypes {ts.type}, Strings {"ts"}));
+    root.children = {ts};
+    std::vector<ColumnDefinition> file_schema {root};
+    deltalake::DeltaReader reader;
+    ASSERT_TRUE(init(&reader).ok());
+    reader._split_schema_id = 0;
+    ASSERT_TRUE(reader.annotate_file_schema(&file_schema).ok());
+    const auto& type = assert_cast<const DataTypeStruct&>(*remove_nullable(file_schema[0].type));
+    EXPECT_EQ(remove_nullable(type.get_element(0))->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_TRUE(type.get_element(0)->equals(*file_schema[0].children[0].type));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(DeltaReaderTest, NamePathsKeepScalarSlotTypesWhenDictionaryCarriesOnlyIdentity) {
+    auto& factory = DataTypeFactory::instance();
+    Strings names {"n", "price", "instant", "wall", "bytes", "text"};
+    DataTypes types {factory.create_data_type(TYPE_INT, true),
+                     factory.create_data_type(TYPE_DECIMAL64, true, 15, 4),
+                     factory.create_data_type(TYPE_TIMESTAMPTZ, true, 0, 6),
+                     factory.create_data_type(TYPE_DATETIMEV2, true, 0, 6),
+                     factory.create_data_type(TYPE_VARBINARY, true),
+                     factory.create_data_type(TYPE_STRING, true)};
+    std::vector<schema::external::TFieldPtr> fields;
+    for (size_t i = 0; i < names.size(); ++i) {
+        fields.push_back(schema_field(names[i], static_cast<int>(i) + 7));
+    }
+    scan_params.__set_current_schema_id(0);
+    scan_params.__set_history_schema_info({schema(0, {struct_field("s", 1, fields)})});
+    deltalake::DeltaReader reader;
+    ASSERT_FALSE(reader.uses_field_id_access_paths());
+    for (size_t i = 0; i < names.size(); ++i) {
+        auto column = typed_column(1, "s", std::make_shared<DataTypeStruct>(types, names));
+        ProjectedColumnBuildContext context {.scan_params = &scan_params};
+        ASSERT_TRUE(reader.annotate_projected_column(TFileScanSlotInfo {}, &context, &column).ok());
+        ASSERT_TRUE(context.schema_column.has_value());
+        TDataAccessPath data;
+        data.__set_path({"s", names[i]});
+        TColumnAccessPath path;
+        path.__set_type(TAccessPathType::DATA);
+        path.__set_data_access_path(data);
+        ASSERT_TRUE(AccessPathParser::build_nested_children(&column, {path},
+                                                            &*context.schema_column, false,
+                                                            reader.uses_field_id_access_paths())
+                            .ok());
+        ASSERT_EQ(column.children.size(), 1);
+        EXPECT_TRUE(column.children[0].type->equals(*types[i])) << names[i];
+        EXPECT_EQ(column.children[0].get_identifier_field_id(), static_cast<int>(i) + 7);
+    }
 }
 
 TEST_F(DeltaReaderTest, MapsPhysicalNameToRenamedLogicalColumn) {

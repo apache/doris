@@ -30,165 +30,18 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_struct.h"
-#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/paimon_rust_table_reader.h"
+#include "format_v2/table/parquet_variant_schema.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "util/string_util.h"
 
 namespace doris::format::paimon {
-namespace {
-
-ColumnDefinition* find_file_column(const ColumnDefinition& table_column,
-                                   std::vector<ColumnDefinition>* file_schema,
-                                   TableColumnMappingMode mode) {
-    DORIS_CHECK(file_schema != nullptr);
-    if (mode == TableColumnMappingMode::BY_FIELD_ID) {
-        if (!table_column.has_identifier_field_id()) {
-            return nullptr;
-        }
-        const auto field_id = table_column.get_identifier_field_id();
-        const auto it = std::ranges::find_if(*file_schema, [&](const auto& file_column) {
-            return file_column.has_identifier_field_id() &&
-                   file_column.get_identifier_field_id() == field_id;
-        });
-        return it == file_schema->end() ? nullptr : &*it;
-    }
-    const auto* matched = format::find_column_by_name(table_column, *file_schema);
-    return matched == nullptr ? nullptr : &(*file_schema)[matched - file_schema->data()];
-}
-
-void rebuild_complex_type(ColumnDefinition* column) {
-    DORIS_CHECK(column != nullptr);
-    const bool nullable = column->type->is_nullable();
-    const auto primitive = remove_nullable(column->type)->get_primitive_type();
-    DataTypePtr rebuilt;
-    if (primitive == TYPE_ARRAY && column->children.size() == 1) {
-        rebuilt = std::make_shared<DataTypeArray>(column->children[0].type);
-    } else if (primitive == TYPE_MAP && column->children.size() == 2) {
-        rebuilt = std::make_shared<DataTypeMap>(column->children[0].type, column->children[1].type);
-    } else if (primitive == TYPE_STRUCT) {
-        DataTypes child_types;
-        Strings child_names;
-        child_types.reserve(column->children.size());
-        child_names.reserve(column->children.size());
-        for (const auto& child : column->children) {
-            child_types.push_back(child.type);
-            child_names.push_back(child.name);
-        }
-        rebuilt = std::make_shared<DataTypeStruct>(std::move(child_types), std::move(child_names));
-    }
-    if (rebuilt != nullptr) {
-        column->type = nullable ? make_nullable(std::move(rebuilt)) : std::move(rebuilt);
-    }
-}
-
-Status add_variant_schema_override(const std::vector<int32_t>& path,
-                                   std::vector<LocalColumnIndex>* overrides) {
-    DORIS_CHECK(!path.empty());
-    DORIS_CHECK(overrides != nullptr);
-    auto projection = LocalColumnIndex::local(path.back());
-    for (size_t path_idx = path.size() - 1; path_idx > 0; --path_idx) {
-        auto parent = LocalColumnIndex::partial_local(path[path_idx - 1]);
-        parent.children.push_back(std::move(projection));
-        projection = std::move(parent);
-    }
-    const auto existing = std::ranges::find_if(*overrides, [&](const auto& override) {
-        return override.local_id() == projection.local_id();
-    });
-    if (existing == overrides->end()) {
-        overrides->push_back(std::move(projection));
-    } else {
-        RETURN_IF_ERROR(merge_local_column_index(&*existing, projection));
-    }
-    return Status::OK();
-}
-
-bool contains_variant_type(const ColumnDefinition& column) {
-    if (column.type != nullptr &&
-        remove_nullable(column.type)->get_primitive_type() == TYPE_VARIANT) {
-        return true;
-    }
-    return std::ranges::any_of(column.children, contains_variant_type);
-}
-
-Status annotate_matched_paimon_variant(const ColumnDefinition& table_column,
-                                       ColumnDefinition* file_column, TableColumnMappingMode mode,
-                                       const std::vector<int32_t>& prefix,
-                                       std::vector<LocalColumnIndex>* overrides) {
-    DORIS_CHECK(file_column != nullptr);
-    if (!contains_variant_type(table_column) || table_column.type == nullptr ||
-        file_column->type == nullptr) {
-        return Status::OK();
-    }
-    auto path = prefix;
-    path.push_back(file_column->local_id);
-    const auto table_primitive = remove_nullable(table_column.type)->get_primitive_type();
-    const auto file_primitive = remove_nullable(file_column->type)->get_primitive_type();
-    if (table_primitive == TYPE_VARIANT) {
-        if (file_primitive == TYPE_STRUCT) {
-            // Paimon omits the Parquet VARIANT annotation, so only a matched table Variant may
-            // reinterpret this carrier; ordinary STRUCT<value, metadata> must stay a STRUCT.
-            DataTypePtr variant = std::make_shared<DataTypeVariantV2>();
-            file_column->type = file_column->type->is_nullable() ? make_nullable(std::move(variant))
-                                                                 : std::move(variant);
-            RETURN_IF_ERROR(add_variant_schema_override(path, overrides));
-        }
-        return Status::OK();
-    }
-    if (table_column.children.empty() || file_column->children.empty() ||
-        table_primitive != file_primitive) {
-        return Status::OK();
-    }
-    if (table_primitive == TYPE_ARRAY || table_primitive == TYPE_MAP) {
-        const auto child_count =
-                std::min(table_column.children.size(), file_column->children.size());
-        for (size_t child_idx = 0; child_idx < child_count; ++child_idx) {
-            // ARRAY/MAP child names are writer-specific structural labels, so match these nodes by
-            // position and reserve name/field-id matching for actual STRUCT members.
-            RETURN_IF_ERROR(annotate_matched_paimon_variant(table_column.children[child_idx],
-                                                            &file_column->children[child_idx], mode,
-                                                            path, overrides));
-        }
-    } else if (table_primitive == TYPE_STRUCT) {
-        for (const auto& table_child : table_column.children) {
-            auto* file_child = find_file_column(table_child, &file_column->children, mode);
-            if (file_child != nullptr) {
-                RETURN_IF_ERROR(annotate_matched_paimon_variant(table_child, file_child, mode, path,
-                                                                overrides));
-            }
-        }
-    }
-    rebuild_complex_type(file_column);
-    return Status::OK();
-}
-
-Status annotate_paimon_variants(const std::vector<ColumnDefinition>& table_schema,
-                                std::vector<ColumnDefinition>* file_schema,
-                                TableColumnMappingMode mode,
-                                std::vector<LocalColumnIndex>* overrides) {
-    DORIS_CHECK(file_schema != nullptr);
-    for (const auto& table_column : table_schema) {
-        auto* file_column = find_file_column(table_column, file_schema, mode);
-        if (file_column != nullptr) {
-            RETURN_IF_ERROR(annotate_matched_paimon_variant(table_column, file_column, mode, {},
-                                                            overrides));
-        }
-    }
-    return Status::OK();
-}
-
-} // namespace
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     {
@@ -240,12 +93,8 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
         for (auto& column : *file_schema) {
             RETURN_IF_ERROR(format::apply_file_timestamp_semantics(&column));
         }
-        const bool projects_variant =
-                std::ranges::any_of(_projected_columns, contains_variant_type);
-        if (projects_variant) {
-            RETURN_IF_ERROR(annotate_paimon_variants(_projected_columns, file_schema, mode,
-                                                     &_variant_schema_overrides));
-        }
+        RETURN_IF_ERROR(annotate_parquet_variants(_projected_columns, file_schema, mode,
+                                                  &_variant_schema_overrides));
     }
     return Status::OK();
 }

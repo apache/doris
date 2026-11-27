@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValue
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableChanges;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 
 import com.google.common.collect.ImmutableList;
@@ -69,6 +70,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Partitions.class, "partitions"),
             tableValued(IndexDiskUsage.class, "index_disk_usage"),
             tableValued(Jobs.class, "jobs"),
+            tableValued(TableChanges.class, "table_changes"),
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),

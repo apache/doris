@@ -35,7 +35,7 @@ class DeltaLakeCatalogPropertiesTest {
                 () -> DeltaLakeCatalogProperties.of(Collections.emptyMap()));
         DeltaLakeCatalogProperties properties =
                 DeltaLakeCatalogProperties.of(Collections.singletonMap("warehouse", "s3://bucket/warehouse"));
-        Assertions.assertEquals("filesystem", properties.getCatalogType());
+        Assertions.assertEquals(DeltaLakeCatalogType.FILESYSTEM, properties.getCatalogType());
         Assertions.assertInstanceOf(FileSystemMetaStoreProperties.class, properties.getMetastore());
     }
 
@@ -51,10 +51,19 @@ class DeltaLakeCatalogPropertiesTest {
     }
 
     @Test
+    void bindsGlueWithoutAWarehouse() {
+        DeltaLakeCatalogProperties properties = DeltaLakeCatalogProperties.of(Map.of(
+                "deltalake.catalog.type", "GlUe", "glue.region", "us-west-2"));
+        Assertions.assertEquals(DeltaLakeCatalogType.GLUE, properties.getCatalogType());
+        Assertions.assertEquals("GLUE", properties.getMetastore().providerName());
+        Assertions.assertTrue(properties.getMetastore().needsStorage());
+    }
+
+    @Test
     void rejectsUnknownMetastore() {
         IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> DeltaLakeCatalogProperties.of(Collections.singletonMap("deltalake.catalog.type", "glue")));
-        Assertions.assertTrue(error.getMessage().contains("glue"));
+                () -> DeltaLakeCatalogProperties.of(Collections.singletonMap("deltalake.catalog.type", "unsupported")));
+        Assertions.assertTrue(error.getMessage().contains("unsupported"));
     }
 
     @Test

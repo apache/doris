@@ -5,3 +5,27 @@
 -- !warm_count --
 1000000
 
+-- !files_full_true --
+1000000	527000000
+
+-- !files_limit_true --
+527
+
+-- !files_late_true --
+planning-only-00999999.parquet
+
+-- !files_top_true --
+527	planning-only-00000000.parquet
+
+-- !files_full_false --
+1000000	527000000
+
+-- !files_limit_false --
+527
+
+-- !files_late_false --
+planning-only-00999999.parquet
+
+-- !files_top_false --
+527	planning-only-00000000.parquet
+

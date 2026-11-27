@@ -29,7 +29,6 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.TableManager;
 import io.delta.kernel.defaults.engine.DefaultEngine;
@@ -290,7 +289,7 @@ class DeltaLakeStatisticsCacheTest {
         Path table = createTable();
         add(table, "a.parquet", 100, 10L);
         add(table, "b.parquet", 200, 20L);
-        checksum(table, 0, 2, 300);
+        DeltaLakeTestTables.checksum(table, 0, 2, 300);
         try (Connector connector = new DeltaLakeConnectorProvider().create(Map.of("warehouse", warehouse.toString()),
                 new RecordingConnectorContext()); ConnectorMetadata metadata = connector.getMetadata(null)) {
             TestingConnectorSession session = new TestingConnectorSession("crc");
@@ -307,7 +306,7 @@ class DeltaLakeStatisticsCacheTest {
         Path table = createTable();
         add(table, "a.parquet", 100, 10L);
         add(table, "b.parquet", 200, 20L);
-        checksum(table, 0, 2, 300);
+        DeltaLakeTestTables.checksum(table, 0, 2, 300);
         Snapshot first = snapshot(table, 0);
         Assertions.assertEquals(collected, DeltaLakeStatisticsCache.collect(first, engine));
         Assertions.assertEquals(fallback, DeltaKernelCompat.tableStatistics(first));
@@ -322,7 +321,7 @@ class DeltaLakeStatisticsCacheTest {
     @Test
     void emptyMissingAndInvalidStatisticsStayDistinct() throws Exception {
         Path table = createTable();
-        checksum(table, 0, 0, 0);
+        DeltaLakeTestTables.checksum(table, 0, 0, 0);
         Assertions.assertEquals(new ConnectorTableStatistics(0, 0),
                 DeltaKernelCompat.tableStatistics(snapshot(table, 0)).orElseThrow());
         Assertions.assertEquals(new Statistics(new ConnectorTableStatistics(0, 0), 0),
@@ -409,15 +408,6 @@ class DeltaLakeStatisticsCacheTest {
         Files.writeString(table.resolve("_delta_log/00000000000000000000.json"),
                 "{\"add\":{\"path\":\"" + path + "\",\"partitionValues\":{},\"size\":" + size
                         + ",\"modificationTime\":0,\"dataChange\":true" + stats + "}}\n", StandardOpenOption.APPEND);
-    }
-
-    private void checksum(Path table, long version, long files, long bytes) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        List<String> actions = Files.readAllLines(table.resolve("_delta_log/00000000000000000000.json"));
-        Files.writeString(table.resolve(String.format("_delta_log/%020d.crc", version)), mapper.writeValueAsString(Map.of(
-                "tableSizeBytes", bytes, "numFiles", files, "numMetadata", 1, "numProtocol", 1,
-                "metadata", mapper.readTree(actions.get(1)).get("metaData"),
-                "protocol", mapper.readTree(actions.get(0)).get("protocol"))));
     }
 
     private static ConnectorTableStatistics await(Callable<Optional<ConnectorTableStatistics>> action, long rows)

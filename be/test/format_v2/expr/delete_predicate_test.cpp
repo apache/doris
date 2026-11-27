@@ -64,8 +64,9 @@ protected:
     }
 
     static Status execute_delete_predicate(const roaring::Roaring64Map& deletion_vector,
-                                           Block* block, int* result_column_id) {
-        auto delete_predicate = std::make_shared<DeletePredicate>(deletion_vector);
+                                           Block* block, int* result_column_id,
+                                           bool invert = false) {
+        auto delete_predicate = std::make_shared<DeletePredicate>(deletion_vector, invert);
         delete_predicate->_open_finished = true;
         delete_predicate->add_child(
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>()));
@@ -74,6 +75,19 @@ protected:
         return delete_predicate->execute(&context, block, result_column_id);
     }
 };
+
+TEST_F(DeletePredicateTest, KeepsOnlySelectedPositionsInSparseAndEmptyBitmaps) {
+    roaring::Roaring64Map selected;
+    auto empty = make_block({1, 2, 9});
+    int index = -1;
+    ASSERT_TRUE(execute_delete_predicate(selected, &empty, &index, true).ok());
+    EXPECT_EQ(result_column_data(empty, index), std::vector<UInt8>({1, 1, 1}));
+    selected.add(uint64_t(2));
+    selected.add(uint64_t(8));
+    auto sparse = make_block({1, 2, 9});
+    ASSERT_TRUE(execute_delete_predicate(selected, &sparse, &index, true).ok());
+    EXPECT_EQ(result_column_data(sparse, index), std::vector<UInt8>({1, 0, 1}));
+}
 
 TEST_F(DeletePredicateTest, MatchDeletedRowsInInputRange) {
     const std::vector<int64_t> deleted_rows {-3, 1, 4, 8, 12, 20};

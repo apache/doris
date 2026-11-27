@@ -516,9 +516,57 @@ enum TDeltaLakeColumnMappingMode {
     ID = 2
 }
 
+// Inline data for a native Delta system table split. An unset value is SQL NULL.
+struct TDeltaLakeSysTableField {
+    1: optional bool bool_val
+    2: optional i64 int64_val
+    3: optional double double_val
+    4: optional string string_val
+    5: optional i64 timestamp_millis
+    6: optional list<TDeltaLakeSysTableField> array_val
+    7: optional list<TDeltaLakeSysTableMapEntry> map_val
+    8: optional list<TDeltaLakeSysTableField> struct_val
+}
+
+struct TDeltaLakeSysTableMapEntry {
+    1: optional string key
+    2: optional TDeltaLakeSysTableField value
+}
+
+struct TDeltaLakeSysTableColumn {
+    1: optional i32 schema_ordinal
+    2: optional string name
+}
+
+struct TDeltaLakeSysTableRow {
+    1: optional list<TDeltaLakeSysTableField> cells
+}
+
+struct TDeltaLakeSysTableBatch {
+    // cells[i] is columns[i]. A count-only scan sends one empty row per result.
+    1: optional list<TDeltaLakeSysTableColumn> columns
+    2: optional list<TDeltaLakeSysTableRow> rows
+}
+
+enum TDeltaLakeCdfRowFilterMode {
+    EXCLUDE_DELETION_VECTOR = 0,
+    KEEP_DELETION_VECTOR_DIFF = 1
+}
+
+struct TDeltaLakeCdfDesc {
+    1: optional i64 commit_version
+    2: optional i64 commit_timestamp_millis
+    // Absent for change data files, which contain a physical _change_type column.
+    3: optional string constant_change_type
+    4: optional TDeltaLakeCdfRowFilterMode row_filter_mode
+    5: optional TDeltaLakeDeletionVectorDesc base_deletion_vector
+}
+
 struct TDeltaLakeFileDesc {
     1: optional i64 schema_id
     2: optional TDeltaLakeDeletionVectorDesc deletion_vector
+    3: optional TDeltaLakeSysTableBatch sys_table_batch
+    4: optional TDeltaLakeCdfDesc cdf
 }
 
 // Deprecated: the associated external table read support has been removed.

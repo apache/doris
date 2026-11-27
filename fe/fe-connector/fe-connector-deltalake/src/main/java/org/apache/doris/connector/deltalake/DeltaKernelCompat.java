@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.ColumnVector;
+import io.delta.kernel.data.MapValue;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.internal.data.DefaultColumnarBatch;
 import io.delta.kernel.defaults.internal.data.vector.DefaultGenericVector;
@@ -30,11 +31,17 @@ import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.expressions.PredicateEvaluator;
 import io.delta.kernel.internal.InternalScanFileUtils;
+import io.delta.kernel.internal.TableConfig;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
+import io.delta.kernel.internal.fs.Path;
 import io.delta.kernel.internal.snapshot.LogSegment;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
+import io.delta.kernel.internal.util.FileNames;
+import io.delta.kernel.internal.util.IntervalParserUtils;
 import io.delta.kernel.internal.util.PartitionUtils;
+import io.delta.kernel.internal.util.Utils;
+import io.delta.kernel.internal.util.VectorUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.DataType;
@@ -42,23 +49,163 @@ import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
+import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** The only production class coupled to Kernel internal APIs; pinned to Kernel 4.4.1. */
 final class DeltaKernelCompat {
+    private static final Pattern CALENDAR_TERM = Pattern.compile(
+            "(?<=\\p{javaWhitespace})((?:[+-]\\p{javaWhitespace}*)?)([0-9]+)(\\p{javaWhitespace}+)(year|month)s?\\b");
+
     private DeltaKernelCompat() {
     }
 
     static String tableId(Snapshot snapshot) {
         return snapshot.getMetadata().getId();
+    }
+
+    static long deletedFileRetentionMillis(Map<String, String> properties) {
+        TableConfig<Long> retention = TableConfig.TOMBSTONE_RETENTION;
+        String value = properties.get(retention.getKey());
+        if (value == null) {
+            return retention.fromMetadata(properties);
+        }
+        String interval = value.trim().toLowerCase(Locale.ROOT);
+        if (!interval.startsWith("interval ")) {
+            interval = "interval " + interval;
+        }
+        long micros = IntervalParserUtils.parseIntervalAsMicros(withoutCalendarMonths(interval));
+        if (micros < 0) {
+            throw new IllegalArgumentException(retention.getKey() + " must be non-negative: " + value);
+        }
+        return TimeUnit.MICROSECONDS.toMillis(micros);
+    }
+
+    // Spark accepts a zero total calendar-month component. Kernel 4.4.1 rejects month and year tokens outright.
+    private static String withoutCalendarMonths(String interval) {
+        Matcher term = CALENDAR_TERM.matcher(interval);
+        if (!term.find()) {
+            return interval;
+        }
+        int months = 0;
+        StringBuilder fixed = new StringBuilder(interval.length());
+        do {
+            String sign = term.group(1);
+            try {
+                long quantity = Long.parseLong(term.group(2));
+                if (sign.startsWith("-")) {
+                    quantity = -quantity;
+                }
+                if ("year".equals(term.group(4))) {
+                    months = Math.toIntExact(Math.addExact(months, Math.multiplyExact(quantity, 12L)));
+                } else {
+                    months = Math.addExact(months, Math.toIntExact(quantity));
+                }
+            } catch (ArithmeticException | NumberFormatException e) {
+                throw new IllegalArgumentException("Calendar months out of range in Delta retention: " + interval, e);
+            }
+            // Keep the sign and separators so malformed tokens still fail Kernel's syntax checks.
+            term.appendReplacement(fixed, sign + "0" + term.group(3) + "days");
+        } while (term.find());
+        if (months != 0) {
+            throw new IllegalArgumentException("Delta retention requires zero total calendar months: " + interval);
+        }
+        return term.appendTail(fixed).toString();
+    }
+
+    static long commitVersion(FileStatus file) {
+        return FileNames.deltaVersion(file.getPath());
+    }
+
+    static Map<String, String> partitionValues(MapValue values) {
+        return VectorUtils.toJavaMap(values);
+    }
+
+    static long monotonicMtime(long previous, long mtime) {
+        return mtime <= previous ? Math.incrementExact(previous) : mtime;
+    }
+
+    static OptionalLong earliestHistoryVersion(Engine engine, Snapshot snapshot) throws IOException {
+        OptionalLong staged = snapshot.getLogSegment().getAllCatalogCommits().stream()
+                .mapToLong(commit -> commit.getVersion()).min();
+        if (staged.orElse(-1) == 0) {
+            // UC can ratify v0 before any numbered JSON exists in _delta_log.
+            return staged;
+        }
+        Path logPath = new Path(snapshot.getPath(), "_delta_log");
+        try (CloseableIterator<FileStatus> files = engine.getFileSystemClient()
+                .listFrom(FileNames.listingPrefix(logPath, 0))) {
+            while (files.hasNext()) {
+                String path = files.next().getPath();
+                if (FileNames.isPublishedDeltaFile(path)) {
+                    long published = FileNames.deltaVersion(path);
+                    return OptionalLong.of(Math.min(published, staged.orElse(published)));
+                }
+            }
+        }
+        return staged;
+    }
+
+    static boolean changeDataFeedEnabled(Snapshot snapshot) {
+        return TableConfig.CHANGE_DATA_FEED_ENABLED.fromMetadata(snapshot.getMetadata());
+    }
+
+    static OptionalLong historyIctStart(Snapshot snapshot) {
+        var metadata = snapshot.getMetadata();
+        if (!TableConfig.IN_COMMIT_TIMESTAMPS_ENABLED.fromMetadata(metadata)) {
+            return OptionalLong.empty();
+        }
+        Optional<Long> version = TableConfig.IN_COMMIT_TIMESTAMP_ENABLEMENT_VERSION.fromMetadata(metadata);
+        Optional<Long> timestamp = TableConfig.IN_COMMIT_TIMESTAMP_ENABLEMENT_TIMESTAMP.fromMetadata(metadata);
+        if (version.isPresent() != timestamp.isPresent()) {
+            throw new IllegalStateException("Incomplete Delta in-commit timestamp enablement metadata");
+        }
+        return OptionalLong.of(version.orElse(0L));
+    }
+
+    static CloseableIterator<FileStatus> singleLogFile(FileStatus file) {
+        return Utils.toCloseableIterator(List.of(file).iterator());
+    }
+
+    record FileTotals(long files, long bytes) {
+    }
+
+    static Optional<FileTotals> fileTotals(Snapshot snapshot) {
+        return snapshot.getCurrentCrcInfo().map(crc -> new FileTotals(crc.getNumFiles(), crc.getTableSizeBytes()));
+    }
+
+    static String tableDescription(Snapshot snapshot) {
+        return snapshot.getMetadata().getDescription().orElse(null);
+    }
+
+    static Optional<Long> createdTime(Snapshot snapshot) {
+        return snapshot.getMetadata().getCreatedTime();
+    }
+
+    static int minReaderVersion(Snapshot snapshot) {
+        return snapshot.getProtocol().getMinReaderVersion();
+    }
+
+    static int minWriterVersion(Snapshot snapshot) {
+        return snapshot.getProtocol().getMinWriterVersion();
+    }
+
+    static List<String> tableFeatures(Snapshot snapshot) {
+        return snapshot.getProtocol().getReaderAndWriterFeatures().stream().sorted().toList();
     }
 
     static OptionalLong fileCount(Snapshot snapshot) {
@@ -72,16 +219,19 @@ final class DeltaKernelCompat {
                 crc.getNumFiles() == 0 ? 0 : -1, crc.getTableSizeBytes()));
     }
 
-    static long snapshotRetainedBytes(Snapshot snapshot) {
-        // Materialize the read-side lazy metadata before publishing across queries. Kernel's Lazy
-        // is not synchronized. Never retain scan iterators or the active AddFile list in this cache.
+    static void prepareForConcurrentReads(Snapshot snapshot) {
+        // Kernel's Lazy is not synchronized. Materialize read-side metadata before sharing a snapshot.
         snapshot.getSchema();
         snapshot.getTableProperties();
         snapshot.getMetadata().getDataSchema();
         snapshot.getScanBuilder();
         snapshot.getCurrentCrcInfo();
+        snapshot.getLogSegment().allFilesWithCompactionsReversed();
+    }
+
+    static long snapshotRetainedBytes(Snapshot snapshot) {
+        prepareForConcurrentReads(snapshot);
         LogSegment segment = snapshot.getLogSegment();
-        segment.allFilesWithCompactionsReversed();
         // Kernel 4.4.1 retains metadata/schema copies, lazy lookup maps and log FileStatus lists.
         // Charge a conservative expansion of schema JSON and CRC bytes, including optional allFiles
         // embedded in a CRC. The catalog's shared Engine/FileIO service graph is not entry-owned.
@@ -168,8 +318,37 @@ final class DeltaKernelCompat {
         return dv == null ? 0 : dv.getCardinality();
     }
 
+    record FileDeletionVector(String storageType, String path, long cardinality) {
+    }
+
+    static FileDeletionVector fileDeletionVector(Row row, String tablePath, boolean needPath) {
+        DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(row);
+        if (dv == null) {
+            return null;
+        }
+        String path = needPath && !dv.isInline() ? dv.getAbsolutePath(tablePath) : null;
+        return new FileDeletionVector(dv.getStorageType(), path, dv.getCardinality());
+    }
+
     static Optional<TDeltaLakeDeletionVectorDesc> deletionVector(Row file, String tablePath) {
         DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(file);
+        return encodeDeletionVector(dv, tablePath);
+    }
+
+    static Optional<TDeltaLakeDeletionVectorDesc> actionDeletionVector(Row row, String tablePath) {
+        return encodeDeletionVector(DeletionVectorDescriptor.fromRow(row), tablePath);
+    }
+
+    static StructType deletionVectorSchema() {
+        return DeletionVectorDescriptor.READ_SCHEMA;
+    }
+
+    static String dataPath(String tablePath, String encodedPath) {
+        return new Path(new Path(tablePath), new Path(java.net.URI.create(encodedPath))).toString();
+    }
+
+    private static Optional<TDeltaLakeDeletionVectorDesc> encodeDeletionVector(DeletionVectorDescriptor dv,
+            String tablePath) {
         if (dv == null || dv.getCardinality() == 0) {
             return Optional.empty();
         }

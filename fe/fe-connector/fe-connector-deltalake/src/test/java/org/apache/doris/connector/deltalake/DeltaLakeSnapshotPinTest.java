@@ -38,13 +38,34 @@ import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 class DeltaLakeSnapshotPinTest {
     @TempDir
     Path table;
 
     private final Engine engine = DefaultEngine.create(new Configuration());
+
+    @Test
+    void retentionUsesLatestMetadataAndIncludesTheCutoffMillisecond() throws Exception {
+        long committed = 1_000_000L;
+        StructType schema = new StructType().add("id", LongType.LONG);
+        Map<String, Object> protocol = Map.of("minReaderVersion", 1, "minWriterVersion", 2);
+        DeltaLakeTestTables.commit(table, 0, "id", schema, List.of(), protocol, Map.of(), null, committed);
+        Snapshot old = TableManager.loadSnapshot(table.toString()).build(engine);
+        Assertions.assertEquals(Duration.ofDays(7).toMillis(),
+                DeltaKernelCompat.deletedFileRetentionMillis(old.getTableProperties()));
+        DeltaLakeTestTables.commit(table, 1, "id", schema, List.of(), protocol,
+                Map.of("delta.deletedFileRetentionDuration", "interval 2 seconds"), null, committed + 100);
+        Snapshot latest = TableManager.loadSnapshot(table.toString()).build(engine);
+        DeltaLakeTimeTravel.checkRetention(engine, latest, old, committed + 2000);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> DeltaLakeTimeTravel.checkRetention(engine, latest, old, committed + 2001));
+        DeltaLakeTimeTravel.checkRetention(engine, latest, latest, committed + 10_000);
+    }
 
     @Test
     void retainsSchemaAndVersionAcrossNewCommitsAndSerialization() throws Exception {
@@ -59,6 +80,9 @@ class DeltaLakeSnapshotPinTest {
         Assertions.assertSame(first, handle.snapshot(engine, null));
 
         DeltaLakeTableHandle restored = roundTrip(handle);
+        DeltaLakeTableHandle view = roundTrip(handle.asSystemTable(DeltaLakeTableKind.HISTORY).withoutSnapshot());
+        Assertions.assertEquals(DeltaLakeTableKind.HISTORY, view.kind());
+        Assertions.assertEquals(handle.getVersion(), view.snapshot(engine, null).getVersion());
         Assertions.assertEquals(0, restored.snapshot(engine, null).getVersion());
         Assertions.assertEquals(1, restored.snapshot(engine, null).getSchema().length());
         DeltaLakeCatalogProperties properties =

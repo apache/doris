@@ -43,6 +43,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -579,6 +580,15 @@ public class PluginDrivenExternalTableTest {
         Mockito.doNothing().when(table).makeSureInitialized();
         Mockito.doReturn(Optional.of(scv)).when(table).getSchemaCacheValue();
         return table;
+    }
+
+    @Test
+    public void mvccTableWithColumnAutoAnalyzeIsEligibleForFullAnalysis() {
+        PluginDrivenExternalTable table = pluginTableWithCapabilities(EnumSet.of(
+                ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+        Assertions.assertTrue(table.supportsColumnAutoAnalyze());
+        Assertions.assertTrue(StatisticsUtil.supportAutoAnalyze(table));
+        Assertions.assertFalse(table.supportsSampleAnalyze());
     }
 
     @Test

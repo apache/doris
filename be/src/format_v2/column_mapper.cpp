@@ -1971,7 +1971,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
-static bool has_timestamp_semantics(const ColumnDefinition& column) {
+bool has_timestamp_semantics(const ColumnDefinition& column) {
     return column.timestamp_is_adjusted_to_utc.has_value() ||
            std::ranges::any_of(column.children, has_timestamp_semantics);
 }
@@ -2375,6 +2375,24 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
                                                table_column.type, Field {})));
         return Status::OK();
+    }
+    if (_options.delta_change_feed && (iequal(table_column.name, "_change_type") ||
+                                       iequal(table_column.name, "_commit_version") ||
+                                       iequal(table_column.name, "_commit_timestamp"))) {
+        if (const auto* constant = find_partition_value(table_column, _partition_values)) {
+            _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
+                                                   mapping->table_type, *constant)));
+            return Status::OK();
+        }
+        // CDC parquet files always use the literal name, including in field-ID mapped tables.
+        const auto field = std::ranges::find_if(_file_schema, [](const auto& column) {
+            return iequal(column.name, "_change_type");
+        });
+        if (!iequal(table_column.name, "_change_type") || field == _file_schema.end()) {
+            return Status::DataQualityError("Missing Delta change feed column {}",
+                                            table_column.name);
+        }
+        return _create_direct_mapping(table_column, *field, mapping);
     }
     const auto iceberg_metadata_type = [&] {
         if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {

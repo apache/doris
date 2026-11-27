@@ -47,6 +47,8 @@ public abstract class TableValuedFunctionIf {
     public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
             throws AnalysisException {
         switch (funcName.toLowerCase()) {
+            case TableChangesTableValuedFunction.NAME:
+                return new TableChangesTableValuedFunction(params, ConnectContext.get());
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);
             case S3TableValuedFunction.NAME:

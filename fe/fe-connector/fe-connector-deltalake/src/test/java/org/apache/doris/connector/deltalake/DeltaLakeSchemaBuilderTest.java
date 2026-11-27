@@ -21,6 +21,7 @@ package org.apache.doris.connector.deltalake;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TDeltaLakeColumnMappingMode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TSchema;
 
@@ -33,6 +34,7 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -51,10 +53,30 @@ class DeltaLakeSchemaBuilderTest {
         Assertions.assertEquals("physical-root", physicalRoot.getName());
         Assertions.assertEquals(1, logicalRoot.getId());
         TField child = logicalRoot.getNestedField().getStructField().getFields().get(0).getFieldPtr();
+        Assertions.assertEquals(TPrimitiveType.STRUCT, logicalRoot.getType().getType());
+        Assertions.assertFalse(child.isSetType());
         Assertions.assertEquals("renamed", child.getName());
         Assertions.assertEquals(2, child.getId());
         Assertions.assertEquals("physical-child", physicalRoot.getNestedField().getStructField()
                 .getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    void dictionaryKeepsVariantAsALogicalLeaf() {
+        StructType schema = new StructType().add(field("M", new MapType(StringType.STRING,
+                new ArrayType(VariantType.VARIANT, true), true), 1, "col-m"));
+        for (boolean physical : new boolean[] {false, true}) {
+            TField root = DeltaLakeSchemaBuilder.mappingSchema(schema, physical).getRootField()
+                    .getFields().get(0).getFieldPtr();
+            Assertions.assertEquals(TPrimitiveType.MAP, root.getType().getType());
+            var dictionary = root.getNestedField().getMapField();
+            Assertions.assertFalse(dictionary.getKeyField().getFieldPtr().isSetType());
+            TField array = dictionary.getValueField().getFieldPtr();
+            Assertions.assertEquals(TPrimitiveType.ARRAY, array.getType().getType());
+            TField item = array.getNestedField().getArrayField().getItemField().getFieldPtr();
+            Assertions.assertEquals(TPrimitiveType.VARIANT, item.getType().getType());
+            Assertions.assertFalse(item.isSetNestedField());
+        }
     }
 
     @Test
@@ -96,6 +118,8 @@ class DeltaLakeSchemaBuilderTest {
             for (TSchema entry : params.getHistorySchemaInfo()) {
                 TField ts = entry.getRootField().getFields().get(0).getFieldPtr();
                 TField ntz = entry.getRootField().getFields().get(1).getFieldPtr();
+                Assertions.assertFalse(ts.isSetType());
+                Assertions.assertFalse(ntz.isSetType());
                 Assertions.assertTrue(ts.isTimestampIsAdjustedToUtc());
                 Assertions.assertFalse(ntz.isTimestampIsAdjustedToUtc());
             }

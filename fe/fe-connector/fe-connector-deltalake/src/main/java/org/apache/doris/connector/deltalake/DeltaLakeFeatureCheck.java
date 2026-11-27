@@ -47,7 +47,8 @@ final class DeltaLakeFeatureCheck {
     // Features are enabled alongside their end-to-end read coverage.
     static final Set<String> SUPPORTED_READER_FEATURES = Set.of(
             "columnMapping", "timestampNtz", "typeWidening", "typeWidening-preview", "deletionVectors",
-            "v2Checkpoint", "vacuumProtocolCheck");
+            "v2Checkpoint", "vacuumProtocolCheck", "variantType", "variantType-preview",
+            "variantShredding", "variantShredding-preview");
 
     private DeltaLakeFeatureCheck() {
     }

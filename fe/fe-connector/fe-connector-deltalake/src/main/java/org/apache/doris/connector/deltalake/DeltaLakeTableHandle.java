@@ -20,8 +20,12 @@ package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
+import io.delta.kernel.CommitRange;
+import io.delta.kernel.CommitRangeBuilder.CommitBoundary;
 import io.delta.kernel.Snapshot;
+import io.delta.kernel.TableManager;
 import io.delta.kernel.engine.Engine;
 
 import java.util.Optional;
@@ -35,31 +39,62 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     private final DeltaLakeTableReference reference;
     private final String tableId;
     private final long version;
+    private final DeltaLakeTableKind kind;
     private final transient Snapshot snapshot;
+    private final DeltaLakeCdfRange cdf;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
         this(database, table, DeltaLakeTableReference.filesystem(snapshot.getPath()), snapshot);
     }
 
     DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, Snapshot snapshot) {
-        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot);
+        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot,
+                DeltaLakeTableKind.DATA);
     }
 
     private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
-            long version, Snapshot snapshot) {
+            long version, Snapshot snapshot, DeltaLakeTableKind kind) {
+        this(database, table, reference, tableId, version, snapshot, kind, null);
+    }
+
+    private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
+            long version, Snapshot snapshot, DeltaLakeTableKind kind, DeltaLakeCdfRange cdf) {
+        this.cdf = cdf;
         this.database = database;
         this.table = table;
         this.reference = reference;
         this.tableId = tableId;
         this.version = version;
         this.snapshot = snapshot;
+        this.kind = kind;
     }
 
     // Queued statistics work retains coordinates, not a potentially large cached snapshot.
     DeltaLakeTableHandle withoutSnapshot() {
         DeltaLakeTableReference coordinates =
                 new DeltaLakeTableReference(reference.path, reference.registrationId, reference.managed);
-        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null);
+        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, kind, cdf);
+    }
+
+    DeltaLakeTableHandle asSystemTable(DeltaLakeTableKind systemTableKind) {
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, systemTableKind, cdf);
+    }
+
+    DeltaLakeCdfRange cdf() {
+        if (cdf == null) {
+            throw new DorisConnectorException("Delta $changes requires @incr with a start boundary"
+                    + " and does not support FOR VERSION/TIME AS OF");
+        }
+        return cdf;
+    }
+
+    DeltaLakeTableHandle withCdf(DeltaLakeCdfRange range) {
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, kind, range);
+    }
+
+    DeltaLakeTableKind kind() {
+        // Handles serialized by the original base-table connector have no kind field.
+        return kind == null ? DeltaLakeTableKind.DATA : kind;
     }
 
     String getDatabase() {
@@ -86,16 +121,56 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
         return version;
     }
 
+    CommitRange commitRange(DeltaLakeRuntime runtime, Engine engine, long start, long end) {
+        return reference.managed
+                ? runtime.resolver.managedCommitRange(engine, database, table, reference, start, end)
+                : TableManager.loadCommitRange(reference.path, CommitBoundary.atVersion(start))
+                        .withEndBoundary(CommitBoundary.atVersion(end)).build(engine);
+    }
+
     DeltaLakeTableHandle atVersion(DeltaLakeRuntime runtime, long requestedVersion) {
-        if (version == requestedVersion) {
-            return this;
-        }
         Snapshot pinned = reference.load(runtime.engine(reference), runtime.resolver, database, table,
                 Optional.of(requestedVersion));
+        verifyTableId(pinned);
+        return wrap(pinned);
+    }
+
+    DeltaLakeTableHandle timeTravel(DeltaLakeRuntime runtime, ConnectorTimeTravelSpec.Kind kind, long coordinate) {
+        Engine engine = runtime.engine(reference);
+        // The catalog cache may predate an append or a change to the retention property.
+        Snapshot latest = loadLatest(runtime, engine);
+        Snapshot target;
+        if (kind == ConnectorTimeTravelSpec.Kind.TIMESTAMP) {
+            target = reference.loadAtTimestamp(engine, runtime.resolver, database, table, coordinate, latest);
+        } else if (coordinate == latest.getVersion()) {
+            return wrap(latest);
+        } else {
+            target = reference.load(engine, runtime.resolver, database, table, Optional.of(coordinate));
+        }
+        verifyTableId(target);
+        // A version load or a UC timestamp load can observe a commit ratified after our latest read.
+        if (target.getVersion() > latest.getVersion()) {
+            latest = loadLatest(runtime, engine);
+        }
+        DeltaLakeTimeTravel.checkRetention(engine, latest, target, System.currentTimeMillis());
+        return wrap(target);
+    }
+
+    Snapshot loadLatest(DeltaLakeRuntime runtime, Engine engine) {
+        Snapshot latest = reference.load(engine, runtime.resolver, database, table, Optional.empty());
+        verifyTableId(latest);
+        return latest;
+    }
+
+    private void verifyTableId(Snapshot pinned) {
         if (!tableId.equals(DeltaKernelCompat.tableId(pinned))) {
             throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
         }
-        return new DeltaLakeTableHandle(database, table, reference, pinned);
+    }
+
+    private DeltaLakeTableHandle wrap(Snapshot pinned) {
+        DeltaKernelCompat.prepareForConcurrentReads(pinned);
+        return new DeltaLakeTableHandle(database, table, reference, tableId, pinned.getVersion(), pinned, kind);
     }
 
     Snapshot snapshot(DeltaLakeRuntime runtime) {
@@ -108,9 +183,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
         }
         Snapshot reloaded = reference.load(engine, resolver, database, table, Optional.of(version));
         // A recreated table can reuse version 0 at the same path; it is not the statement's table.
-        if (!tableId.equals(DeltaKernelCompat.tableId(reloaded))) {
-            throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
-        }
+        verifyTableId(reloaded);
         return reloaded;
     }
 }

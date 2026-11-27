@@ -18,12 +18,14 @@
 
 package org.apache.doris.connector.deltalake;
 
+import io.delta.kernel.CommitRange;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.engine.Engine;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Resolves catalog names to table roots; schema and partitions are always read from the Delta log. */
@@ -34,9 +36,28 @@ interface DeltaLakeTableResolver extends Closeable {
 
     Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException;
 
+    default Engine engine(DeltaLakeTableReference reference, Engine defaultEngine) {
+        return defaultEngine;
+    }
+
+    default Map<String, String> backendProperties(DeltaLakeTableReference reference, Map<String, String> configured)
+            throws IOException {
+        return configured;
+    }
+
+    // Spark DESCRIBE DETAIL returns a name only when it resolves a catalog registration.
+    default String registeredTableName(String database, String table) {
+        return null;
+    }
+
     default Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
-            Optional<Long> version) {
+            Optional<Long> version, Optional<Long> timestampMillis) {
         throw new UnsupportedOperationException("Catalog-managed snapshots require Unity Catalog");
+    }
+
+    default CommitRange managedCommitRange(Engine engine, String database, String table,
+            DeltaLakeTableReference reference, long start, long end) {
+        throw new UnsupportedOperationException("Catalog-managed commit history requires Unity Catalog");
     }
 
     @Override

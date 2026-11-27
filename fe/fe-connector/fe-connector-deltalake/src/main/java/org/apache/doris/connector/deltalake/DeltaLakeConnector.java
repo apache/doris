@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -43,6 +44,10 @@ import java.util.concurrent.TimeUnit;
 
 final class DeltaLakeConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(DeltaLakeConnector.class);
+    private static final Set<ConnectorCapability> CAPABILITIES = Collections.unmodifiableSet(
+            EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
+                    ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE));
     private static final ExecutorService RESOURCE_CLOSER = resourceCloser();
 
     private final DeltaLakeCatalogProperties properties;
@@ -50,6 +55,7 @@ final class DeltaLakeConnector implements Connector {
     private final CatalogMetaCache metaCache;
     private final DeltaLakeSnapshotCache snapshotCache;
     private final DeltaLakeStatisticsCache statisticsCache;
+    private final DeltaLakePartitionFreshness freshness;
     private DeltaLakeRuntime runtime;
     private boolean closed;
 
@@ -59,16 +65,23 @@ final class DeltaLakeConnector implements Connector {
         metaCache = CatalogMetaCache.managed(context.getCatalogId(), "deltalake", properties);
         snapshotCache = new DeltaLakeSnapshotCache(metaCache, properties);
         statisticsCache = new DeltaLakeStatisticsCache(metaCache, properties);
+        freshness = new DeltaLakePartitionFreshness(metaCache, properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new DeltaLakeConnectorMetadata(runtime(), properties, snapshotCache, statisticsCache);
+        return new DeltaLakeConnectorMetadata(runtime(), properties, snapshotCache, statisticsCache, freshness);
     }
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new DeltaLakeScanPlanProvider(runtime(), statisticsCache, properties.isMapVarbinary());
+        return getScanPlanProvider(null);
+    }
+
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
+        DeltaLakeTableKind kind = handle == null ? DeltaLakeTableKind.DATA : ((DeltaLakeTableHandle) handle).kind();
+        return new DeltaLakeScanPlanProvider(runtime(), statisticsCache, properties.isMapVarbinary(), kind);
     }
 
     private synchronized DeltaLakeRuntime runtime() {
@@ -90,7 +103,7 @@ final class DeltaLakeConnector implements Connector {
 
     @Override
     public Set<ConnectorCapability> getCapabilities() {
-        return Collections.singleton(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT);
+        return CAPABILITIES;
     }
 
     @Override

@@ -3825,6 +3825,45 @@ TEST_F(ColumnMapperCastTest, ColumnMapperTreatsEquivalentTypesAsTrivial) {
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
 }
 
+TEST_F(ColumnMapperCastTest, DeltaCdcChangeTypeFilterReadsTheLiteralPhysicalField) {
+    for (auto mode : {TableColumnMappingMode::BY_NAME, TableColumnMappingMode::BY_FIELD_ID}) {
+        ParquetColumnMapper mapper({.mode = mode, .delta_change_feed = true});
+        auto requested = name_col("_change_type", str());
+        requested.identifier = Field::create_field<TYPE_INT>(7);
+        auto data = name_col("col-physical", str(), 0);
+        data.identifier = Field::create_field<TYPE_INT>(7);
+        auto physical = name_col("_CHANGE_TYPE", str(), 1);
+        std::vector<ColumnDefinition> projected {requested};
+        ASSERT_TRUE(mapper.create_mapping(projected, {}, {data, physical}).ok());
+        auto expr = executable_binary_predicate(
+                TExprOpcode::EQ, table_slot(0, 0, str(), "_change_type"),
+                literal(str(), Field::create_field<TYPE_STRING>(std::string("update_preimage"))));
+        TableFilter filter {.conjunct = VExprContext::create_shared(expr),
+                            .global_indices = {GlobalIndex(0)}};
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({filter}, projected, &request, &state).ok());
+        ASSERT_EQ(projection_ids(request.predicate_columns), std::vector<int32_t>({1}));
+        ASSERT_EQ(1, request.conjuncts.size());
+        auto& conjunct = request.conjuncts.front();
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        Block block;
+        auto values = str()->create_column();
+        values->insert(Field::create_field<TYPE_STRING>(std::string("update_postimage")));
+        values->insert(Field::create_field<TYPE_STRING>(std::string("update_preimage")));
+        block.insert({std::move(values), str(), "_change_type"});
+        IColumn::Filter keep(block.rows(), 1);
+        bool all_filtered = false;
+        ASSERT_TRUE(
+                conjunct->execute_filter(&block, keep.data(), block.rows(), false, &all_filtered)
+                        .ok());
+        EXPECT_FALSE(all_filtered);
+        EXPECT_EQ(0, keep[0]);
+        EXPECT_EQ(1, keep[1]);
+        conjunct->close();
+    }
+}
+
 // Scenario: a table predicate on a widened type is localized by casting the file slot to table type.
 TEST_F(ColumnMapperCastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
