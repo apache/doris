@@ -41,6 +41,7 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/local_file_system.h"

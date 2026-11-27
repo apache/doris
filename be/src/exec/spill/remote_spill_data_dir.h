@@ -88,10 +88,12 @@ public:
     const std::string& vault_id() const { return _vault_id; }
 
 protected:
-    bool _reach_limit_unlocked(int64_t incoming_data_size) override;
+    bool _reach_limit_unlocked(int64_t incoming_data_size,
+                               const std::lock_guard<std::mutex>& lock) override;
 
 private:
-    void _bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint);
+    void _bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint,
+                           const std::lock_guard<std::mutex>& lock);
     std::string _vault_id;
     std::string _endpoint;
     mutable std::mutex _init_mutex;

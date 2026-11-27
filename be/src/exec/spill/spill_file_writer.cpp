@@ -136,8 +136,9 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     int64_t meta_size = _part_meta.size();
     // The footer must always be written so that the part can be closed; account it
     // without checking the capacity limit.
-    Status status = _data_dir->try_reserve(meta_size, /*force=*/true);
-    if (status.ok()) {
+    _data_dir->reserve(meta_size);
+    Status status;
+    {
         SCOPED_TIMER(_write_file_timer);
         status = _append_to_part(Slice(_part_meta));
         if (!status.ok()) {

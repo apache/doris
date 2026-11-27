@@ -34,6 +34,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "common/spill_storage_type.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
@@ -78,10 +80,10 @@ namespace {
 std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> create_spill_store_map(
         const std::vector<StorePath>& spill_store_paths) {
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
-    if (config::spill_storage_type == "s3") {
+    if (spill_storage_type::is_remote(config::spill_storage_type)) {
         // One remote store, see RemoteSpillDataDir for the object layout.
-        spill_store_map.emplace(
-                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault_id));
+        spill_store_map.emplace(spill_storage_type::S3, std::make_unique<RemoteSpillDataDir>(
+                                                                config::spill_s3_storage_vault_id));
     }
     // External spill sessions need native local paths even when query spill uses object
     // storage. Query spill selects the remote store; external sessions select these roots.
@@ -165,7 +167,7 @@ void ExternalSpillSession::update_accounting(const std::string& path, int64_t cu
         }
     }
     if (released_bytes > 0) {
-        data_dir->update_spill_data_usage(-released_bytes);
+        data_dir->release(released_bytes);
     }
     if (write_bytes > 0) {
         _resource_context->io_context()->update_spill_write_bytes_to_local_storage(write_bytes);
@@ -222,7 +224,7 @@ void SpillFileManager::stop() {
 
 Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
-    if (config::spill_storage_type == "s3") {
+    if (spill_storage_type::is_remote(config::spill_storage_type)) {
         if (!config::is_cloud_mode()) {
             return Status::InvalidArgument("spill_storage_type=s3 is only supported in cloud mode");
         }
@@ -238,6 +240,19 @@ Status SpillFileManager::init() {
     }
     RETURN_IF_ERROR(_init_spill_store_map());
 
+    RETURN_IF_ERROR(_init_local_spill_directories());
+
+    RETURN_IF_ERROR(Thread::create(
+            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
+            &_spill_gc_thread));
+    LOG(INFO) << "spill gc thread started";
+
+    _init_metrics();
+
+    return Status::OK();
+}
+
+Status SpillFileManager::_init_local_spill_directories() {
     for (auto* store : _local_stores) {
         auto gc_dir_root_dir = store->get_spill_data_gc_path();
         bool exists = true;
@@ -260,13 +275,6 @@ Status SpillFileManager::init() {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
-
-    RETURN_IF_ERROR(Thread::create(
-            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
-            &_spill_gc_thread));
-    LOG(INFO) << "spill gc thread started";
-
-    _init_metrics();
 
     return Status::OK();
 }
@@ -464,7 +472,7 @@ void SpillFileManager::_release_external_spill_session(ExternalSpillSession* spi
     if (spill_session->_accounted_bytes > 0) {
         // Match SpillFile::gc(): QueryContext owns physical cleanup and its retry path, while the
         // writer releases logical usage when its lifetime ends.
-        spill_session->_data_dir->update_spill_data_usage(-spill_session->_accounted_bytes);
+        spill_session->_data_dir->release(spill_session->_accounted_bytes);
         spill_session->_accounted_bytes = 0;
     }
 

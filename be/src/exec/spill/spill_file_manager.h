@@ -44,6 +44,7 @@ struct MetricPrototype;
 class QueryContext;
 class ResourceContext;
 
+class LocalSpillDataDir;
 class RemoteSpillDataDir;
 class SpillFileManager;
 struct StorePath;
@@ -176,6 +177,7 @@ private:
 
     void _init_metrics();
     Status _init_spill_store_map();
+    Status _init_local_spill_directories();
     void _spill_gc_thread_callback();
     Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
     /// Retry the queued failed deletions, at least one, until `max_work_time_ns` has passed on
