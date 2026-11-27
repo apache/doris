@@ -224,7 +224,7 @@ public class StmtExecutor {
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
-    private final Profile profile;
+    private Profile profile;
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
@@ -2216,6 +2216,12 @@ public class StmtExecutor {
         context.getState().setNereids(true);
         context.getState().setIsQuery(true);
         context.getState().setInternal(true);
+        SessionVariable session = context.getSessionVariable();
+        if (Config.enable_collect_internal_query_profile && !session.enableProfile()) {
+            session.enableProfile = true;
+            // The executor may have been constructed with profiling disabled.
+            profile = new Profile(true, session.getProfileLevel(), session.getAutoProfileThresholdMs());
+        }
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -2232,6 +2238,11 @@ public class StmtExecutor {
             if (context.supportHandleByFe()) {
                 Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
                 if (resultSet.isPresent()) {
+                    Status cancelReason = pendingCoordinatorCancelReason.get();
+                    if (cancelReason != null) {
+                        throw new InternalQueryExecutionException(cancelReason.getErrorMsg(),
+                                new UserException(cancelReason.getErrorMsg()));
+                    }
                     List<List<String>> rows = resultSet.get().getResultRows();
                     context.updateReturnRows(rows.size());
                     isHandleQueryInFe = true;
@@ -2244,9 +2255,6 @@ public class StmtExecutor {
                 }
             }
             RowBatch batch;
-            if (Config.enable_collect_internal_query_profile) {
-                context.getSessionVariable().enableProfile = true;
-            }
             setCoord(EnvFactory.getInstance().createCoordinator(context,
                     planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
@@ -2260,7 +2268,6 @@ public class StmtExecutor {
             try {
                 Status cancelReason = pendingCoordinatorCancelReason.get();
                 if (cancelReason != null) {
-                    coord.cancel(cancelReason);
                     throw new UserException(cancelReason.getErrorMsg());
                 }
                 coord.exec();

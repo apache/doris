@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -118,6 +120,21 @@ class ShowCharsetCommandTest extends TestWithFeService {
     }
 
     @Test
+    void testNestedExecutorReceivesFirstCancellationReason() {
+        StmtExecutor outer = new StmtExecutor(connectContext, "SHOW CHARSET WHERE TRUE");
+        StmtExecutor inner = new StmtExecutor(connectContext.createInternalQueryContext(), "SELECT 1");
+        Status timeout = new Status(TStatusCode.TIMEOUT, "first timeout");
+        outer.cancel(timeout, false);
+        outer.setCancelDelegate(inner::cancel);
+        try {
+            outer.cancel(new Status(TStatusCode.CANCELLED, "later cancellation"), false);
+            Assertions.assertSame(timeout, inner.getPendingCancelReason());
+        } finally {
+            outer.clearCancelDelegate();
+        }
+    }
+
+    @Test
     void testUnknownColumn() {
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
                 () -> execute("SHOW CHARSET WHERE unknown_column = 'utf8mb4'"));
@@ -163,6 +180,34 @@ class ShowCharsetCommandTest extends TestWithFeService {
         } finally {
             connectContext.changeDefaultCatalog(originalCatalog);
             connectContext.setDatabase(originalDb);
+        }
+    }
+
+    @Test
+    void testCancelledInternalQueryDoesNotReturnFeResult() {
+        ConnectContext internal = connectContext.createInternalQueryContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(internal)) {
+            StmtExecutor executor = new StmtExecutor(internal, "SELECT 1");
+            executor.cancel(new Status(TStatusCode.TIMEOUT, "internal filter timed out"), false);
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class, executor::executeInternalQuery);
+            Assertions.assertTrue(failure.getMessage().contains("internal filter timed out"));
+            Assertions.assertEquals(0, internal.getReturnRows());
+        }
+    }
+
+    @Test
+    void testConfiguredProfileForFeInternalQuery() {
+        boolean previous = Config.enable_collect_internal_query_profile;
+        ConnectContext internal = connectContext.createInternalQueryContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(internal)) {
+            Config.enable_collect_internal_query_profile = true;
+            internal.getSessionVariable().enableProfile = false;
+            StmtExecutor executor = new StmtExecutor(internal, "SELECT 1");
+            Assertions.assertEquals(1, executor.executeInternalQuery().size());
+            Assertions.assertTrue(executor.isHandleQueryInFe());
+            Assertions.assertEquals(DebugUtil.printId(internal.queryId()), executor.getProfile().getId());
+        } finally {
+            Config.enable_collect_internal_query_profile = previous;
         }
     }
 
