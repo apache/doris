@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MutableState;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -64,8 +65,14 @@ public class AddMonotonicFunctionPruningPredicates extends PlanPostProcessor {
         if (rewrittenConjuncts.equals(filter.getConjuncts())) {
             return filter;
         }
-        return filter.withConjunctsAndChild(rewrittenConjuncts, child)
+        AbstractPhysicalPlan rewritten = filter.withConjunctsAndChild(rewrittenConjuncts, child)
                 .copyStatsAndGroupIdFrom((AbstractPhysicalPlan) filter);
+        // These execution-only bounds are absent from Memo's HBO key. Keep the original
+        // immutable conjuncts, including any predicates inferred before physical post-processing.
+        rewritten.setMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS,
+                filter.<Set<Expression>>getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS)
+                        .orElse(filter.getConjuncts()));
+        return rewritten;
     }
 
     private static boolean supportsStoragePruning(Plan plan) {

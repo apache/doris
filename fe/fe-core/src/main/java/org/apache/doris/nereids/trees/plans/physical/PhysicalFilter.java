@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.model.Statistics;
 
@@ -112,14 +113,15 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFilter<>(conjuncts, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
+        return copyHboConjunctsTo(AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(),
+                        physicalProperties, statistics, children.get(0))));
     }
 
     @Override
     public PhysicalFilter<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFilter<>(conjuncts, groupExpression,
-                getLogicalProperties(), child()));
+        return copyHboConjunctsTo(AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), child())));
     }
 
     @Override
@@ -133,13 +135,21 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFilter<>(conjuncts, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child()));
+        return copyHboConjunctsTo(AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(),
+                        physicalProperties, statistics, child())));
     }
 
     public PhysicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFilter<>(conjuncts, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child));
+    }
+
+    /** Preserve the HBO identity only for rebuilds that leave the predicates unchanged. */
+    private <T extends PhysicalFilter<?>> T copyHboConjunctsTo(T copy) {
+        this.<Set<Expression>>getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS)
+                .ifPresent(conjuncts -> copy.setMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS, conjuncts));
+        return copy;
     }
 
     @Override

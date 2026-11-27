@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -129,6 +130,9 @@ class AddMonotonicFunctionPruningPredicatesTest extends ExpressionRewriteTestHel
 
         Set<Expression> conjuncts = ((PhysicalFilter<?>) rewritten).getConjuncts();
         Assertions.assertEquals(3, conjuncts.size());
+        Assertions.assertEquals(ImmutableSet.of(original), rewritten
+                .<Set<Expression>>getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS).orElseThrow());
+        Assertions.assertSame(rewritten, rewritten.accept(processor, cascadesContext));
         Assertions.assertTrue(conjuncts.stream().anyMatch(conjunct -> conjunct instanceof GreaterThanEqual
                 && conjunct.child(0).equals(stringSlot) && conjunct.isInferred()));
         Assertions.assertTrue(conjuncts.stream().anyMatch(conjunct -> conjunct instanceof LessThan
