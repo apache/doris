@@ -2882,6 +2882,42 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
+    public static final int MAX_SQL_SCANNER_CONCURRENCY = 256;
+
+    @ConfField(mutable = true, callback = StatisticsScannerConcurrencyConfHandler.class,
+            description = {"统计 SQL 中内表的每个扫描实例的最大扫描并发数。0 表示继承全局 max_scanners_concurrency。",
+                    "Maximum scanner concurrency per scan instance for internal tables in statistics SQL. "
+                            + "0 inherits the global max_scanners_concurrency session default."})
+    public static volatile int statistics_sql_max_scanners_concurrency = 1;
+
+    @ConfField(mutable = true, callback = StatisticsScannerConcurrencyConfHandler.class,
+            description = {"统计 SQL 中每个文件扫描实例的最大扫描并发数。0 表示继承全局 max_file_scanners_concurrency。",
+                    "Maximum scanner concurrency per file scan instance in statistics SQL. "
+                            + "0 inherits the global max_file_scanners_concurrency session default."})
+    public static volatile int statistics_sql_max_file_scanners_concurrency = 1;
+
+    public static class StatisticsScannerConcurrencyConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int concurrency = Integer.parseInt(value.trim());
+            validateStatisticsScannerConcurrency(field.getName(), concurrency);
+            field.setInt(null, concurrency);
+        }
+    }
+
+    public static void validateStatisticsScannerConcurrency() throws ConfigException {
+        validateStatisticsScannerConcurrency("statistics_sql_max_scanners_concurrency",
+                statistics_sql_max_scanners_concurrency);
+        validateStatisticsScannerConcurrency("statistics_sql_max_file_scanners_concurrency",
+                statistics_sql_max_file_scanners_concurrency);
+    }
+
+    private static void validateStatisticsScannerConcurrency(String name, int concurrency) throws ConfigException {
+        if (concurrency < 0 || concurrency > MAX_SQL_SCANNER_CONCURRENCY) {
+            throw new ConfigException(name + " must be between 0 and " + MAX_SQL_SCANNER_CONCURRENCY);
+        }
+    }
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "用于强制设定内表的副本数，如果该参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
                     + "同时，建表语句中指定的副本标签等参数会被忽略。该参数不影响包括创建分区、修改表属性的操作。该参数建议仅用于测试环境",
