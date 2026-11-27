@@ -335,4 +335,206 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_rowset_index.col_unique_id(0), 0);
 }
 
+TEST_F(SnapshotManagerTest, ConvertDualInvertedIndexesIntoExistingTablet) {
+    for (bool restore : {false, true}) {
+        SCOPED_TRACE(restore);
+        const int64_t tablet_id = restore ? 20007 : 20006;
+        const int64_t source_id = restore ? 10006 : tablet_id;
+        const auto clone_dir = _engine_data_path + "/clone_" + std::to_string(tablet_id);
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(clone_dir).ok());
+        auto meta = testutil::create_tablet_meta_pb(source_id, 12346, 1, 1000, 100);
+        auto* schema = meta.mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_num_short_key_columns(1);
+        schema->set_num_rows_per_row_block(1024);
+        schema->set_compress_kind(COMPRESS_LZ4);
+        testutil::add_column_pb(schema, 0, "c0", "INT", true, false);
+        testutil::add_column_pb(schema, 1, "c1", "STRING", false, false);
+        for (int i = 0; i < 2; ++i) {
+            auto* index = schema->add_index();
+            index->set_index_id(1001 + i);
+            index->set_index_name(i == 0 ? "idx_c1" : "idx_c1_ci");
+            index->set_index_type(IndexType::INVERTED);
+            index->add_col_unique_id(1);
+            if (i == 1) {
+                (*index->mutable_properties())["normalizer"] = "lowercase_normalizer";
+            }
+        }
+        auto request = testutil::create_tablet_request(
+                tablet_id, 12346, 100, 1, TKeysType::DUP_KEYS,
+                {{"c0", TPrimitiveType::INT, true}, {"c1", TPrimitiveType::STRING, false}});
+        request.__set_replica_id(2);
+        request.__set_table_id(1000);
+        std::vector<TOlapTableIndex> indexes;
+        // Reverse the target order: mapping must not depend on the first index.
+        for (int i : {1, 0}) {
+            TOlapTableIndex index;
+            index.__set_index_id(2001 + i);
+            index.__set_index_name(schema->index(i).index_name());
+            index.__set_index_type(TIndexType::INVERTED);
+            index.__set_columns({"c1"});
+            index.__set_column_unique_ids({1});
+            if (i == 1) {
+                index.__set_properties({{"normalizer", "lowercase_normalizer"}});
+            }
+            indexes.push_back(index);
+        }
+        request.tablet_schema.__set_indexes(indexes);
+        RuntimeProfile profile("CreateTablet");
+        ASSERT_TRUE(_engine->tablet_manager()->create_tablet(request, {_data_dir}, &profile).ok());
+        ASSERT_NE(nullptr, _engine->tablet_manager()->get_tablet(tablet_id));
+
+        // Only missing versions are copied into an already existing target tablet.
+        RowsetMetaPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        rowset.set_tablet_id(source_id);
+        rowset.set_tablet_schema_hash(12346);
+        rowset.set_rowset_type(BETA_ROWSET);
+        rowset.set_rowset_state(VISIBLE);
+        rowset.set_start_version(7);
+        rowset.set_end_version(7);
+        rowset.set_num_rows(0);
+        rowset.set_num_segments(0);
+        rowset.set_empty(true);
+        rowset.set_segments_overlap_pb(NONOVERLAPPING);
+        rowset.mutable_tablet_schema()->CopyFrom(*schema);
+        meta.add_rs_metas()->CopyFrom(rowset);
+        auto* stale = meta.add_stale_rs_metas();
+        stale->CopyFrom(rowset);
+        stale->set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        stale->set_start_version(3);
+        stale->set_end_version(3);
+        const auto meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
+        ASSERT_TRUE(TabletMeta::save(meta_file, meta).ok());
+        auto result = _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, tablet_id, 2, 1000,
+                                                                  100, 12346);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        TabletMetaPB converted;
+        ASSERT_TRUE(TabletMeta::load_from_file(meta_file, &converted).ok());
+        ASSERT_EQ(1, converted.rs_metas_size());
+        ASSERT_EQ(1, converted.stale_rs_metas_size());
+        for (const auto* converted_schema :
+             {&converted.schema(), &converted.rs_metas(0).tablet_schema(),
+              &converted.stale_rs_metas(0).tablet_schema()}) {
+            ASSERT_EQ(2, converted_schema->index_size());
+            EXPECT_EQ(restore ? 2001 : 1001, converted_schema->index(0).index_id());
+            EXPECT_EQ(restore ? 2002 : 1002, converted_schema->index(1).index_id());
+            EXPECT_NE(converted_schema->index(0).index_id(), converted_schema->index(1).index_id());
+            EXPECT_EQ("idx_c1", converted_schema->index(0).index_name());
+            EXPECT_EQ("idx_c1_ci", converted_schema->index(1).index_name());
+            EXPECT_EQ("lowercase_normalizer",
+                      converted_schema->index(1).properties().at("normalizer"));
+        }
+    }
+}
+
+TEST_F(SnapshotManagerTest, RenameDualInvertedIndexesByDefinition) {
+    TabletSchemaPB source;
+    for (int i = 0; i < 2; ++i) {
+        auto* index = source.add_index();
+        index->set_index_id(1001 + i);
+        index->set_index_name(i == 0 ? "idx_c1" : "idx_c1_ci");
+        index->set_index_type(IndexType::INVERTED);
+        index->add_col_unique_id(1);
+        if (i == 1) {
+            (*index->mutable_properties())["normalizer"] = "lowercase_normalizer";
+        }
+    }
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        SCOPED_TRACE(scenario);
+        auto target_pb = source;
+        target_pb.mutable_index(0)->set_index_id(2001);
+        target_pb.mutable_index(1)->set_index_id(2002);
+        if (scenario == 1) {
+            target_pb.mutable_index(1)->set_index_name("idx_c1_other");
+        } else if (scenario == 2) {
+            (*target_pb.mutable_index(1)->mutable_properties())["normalizer"] = "other_normalizer";
+        } else if (scenario == 3) {
+            target_pb.mutable_index(1)->set_index_suffix_name("other_path");
+        }
+        target_pb.mutable_index()->SwapElements(0, 1);
+        auto target = std::make_shared<TabletSchema>();
+        target->init_from_pb(target_pb);
+        auto converted = source;
+        ASSERT_TRUE(_engine->snapshot_mgr()->_rename_index_ids(converted, target).ok());
+        EXPECT_EQ(2001, converted.index(0).index_id());
+        EXPECT_EQ(scenario == 0 ? 2002 : 1002, converted.index(1).index_id());
+        EXPECT_NE(converted.index(0).index_id(), converted.index(1).index_id());
+    }
+    auto converted = source;
+    ASSERT_TRUE(_engine->snapshot_mgr()->_rename_index_ids(converted, nullptr).ok());
+    EXPECT_EQ(source.SerializeAsString(), converted.SerializeAsString());
+}
+
+TEST_F(SnapshotManagerTest, RenamePartiallyMatchedIndexesWithOverlappingIds) {
+    TabletSchemaPB source;
+    for (int i = 0; i < 2; ++i) {
+        auto* index = source.add_index();
+        index->set_index_id(1001 + i);
+        index->set_index_name(i == 0 ? "idx_c1" : "idx_c2");
+        index->set_index_type(IndexType::INVERTED);
+        index->add_col_unique_id(1 + i);
+    }
+    // Exercise both source and target orders: b may be visited before a is remapped.
+    for (bool reverse_source : {false, true}) {
+        for (bool reverse_target : {false, true}) {
+            for (int scenario = 0; scenario < 4; ++scenario) {
+                SCOPED_TRACE(testing::Message()
+                             << reverse_source << "," << reverse_target << "," << scenario);
+                auto target_pb = source;
+                target_pb.mutable_index(0)->set_index_id(1002);
+                target_pb.mutable_index(1)->set_index_id(1003);
+                (*target_pb.mutable_index(1)->mutable_properties())["normalizer"] =
+                        "lowercase_normalizer";
+                if (scenario == 1) {
+                    // No legacy target for b: its retained ID collides with a's matched ID.
+                    target_pb.mutable_index()->RemoveLast();
+                } else if (scenario == 3) {
+                    // Equal IDs with different suffixes are distinct directory identities.
+                    target_pb.mutable_index(0)->set_index_suffix_name("path");
+                }
+                if (reverse_target) {
+                    target_pb.mutable_index()->SwapElements(0, target_pb.index_size() - 1);
+                }
+                auto target = std::make_shared<TabletSchema>();
+                target->init_from_pb(target_pb);
+                auto converted = source;
+                if (scenario == 2) {
+                    auto* index = converted.add_index();
+                    index->CopyFrom(source.index(0));
+                    // A retained third index already occupies the legacy target ID.
+                    index->set_index_id(1003);
+                    index->set_index_name("idx_c3");
+                    index->set_col_unique_id(0, 3);
+                } else if (scenario == 3) {
+                    converted.mutable_index(0)->set_index_suffix_name("path");
+                }
+                if (reverse_source) {
+                    converted.mutable_index()->SwapElements(0, 1);
+                }
+                auto original = converted;
+                auto status = _engine->snapshot_mgr()->_rename_index_ids(converted, target);
+                if (scenario == 1 || scenario == 2) {
+                    EXPECT_FALSE(status.ok());
+                    EXPECT_NE(status.to_string().find("duplicate index identity"),
+                              std::string::npos);
+                    EXPECT_EQ(original.SerializeAsString(), converted.SerializeAsString());
+                } else {
+                    ASSERT_TRUE(status.ok()) << status;
+                    const auto& a = converted.index(reverse_source ? 1 : 0);
+                    const auto& b = converted.index(reverse_source ? 0 : 1);
+                    EXPECT_EQ(1002, a.index_id());
+                    EXPECT_EQ(scenario == 0 ? 1003 : 1002, b.index_id());
+                    EXPECT_TRUE(a.index_id() != b.index_id() ||
+                                a.index_suffix_name() != b.index_suffix_name());
+                    original.mutable_index(reverse_source ? 1 : 0)->set_index_id(a.index_id());
+                    original.mutable_index(reverse_source ? 0 : 1)->set_index_id(b.index_id());
+                    EXPECT_EQ(original.SerializeAsString(), converted.SerializeAsString());
+                }
+            }
+        }
+    }
+}
+
 } // namespace doris

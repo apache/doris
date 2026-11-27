@@ -22,6 +22,8 @@
 
 #include <map>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -304,18 +306,64 @@ Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
         return Status::OK();
     }
 
+    TabletSchemaPB target_schema_pb;
+    tablet_schema->to_schema_pb(&target_schema_pb);
+    std::vector<int64_t> index_ids;
+    std::vector<int> unmatched;
+    std::map<std::pair<int64_t, std::string>, int> identity_counts;
     for (int i = 0; i < schema_pb.index_size(); ++i) {
-        TabletIndexPB* index_pb = schema_pb.mutable_index(i);
-        for (int32_t col_unique_id : index_pb->col_unique_id()) {
-            auto local_index = tablet_schema->get_index(col_unique_id, index_pb->index_type(),
-                                                        index_pb->index_suffix_name());
-            if (local_index) {
-                if (index_pb->index_id() != local_index->index_id()) {
-                    index_pb->set_index_id(local_index->index_id());
-                }
+        const auto& index_pb = schema_pb.index(i);
+        TabletIndex source_index;
+        source_index.init_from_pb(index_pb);
+        int64_t index_id = source_index.index_id();
+        bool matched = false;
+        for (const auto& target_index_pb : target_schema_pb.index()) {
+            TabletIndex target_index;
+            target_index.init_from_pb(target_index_pb);
+            // An exact index and a normalizer index can share column, type and suffix.
+            // Match their names and definitions instead of selecting the first index.
+            if (source_index.is_same_except_id(&target_index)) {
+                index_id = target_index.index_id();
+                matched = true;
                 break;
             }
         }
+        // Unmatched definitions normally retain their source IDs.
+        if (!matched) {
+            unmatched.push_back(i);
+        }
+        index_ids.push_back(index_id);
+        ++identity_counts[{index_id, index_pb.index_suffix_name()}];
+    }
+    for (int i : unmatched) {
+        const auto& index_pb = schema_pb.index(i);
+        auto identity = std::make_pair(index_ids[i], index_pb.index_suffix_name());
+        // With a:1001 -> 1002 and unmatched b:1002, retaining b's ID would merge them.
+        // Use the legacy lookup only to resolve a collision, without taking another ID.
+        if (identity_counts[identity] > 1 && index_pb.col_unique_id_size() > 0) {
+            const auto* target_index = tablet_schema->get_index(
+                    index_pb.col_unique_id(0), index_pb.index_type(), index_pb.index_suffix_name());
+            // An absent or already assigned legacy target cannot resolve the collision.
+            if (target_index != nullptr &&
+                identity_counts[{target_index->index_id(), index_pb.index_suffix_name()}] == 0) {
+                --identity_counts[identity];
+                index_ids[i] = target_index->index_id();
+                ++identity_counts[{index_ids[i], index_pb.index_suffix_name()}];
+            }
+        }
+    }
+    for (const auto& [identity, count] : identity_counts) {
+        // Include retained IDs: validating only the matched subset misses partial matches.
+        if (count > 1) {
+            return Status::InternalError(
+                    "Snapshot index ID remapping produces duplicate index identity: id={}, "
+                    "suffix={}",
+                    identity.first, identity.second);
+        }
+    }
+    // Commit only after the complete assignment is unique, leaving the input intact on error.
+    for (int i = 0; i < schema_pb.index_size(); ++i) {
+        schema_pb.mutable_index(i)->set_index_id(index_ids[i]);
     }
     return Status::OK();
 }
