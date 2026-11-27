@@ -202,6 +202,10 @@ public class IndexChangeJob implements Writable {
         return tableName;
     }
 
+    public long getPartitionId() {
+        return partitionId;
+    }
+
     public String getPartitionName() {
         return partitionName;
     }

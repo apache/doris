@@ -1403,7 +1403,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
                 Lists.newArrayList(), Lists.newArrayList());
         job.setOriginIndexId(tbl.getBaseIndexId());
-        job.setPartitionName(tbl.getPartitionNames().iterator().next());
+        String partitionName = tbl.getPartitionNames().iterator().next();
+        job.setPartitionId(tbl.getPartition(partitionName).getId());
+        job.setPartitionName(partitionName);
         job.setAlterInvertedIndexInfo(true, Lists.newArrayList(index));
         handler.getIndexChangeJobs().put(jobId, job);
         try {
@@ -1493,6 +1495,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
                 Lists.newArrayList(), Lists.newArrayList());
         job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionId(tbl.getPartition("p1").getId());
         job.setPartitionName("p1");
         job.setAlterInvertedIndexInfo(false, Lists.newArrayList(index));
         handler.getIndexChangeJobs().put(jobId, job);
@@ -1511,6 +1514,54 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             alterTable("ALTER TABLE test." + tableName + " DROP INDEX idx_v1", connectContext);
             jobSize++;
             Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
+        } finally {
+            handler.getIndexChangeJobs().remove(jobId);
+        }
+    }
+
+    @Test
+    public void testIndexChangeConflictFollowsRenamedPartition() throws Exception {
+        String tableName = "sc_index_change_renamed_partition";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY RANGE(k1) (PARTITION p1 VALUES LESS THAN (\"10\"),"
+                + " PARTITION p2 VALUES LESS THAN (\"20\"))\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Index index = tbl.getIndexes().stream()
+                .filter(idx -> idx.getIndexName().equals("idx_v1"))
+                .findFirst().get();
+
+        // An unfinished BUILD INDEX idx_v1 on p1 keeps the partition name it was created with.
+        long jobId = Env.getCurrentEnv().getNextId();
+        IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
+                Lists.newArrayList(), Lists.newArrayList());
+        job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionId(tbl.getPartition("p1").getId());
+        job.setPartitionName("p1");
+        job.setAlterInvertedIndexInfo(false, Lists.newArrayList(index));
+        handler.getIndexChangeJobs().put(jobId, job);
+        try {
+            alterTable("ALTER TABLE test." + tableName + " RENAME PARTITION p1 p1_renamed", connectContext);
+            String[][] clauseAndError = {
+                    {"DROP INDEX idx_v1 PARTITION (p1_renamed)", "has been built specified index"},
+                    {"DROP INDEX idx_v1", "has an unfinished index change job"}};
+            for (String[] ce : clauseAndError) {
+                String sql = "ALTER TABLE test." + tableName + " " + ce[0];
+                Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+                Assertions.assertTrue(e.getMessage().contains(ce[1]), e.getMessage());
+                Assertions.assertTrue(e.getMessage().contains("p1_renamed"), e.getMessage());
+            }
+            Assertions.assertTrue(tbl.getIndexes().stream().anyMatch(idx -> idx.getIndexName().equals("idx_v1")));
         } finally {
             handler.getIndexChangeJobs().remove(jobId);
         }
