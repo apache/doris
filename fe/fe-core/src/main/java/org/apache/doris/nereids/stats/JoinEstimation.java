@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -542,7 +543,9 @@ public class JoinEstimation {
         Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join, expansion);
         if (joinType.isSemiOrAntiJoin()) {
             Statistics outputStats = estimateSemiOrAnti(leftStats, rightStats, innerJoinStats, join);
-            updateJoinConditionColumnStatistics(outputStats, join);
+            if (joinType.isSemiJoin() && !join.isMarkJoin()) {
+                updateSemiJoinColumnStatistics(outputStats, leftStats, rightStats, join);
+            }
             return outputStats;
         } else if (joinType == JoinType.INNER_JOIN) {
             updateJoinConditionColumnStatistics(innerJoinStats, join);
@@ -583,6 +586,27 @@ public class JoinEstimation {
             return crossJoinStats;
         }
         throw new AnalysisException("join type not supported: " + join.getJoinType());
+    }
+
+    private static void updateSemiJoinColumnStatistics(Statistics outputStats, Statistics leftStats,
+            Statistics rightStats, Join join) {
+        boolean keepLeft = join.getJoinType().isLeftSemiJoin();
+        Statistics matchingStats = keepLeft ? rightStats : leftStats;
+        for (EqualPredicate condition : join.getEqualPredicates()) {
+            EqualPredicate equal = normalizeEqualPredJoinCondition(condition, rightStats);
+            Expression retainedKey = keepLeft ? equal.left() : equal.right();
+            Expression matchingKey = keepLeft ? equal.right() : equal.left();
+            // A lossy cast can match multiple retained values with one value on the other side.
+            if (!(retainedKey instanceof SlotReference) || !(matchingKey instanceof SlotReference)) {
+                continue;
+            }
+            ColumnStatistic retained = ExpressionEstimation.estimate(retainedKey, outputStats);
+            ColumnStatistic matching = ExpressionEstimation.estimate(matchingKey, matchingStats);
+            if (!retained.isUnKnown && !matching.isUnKnown && matching.ndv < retained.ndv) {
+                outputStats.addColumnStats(retainedKey, new ColumnStatisticBuilder(retained)
+                        .setNdv(matching.ndv).build());
+            }
+        }
     }
 
     /**
@@ -642,10 +666,6 @@ public class JoinEstimation {
                     }
                 }
                 updatedCols.put(eqRight, rightBuilder.build());
-            } else if (joinType.isLeftSemiOrAntiJoin()) {
-                ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
-                leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
-                updatedCols.put(eqLeft, leftBuilder.build());
             } else if (joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin()) {
                 ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
                 leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
@@ -665,10 +685,6 @@ public class JoinEstimation {
                     }
                 }
                 updatedCols.put(eqLeft, leftBuilder.build());
-            } else if (joinType.isRightSemiOrAntiJoin()) {
-                ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
-                rightBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
-                updatedCols.put(eqRight, rightBuilder.build());
             } else if (joinType.isFullOuterJoin() || joinType.isCrossJoin()) {
                 // ignore
             }

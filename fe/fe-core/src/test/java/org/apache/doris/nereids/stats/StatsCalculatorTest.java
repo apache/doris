@@ -30,6 +30,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -38,10 +39,12 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -710,6 +713,70 @@ public class StatsCalculatorTest {
         // ib.hotValues: "2", "3", "4"
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
         Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testSemiJoinNdvUsesMatchingInput() {
+        SlotReference leftKey = new SlotReference("leftKey", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("rightKey", IntegerType.INSTANCE);
+        ColumnStatistic wideKey = new ColumnStatisticBuilder(10_000).setNdv(1_000).build();
+        ColumnStatistic narrowKey = new ColumnStatisticBuilder(10_000).setNdv(300).build();
+
+        for (JoinType joinType : ImmutableList.of(JoinType.LEFT_SEMI_JOIN, JoinType.RIGHT_SEMI_JOIN)) {
+            boolean keepLeft = joinType.isLeftSemiJoin();
+            Statistics left = new Statistics(10_000, ImmutableMap.of(leftKey, keepLeft ? wideKey : narrowKey));
+            Statistics right = new Statistics(10_000, ImmutableMap.of(rightKey, keepLeft ? narrowKey : wideKey));
+            SlotReference retainedKey = keepLeft ? leftKey : rightKey;
+            for (EqualTo equal : ImmutableList.of(new EqualTo(leftKey, rightKey), new EqualTo(rightKey, leftKey))) {
+                LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType, ImmutableList.of(equal),
+                        new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+                Statistics output = JoinEstimation.estimate(left, right, join);
+                Assertions.assertEquals(300, output.findColumnStatistics(retainedKey).ndv);
+            }
+        }
+
+        Statistics left = new Statistics(10_000, ImmutableMap.of(leftKey, wideKey));
+        Statistics unknownRight = new Statistics(10_000, ImmutableMap.of(rightKey, ColumnStatistic.UNKNOWN));
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+                ImmutableList.of(new EqualTo(leftKey, rightKey)),
+                new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+        Assertions.assertEquals(1_000,
+                JoinEstimation.estimate(left, unknownRight, join).findColumnStatistics(leftKey).ndv);
+    }
+
+    @Test
+    public void testAntiJoinNdvIsNotBoundedByMatchingInput() {
+        SlotReference leftKey = new SlotReference("leftKey", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("rightKey", IntegerType.INSTANCE);
+        ColumnStatistic wideKey = new ColumnStatisticBuilder(10_000).setNdv(1_000).build();
+        ColumnStatistic singleValueKey = new ColumnStatisticBuilder(10_000).setNdv(1).build();
+
+        for (JoinType type : ImmutableList.of(JoinType.LEFT_ANTI_JOIN, JoinType.RIGHT_ANTI_JOIN,
+                JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            boolean keepLeft = type.isLeftSemiOrAntiJoin();
+            Statistics left = new Statistics(10_000, ImmutableMap.of(leftKey, keepLeft ? wideKey : singleValueKey));
+            Statistics right = new Statistics(10_000, ImmutableMap.of(rightKey, keepLeft ? singleValueKey : wideKey));
+            LogicalJoin<Plan, Plan> join = new LogicalJoin<>(type, ImmutableList.of(new EqualTo(rightKey, leftKey)),
+                    new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+            Statistics output = JoinEstimation.estimate(left, right, join);
+            Assertions.assertEquals(1_000, output.findColumnStatistics(keepLeft ? leftKey : rightKey).ndv);
+        }
+    }
+
+    @Test
+    public void testMarkJoinDoesNotFilterRetainedKeyNdv() {
+        SlotReference leftKey = new SlotReference("leftKey", IntegerType.INSTANCE);
+        SlotReference rightKey = new SlotReference("rightKey", IntegerType.INSTANCE);
+        Statistics left = new Statistics(10_000, ImmutableMap.of(leftKey,
+                new ColumnStatisticBuilder(10_000).setNdv(1_000).build()));
+        Statistics right = new Statistics(10_000, ImmutableMap.of(rightKey,
+                new ColumnStatisticBuilder(10_000).setNdv(1).build()));
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+                ImmutableList.of(new EqualTo(leftKey, rightKey)), ImmutableList.of(), ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("mark")),
+                new DummyPlan(), new DummyPlan(), JoinReorderContext.EMPTY);
+        Statistics output = JoinEstimation.estimate(left, right, join);
+        Assertions.assertEquals(1_000, output.findColumnStatistics(leftKey).ndv);
     }
 
     @Test
