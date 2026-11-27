@@ -23,15 +23,23 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -169,6 +177,61 @@ public class MaterializeProbeVisitorTest {
 
         Assertions.assertFalse(source.isPresent());
         Assertions.assertEquals(ImmutableSet.of(baseSlot, pushedDownSlot), requiredMaterializedSlots);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testIndexLazySlotsAreTheSlotsOnlyIndexPredicatesRead() {
+        SlotReference body = new SlotReference("body", StringType.INSTANCE);
+        SlotReference ts = new SlotReference("ts", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockBaseOlapScan(body);
+        PhysicalFilter<PhysicalOlapScan> filter = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(filter.child()).thenReturn(scan);
+        Mockito.when(filter.getConjuncts()).thenReturn(ImmutableSet.of(
+                new MatchAny(body, new StringLiteral("error")), new GreaterThan(ts, new IntegerLiteral(1))));
+        Assertions.assertEquals(ImmutableSet.of(body), MaterializeProbeVisitor.indexLazySlots(filter));
+
+        // MATCH combined by OR and NOT is answered by the index as well.
+        Mockito.when(filter.getConjuncts()).thenReturn(ImmutableSet.of(new Or(
+                new MatchAll(body, new StringLiteral("disk node")),
+                new Not(new MatchAny(body, new StringLiteral("error"))))));
+        Assertions.assertEquals(ImmutableSet.of(body), MaterializeProbeVisitor.indexLazySlots(filter));
+
+        // A conjunct evaluated row by row reads body as well, also inside an OR.
+        Mockito.when(filter.getConjuncts()).thenReturn(ImmutableSet.of(
+                new MatchAny(body, new StringLiteral("error")), new Like(body, new StringLiteral("%x%"))));
+        Assertions.assertEquals(ImmutableSet.of(), MaterializeProbeVisitor.indexLazySlots(filter));
+        Mockito.when(filter.getConjuncts()).thenReturn(ImmutableSet.of(new Or(
+                new MatchAny(body, new StringLiteral("error")), new GreaterThan(ts, new IntegerLiteral(1)))));
+        Assertions.assertEquals(ImmutableSet.of(), MaterializeProbeVisitor.indexLazySlots(filter));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testFilterOverRollupKeepsPredicateSlotsMaterialized() {
+        ConnectContext oldContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().topNLazyMaterializationUsingIndex = true;
+        context.setThreadLocalInfo();
+        try {
+            SlotReference slot = new SlotReference("a", IntegerType.INSTANCE);
+            PhysicalOlapScan scan = mockBaseOlapScan(slot);
+            // A rollup is selected: its rows are not the base index rows the row-id points to.
+            Mockito.when(scan.getSelectedIndexId()).thenReturn(2L);
+            PhysicalFilter<PhysicalOlapScan> filter = Mockito.mock(PhysicalFilter.class);
+            Mockito.when(filter.child()).thenReturn(scan);
+            Mockito.when(filter.getInputSlots()).thenReturn(ImmutableSet.of(slot));
+
+            Assertions.assertEquals(ImmutableSet.of(), MaterializeProbeVisitor.indexLazySlots(filter));
+            Assertions.assertFalse(new MaterializeProbeVisitor().visitPhysicalFilter(
+                    filter, new MaterializeProbeVisitor.ProbeContext(slot)).isPresent());
+        } finally {
+            if (oldContext == null) {
+                ConnectContext.remove();
+            } else {
+                oldContext.setThreadLocalInfo();
+            }
+        }
     }
 
     private PhysicalOlapScan mockBaseOlapScan(SlotReference outputSlot) {
