@@ -394,6 +394,37 @@ protected:
     RuntimeState _runtime_state;
 };
 
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorMergesKeyRangeWithColumnPredicates) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    RowCursor bound;
+    auto st = bound.init_scan_key(_tablet_schema, {int_field(kNumRows - 1)});
+    ASSERT_TRUE(st.ok()) << st;
+
+    auto predicate = std::make_shared<ComparisonPredicateBase<TYPE_INT, PredicateType::GE>>(
+            0, read_schema->column(0)->name(), int_field(0));
+    auto predicates = AndBlockColumnPredicate::create_shared();
+    predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+
+    for (bool include_lower : {false, true}) {
+        SCOPED_TRACE(include_lower);
+        OlapReaderStatistics stats;
+        StorageReadOptions options(stats);
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        options.col_id_to_predicates.emplace(0, predicates);
+        options.key_ranges.emplace_back(&bound, include_lower, nullptr, false);
+
+        std::unique_ptr<RowwiseIterator> iter;
+        st = segment->new_iterator(read_schema, options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+        EXPECT_EQ(!include_lower, iter->empty());
+        EXPECT_EQ(1, predicates->num_of_column_predicate());
+    }
+}
+
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonemap) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
