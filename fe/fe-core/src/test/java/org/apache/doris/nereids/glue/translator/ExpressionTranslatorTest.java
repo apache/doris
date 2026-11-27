@@ -42,6 +42,8 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -49,13 +51,18 @@ import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.collect.ImmutableList;
@@ -241,5 +248,53 @@ public class ExpressionTranslatorTest {
             Mockito.verify(table, Mockito.times(2)).getInvertedIndexByStoragePath(
                     column, table.toVariantStoragePath(paths.get(i)), null);
         }
+    }
+
+    @Test
+    void testTypeOfUnderShortCircuitIsLoweredBeforeBeTranslation() {
+        SlotReference guard = new SlotReference("guard", BooleanType.INSTANCE, true);
+        SlotReference value = new SlotReference("value", VarcharType.createVarcharType(10), true);
+        ShortCircuitIf guardedTypeOf = new ShortCircuitIf(
+                guard, new TypeOf(value), new StringLiteral("fallback"));
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(
+                MemoTestUtils.createCascadesContext("select 1"));
+
+        ShortCircuitIf normalized = (ShortCircuitIf) new ExpressionNormalization()
+                .rewrite(guardedTypeOf, rewriteContext);
+        Assertions.assertInstanceOf(TypeOf.class, normalized.child(1));
+
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext();
+        translatorContext.addExprIdSlotRefPair(guard.getExprId(), new SlotRef(Type.BOOLEAN, true));
+        FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(normalized, translatorContext);
+        Assertions.assertTrue(translated.isShortCircuitEvaluation());
+        Assertions.assertInstanceOf(org.apache.doris.analysis.StringLiteral.class, translated.getChild(1));
+        Assertions.assertEquals("varchar(10)",
+                ((org.apache.doris.analysis.StringLiteral) translated.getChild(1)).getValue());
+
+        List<TExprNode> thriftNodes = ExprToThriftVisitor.treeToThrift(translated).getNodes();
+        TExprNode thriftNode = thriftNodes.get(0);
+        Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
+        Assertions.assertTrue(thriftNodes.stream().anyMatch(node -> node.isSetStringLiteral()
+                && node.getStringLiteral().getValue().equals("varchar(10)")));
+        Assertions.assertFalse(thriftNodes.stream().anyMatch(node -> node.isSetFn()
+                && node.getFn().getName().getFunctionName().equalsIgnoreCase("typeof")));
+    }
+
+    @Test
+    void testNestedTypeOfMatchesGuardedTranslation() {
+        SlotReference guard = new SlotReference("guard", BooleanType.INSTANCE, true);
+        SlotReference value = new SlotReference("value", VarcharType.createVarcharType(10), true);
+        TypeOf nestedTypeOf = new TypeOf(new TypeOf(value));
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(
+                MemoTestUtils.createCascadesContext("select 1"));
+        org.apache.doris.nereids.trees.expressions.Expression normalized = new ExpressionNormalization()
+                .rewrite(nestedTypeOf, rewriteContext);
+        Assertions.assertEquals(new StringLiteral("varchar"), normalized);
+
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext();
+        translatorContext.addExprIdSlotRefPair(guard.getExprId(), new SlotRef(Type.BOOLEAN, true));
+        FunctionCallExpr guarded = (FunctionCallExpr) ExpressionTranslator.translate(
+                new ShortCircuitIf(guard, nestedTypeOf, new StringLiteral("fallback")), translatorContext);
+        Assertions.assertEquals(ExpressionTranslator.translate(normalized, translatorContext), guarded.getChild(1));
     }
 }
