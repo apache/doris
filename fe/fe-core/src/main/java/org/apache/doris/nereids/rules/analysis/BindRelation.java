@@ -46,6 +46,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -63,6 +65,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.ViewDefaultDatabase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.LeadingHint;
@@ -221,10 +224,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     cascadesContext.getRecursiveCteContext().get().getCteId(),
                     cascadesContext.getRecursiveCteOutputs(), unboundRelation.getNameParts());
         } else {
-            List<String> tableQualifier = RelationUtil.getQualifierName(
-                    cascadesContext.getConnectContext(), unboundRelation.getNameParts());
+            Optional<ViewDefaultDatabase> viewDatabase = cascadesContext.getViewDefaultDatabase();
+            List<String> tableQualifier = viewDatabase.map(database -> database.qualify(tableName))
+                    .orElseGet(() -> RelationUtil.getQualifierName(
+                            cascadesContext.getConnectContext(), unboundRelation.getNameParts()));
             TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
                     Optional.of(unboundRelation));
+            viewDatabase.ifPresent(database -> database.checkTable(table));
 
             plan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
             if (cascadesContext.isLeadingJoin()) {
@@ -904,11 +910,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 "view not supported with snapshot time/version travel");
                         }
                         isView = true;
-                        String pluginCatalog = pluginViewTable.getCatalog().getName();
-                        String pluginDb = pluginViewTable.getDatabase().getFullName();
-                        String ddlSql = pluginViewTable.getViewText();
-                        Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
-                                pluginCatalog, pluginDb, ddlSql, cascadesContext);
+                        ConnectorViewDefinition definition = pluginViewTable.getViewDefinition();
+                        String pluginCatalog = definition.getDefaultCatalog()
+                                .orElse(pluginViewTable.getCatalog().getName());
+                        CatalogIf<?> target = cascadesContext.getConnectContext().getCatalog(pluginCatalog);
+                        Optional<String> savedDb = target == null ? Optional.empty() : definition.getDefaultNamespace()
+                                .flatMap(target::databaseNameForViewNamespace).filter(db -> !db.isEmpty());
+                        String pluginDb = definition.getDefaultNamespace().isPresent()
+                                ? savedDb.orElse("") : pluginViewTable.getDatabase().getFullName();
+                        Optional<ViewDefaultDatabase> bindingDb = savedDb.map(
+                                db -> new ViewDefaultDatabase(target, db));
+                        ExternalView externalView = new ExternalView(pluginViewTable, definition.getSql(),
+                                pluginViewTable.getViewSchema(definition));
+                        Plan pluginViewPlan = parseAndAnalyzeExternalView(externalView,
+                                pluginCatalog, pluginDb, bindingDb, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
@@ -1028,18 +1043,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeExternalView(
-            ExternalTable table, String externalCatalog, String externalDb,
-            String ddlSql, CascadesContext cascadesContext) {
+            ExternalView view, String externalCatalog, String externalDb, Optional<ViewDefaultDatabase> bindingDb,
+            CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
-        String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
+        String convertedSql = SqlDialectHelper.convertSqlByDialect(view.getViewText(), ctx.getSessionVariable());
         // change catalog and db to external catalog and db,
         // so that we can parse and analyze the view sql in external context.
         try {
-            ctx.changeDefaultCatalog(externalCatalog);
-            ctx.setDatabase(externalDb);
-            return new LogicalView<>(new ExternalView(table, ddlSql),
-                    parseAndAnalyzeView(table, convertedSql, cascadesContext));
+            ctx.setViewDefaultNamespace(externalCatalog, externalDb);
+            Plan body = parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext, bindingDb);
+            LogicalView<Plan> logicalView = new LogicalView<>(view, body);
+            List<Slot> declaredOutputs = logicalView.getOutput();
+            List<Slot> bodyOutputs = body.getOutput();
+            List<NamedExpression> aliases = new ArrayList<>(declaredOutputs.size());
+            // Each declared position needs its own ExprId, even for repeated body slots. Keep those
+            // aliases inside the view so policy checking sees the view and its declared output slots.
+            for (int i = 0; i < declaredOutputs.size(); i++) {
+                aliases.add(new Alias(bodyOutputs.get(i), declaredOutputs.get(i).getName()));
+            }
+            return logicalView.withChildren(new LogicalProject<>(aliases, body));
         } finally {
             // Also restore failed namespace entry without masking analysis errors with metadata IO.
             ctx.restoreNameSpaceContext(previousNamespace);
@@ -1054,7 +1077,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
-            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
+            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext, Optional.empty());
             if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, viewInfo.second)) {
                 SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
                 analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
@@ -1063,7 +1086,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return analyzedPlan;
     }
 
-    private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {
+    private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext,
+            Optional<ViewDefaultDatabase> bindingDb) {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
         Optional<SqlCacheContext> sqlCacheContextOpt = parentContext.getStatementContext().getSqlCacheContext();
         if (sqlCacheContextOpt.isPresent()) {
@@ -1089,6 +1113,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
+        viewContext.setViewDefaultDatabase(bindingDb);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
             viewContext.newAnalyzer().analyze();
         });

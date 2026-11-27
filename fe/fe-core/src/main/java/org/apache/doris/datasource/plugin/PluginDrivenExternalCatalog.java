@@ -655,6 +655,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return name;
     }
 
+    @Override
+    public Optional<String> databaseNameForViewNamespace(List<String> levels) {
+        Map<String, String> properties = getProperties();
+        return ConnectorFactory.findProvider(getType(), properties)
+                .flatMap(provider -> provider.databaseNameForViewNamespace(properties, levels));
+    }
+
     /** Returns the underlying SPI connector. Ensures the catalog is initialized first. */
     public Connector getConnector() {
         makeSureInitialized();

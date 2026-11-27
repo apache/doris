@@ -21,14 +21,20 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalView;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.ViewDefaultDatabase;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -47,6 +53,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
     private static final String DATABASE = "db_old";
@@ -132,6 +139,38 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
         assertNamespace(saved);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"information_schema", "InFoRmAtIoN_sChEmA", "mysql", "MySQL"})
+    public void savedPhysicalNamespaceRejectsRealSystemDatabase(String name) {
+        boolean infoSchema = name.equalsIgnoreCase("information_schema");
+        String table = infoSchema ? "tables" : "user";
+        ExternalDatabase<?> resolved = viewCatalog.getDbNullable(name);
+        Assertions.assertTrue(infoSchema ? resolved instanceof ExternalInfoSchemaDatabase
+                : resolved instanceof ExternalMysqlDatabase);
+        Assertions.assertNotNull(resolved.getTableNullable(table));
+        Optional<ViewDefaultDatabase> inferred = Optional.of(new ViewDefaultDatabase(viewCatalog, name));
+        RuntimeException error = Assertions.assertThrows(RuntimeException.class,
+                () -> analyzeExternalView("SELECT 1 FROM `" + table + "`", name, inferred));
+        Assertions.assertTrue(error.getMessage().contains("does not resolve to its physical database"),
+                error.getMessage());
+        Assertions.assertDoesNotThrow(() -> analyzeExternalView(
+                "SELECT 1 FROM `" + name + "`.`" + table + "`", name, inferred));
+    }
+
+    @Test
+    public void savedPhysicalNamespaceResolvesLocalAliasAndChecksItsRemoteSpelling() {
+        String remoteName = "RemoteDb";
+        ExternalDatabase<?> db = viewCatalog.getDbNullable("local_alias");
+        Assertions.assertEquals(remoteName, db.getRemoteName());
+        ViewDefaultDatabase saved = new ViewDefaultDatabase(viewCatalog, remoteName);
+        Assertions.assertEquals(List.of(viewCatalog.getName(), "local_alias", "t"), saved.qualify("t"));
+        TableIf table = db.getTableNullable("t");
+        Assertions.assertNotNull(table);
+        Assertions.assertDoesNotThrow(() -> saved.checkTable(table));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new ViewDefaultDatabase(viewCatalog, "remotedb").checkTable(table));
+    }
+
     @Test
     public void testExternalViewEntryFailureRestoresPreviousNamespace() {
         NameSpaceContext saved = connectContext.getNameSpaceContext();
@@ -209,13 +248,18 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
     }
 
     private Plan analyzeExternalView(String sql) {
+        return analyzeExternalView(sql, DATABASE, Optional.empty());
+    }
+
+    private Plan analyzeExternalView(String sql, String db, Optional<ViewDefaultDatabase> inferred) {
         // The real binder parses the view under the second catalog and restores the first catalog afterwards.
         StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0));
         connectContext.setStatementContext(statement);
         CascadesContext cascadesContext = CascadesContext.initContext(statement,
                 new NereidsParser().parseSingle("SELECT 1"), PhysicalProperties.ANY);
-        return Deencapsulation.invoke(new BindRelation(), "parseAndAnalyzeExternalView", viewTable,
-                viewCatalog.getName(), DATABASE, sql, cascadesContext);
+        ExternalView view = new ExternalView(viewTable, sql);
+        return Deencapsulation.invoke(new BindRelation(), "parseAndAnalyzeExternalView", view,
+                viewCatalog.getName(), db, inferred, cascadesContext);
     }
 
     private void assertNamespace(NameSpaceContext saved) {
@@ -241,6 +285,11 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
         }
 
         @Override
+        public String fromRemoteDatabaseName(String name) {
+            return "RemoteDb".equals(name) ? "local_alias" : name;
+        }
+
+        @Override
         public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
             ExternalDatabase<? extends ExternalTable> db = super.getDbNullable(dbName);
             if (failAfterLookup) {
@@ -260,7 +309,8 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
         @Override
         public Map<String, Map<String, List<Column>>> getMetadata() {
             return Map.of(DATABASE, Map.of("t", List.of(new Column("id", Type.INT))),
-                    "db_new", Map.of("t", List.of(new Column("id", Type.INT))));
+                    "db_new", Map.of("t", List.of(new Column("id", Type.INT))),
+                    "RemoteDb", Map.of("t", List.of(new Column("id", Type.INT))));
         }
     }
 }

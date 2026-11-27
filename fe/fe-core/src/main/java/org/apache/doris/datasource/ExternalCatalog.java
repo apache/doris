@@ -1506,6 +1506,12 @@ public abstract class ExternalCatalog
         return catalogProperty.getOrDefault(ExternalCatalog.META_NAMES_MAPPING, "");
     }
 
+    /** Resolve a saved remote database name using the same identifier mapping as the database listing. */
+    public final String localDatabaseNameForView(String remoteName) {
+        makeSureInitialized();
+        return canonicalLocalDatabaseNameFromRemote(remoteName);
+    }
+
     /**
      * Convert one remote database name to the canonical local name used by names snapshots and object-cache keys.
      *

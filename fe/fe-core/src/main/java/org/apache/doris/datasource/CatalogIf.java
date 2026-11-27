@@ -111,6 +111,11 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void modifyCatalogProps(Map<String, String> props);
 
+    /** A flat catalog can use an individual saved namespace component as its database name. */
+    default Optional<String> databaseNameForViewNamespace(List<String> levels) {
+        return levels.size() == 1 ? Optional.of(levels.get(0)) : Optional.empty();
+    }
+
     default Optional<T> getDb(String dbName) {
         return Optional.ofNullable(getDbNullable(dbName));
     }

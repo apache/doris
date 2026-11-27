@@ -139,6 +139,7 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
                 qualified = originSlot.withQualifier(fullQualifiers);
             } else {
                 qualified = originSlot
+                        .withName(fullSchema.get(i).getName())
                         .withOneLevelTableAndColumnAndQualifier(view, fullSchema.get(i), fullQualifiers);
             }
             currentOutput.add(qualified);
