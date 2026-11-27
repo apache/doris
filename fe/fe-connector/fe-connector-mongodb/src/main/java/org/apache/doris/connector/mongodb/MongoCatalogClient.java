@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector.mongodb;
 
+import org.apache.doris.thrift.TMongoSnapshot;
+
 import org.bson.BsonTimestamp;
 import org.bson.Document;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 /** Metadata transport boundary, allowing tests to supply metadata without mocking driver internals. */
 interface MongoCatalogClient extends AutoCloseable {
@@ -33,12 +37,19 @@ interface MongoCatalogClient extends AutoCloseable {
         return collections(database).stream().filter(d -> name.equals(d.getString("name"))).findFirst();
     }
 
-    default MongoSnapshot.Source snapshotSource(long timeoutMs) {
+    default MongoSnapshot.Source snapshotSource(long timeoutMs, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB snapshot source discovery is unavailable");
     }
 
-    default BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
+    default BsonTimestamp selectSnapshot(String database, String collection, String preference,
+            long timeoutMs, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB snapshot selection is unavailable");
+    }
+
+    default MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+            TMongoSnapshot snapshot, int rows, long timeoutMs,
+            LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
+        throw new UnsupportedOperationException("MongoDB range planning is unavailable");
     }
 
     @Override

@@ -26,6 +26,7 @@ from pathlib import Path
 import shlex
 import socket
 import subprocess
+import sys
 import time
 from urllib.parse import quote
 import uuid
@@ -41,6 +42,8 @@ def parse_args():
     parser.add_argument("--base-port", type=int, default=28010)
     parser.add_argument("--advertised-host", default="127.0.0.1")
     parser.add_argument("--docker-command", default="docker")
+    parser.add_argument("--network-mode", choices=["host", "bridge"], default="host")
+    parser.add_argument("--container-user", help="container UID:GID; rootless CI uses its namespace owner, 0:0")
     parser.add_argument("--remove", action="store_true")
     return parser.parse_args()
 
@@ -52,6 +55,7 @@ class Fixture:
         self.state_path = self.directory / "state.json"
         self.docker_command = shlex.split(args.docker_command)
         self.state = {}
+        self.port_containers = {}
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
 
@@ -66,8 +70,15 @@ class Fixture:
             json.dump(self.state, output, indent=2)
 
     def remove(self):
-        for container in self.state.get("containers", []):
-            self.docker("rm", "-f", container)
+        containers = self.state.get("containers", [])
+        if containers:
+            # A cancelled/failed run can reserve a name before Docker creates the container.
+            # Attempt every owned name, then verify none remain instead of stopping at the first miss.
+            subprocess.run(self.docker_command + ["rm", "-f", "-v"] + containers,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            remaining = set(self.docker("ps", "-a", "--format", "{{.Names}}").splitlines()) & set(containers)
+            if remaining:
+                raise RuntimeError("MongoDB fixture cleanup left owned containers")
         self.state["containers"] = []
         self.save()
         print("Removed the fixture's recorded containers", flush=True)
@@ -94,34 +105,75 @@ class Fixture:
 
     def start(self, suffix, port, arguments, binary="mongod"):
         name = self.state["prefix"] + "-" + suffix
-        bind = ",".join(dict.fromkeys(["127.0.0.1", self.args.advertised_host]))
-        command = ["run", "-d", "--name", name, "--network", "host", "--user",
-                   f"{os.getuid()}:{os.getgid()}", "--tmpfs", "/data/db:rw,size=1g,mode=1777",
+        network = getattr(self.args, "network_mode", "host")
+        bind = "0.0.0.0" if network == "bridge" else ",".join(dict.fromkeys([
+            "127.0.0.1", self.args.advertised_host]))
+        user = getattr(self.args, "container_user", None) or f"{os.getuid()}:{os.getgid()}"
+        command = ["run", "-d", "--name", name, "--network", network, "--user", user]
+        if network == "host" and sys.platform == "linux":
+            # Rootless host networking hides sysfs; MongoDB 8's allocator aborts without the CPU mask.
+            # Mount sysfs itself because Docker's replacement mount also hides child-only bind mounts.
+            command += ["--mount", "type=bind,src=/sys,dst=/sys,readonly"]
+        if network == "bridge":
+            # Publish host listeners without relying on the daemon's network namespace.
+            # Replica discovery and mongos must reach these same advertised ports.
+            command += ["--publish", f"{port}:{port}"]
+        # Override both image VOLUMEs: per-build topology restarts must not accumulate anonymous volumes.
+        command += ["--tmpfs", "/data/db:rw,size=1g,mode=1777", "--tmpfs", "/data/configdb:rw,size=64m,mode=1777",
                    "-v", str(self.directory / "keyfile") + ":/run/mongodb-key:ro", "--entrypoint", binary,
                    self.args.image, "--bind_ip", bind, "--port", str(port), "--keyFile", "/run/mongodb-key",
                    "--setParameter", "enableTestCommands=1"]
         if binary == "mongod":
             command += ["--dbpath", "/data/db", "--wiredTigerCacheSizeGB", "0.25",
                         "--oplogSize", "64"]
-        self.docker(*(command + arguments))
+        # Persist ownership before starting Docker so cancellation cannot orphan an unrecorded member.
         self.state["containers"].append(name)
+        self.port_containers[port] = name
         self.save()
+        self.docker(*(command + arguments))
+
+    def bootstrap_command(self, port, command):
+        if getattr(self.args, "network_mode", "host") == "host" and not getattr(self.args, "local_bootstrap", False):
+            with self.connect(port, False) as member:
+                return member.admin.command(command)
+        # A published bridge connection is not localhost inside mongod. Bootstrap through
+        # docker exec so the localhost exception can initiate the set and create its first user.
+        expression = "JSON.stringify(db.getSiblingDB('admin').runCommand(" + json.dumps(command) + "))"
+        try:
+            result = json.loads(self.docker("exec", self.port_containers[port], "mongosh", "--quiet",
+                                           "--host", "127.0.0.1", "--port", str(port), "--eval", expression))
+        except subprocess.CalledProcessError:
+            raise RuntimeError("MongoDB fixture bootstrap command failed") from None
+        if not result.get("ok"):
+            raise RuntimeError("MongoDB fixture bootstrap rejected command: " + str(result.get("code")))
+        return result
 
     def initialize_replica_set(self, ports, name, config_server=False):
         # Starting a process does not mean its socket is ready for the initiation quorum check.
         for port in ports:
             with self.connect(port, False) as member:
                 self.wait(member, lambda client: client.admin.command("ping"))
-        with self.connect(ports[0], False) as primary:
-            configuration = {"_id": name, "members": [
-                {"_id": index, "host": f"{self.args.advertised_host}:{port}"}
-                for index, port in enumerate(ports)]}
-            if config_server:
-                configuration["configsvr"] = True
-            primary.admin.command("replSetInitiate", configuration)
-            self.wait(primary, lambda client: client.admin.command("hello").get("isWritablePrimary"))
-            primary.admin.command("createUser", self.state["username"], pwd=self.state["password"], roles=["root"],
-                                  writeConcern={"w": "majority"})
+        configuration = {"_id": name, "members": [
+            {"_id": index, "host": f"{self.args.advertised_host}:{port}",
+             "tags": {"fixture_member": str(index)}}
+            for index, port in enumerate(ports)]}
+        if config_server:
+            configuration["configsvr"] = True
+        self.bootstrap_command(ports[0], {"replSetInitiate": configuration})
+        # An election can choose any member. Waiting only on the seed stalls when it is secondary.
+        elected = self.wait(None, lambda ignored: self.primary_port(ports))
+        self.bootstrap_command(elected, {"createUser": self.state["username"], "pwd": self.state["password"],
+                                        "roles": ["root"], "writeConcern": {"w": "majority"}})
+
+    def primary_port(self, ports):
+        for port in ports:
+            try:
+                with self.connect(port, False) as member:
+                    if member.admin.command("hello").get("isWritablePrimary"):
+                        return port
+            except PyMongoError:
+                pass
+        return None
 
     def uri(self, ports, extra=""):
         hosts = ",".join(f"{self.args.advertised_host}:{port}" for port in ports)
@@ -134,10 +186,10 @@ class Fixture:
             raise RuntimeError("The state directory already owns a fixture; remove it before recreating")
         username = os.environ["MONGODB_SNAPSHOT_ADMIN_USER"]
         password = os.environ["MONGODB_SNAPSHOT_ADMIN_PASSWORD"]
-        if not 1024 < self.args.base_port < 65527:
-            raise ValueError("base-port must leave eight valid fixture ports")
+        if not 1024 < self.args.base_port < 65523:
+            raise ValueError("base-port must leave twelve valid fixture ports")
         # Fail before allocating containers if a requested listening port is already occupied.
-        for port in range(self.args.base_port + 1, self.args.base_port + 9):
+        for port in range(self.args.base_port + 1, self.args.base_port + 13):
             with socket.socket() as probe:
                 # Closed fixture connections can still leave TIME_WAIT sockets after removal.
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -156,13 +208,15 @@ class Fixture:
         replica_set, config_set = "snapshot_rs_" + token, "snapshot_cfg_" + token
         shards = ["snapshot_s0_" + token, "snapshot_s1_" + token]
         self.start("config", base + 1, ["--configsvr", "--replSet", config_set])
+        shard_ports = [[base + 2, base + 9, base + 10], [base + 3, base + 11, base + 12]]
         for index in range(2):
-            self.start("shard" + str(index), base + 2 + index, ["--shardsvr", "--replSet", shards[index]])
+            for member, port in enumerate(shard_ports[index]):
+                self.start(f"shard{index}-member{member}", port, ["--shardsvr", "--replSet", shards[index]])
         for index in range(3):
             self.start("member" + str(index), base + 6 + index, ["--replSet", replica_set])
         self.initialize_replica_set([base + 1], config_set, True)
         for index in range(2):
-            self.initialize_replica_set([base + 2 + index], shards[index])
+            self.initialize_replica_set(shard_ports[index], shards[index])
         self.initialize_replica_set([base + 6, base + 7, base + 8], replica_set)
         for index in range(2):
             self.start("router" + str(index), base + 4 + index,
@@ -170,12 +224,15 @@ class Fixture:
         with self.connect(base + 4) as router:
             self.wait(router, lambda client: client.admin.command("ping"))
             for index in range(2):
-                router.admin.command("addShard", f"{shards[index]}/{self.args.advertised_host}:{base + 2 + index}")
+                hosts = ",".join(f"{self.args.advertised_host}:{port}" for port in shard_ports[index])
+                router.admin.command("addShard", f"{shards[index]}/{hosts}")
             router.admin.command("enableSharding", "doris_mongodb_snapshot", primaryShard=shards[0])
         self.state.update(replica_uri=self.uri([base + 6, base + 7, base + 8], "&replicaSet=" + replica_set),
                           router_uris=[self.uri([base + 4 + index], "&directConnection=true") for index in range(2)],
-                          shard_uris=[self.uri([base + 2 + index], "&directConnection=true") for index in range(2)],
-                          shard_names=shards)
+                          shard_uris=[self.uri(shard_ports[index], "&replicaSet=" + shards[index]) for index in range(2)],
+                          shard_names=shards, shard_ports=shard_ports,
+                          replica_ports=[base + 6, base + 7, base + 8], config_port=base + 1,
+                          router_ports=[base + 4, base + 5])
         self.save()
         print("Ready: authenticated three-member replica set, two shards and two routers; state file written", flush=True)
 

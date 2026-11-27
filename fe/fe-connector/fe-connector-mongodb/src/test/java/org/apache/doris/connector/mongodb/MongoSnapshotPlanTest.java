@@ -18,6 +18,8 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TMongoScanDesc;
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -57,17 +60,22 @@ class MongoSnapshotPlanTest {
         int identities;
         int selections;
         String preference;
+        Runnable afterSource = () -> { };
+        Runnable afterSelection = () -> { };
 
         @Override
-        public MongoSnapshot.Source snapshotSource(long timeoutMs) {
+        public MongoSnapshot.Source snapshotSource(long timeoutMs, Runnable checkCancelled) {
             identities++;
+            afterSource.run();
             return source;
         }
 
         @Override
-        public BsonTimestamp selectSnapshot(String database, String collection, String readPreference, long timeoutMs) {
+        public BsonTimestamp selectSnapshot(String database, String collection, String readPreference,
+                long timeoutMs, Runnable checkCancelled) {
             selections++;
             preference = readPreference;
+            afterSelection.run();
             return time;
         }
 
@@ -119,6 +127,39 @@ class MongoSnapshotPlanTest {
     }
 
     @Test
+    void stoppedScanDoesNotSelectSnapshotAfterSourceDiscovery() {
+        var properties = properties();
+        var client = new Client();
+        var context = new ConnectorScanContext();
+        var session = session(new Scope(), 1, "snapshot");
+        client.afterSource = context::cancel;
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var request = ConnectorScanRequest.builder(collection("records", properties), List.of())
+                .scanContext(context).build();
+        Assertions.assertThrows(CancellationException.class, () -> provider.planScan(session, request));
+        Assertions.assertFalse(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT).isClosed());
+        Assertions.assertEquals(1, client.identities);
+        Assertions.assertEquals(0, client.selections);
+        Assertions.assertEquals("none", MongoSnapshot.pinnedTimestamp(session));
+    }
+
+    @Test
+    void stoppedScanDoesNotPublishSnapshotSelectedByCancelledWork() {
+        var properties = properties();
+        var client = new Client();
+        var context = new ConnectorScanContext();
+        var session = session(new Scope(), 1, "snapshot");
+        client.afterSelection = context::cancel;
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var request = ConnectorScanRequest.builder(collection("records", properties), List.of())
+                .scanContext(context).build();
+        Assertions.assertThrows(CancellationException.class, () -> provider.planScan(session, request));
+        Assertions.assertFalse(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT).isClosed());
+        Assertions.assertEquals(1, client.selections);
+        Assertions.assertEquals("none", MongoSnapshot.pinnedTimestamp(session));
+    }
+
+    @Test
     void collectionUuidSurvivesExtendedJsonPinning() {
         byte[] bytes = new byte[16];
         for (int i = 0; i < bytes.length; i++) {
@@ -145,8 +186,10 @@ class MongoSnapshotPlanTest {
         var secondSession = session(scope, 2, "snapshot");
         var explanation = firstProvider.getScanNodeProperties(firstSession, firstTable, List.of(),
                 java.util.Optional.empty());
-        Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
+        Assertions.assertEquals("none", explanation.get("snapshot"));
+        Assertions.assertEquals(0, first.selections);
         var left = plan(firstProvider, firstSession, firstTable);
+        Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
         var right = plan(secondProvider, secondSession, secondTable);
         Assertions.assertEquals(left.getSnapshot(), right.getSnapshot());
         Assertions.assertEquals("snapshot", left.getReadConcern());

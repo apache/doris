@@ -18,7 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("test_mongodb_native_acceptance", "p0,external") {
-    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBTest"))) {
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBNativeTest"))) {
         return
     }
     sql "SWITCH internal"

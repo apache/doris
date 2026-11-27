@@ -18,10 +18,13 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.thrift.TMongoSnapshot;
 
 import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
+import com.mongodb.MongoExecutionTimeoutException;
+import com.mongodb.MongoOperationTimeoutException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
@@ -29,10 +32,13 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.cursor.TimeoutMode;
 import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
+import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.codecs.DocumentCodec;
 import org.bson.types.ObjectId;
@@ -42,6 +48,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 
 /** Catalog-owned thread-safe driver; every metadata cursor/session is local and deterministically closed. */
 final class MongoDriverCatalogClient implements MongoCatalogClient {
@@ -110,17 +118,19 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     }
 
     @Override
-    public MongoSnapshot.Source snapshotSource(long timeoutMs) {
+    public MongoSnapshot.Source snapshotSource(long timeoutMs, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         try {
             // hello identifies replica-set versus mongos routing and reports protocol capabilities.
-            Document hello = snapshotDatabase("admin", deadline).runCommand(new Document("hello", 1));
+            Document hello = snapshotDatabase("admin", deadline, checkCancelled).runCommand(new Document("hello", 1));
+            checkSnapshot(deadline, checkCancelled);
             int wireVersion = hello.getInteger("maxWireVersion", 0);
             if ("isdbgrid".equals(hello.getString("msg"))) {
                 // config.version._id=1 holds the clusterId shared by all routers of this deployment.
                 // Inclusion projection keeps only that identity; no data rows are used to identify a cluster.
-                Document version = snapshotDatabase("config", deadline).getCollection("version")
+                Document version = snapshotDatabase("config", deadline, checkCancelled).getCollection("version")
                         .find(new Document("_id", 1)).projection(new Document("clusterId", 1)).limit(1).first();
+                checkSnapshot(deadline, checkCancelled);
                 ObjectId identity = version == null ? null : version.getObjectId("clusterId");
                 if (identity == null) {
                     throw new IllegalArgumentException("MongoDB snapshot cluster identity metadata is unavailable");
@@ -132,8 +142,10 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             }
             // Read the durable replica-set identity and config.version. Neither hello.setName nor
             // hello.topologyVersion alone identifies a deployment/configuration across connections.
-            Document config = snapshotDatabase("admin", deadline).runCommand(new Document("replSetGetConfig", 1))
+            Document config = snapshotDatabase("admin", deadline, checkCancelled)
+                    .runCommand(new Document("replSetGetConfig", 1))
                     .get("config", Document.class);
+            checkSnapshot(deadline, checkCancelled);
             ObjectId identity = config == null ? null : config.get("settings", new Document())
                     .getObjectId("replicaSetId");
             Number version = config == null ? null : config.get("version", Number.class);
@@ -147,8 +159,10 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     }
 
     @Override
-    public BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
+    public BsonTimestamp selectSnapshot(String database, String collection, String preference,
+            long timeoutMs, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        checkSnapshot(deadline, checkCancelled);
         // A constant projection bounds the probe payload independently of source document size.
         // MongoDB 7 time-series rewrites can ignore singleBatch. The driver's server-bound cursor
         // must close before its snapshot session, including when routers differ or selection fails.
@@ -158,33 +172,208 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         // with limit=1/batchSize=1, to discover T without transferring a potentially large source row.
         // The driver may request an extra wire batch slot to exhaust a limit-one cursor.
         try (ClientSession session = client.startSession(ClientSessionOptions.builder()
-                .causallyConsistent(false).snapshot(true).build());
-                MongoCursor<Document> cursor = snapshotDatabase(database, deadline).getCollection(collection)
-                        .withReadPreference(properties.readPreferenceForSnapshot(preference)).find(session)
-                        .projection(new Document("_id", 0)
-                                .append("__doris_snapshot_probe__", new Document("$literal", 1)))
-                        .limit(1).batchSize(1).iterator()) {
-            cursor.hasNext();
-            // This is cursor.atClusterTime captured by the driver's snapshot-session protocol;
-            // operationTime, $clusterTime and the local wall clock are not substitutes for T.
-            BsonTimestamp timestamp = session.getSnapshotTimestamp();
-            if (timestamp == null) {
-                throw new DorisConnectorException("MongoDB snapshot probe did not return a snapshot timestamp");
+                .causallyConsistent(false).snapshot(true).build())) {
+            // Each blocking step must observe scan cancellation before starting the next one;
+            // an in-flight synchronous driver call still uses the original CSOT deadline.
+            try (MongoCursor<Document> cursor = snapshotDatabase(database, deadline, checkCancelled)
+                    .getCollection(collection).withReadPreference(properties.readPreferenceForSnapshot(preference))
+                    .find(session).projection(new Document("_id", 0)
+                            .append("__doris_snapshot_probe__", new Document("$literal", 1)))
+                    .limit(1).batchSize(1).iterator()) {
+                checkSnapshot(deadline, checkCancelled);
+                cursor.hasNext();
+                checkSnapshot(deadline, checkCancelled);
+                // This is cursor.atClusterTime captured by the driver's snapshot-session protocol;
+                // operationTime, $clusterTime and the local wall clock are not substitutes for T.
+                BsonTimestamp timestamp = session.getSnapshotTimestamp();
+                if (timestamp == null) {
+                    throw new DorisConnectorException("MongoDB snapshot probe did not return a snapshot timestamp");
+                }
+                return timestamp;
             }
-            return timestamp;
         } catch (MongoException failure) {
             throw failure(failure);
         }
     }
 
-    private MongoDatabase snapshotDatabase(String database, long deadline) {
-        long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) {
+    @Override
+    public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+            TMongoSnapshot snapshot, int rows, long timeoutMs,
+            LongPredicate shouldSample, LongConsumer accountBytes, Runnable checkCancelled) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        String index = null;
+        long bytes = 0;
+        try {
+            var collection = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .getCollection(table.getName());
+            // Fetch the bounded index inventory together: one RTT per index can exhaust the
+            // optional probe deadline before a later qualifying ordinary index is reached.
+            try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(128)
+                    .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
+                int count = 0;
+                while (true) {
+                    // iterator() can receive a batch before returning. Charge buffered data before
+                    // timeout fallback, but guard hasNext() before it can issue another getMore.
+                    if (indexes.available() == 0) {
+                        checkProbe(deadline, checkCancelled);
+                        if (!indexes.hasNext()) {
+                            break;
+                        }
+                    }
+                    long batchBytes = 0;
+                    do {
+                        checkCancelled.run();
+                        Document value = indexes.next();
+                        batchBytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
+                        count++;
+                        if (index == null && eligibleIndex(value, field)) {
+                            index = value.getString("name");
+                        }
+                        // The driver already received this batch. Finding a usable first index
+                        // cannot hide later large specs from either probe or statement accounting.
+                    } while (indexes.available() > 0);
+                    bytes += batchBytes;
+                    accountBytes.accept(batchBytes);
+                    checkProbe(deadline, checkCancelled);
+                    if (count > 128 || bytes > 65536) {
+                        throw new MongoRangePlanner.PlanningLimit();
+                    }
+                    if (index != null) {
+                        break;
+                    }
+                }
+            }
+            if (index == null) {
+                return new MongoSplitProbe(List.of(), -1, bytes, false);
+            }
+            Document stats = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(new Document("collStats", table.getName()).append("scale", 1));
+            checkCancelled.run();
+            // collStats includes index details and other metadata, not just its scalar size field.
+            // Charge consumed replies before a delayed planner observes its optional deadline.
+            long statsBytes = MongoSplitPlan.encode(stats.toBsonDocument()).length;
+            bytes += statsBytes;
+            accountBytes.accept(statsBytes);
+            checkProbe(deadline, checkCancelled);
+            if (bytes > 1024 * 1024) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            Number size = stats.get("size", Number.class);
+            long logicalBytes = size == null ? -1 : size.longValue();
+            // Auto can already choose a complete single cursor from these statistics. Avoid
+            // a random-sampling COLLSCAN that cannot change that decision, including unknown size.
+            if (!shouldSample.test(logicalBytes)) {
+                return new MongoSplitProbe(List.of(), logicalBytes, bytes, true);
+            }
+            List<BsonValue> samples = new ArrayList<>();
+            // Sampling an index prefix puts almost all increasing keys into the final range.
+            // Keep $sample first so MongoDB can use its random cursor, then retain only bounded
+            // fixed-width keys. Statistics tune cost only; they never narrow source coverage.
+            // Unsupported large strings/arrays become null before they can reach the FE.
+            Document type = new Document("$type", "$" + field);
+            Document supported = new Document("$in", List.of(type, List.of("int", "long", "objectId", "date")));
+            Document projection = new Document("_id", 0).append("value",
+                    new Document("$cond", List.of(supported, "$" + field, new Document("$literal", null))));
+            // Do not shrink small-table requests below MongoDB's 5% random-cursor threshold.
+            // Its historical random cursor can stall on concurrently rewritten records; a bounded
+            // full sample of a small collection remains cheap and preserves the pinned timestamp.
+            var pipeline = List.of(new Document("$sample", new Document("size", rows)),
+                    new Document("$project", projection), new Document("$group", new Document("_id", null)
+                            .append("values", new Document("$push", "$value"))));
+            // Grouping at most 4096 fixed-width hints produces at most one small document.
+            // batchSize=2 exhausts that reply, avoiding remote cursor cleanup on cancellation and
+            // driver 5.14's invalid snapshot readConcern on killCursors. No getMore is needed.
+            var command = new Document("aggregate", table.getName()).append("pipeline", pipeline)
+                    .append("cursor", new Document("batchSize", 2))
+                    .append("readConcern", new Document("level", "snapshot").append("atClusterTime",
+                            new BsonTimestamp((int) snapshot.getTimestampSeconds(),
+                                    (int) snapshot.getTimestampIncrement())));
+            BsonDocument reply = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(command, properties.readPreferenceForSnapshot(preference), BsonDocument.class);
+            checkCancelled.run();
+            long replyBytes = MongoSplitPlan.encode(reply).length;
+            bytes += replyBytes;
+            accountBytes.accept(replyBytes);
+            checkProbe(deadline, checkCancelled);
+            if (bytes > 1024 * 1024) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            for (BsonValue batch : reply.getDocument("cursor").getArray("firstBatch")) {
+                for (BsonValue value : batch.asDocument().getArray("values")) {
+                    checkProbe(deadline, checkCancelled);
+                    if (samples.size() >= rows) {
+                        throw new MongoRangePlanner.PlanningLimit();
+                    }
+                    samples.add(value);
+                }
+            }
+            checkProbe(deadline, checkCancelled);
+            return new MongoSplitProbe(samples, logicalBytes, bytes, true);
+        } catch (MongoException error) {
+            checkCancelled.run();
+            // Only the optional planning deadline can trigger auto fallback. Permission denial,
+            // expired snapshot history, replacement, and transport errors must fail the statement.
+            // A thread can resume after its deadline while handling an earlier BadValue/permission
+            // failure. Elapsed time alone must not disguise that source error as optional timeout.
+            if (error instanceof MongoExecutionTimeoutException || error instanceof MongoOperationTimeoutException) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            throw failure(error);
+        }
+    }
+
+    static boolean eligibleIndex(Document index, String field) {
+        Document keys = index.get("key", Document.class);
+        if (keys == null || keys.isEmpty() || !field.equals(keys.keySet().iterator().next())
+                || !(keys.get(field) instanceof Number direction) || Math.abs(direction.intValue()) != 1
+                || Boolean.TRUE.equals(index.getBoolean("sparse")) || index.containsKey("partialFilterExpression")
+                || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
+            return false;
+        }
+        // A TEXT suffix makes prefix inequalities unusable; wildcard suffixes can also make
+        // coverage incomplete without sparse:true. Only ordinary B-tree components qualify.
+        for (var entry : keys.entrySet()) {
+            if ("$**".equals(entry.getKey()) || entry.getKey().endsWith(".$**")
+                    || !(entry.getValue() instanceof Number value) || Math.abs(value.doubleValue()) != 1) {
+                return false;
+            }
+        }
+        Document collation = index.get("collation", Document.class);
+        return collation == null || "simple".equals(collation.getString("locale"));
+    }
+
+    private MongoDatabase probeDatabase(String database, long deadline, Runnable checkCancelled) {
+        checkProbe(deadline, checkCancelled);
+        return metadataDatabase(database).withTimeout(Math.max(1,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())), TimeUnit.MILLISECONDS);
+    }
+
+    private static void checkProbe(long deadline, Runnable checkCancelled) {
+        checkCancelled.run();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("MongoDB split planning interrupted");
+        }
+        if (System.nanoTime() >= deadline) {
+            throw new MongoRangePlanner.PlanningLimit();
+        }
+    }
+
+    private static void checkSnapshot(long deadline, Runnable checkCancelled) {
+        checkCancelled.run();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("MongoDB snapshot planning interrupted");
+        }
+        if (System.nanoTime() >= deadline) {
             throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
         }
+    }
+
+    private MongoDatabase snapshotDatabase(String database, long deadline, Runnable checkCancelled) {
+        checkSnapshot(deadline, checkCancelled);
         // CSOT covers server selection/network/command time and supplies the wire maxTimeMS;
         // hand-adding maxTimeMS to a raw command would create a duplicate BSON field.
-        return metadataDatabase(database).withTimeout(Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining)),
+        return metadataDatabase(database).withTimeout(Math.max(1,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())),
                 TimeUnit.MILLISECONDS);
     }
 

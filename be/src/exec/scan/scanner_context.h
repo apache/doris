@@ -22,10 +22,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
-#include <stack>
 #include <string>
 #include <utility>
 #include <vector>
@@ -111,6 +111,8 @@ public:
     std::weak_ptr<ScannerDelegate> scanner;
     BlockUPtr cached_block = nullptr;
     bool is_first_schedule = true;
+    // Written by the worker, then read after completion under the context's transfer lock.
+    bool resource_wait = false;
     // Use weak_ptr to avoid circular references and potential memory leaks with SplitRunner.
     // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
     // When SplitRunner is destroyed, split_runner.lock() will return nullptr, ensuring safe access.
@@ -342,11 +344,11 @@ protected:
     // read/popped by get_block_from_queue() (operator thread).
     std::list<std::shared_ptr<ScanTask>> _completed_tasks;
 
-    // Scanners waiting to be admitted for execution. Stored as a stack (LIFO) so that
-    // recently-used scanners are re-scheduled first, which is more likely to be cache-friendly.
+    // Normal scanners use the back as a cache-friendly LIFO stack. Resource waiters enter
+    // at the front so repeated empty retries cannot bury a pending client holder.
     // Protected by _transfer_lock. Populated in the constructor and when an operator returns a
     // non-EOS task; drained by try_get_next_scan_task() or the TaskExecutor scheduler.
-    std::stack<std::shared_ptr<ScanTask>> _pending_tasks;
+    std::deque<std::shared_ptr<ScanTask>> _pending_tasks;
 
     // True from the start of one Context submission until its runnable starts. The marker may
     // remain true when no runnable was retained: a failed submission makes the Context terminal,

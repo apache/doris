@@ -18,6 +18,7 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 
 import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
@@ -33,6 +34,7 @@ import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
 import org.bson.BsonTimestamp;
 import org.bson.Document;
+import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -41,8 +43,53 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
 
 class MongoDriverCatalogClientTest {
+    @Test
+    void splitProbesRequireVisibleCompleteSimpleBtreePrefixes() {
+        for (int direction : List.of(1, -1)) {
+            Assertions.assertTrue(MongoDriverCatalogClient.eligibleIndex(new Document("name", "split_index")
+                    .append("key", new Document("sequence", direction).append("suffix", 1)), "sequence"));
+        }
+        for (Document key : List.of(new Document("sequence", "hashed"), new Document("sequence", "text"),
+                new Document("prefix", 1).append("sequence", 1), new Document("$**", 1))) {
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", key), "sequence"));
+        }
+        for (var option : Map.of("sparse", true, "hidden", true, "buildUUID", "fixture",
+                "partialFilterExpression", new Document("sequence", new Document("$gt", 0)),
+                "collation", new Document("locale", "en")).entrySet()) {
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key",
+                    new Document("sequence", 1)).append(option.getKey(), option.getValue()), "sequence"));
+        }
+    }
+
+    @Test
+    void splitProbesRejectWildcardComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String wildcard : List.of("$**", "payload.$**", "payload.nested.$**")) {
+                var keys = new Document("sequence", direction).append(wildcard, 1).append("tail", -1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+        }
+    }
+
+    @Test
+    void splitProbesRejectNonBtreeComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String family : List.of("text", "hashed", "2d", "2dsphere", "columnstore")) {
+                var keys = new Document("sequence", direction).append("suffix", family).append("tail", 1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+            var text = new Document("sequence", direction).append("_fts", "text").append("_ftsx", 1);
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", text),
+                    "sequence"), text.toJson());
+        }
+    }
+
     private static final class RecordingDriver {
         final List<Document> commands = new ArrayList<>();
         int clientCloses;
@@ -201,6 +248,8 @@ class MongoDriverCatalogClientTest {
 
     private static final class SnapshotDriver {
         final RecordingDriver proxies = new RecordingDriver();
+        final List<String> steps = new ArrayList<>();
+        Consumer<String> afterStep = ignored -> { };
         BsonTimestamp time = new BsonTimestamp(123, 456);
         Document projection;
         long timeout;
@@ -208,14 +257,21 @@ class MongoDriverCatalogClientTest {
         int batchSize;
         int sessionsClosed;
         int cursorsClosed;
+        int cursorsOpened;
         boolean fail;
         boolean empty;
+        boolean mongos;
+
+        void step(String name) {
+            steps.add(name);
+            afterStep.accept(name);
+        }
 
         MongoClient client() {
             ClientSession session = proxies.proxy(ClientSession.class, (p, method, args) -> {
                 switch (method.getName()) {
                     case "close":
-                        Assertions.assertEquals(1, cursorsClosed);
+                        Assertions.assertEquals(cursorsOpened, cursorsClosed);
                         sessionsClosed++;
                         return null;
                     case "getSnapshotTimestamp":
@@ -230,6 +286,7 @@ class MongoDriverCatalogClientTest {
                     return null;
                 }
                 if (method.getName().equals("hasNext")) {
+                    step("hasNext");
                     if (fail) {
                         throw new MongoCommandException(new Document("ok", 0).append("code", 239)
                                 .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
@@ -250,14 +307,23 @@ class MongoDriverCatalogClientTest {
                         batchSize = (int) args[0];
                         return p;
                     case "iterator":
+                        cursorsOpened++;
+                        step("iterator");
                         return cursor;
+                    case "first":
+                        step("identity");
+                        return new Document("clusterId", new ObjectId("000000000000000000000001"));
                     default:
                         throw new UnsupportedOperationException(method.getName());
                 }
             });
             MongoCollection<?> collection = proxies.proxy(MongoCollection.class, (p, method, args) -> {
                 if (method.getName().equals("find")) {
-                    Assertions.assertSame(session, args[0]);
+                    if (args[0] instanceof ClientSession) {
+                        Assertions.assertSame(session, args[0]);
+                    } else {
+                        Assertions.assertEquals(new Document("_id", 1), args[0]);
+                    }
                     return find;
                 }
                 if (method.getName().equals("withReadPreference")) {
@@ -266,6 +332,18 @@ class MongoDriverCatalogClientTest {
                 throw new UnsupportedOperationException(method.getName());
             });
             MongoDatabase database = proxies.proxy(MongoDatabase.class, (p, method, args) -> {
+                if (method.getName().equals("runCommand")) {
+                    Document command = (Document) args[0];
+                    if (command.containsKey("hello")) {
+                        step("hello");
+                        return new Document("maxWireVersion", 25)
+                                .append(mongos ? "msg" : "setName", mongos ? "isdbgrid" : "fixture");
+                    }
+                    Assertions.assertTrue(command.containsKey("replSetGetConfig"));
+                    step("identity");
+                    return new Document("config", new Document("version", 1).append("settings",
+                            new Document("replicaSetId", new ObjectId("000000000000000000000001"))));
+                }
                 if (method.getName().startsWith("withRead")) {
                     return p;
                 }
@@ -283,6 +361,7 @@ class MongoDriverCatalogClientTest {
                     var options = (ClientSessionOptions) args[0];
                     Assertions.assertFalse(options.isCausallyConsistent());
                     Assertions.assertTrue(options.isSnapshot());
+                    step("session");
                     return session;
                 }
                 if (method.getName().equals("getDatabase")) {
@@ -302,12 +381,56 @@ class MongoDriverCatalogClientTest {
     }
 
     @Test
+    void cancelledSnapshotDiscoveryDoesNotIssueAnotherSourceCommand() {
+        for (boolean mongos : List.of(false, true)) {
+            for (String stopAfter : List.of("hello", "identity")) {
+                var driver = new SnapshotDriver();
+                driver.mongos = mongos;
+                var context = new ConnectorScanContext();
+                driver.afterStep = step -> {
+                    if (stopAfter.equals(step)) {
+                        context.cancel();
+                    }
+                };
+                try (var catalog = driver.catalog()) {
+                    Assertions.assertThrows(CancellationException.class,
+                            () -> catalog.snapshotSource(1000, context::checkCancelled));
+                    Assertions.assertEquals("hello".equals(stopAfter) ? List.of("hello")
+                            : List.of("hello", "identity"), driver.steps);
+                }
+            }
+        }
+    }
+
+    @Test
+    void cancelledSnapshotSelectionStopsBetweenBlockingStepsAndClosesOwnedResources() {
+        for (String stopAfter : List.of("session", "iterator", "hasNext")) {
+            var driver = new SnapshotDriver();
+            var context = new ConnectorScanContext();
+            driver.afterStep = step -> {
+                if (stopAfter.equals(step)) {
+                    context.cancel();
+                }
+            };
+            try (var catalog = driver.catalog()) {
+                Assertions.assertThrows(CancellationException.class,
+                        () -> catalog.selectSnapshot("sample", "records", "primary", 1000, context::checkCancelled));
+                var allSteps = List.of("session", "iterator", "hasNext");
+                Assertions.assertEquals(allSteps.subList(0, allSteps.indexOf(stopAfter) + 1), driver.steps);
+                Assertions.assertEquals("session".equals(stopAfter) ? 0 : 1, driver.cursorsClosed);
+                Assertions.assertEquals(1, driver.sessionsClosed);
+            }
+        }
+    }
+
+    @Test
     void snapshotProbeClosesServerBoundCursorBeforeItsSessionEvenForEmptyCollections() {
         for (boolean empty : List.of(false, true)) {
             SnapshotDriver driver = new SnapshotDriver();
             driver.empty = empty;
             try (var catalog = driver.catalog()) {
-                Assertions.assertEquals(driver.time, catalog.selectSnapshot("sample", "records", "primary", 1000));
+                Assertions.assertEquals(driver.time,
+                        catalog.selectSnapshot("sample", "records", "primary", 1000, () -> { }));
                 Assertions.assertEquals(1, driver.limit);
                 Assertions.assertEquals(1, driver.batchSize);
                 Assertions.assertEquals(new Document("_id", 0).append("__doris_snapshot_probe__",
@@ -325,7 +448,7 @@ class MongoDriverCatalogClientTest {
         driver.fail = true;
         try (var catalog = driver.catalog()) {
             var error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000));
+                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000, () -> { }));
             Assertions.assertTrue(error.getMessage().contains("239"));
             Assertions.assertFalse(error.getMessage().contains("fixture-secret"));
             Assertions.assertNull(error.getCause());
@@ -340,7 +463,7 @@ class MongoDriverCatalogClientTest {
         driver.time = null;
         try (var catalog = driver.catalog()) {
             Assertions.assertThrows(DorisConnectorException.class,
-                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000));
+                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000, () -> { }));
             Assertions.assertEquals(1, driver.cursorsClosed);
             Assertions.assertEquals(1, driver.sessionsClosed);
         }

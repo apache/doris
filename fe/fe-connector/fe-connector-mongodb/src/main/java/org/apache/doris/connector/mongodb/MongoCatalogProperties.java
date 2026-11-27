@@ -79,7 +79,8 @@ public final class MongoCatalogProperties {
     private int serverSelectionTimeoutMs = 10000;
     @ConnectorProperty(names = {"mongodb.socket_timeout_ms"}, required = false, description = "Socket timeout")
     private int socketTimeoutMs = 1000;
-    @ConnectorProperty(names = {"mongodb.pool_max_clients"}, required = false, description = "Per-catalog client bound")
+    @ConnectorProperty(names = {"mongodb.pool_max_clients"}, required = false,
+            description = "FE metadata pool bound and client bound per BE scan instance")
     private int poolMaxClients = 16;
 
     private ConnectionString connectionString;

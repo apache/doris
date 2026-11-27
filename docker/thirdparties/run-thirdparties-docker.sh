@@ -348,6 +348,22 @@ LOG_ROOT="${ROOT}/logs"
 
 mkdir -p "${LOG_ROOT}"
 
+record_start_failure() {
+    # CI retains reviewed event templates and source names, but withholds arbitrary command output.
+    # Keep the component/location and status in the filename without copying arguments or credentials.
+    printf 'Fixture exited before readiness:\n' >"${LOG_ROOT}/start_${1}_exit_${2}.log" || true
+}
+
+record_launcher_failure() {
+    local status="$1"
+    local location="$2"
+    if [[ "${BASHPID}" -eq "$$" && "${status}" -ne 0 ]]; then
+        record_start_failure "${location}" "${status}"
+    fi
+}
+trap 'record_launcher_failure "$?" "launcher_line_${LINENO}"' ERR
+trap 'record_launcher_failure "$?" launcher' EXIT
+
 JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
 find_juicefs_hadoop_jar() {
@@ -722,6 +738,18 @@ cleanup_started_stacks() {
 
     for ((i = ${#START_ORDER[@]} - 1; i >= 0; --i)); do
         component="${START_ORDER[$i]}"
+        if [[ "${component}" == "mongodb" ]]; then
+            # Metadata registered by the background worker is not visible in this parent shell.
+            # Use the known MongoDB paths so another component's failure cannot leak these services.
+            if [[ -x "${ROOT}/docker-compose/mongodb/.ci-venv/bin/python" ]]; then
+                "${ROOT}/docker-compose/mongodb/.ci-venv/bin/python" \
+                    "${ROOT}/docker-compose/mongodb/ci_fixture.py" \
+                    --state-dir "${MONGODB_CI_STATE_DIR:-${ROOT}/docker-compose/mongodb/.ci-state}" --remove || true
+            fi
+            compose_down_stack "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
+                "${ROOT}/docker-compose/mongodb/mongodb.env" --remove-orphans >/dev/null 2>&1 || true
+            continue
+        fi
         compose_file="${START_COMPOSE_FILES["${component}"]:-}"
         env_file="${START_ENV_FILES["${component}"]:-}"
         [[ -n "${compose_file}" ]] || continue
@@ -747,6 +775,7 @@ handle_start_failure() {
     local component="$1"
     local status="$2"
 
+    record_start_failure "${component}" "${status}"
     dump_start_failure "${component}" "${status}"
     kill_running_jobs
     wait_remaining_jobs_quietly
@@ -948,6 +977,10 @@ start_mysql() {
 }
 
 start_mongodb() {
+    local mongodb_dir="${ROOT}/docker-compose/mongodb"
+    local fixture_python="${mongodb_dir}/.ci-venv/bin/python"
+    local fixture_state="${MONGODB_CI_STATE_DIR:-${mongodb_dir}/.ci-state}"
+    local fixture_network="bridge"
     # Pass the selected port through the rendered env file.
     export MONGODB_PORT="${MONGODB_PORT:-27017}"
     envsubst '${MONGODB_PORT}' <"${ROOT}/docker-compose/mongodb/mongodb.env.tpl" \
@@ -957,6 +990,32 @@ start_mongodb() {
         "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
         "${ROOT}/docker-compose/mongodb/mongodb.env" \
         -d --wait --
+    if [[ "${STOP}" -eq 1 ]]; then
+        if [[ -x "${fixture_python}" ]]; then
+            exec "${fixture_python}" "${mongodb_dir}/ci_fixture.py" --state-dir "${fixture_state}" --remove
+        fi
+        return 0
+    fi
+    if [[ ! -x "${fixture_python}" ]]; then
+        # Minimal distro Python can provide venv without ensurepip; bootstrap only inside our venv.
+        python3 -m venv --without-pip "${mongodb_dir}/.ci-venv"
+    fi
+    if ! "${fixture_python}" -m pip --version >/dev/null 2>&1; then
+        "${fixture_python}" "${mongodb_dir}/bootstrap_ci_pip.py"
+    fi
+    "${fixture_python}" -m pip install --disable-pip-version-check -r "${mongodb_dir}/requirements-ci.txt"
+    "${fixture_python}" -m unittest discover -s "${mongodb_dir}" -p test_snapshot_fixture.py
+    # A bridge member resolves an advertised loopback peer inside its own container.
+    # CI's loopback topology therefore needs the shared rootless host network.
+    if [[ "${HOST_OS}" == "Darwin" || "${IP_HOST}" == 127.* || "${IP_HOST}" == "localhost" ]]; then
+        fixture_network="host"
+        require_rootless_host_network
+    fi
+    # External's enabled split/parameter suites require real secondaries and mongos, not just
+    # the standalone fixture above. Exec keeps the controller under the launcher's tracked PID.
+    exec "${fixture_python}" "${mongodb_dir}/ci_fixture.py" --state-dir "${fixture_state}" \
+        --advertised-host "${IP_HOST}" --base-port "${MONGODB_CI_BASE_PORT:-28100}" \
+        --network-mode "${fixture_network}" --image "${MONGODB_CI_IMAGE:-mongo:8.0.20}"
 }
 
 start_pg() {

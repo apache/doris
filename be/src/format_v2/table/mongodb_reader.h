@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -34,7 +35,7 @@ class SlotDescriptor;
 
 namespace doris::format::mongodb {
 
-// Synchronous pull interface for one logical MongoDB scan. Its implementation owns the driver
+// Synchronous pull interface for one planned MongoDB partition. Its implementation owns the driver
 // client lease, session and cursor; MongoFileReader/SerDes own conversion into Doris columns.
 // A cursor owns the borrowed BSON document until next() or close(). No cursor crosses a split boundary.
 class MongoCursorStream {
@@ -42,6 +43,8 @@ public:
     virtual ~MongoCursorStream() = default;
     // Open the logical namespace with a private client lease. The callback stays valid until close;
     // callers must close even after a partially successful open returns an error.
+    // NEED_SEND_AGAIN means no lease is available: retry the same descriptor cooperatively.
+    // It retains the original deadline and never starts a cursor before checkout succeeds.
     virtual Status open(const TMongoScanDesc& descriptor, std::function<bool()> cancelled) = 0;
     // On success, either return one borrowed document with eof=false, or eof=true with no document.
     // A command/cancellation error is a failing Status, never normal EOF.
@@ -49,14 +52,23 @@ public:
     // Idempotently destroy the cursor before returning its client lease to the pool.
     virtual void close() = 0;
 };
+// BE-local identity shared by one scan instance's splits. Aliases in a self join have distinct
+// output tuples; query and fragment IDs keep independent executions out of each other's quota.
+struct MongoScanScope {
+    TUniqueId query_id;
+    TUniqueId fragment_instance_id;
+    int32_t tuple_id = 0;
+};
+
 // Production libmongoc transport. MongoFileReader owns the returned stream through unique_ptr;
 // a factory lets reader tests inject BSON documents, EOF and failures without opening a network cursor.
-std::unique_ptr<MongoCursorStream> make_native_mongo_stream();
+// The scope fixes client admission for the stream's lifetime, including cooperative retries.
+std::unique_ptr<MongoCursorStream> make_native_mongo_stream(const MongoScanScope& scope = {});
 using MongoStreamFactory = std::function<std::unique_ptr<MongoCursorStream>()>;
-// Validate the typed single-cursor contract and resource bounds before creating driver objects.
+// Validate single/range contracts and resource bounds before creating driver objects.
 Status validate_mongodb_range(const TFileRangeDesc& range);
-// Copy bounded typed BSON candidates/projection into caller-owned documents. Views retain their
-// source collation; collection candidates use simple collation. No network or client ownership.
+// AND independent BSON candidates/partitions and copy projection into caller-owned documents.
+// Views retain their source collation; collection candidates use simple collation. No network or client ownership.
 Status build_mongodb_find_options(const TMongoScanDesc& descriptor, _bson_t* filter,
                                   _bson_t* options);
 // Validate that current public source metadata still identifies the statement-pinned cluster.
@@ -76,7 +88,7 @@ public:
                     std::unique_ptr<io::FileDescription>& description,
                     std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                     TFileRangeDesc range, std::vector<SlotDescriptor*> slots,
-                    MongoStreamFactory factory = {});
+                    MongoStreamFactory factory = {}, int32_t scan_tuple_id = 0);
     ~MongoFileReader() override;
     // Freeze bindings from the FE descriptor and initialize session batch limits/profile counters.
     Status init(RuntimeState* state) override;
@@ -101,12 +113,15 @@ private:
     // Append whole rows until the row/BSON-byte budget is reached, then evaluate localized filters.
     // SerDes roll back partial cells; this method also rolls back earlier columns in a failed row.
     Status _read_block(Block* block, size_t* rows, bool* eof);
+    Status _open_stream();
     const TFileRangeDesc _range;
     const std::vector<SlotDescriptor*> _slots;
     MongoStreamFactory _factory;
+    const int32_t _scan_tuple_id;
     RuntimeState* _state = nullptr;
     size_t _batch_size = 1024;
     std::unique_ptr<MongoCursorStream> _stream;
+    bool _open_pending = false;
     // Owned by the reader and immutable after init, keeping _read_bindings pointers stable.
     std::vector<BsonBinding> _bindings;
     // Parallel vectors indexed by projected field: binding, file-local block position and target SerDe.
