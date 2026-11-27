@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -203,6 +205,12 @@ public class TopNWeighted extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // Check the original integer. Narrowing a negative LARGEINT can produce a valid positive value.
+        Expression value = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(1));
+        if (value instanceof IntegerLikeLiteral
+                && !((IntegerLikeLiteral) value).isValueInRange(0, Long.MAX_VALUE)) {
+            throw new AnalysisException("topn_weighted weight must be a nonnegative BIGINT, but was " + value.toSql());
+        }
         if (!getArgument(2).isConstant()) {
             throw new AnalysisException(
                     "topn_weighted requires third parameter must be a constant: "

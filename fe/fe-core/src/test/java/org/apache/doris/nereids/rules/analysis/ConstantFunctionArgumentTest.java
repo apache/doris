@@ -160,6 +160,14 @@ public class ConstantFunctionArgumentTest {
     }
 
     @Test
+    public void testTopNWeightedWeightMatchesBackendRange() {
+        assertAnalysisError("select topn_weighted(1, -1, 1)", "weight must be a nonnegative BIGINT");
+        // The first value above BIGINT must fail before a cast changes its sign.
+        assertAnalysisError("select topn_weighted(1, 9223372036854775808, 1)",
+                "weight must be a nonnegative BIGINT");
+    }
+
+    @Test
     public void testScalarFunctionArgumentsAreNotFoldedByAnalysis() {
         // only the rewrite folds an argument whose value the signature does not depend on
         assertFoldedByRewrite("select sha2('abc', 200 + 56)", Sha2.class, 1);
