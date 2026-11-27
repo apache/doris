@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.spi.mvcc;
 
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -47,9 +49,22 @@ public final class ConnectorMvccPartition {
     private final List<String> lowerBound;
     private final List<String> upperBound;
     private final long freshnessValue;
+    private final long rowCount;
 
     public ConnectorMvccPartition(String name, List<String> lowerBound, List<String> upperBound,
             long freshnessValue) {
+        this(name, lowerBound, upperBound, freshnessValue, ConnectorPartitionInfo.UNKNOWN);
+    }
+
+    /**
+     * @param rowCount rows in this final partition at the pinned snapshot, including all physical
+     *                 partitions merged into it; UNKNOWN when unavailable or deletes cannot be accounted for
+     */
+    public ConnectorMvccPartition(String name, List<String> lowerBound, List<String> upperBound,
+            long freshnessValue, long rowCount) {
+        if (rowCount < ConnectorPartitionInfo.UNKNOWN) {
+            throw new IllegalArgumentException("rowCount must be non-negative or UNKNOWN");
+        }
         this.name = Objects.requireNonNull(name, "name");
         this.lowerBound = lowerBound == null
                 ? Collections.emptyList()
@@ -58,6 +73,7 @@ public final class ConnectorMvccPartition {
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(upperBound);
         this.freshnessValue = freshnessValue;
+        this.rowCount = rowCount;
     }
 
     /** The final Doris partition name (the enclosing partition's name after any overlap merge). */
@@ -84,6 +100,11 @@ public final class ConnectorMvccPartition {
         return freshnessValue;
     }
 
+    /** Estimated rows at the pinned snapshot, or {@link ConnectorPartitionInfo#UNKNOWN}; zero is known empty. */
+    public long getRowCount() {
+        return rowCount;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -93,7 +114,7 @@ public final class ConnectorMvccPartition {
             return false;
         }
         ConnectorMvccPartition that = (ConnectorMvccPartition) o;
-        return freshnessValue == that.freshnessValue
+        return freshnessValue == that.freshnessValue && rowCount == that.rowCount
                 && name.equals(that.name)
                 && lowerBound.equals(that.lowerBound)
                 && upperBound.equals(that.upperBound);
@@ -101,7 +122,7 @@ public final class ConnectorMvccPartition {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, lowerBound, upperBound, freshnessValue);
+        return Objects.hash(name, lowerBound, upperBound, freshnessValue, rowCount);
     }
 
     @Override
@@ -109,6 +130,6 @@ public final class ConnectorMvccPartition {
         return "ConnectorMvccPartition{name='" + name
                 + "', lower=" + lowerBound
                 + ", upper=" + upperBound
-                + ", freshness=" + freshnessValue + "}";
+                + ", freshness=" + freshnessValue + ", rowCount=" + rowCount + "}";
     }
 }
