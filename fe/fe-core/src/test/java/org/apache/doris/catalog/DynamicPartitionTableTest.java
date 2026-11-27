@@ -1446,6 +1446,39 @@ public class DynamicPartitionTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testRuntimeInfoRemovedWithTable() throws Exception {
+        DynamicPartitionScheduler scheduler = Env.getCurrentEnv().getDynamicPartitionScheduler();
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        String createFmt = "CREATE TABLE test.`%s` (\n"
+                + "  `k1` int NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"1\");";
+
+        // DROP TABLE: createOlapTable records LAST_UPDATE_TIME even without dynamic partition
+        createTableStmt(String.format(createFmt, "runtime_info_drop"));
+        long droppedId = db.getTableOrAnalysisException("runtime_info_drop").getId();
+        Assertions.assertNotEquals(FeConstants.null_string,
+                scheduler.getRuntimeInfo(droppedId, DynamicPartitionScheduler.LAST_UPDATE_TIME));
+        dropTable("test.runtime_info_drop", false);
+        Assertions.assertEquals(FeConstants.null_string,
+                scheduler.getRuntimeInfo(droppedId, DynamicPartitionScheduler.LAST_UPDATE_TIME));
+
+        // REPLACE WITH TABLE without swap drops the original table
+        createTableStmt(String.format(createFmt, "runtime_info_orig"));
+        createTableStmt(String.format(createFmt, "runtime_info_new"));
+        long origId = db.getTableOrAnalysisException("runtime_info_orig").getId();
+        long newId = db.getTableOrAnalysisException("runtime_info_new").getId();
+        executeSql("ALTER TABLE test.runtime_info_orig REPLACE WITH TABLE runtime_info_new "
+                + "PROPERTIES('swap' = 'false')");
+        Assertions.assertEquals(FeConstants.null_string,
+                scheduler.getRuntimeInfo(origId, DynamicPartitionScheduler.LAST_UPDATE_TIME));
+        Assertions.assertNotEquals(FeConstants.null_string,
+                scheduler.getRuntimeInfo(newId, DynamicPartitionScheduler.LAST_UPDATE_TIME));
+    }
+
+    @Test
     public void testMissReservedHistoryPeriods() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_miss_reserved_history_periods` (\n"
                 + "  `k1` date NULL COMMENT \"\",\n"
