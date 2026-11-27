@@ -151,9 +151,14 @@ public:
 
 class MockAnnIndexIterator : public doris::segment_v2::AnnIndexIterator {
 public:
-    MockAnnIndexIterator() : doris::segment_v2::AnnIndexIterator(nullptr) {}
+    MockAnnIndexIterator() : doris::segment_v2::AnnIndexIterator(nullptr) {
+        // Search-only tests provide results without a physical index. Load-error tests override this.
+        ON_CALL(*this, load_index()).WillByDefault(testing::Return(Status::OK()));
+    }
 
     ~MockAnnIndexIterator() override = default;
+
+    MOCK_METHOD(Status, load_index, (), (override));
 
     MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
     MOCK_METHOD(Status, range_search,

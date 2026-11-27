@@ -44,9 +44,8 @@ public:
 
     Result<bool> has_null() override { return true; }
 
-    // Try to load index, return true if successful, false if failed
-    // This method should be called before read_from_index or range_search
-    bool try_load_index();
+    // Load before searching; callers decide whether a missing index permits fallback.
+    MOCK_FUNCTION Status load_index();
 
     MOCK_FUNCTION Status range_search(const AnnRangeSearchParams& params,
                                       const VectorSearchUserParams& custom_params,

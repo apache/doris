@@ -22,11 +22,16 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_sink_file_writer.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_iterator.h"
 
 namespace doris {
 
@@ -246,7 +251,7 @@ TEST_P(EmptyIndexFileTest, AllowsNullWriter) {
     }
 }
 
-TEST_P(EmptyIndexFileTest, PreservesLocalEmptyFileAfterDestruction) {
+TEST_P(EmptyIndexFileTest, PreservesLocalEmptyFileAndUsesMissingIndexPolicy) {
     auto fs = io::global_local_filesystem();
     const auto path =
             segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix());
@@ -272,19 +277,36 @@ TEST_P(EmptyIndexFileTest, PreservesLocalEmptyFileAfterDestruction) {
     EXPECT_EQ(file_size, 0);
 
     // The contract every reader of this file relies on: a zero-length container
-    // is not corruption, it is "this segment has no index data". Query falls back
-    // to a non-indexed evaluation on it and IndexBuilder treats it as "nothing to
-    // carry over"; both branch on this exact error code.
+    // is not corruption, it is "this segment has no index data". Queries apply
+    // their missing-index fallback policy and IndexBuilder has nothing to carry over.
     auto reader =
             std::make_unique<segment_v2::IndexFileReader>(fs, index_path_prefix(), GetParam());
     auto st = reader->init();
-    EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) << st;
+    EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << st;
     EXPECT_NE(st.to_string().find(" is empty"), std::string::npos) << st;
+
+    for (bool allow_fallback : {false, true}) {
+        SCOPED_TRACE(allow_fallback);
+        RuntimeState runtime;
+        TQueryOptions options;
+        options.__set_enable_fallback_on_missing_inverted_index(allow_fallback);
+        runtime.set_query_options(options);
+        auto schema = std::make_shared<TabletSchema>();
+        auto segment = std::make_shared<segment_v2::Segment>(0, RowsetId(), schema,
+                                                             InvertedIndexFileInfo());
+        auto read_schema = std::make_shared<Schema>(schema->columns(), std::vector<ColumnId> {});
+        OlapReaderStatistics stats;
+        segment_v2::SegmentIterator iterator(segment, read_schema);
+        iterator._opts.stats = &stats;
+        iterator._opts.runtime_state = &runtime;
+        EXPECT_EQ(iterator._downgrade_without_index(st), allow_fallback);
+        EXPECT_EQ(stats.inverted_index_downgrade_count, allow_fallback ? 1 : 0);
+    }
 }
 
 TEST_P(EmptyIndexFileTest, MissingLocalFileReadsAsFileNotFound) {
     // The other half of the same contract: a rowset written before any index
-    // existed has no container at all, and that is distinct from an empty one.
+    // existed has no container at all and uses the same missing-index policy.
     auto reader = std::make_unique<segment_v2::IndexFileReader>(
             io::global_local_filesystem(), std::string(tmp_dir) + "/absent_0", GetParam());
     auto st = reader->init();
