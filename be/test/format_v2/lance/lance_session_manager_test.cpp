@@ -39,22 +39,10 @@ std::filesystem::path lance_fixture_path() {
            "table/lance/data/all_types.lance";
 }
 
-std::filesystem::path unique_cache_path() {
-    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path() /
-           ("doris_lance_foyer_cache_" + std::to_string(suffix));
-}
-
-TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
+TEST(LanceSessionManagerTest, OpensThroughHostStorageWithObjectCachesDisabled) {
     LanceSessionManager::Config config {
             .lance_index_cache_size_bytes = 0,
             .lance_metadata_cache_size_bytes = 0,
-            .enable_lance_data_cache = false,
-            // These are deliberately invalid and must be ignored while the data cache is off.
-            .lance_data_cache_path = "",
-            .lance_data_cache_disk_capacity_bytes = -1,
-            .lance_data_cache_read_block_size_bytes = -1,
-            .lance_data_cache_memory_capacity_bytes = -1,
     };
     LanceSessionManager manager(std::move(config));
     LanceDataset* raw_dataset = nullptr;
@@ -63,25 +51,20 @@ TEST(LanceSessionManagerTest, SessionAndDataCacheConfigurationsAreIndependent) {
     ASSERT_NE(dataset, nullptr);
 }
 
-TEST(LanceSessionManagerTest, MemoryCapacityDefaultsToOneConfiguredBlock) {
-    LanceSessionManager::Config config;
-    config.lance_data_cache_read_block_size_bytes = 64 * 1024;
-    EXPECT_EQ(config.resolved_data_cache_memory_capacity_bytes(), 64 * 1024);
-    config.lance_data_cache_memory_capacity_bytes = 8 * 1024 * 1024;
-    EXPECT_EQ(config.resolved_data_cache_memory_capacity_bytes(), 8 * 1024 * 1024);
-    EXPECT_EQ(config.lance_data_cache_read_block_size_bytes, 64 * 1024);
-}
-
-TEST(LanceSessionManagerTest, RejectsNegativeMemoryCapacityBeforeUnsignedConversion) {
-    LanceSessionManager::Config config;
-    config.enable_lance_data_cache = true;
-    config.lance_data_cache_memory_capacity_bytes = -1;
-    LanceSessionManager manager(std::move(config));
-    LanceDataset* dataset = nullptr;
-    const auto status = manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &dataset);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("lance_data_cache_memory_capacity_bytes"), std::string::npos);
-    EXPECT_EQ(dataset, nullptr);
+TEST(LanceSessionManagerTest, RejectsNegativeObjectCacheCapacity) {
+    for (bool index : {true, false}) {
+        LanceSessionManager::Config config;
+        if (index)
+            config.lance_index_cache_size_bytes = -1;
+        else
+            config.lance_metadata_cache_size_bytes = -1;
+        LanceSessionManager manager(std::move(config));
+        LanceDataset* dataset = nullptr;
+        const auto status =
+                manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &dataset);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(dataset, nullptr);
+    }
 }
 
 TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
@@ -90,10 +73,6 @@ TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
     LanceSessionManager::Config config {
             .lance_index_cache_size_bytes = INDEX_CACHE_CAPACITY,
             .lance_metadata_cache_size_bytes = METADATA_CACHE_CAPACITY,
-            .enable_lance_data_cache = false,
-            .lance_data_cache_path = "",
-            .lance_data_cache_disk_capacity_bytes = 0,
-            .lance_data_cache_read_block_size_bytes = 0,
     };
     LanceSessionManager manager(std::move(config));
     LanceDataset* raw_dataset = nullptr;
@@ -119,35 +98,6 @@ TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
     EXPECT_NE(entity->get_metric("lance_session_index_cache_misses_total"), nullptr);
     EXPECT_NE(entity->get_metric("lance_session_metadata_cache_hits_total"), nullptr);
     EXPECT_NE(entity->get_metric("lance_session_metadata_cache_misses_total"), nullptr);
-}
-
-TEST(LanceSessionManagerTest, CreatesFoyerBackedSession) {
-    const auto cache_path = unique_cache_path();
-    std::filesystem::create_directories(cache_path);
-    const auto cleanup = [&cache_path] {
-        std::error_code error;
-        std::filesystem::remove_all(cache_path, error);
-    };
-
-    LanceSessionManager::Config config {
-            .lance_index_cache_size_bytes = 0,
-            .lance_metadata_cache_size_bytes = 0,
-            .enable_lance_data_cache = true,
-            .lance_data_cache_path = cache_path.string(),
-            .lance_data_cache_disk_capacity_bytes = 32 * 1024 * 1024,
-            .lance_data_cache_read_block_size_bytes = 64 * 1024,
-            .lance_data_cache_memory_capacity_bytes = 8 * 1024 * 1024,
-    };
-    {
-        LanceSessionManager manager(std::move(config));
-        LanceDataset* raw_dataset = nullptr;
-        const auto status =
-                manager.open_dataset(lance_fixture_path().c_str(), nullptr, 0, &raw_dataset);
-        LanceDatasetPtr dataset(raw_dataset, lance_dataset_close);
-        EXPECT_TRUE(status.ok()) << status;
-        EXPECT_NE(dataset, nullptr);
-    }
-    cleanup();
 }
 
 } // namespace
