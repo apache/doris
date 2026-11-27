@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
@@ -40,6 +41,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG, false);
     public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY, false);
     public static final JoinCommute NON_INNER = new JoinCommute(SwapType.BUSHY, true);
+
+    public static final Rule IVM_NULL_REPAIR = BUSHY.buildIvmNullRepairCommute();
 
     private final SwapType swapType;
     private final boolean justNonInner;
@@ -68,19 +71,42 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .whenNot(join -> JoinUtils.shouldNestedLoopJoin(join)
                         && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
                         && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
-                .then(join -> {
-                    // Use swap() to properly handle ASOF JOIN MATCH_CONDITION commutation
-                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.swap();
-                    newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
-                    newJoin.getJoinReorderContext().setHasCommute(true);
-                    if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
-                        newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
-                    }
-                    if (newJoin.getJoinType().isOuterJoin()) {
-                        newJoin = JoinUtils.adjustJoinConjunctsNullable(newJoin);
-                    }
-                    return newJoin;
-                }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
+                .then(this::commute)
+                .toRule(RuleType.LOGICAL_JOIN_COMMUTE);
+    }
+
+    private Rule buildIvmNullRepairCommute() {
+        return logicalJoin()
+                .when(join -> join.getJoinType().isLeftAntiJoin())
+                .when(join -> join.getJoinReorderContext().isIvmNullRepairAntiJoin())
+                .when(this::checkReorder)
+                .whenNot(LogicalJoin::hasDistributeHint)
+                .whenNot(LogicalJoin::isMarkJoin)
+                .whenNot(join -> join.getHashJoinConjuncts().isEmpty())
+                .thenApply(ctx -> {
+                    LogicalJoin<GroupPlan, GroupPlan> join = ctx.root;
+                    Group snapshot = join.right().getGroup();
+                    // Keep the original plan whenever its snapshot could qualify for automatic broadcast.
+                    // The row cutoff alone suffices to disqualify broadcast without relying on column widths.
+                    double rowLimit = ctx.cascadesContext.getConnectContext().getSessionVariable()
+                            .getBroadcastRowCountLimit();
+                    return snapshot.isStatsReliable() && snapshot.getStatistics().getRowCount() > rowLimit
+                            ? commute(join) : null;
+                })
+                .toRule(RuleType.LOGICAL_JOIN_COMMUTE);
+    }
+
+    private LogicalJoin<? extends Plan, ? extends Plan> commute(LogicalJoin<GroupPlan, GroupPlan> join) {
+        LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.swap();
+        newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
+        newJoin.getJoinReorderContext().setHasCommute(true);
+        if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
+            newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
+        }
+        if (newJoin.getJoinType().isOuterJoin()) {
+            newJoin = JoinUtils.adjustJoinConjunctsNullable(newJoin);
+        }
+        return newJoin;
     }
 
     enum SwapType {

@@ -41,6 +41,8 @@ public class JoinReorderContext {
 
     private boolean isLeadingJoin = false;
     private boolean isSaltJoinGenerated = false;
+    // Provenance of this join, retained when clear() resets exploration state.
+    private boolean ivmNullRepairAntiJoin;
 
     public JoinReorderContext() {
     }
@@ -57,6 +59,7 @@ public class JoinReorderContext {
         this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
         this.isLeadingJoin = joinReorderContext.isLeadingJoin;
         this.isSaltJoinGenerated = joinReorderContext.isSaltJoinGenerated;
+        this.ivmNullRepairAntiJoin = joinReorderContext.ivmNullRepairAntiJoin;
     }
 
     /**
@@ -71,6 +74,14 @@ public class JoinReorderContext {
         hasLeftAssociate = false;
         isLeadingJoin = false;
         isSaltJoinGenerated = false;
+    }
+
+    public boolean isIvmNullRepairAntiJoin() {
+        return ivmNullRepairAntiJoin;
+    }
+
+    public void markIvmNullRepairAntiJoin() {
+        ivmNullRepairAntiJoin = true;
     }
 
     public boolean hasCommute() {
