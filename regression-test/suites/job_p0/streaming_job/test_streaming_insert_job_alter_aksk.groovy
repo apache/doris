@@ -81,9 +81,11 @@ suite("test_streaming_insert_job_alter_aksk") {
         r.size() == 1 && 'PAUSED' == r.get(0).get(0)
     })
 
-    // Invalid credentials are rejected during ALTER validation.
-    test {
-        sql """
+    // Step 4: alter to wrong aksk while job is PAUSED.
+    // originTvfProps must be refreshed by the fix so that fetchMeta picks up the
+    // bad credentials after resume. Without the fix, originTvfProps would still
+    // hold the old valid aksk and the job would keep running after resume.
+    sql """
         ALTER JOB ${jobName}
         INSERT INTO ${tableName}
         SELECT * FROM S3
@@ -99,8 +101,29 @@ suite("test_streaming_insert_job_alter_aksk") {
         )
     """
 
-        exception "parse file failed"
+    // Step 5: resume the job and wait for it to pause again due to fetchMeta failure
+    sql """RESUME JOB where jobname = '${jobName}'"""
+    try {
+        Awaitility.await().atMost(300, SECONDS)
+                .pollInterval(1, SECONDS).until(
+                {
+                    def r = sql """select status from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
+                    log.info("check job status paused after altering to wrong aksk: " + r)
+                    r.size() == 1 && 'PAUSED' == r.get(0).get(0)
+                }
+        )
+    } catch (Exception ex) {
+        def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+        log.info("show job: " + showjob)
+        throw ex
     }
+
+    // Step 6: verify the pause was caused by fetchMeta failure, not other reasons
+    def errorMsg = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
+    log.info("error msg after altering to wrong aksk: " + errorMsg)
+    assert errorMsg.get(0).get(0).contains("Failed to fetch meta"),
+        "Expected fetchMeta failure after alter to wrong aksk, got: " + errorMsg.get(0).get(0)
+
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 
     def cnt = sql """select count(1) from jobs("type"="insert") where Name='${jobName}'"""

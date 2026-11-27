@@ -475,7 +475,7 @@ suite("test_streaming_insert_job_crud") {
             "s3.secret_key" = "${getS3SK()}"
         );
         """
-    }, "The target table cannot be modified in ALTER JOB")
+    }, "The query outside TVF properties cannot be modified")
 
     /************************ delete **********************/
     // drop pause job

@@ -66,15 +66,15 @@ suite("test_streaming_insert_job_alter_priv") {
         "s3.access_key" = "${getS3AK()}",
         "s3.secret_key" = "${getS3SK()}"
     )"""
-    def original = """INSERT INTO ${db}.streaming_alter_sql_target
+    def original = """INSERT INTO streaming_alter_sql_target
                       SELECT s.c1, s.c2, s.c3 FROM ${source} s"""
-    def joined = """INSERT INTO ${db}.streaming_alter_sql_target
+    def joined = """INSERT INTO streaming_alter_sql_target
                     SELECT s.c1, p.secret, s.c3 FROM ${source} s
                     CROSS JOIN ${db}.streaming_alter_sql_private p"""
-    def subquery = """INSERT INTO ${db}.streaming_alter_sql_target
+    def subquery = """INSERT INTO streaming_alter_sql_target
                       SELECT s.c1, (SELECT max(secret) FROM ${db}.streaming_alter_sql_private), s.c3
                       FROM ${source} s"""
-    def union = """INSERT INTO ${db}.streaming_alter_sql_target
+    def union = """INSERT INTO streaming_alter_sql_target
                    SELECT s.c1, s.c2, s.c3 FROM ${source} s
                    UNION ALL SELECT id, secret, id FROM ${db}.streaming_alter_sql_private"""
     try {
@@ -98,42 +98,48 @@ suite("test_streaming_insert_job_alter_priv") {
             for (query in [joined, subquery, union]) {
                 test {
                     sql """ALTER JOB ${jobName} PROPERTIES("s3.max_batch_files" = "2") ${query}"""
-                    exception "denied"
+                    exception "The query outside TVF properties cannot be modified"
                 }
+            }
+            test {
+                sql "ALTER JOB ${jobName} ${original.replace('example_[0-1].csv', 'other.csv')}"
+                exception "The uri property cannot be modified in ALTER JOB"
             }
         }
         qt_rejected_unchanged """SELECT Status, Properties,
             md5(ExecuteSql) = '${before[0][0]}', md5(IFNULL(CurrentOffset, '')) = '${before[0][1]}'
             FROM jobs('type'='insert') WHERE Name='${jobName}'"""
 
-        // The creator can still modify the query using a source it is allowed to read.
+        // The query is fixed for the creator as well; credential rotation is still allowed.
+        def ownerRotation = original.replace('"s3.secret_key" = "' + getS3SK() + '"',
+                '"s3.secret_key" = "owner_rotation_secret"')
         connectToDoris(owner, password, url) {
-            sql "ALTER JOB ${jobName} ${joined}"
-        }
-        qt_owner_altered """SELECT Status, ExecuteSql LIKE '%CROSS JOIN%'
-            FROM jobs('type'='insert') WHERE Name='${jobName}'"""
-
-        // A different user with all required privileges can modify the same job.
-        sql "GRANT SELECT_PRIV ON ${db}.streaming_alter_sql_private TO '${editor}'"
-        connectToDoris(editor, password, url) {
-            sql "ALTER JOB ${jobName} ${subquery}"
-            sql "ALTER JOB ${jobName} ${union}"
-        }
-        qt_editor_altered """SELECT Status, ExecuteSql LIKE '%UNION ALL%'
-            FROM jobs('type'='insert') WHERE Name='${jobName}'"""
-
-        sql "REVOKE SELECT_PRIV ON ${db}.streaming_alter_sql_private FROM '${editor}'"
-        connectToDoris(editor, password, url) {
             test {
                 sql "ALTER JOB ${jobName} ${joined}"
-                exception "denied"
+                exception "The query outside TVF properties cannot be modified"
             }
+            sql "ALTER JOB ${jobName} ${ownerRotation}"
+        }
+        qt_owner_altered """SELECT Status, ExecuteSql LIKE '%owner_rotation_secret%'
+            FROM jobs('type'='insert') WHERE Name='${jobName}'"""
+
+        // LOAD on the saved target is sufficient for rotating the fixed job's credentials.
+        def editorRotation = original.replace('"s3.secret_key" = "' + getS3SK() + '"',
+                '"s3.secret_key" = "editor_rotation_secret"')
+        connectToDoris(editor, password, url) {
+            sql "USE information_schema"
+            sql "ALTER JOB ${jobName} ${editorRotation}"
+        }
+        qt_editor_altered """SELECT Status, ExecuteSql LIKE '%editor_rotation_secret%'
+            FROM jobs('type'='insert') WHERE Name='${jobName}'"""
+
+        connectToDoris(editor, password, url) {
             sql "ALTER JOB ${jobName} PROPERTIES('s3.max_batch_files'='3')"
             sql "ALTER JOB ${jobName} ${original}"
         }
         qt_restored """SELECT Status, Properties, ExecuteSql LIKE '%streaming_alter_sql_private%'
             FROM jobs('type'='insert') WHERE Name='${jobName}'"""
-        // Planning an ALTER must not register an INSERT load that will never execute.
+        // Credential rotation must not register an INSERT load that will never execute.
         def pendingAfter = (sql "SHOW LOAD FROM ${db} WHERE State = 'PENDING'").size()
         qt_no_pending_loads "SELECT ${pendingAfter - pendingBefore} AS new_pending_loads"
         connectToDoris(owner, password, url) {
@@ -141,7 +147,8 @@ suite("test_streaming_insert_job_alter_priv") {
         }
         Awaitility.await().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
             String.valueOf(sql("SELECT CurrentOffset FROM jobs('type'='insert') WHERE Name='${jobName}'")[0][0])
-                    .contains("example_1.csv")
+                    .contains("example_1.csv") &&
+                    (sql("SELECT count(*) FROM streaming_alter_sql_target")[0][0] as long) == 20L
         }
         order_qt_loaded "SELECT * FROM streaming_alter_sql_target"
     } finally {
