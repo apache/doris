@@ -85,6 +85,7 @@ Result<ColumnPtr> cast_struct_to_file(const ColumnStruct& structure,
                     structure.get_column_ptr(source_index)->convert_to_full_column_if_const());
         }
     }
+    output->fill_missing_blob_ids();
     const ColumnPtr prepared = std::move(output);
     if (null_map) {
         auto parent_nulls = ColumnUInt8::create(rows);

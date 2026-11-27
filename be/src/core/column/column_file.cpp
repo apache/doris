@@ -20,7 +20,7 @@
 #include <crc32c/crc32c.h>
 
 #include <algorithm>
-#include <limits>
+#include <cstring>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
@@ -82,7 +82,8 @@ uint32_t file_crc(const char* data, size_t size, uint32_t hash) {
 
 ColumnFile::ColumnFile() : ColumnFile(make_file_children()) {}
 
-ColumnFile::ColumnFile(MutableColumns&& columns) {
+ColumnFile::ColumnFile(MutableColumns&& columns, MutableColumnPtr blob_source_ids,
+                       MutableColumnPtr blob_row_ids) {
     if (columns.size() != NUM_CHILDREN) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFile requires six children, got {}",
                         columns.size());
@@ -90,11 +91,28 @@ ColumnFile::ColumnFile(MutableColumns&& columns) {
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i] = std::move(columns[i]);
     }
+    _blob_source_ids = std::move(blob_source_ids);
+    _blob_row_ids = std::move(blob_row_ids);
+    fill_missing_blob_ids();
     sanity_check();
+    if (empty()) {
+        reset_blob_ids();
+    }
     check_const_only_in_top_level();
 }
 
 void ColumnFile::sanity_check() const {
+    if (static_cast<bool>(_blob_source_ids) != static_cast<bool>(_blob_row_ids)) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "FILE Blob ID columns must be both present or both absent");
+    }
+    if (_blob_source_ids) {
+        const auto* ids = check_and_get_column<ColumnOffset32>(*_blob_source_ids);
+        if (ids == nullptr || check_and_get_column<ColumnOffset64>(*_blob_row_ids) == nullptr ||
+            ids->size() != size() || _blob_row_ids->size() != size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "FILE read references are not row aligned");
+        }
+    }
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         const auto* child = dynamic_cast<const ColumnNullable*>(_columns[i].get());
         if (child == nullptr) {
@@ -123,13 +141,117 @@ void ColumnFile::sanity_check() const {
     }
 }
 
+void ColumnFile::fill_missing_blob_ids() {
+    if (static_cast<bool>(_blob_source_ids) != static_cast<bool>(_blob_row_ids)) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "FILE Blob ID columns must be both present or both absent");
+    }
+    if (!_blob_source_ids) {
+        return;
+    }
+    if (_blob_source_ids->size() > size() || _blob_row_ids->size() > size()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "FILE has more read references than values");
+    }
+    _blob_source_ids->insert_many_defaults(size() - _blob_source_ids->size());
+    _blob_row_ids->insert_many_defaults(size() - _blob_row_ids->size());
+}
+
+void ColumnFile::reset_blob_ids() {
+    _blob_source_ids = nullptr;
+    _blob_row_ids = nullptr;
+}
+
+void ColumnFile::set_blob_ids(MutableColumnPtr blob_source_ids, MutableColumnPtr blob_row_ids) {
+    if (!blob_source_ids && !blob_row_ids) {
+        reset_blob_ids();
+        return;
+    }
+    if (!blob_source_ids || !blob_row_ids ||
+        check_and_get_column<ColumnOffset32>(*blob_source_ids) == nullptr ||
+        check_and_get_column<ColumnOffset64>(*blob_row_ids) == nullptr ||
+        blob_source_ids->size() != size() || blob_row_ids->size() != size()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "FILE read references are not row aligned");
+    }
+    if (empty()) {
+        reset_blob_ids();
+        return;
+    }
+    _blob_source_ids = std::move(blob_source_ids);
+    _blob_row_ids = std::move(blob_row_ids);
+}
+
+bool ColumnFile::has_blob_references() const {
+    if (!_blob_source_ids) {
+        return false;
+    }
+    const auto& ids = assert_cast<const ColumnOffset32&>(*_blob_source_ids).get_data();
+    return std::any_of(ids.begin(), ids.end(), [](uint32_t id) { return id != 0; });
+}
+
+uint32_t ColumnFile::blob_source_id_at(size_t row) const {
+    return _blob_source_ids ? assert_cast<const ColumnOffset32&>(*_blob_source_ids).get_data()[row]
+                            : 0;
+}
+
+uint64_t ColumnFile::blob_row_id_at(size_t row) const {
+    return _blob_row_ids ? assert_cast<const ColumnOffset64&>(*_blob_row_ids).get_data()[row] : 0;
+}
+
+void ColumnFile::_ensure_blob_ids(size_t previous_rows) {
+    if (!_blob_source_ids) {
+        auto ids = ColumnOffset32::create(previous_rows, 0);
+        auto row_ids = ColumnOffset64::create(previous_rows, 0);
+        _blob_source_ids = std::move(ids);
+        _blob_row_ids = std::move(row_ids);
+    }
+}
+
+void ColumnFile::_append_blob_reference(uint32_t source_id, uint64_t row_id, size_t previous_rows,
+                                        size_t length) {
+    if (length == 0 || (!_blob_source_ids && source_id == 0 && row_id == 0)) {
+        return;
+    }
+    _ensure_blob_ids(previous_rows);
+    DCHECK_EQ(_blob_source_ids->size(), previous_rows);
+    DCHECK_EQ(_blob_row_ids->size(), previous_rows);
+    auto& ids = assert_cast<ColumnOffset32&>(*_blob_source_ids).get_data();
+    auto& row_ids = assert_cast<ColumnOffset64&>(*_blob_row_ids).get_data();
+    ids.resize_fill(ids.size() + length, source_id);
+    row_ids.resize_fill(row_ids.size() + length, row_id);
+}
+
+void ColumnFile::_append_blob_references(const ColumnFile& source, size_t start, size_t length) {
+    if (length == 0) {
+        return;
+    }
+    if (!source._blob_source_ids) {
+        _append_blob_reference(0, 0, size() - length, length);
+        return;
+    }
+    if (!_blob_source_ids) {
+        const auto& ids = assert_cast<const ColumnOffset32&>(*source._blob_source_ids).get_data();
+        const auto& row_ids = assert_cast<const ColumnOffset64&>(*source._blob_row_ids).get_data();
+        if (std::all_of(ids.begin() + start, ids.begin() + start + length,
+                        [](uint32_t id) { return id == 0; }) &&
+            std::all_of(row_ids.begin() + start, row_ids.begin() + start + length,
+                        [](uint64_t id) { return id == 0; })) {
+            return;
+        }
+        _ensure_blob_ids(size() - length);
+    }
+    _blob_source_ids->insert_range_from(*source._blob_source_ids, start, length);
+    _blob_row_ids->insert_range_from(*source._blob_row_ids, start, length);
+}
+
 MutableColumnPtr ColumnFile::clone_resized(size_t size) const {
     MutableColumns children;
     children.reserve(NUM_CHILDREN);
     for (const auto& column : _columns) {
         children.push_back(column->clone_resized(size));
     }
-    return create(std::move(children));
+    return create(std::move(children),
+                  _blob_source_ids ? _blob_source_ids->clone_resized(size) : nullptr,
+                  _blob_row_ids ? _blob_row_ids->clone_resized(size) : nullptr);
 }
 
 Field ColumnFile::operator[](size_t n) const {
@@ -144,6 +266,8 @@ void ColumnFile::get(size_t n, Field& res) const {
     for (const auto& column : _columns) {
         value.push_back((*column)[n]);
     }
+    value.blob_source_id = blob_source_id_at(n);
+    value.blob_row_id = blob_row_id_at(n);
     res = Field::create_field<TYPE_FILE>(std::move(value));
 }
 
@@ -154,16 +278,22 @@ void ColumnFile::insert(const Field& value) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "FILE Field requires six children, got {}",
                         fields.size());
     }
+    const auto previous_rows = size();
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert(fields[i]);
     }
+    _append_blob_reference(fields.blob_source_id, fields.blob_row_id, previous_rows);
 }
 
 void ColumnFile::insert_from(const IColumn& src, size_t n) {
     const auto& file = assert_cast<const ColumnFile&>(src);
+    const auto source_id = file.blob_source_id_at(n);
+    const auto row_id = file.blob_row_id_at(n);
+    const auto previous_rows = size();
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert_from(file.get_column(i), n);
     }
+    _append_blob_reference(source_id, row_id, previous_rows);
 }
 
 void ColumnFile::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -171,6 +301,7 @@ void ColumnFile::insert_range_from(const IColumn& src, size_t start, size_t leng
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert_range_from(file.get_column(i), start, length);
     }
+    _append_blob_references(file, start, length);
 }
 
 void ColumnFile::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
@@ -179,21 +310,34 @@ void ColumnFile::insert_range_from_ignore_overflow(const IColumn& src, size_t st
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert_range_from_ignore_overflow(file.get_column(i), start, length);
     }
+    _append_blob_references(file, start, length);
 }
 
 void ColumnFile::insert_indices_from(const IColumn& src, const uint32_t* begin,
                                      const uint32_t* end) {
     const auto& file = assert_cast<const ColumnFile&>(src);
+    auto previous_rows = size();
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert_indices_from(file.get_column(i), begin, end);
+    }
+    for (auto it = begin; it != end; ++it) {
+        _append_blob_reference(file.blob_source_id_at(*it), file.blob_row_id_at(*it),
+                               previous_rows++);
     }
 }
 
 void ColumnFile::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        return;
+    }
     const auto& file = assert_cast<const ColumnFile&>(src);
+    const auto source_id = file.blob_source_id_at(position);
+    const auto row_id = file.blob_row_id_at(position);
+    const auto previous_rows = size();
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert_many_from(file.get_column(i), position, length);
     }
+    _append_blob_reference(source_id, row_id, previous_rows, length);
 }
 
 void ColumnFile::replace_column_data(const IColumn&, size_t, size_t) {
@@ -206,11 +350,19 @@ void ColumnFile::insert_default() {
     for (auto& column : _columns) {
         column->insert_default();
     }
+    if (_blob_source_ids) {
+        _blob_source_ids->insert_default();
+        _blob_row_ids->insert_default();
+    }
 }
 
 void ColumnFile::insert_many_defaults(size_t length) {
     for (auto& column : _columns) {
         column->insert_many_defaults(length);
+    }
+    if (_blob_source_ids) {
+        _blob_source_ids->insert_many_defaults(length);
+        _blob_row_ids->insert_many_defaults(length);
     }
 }
 
@@ -218,11 +370,21 @@ void ColumnFile::pop_back(size_t n) {
     for (auto& column : _columns) {
         column->pop_back(n);
     }
+    if (empty()) {
+        reset_blob_ids();
+    } else if (_blob_source_ids) {
+        _blob_source_ids->pop_back(n);
+        _blob_row_ids->pop_back(n);
+    }
 }
 
 void ColumnFile::reserve(size_t n) {
     for (auto& column : _columns) {
         column->reserve(n);
+    }
+    if (_blob_source_ids) {
+        _blob_source_ids->reserve(n);
+        _blob_row_ids->reserve(n);
     }
 }
 
@@ -234,6 +396,12 @@ void ColumnFile::resize(size_t n) {
         for (auto& column : _columns) {
             column->resize(n);
         }
+        if (n == 0) {
+            reset_blob_ids();
+        } else if (_blob_source_ids) {
+            _blob_source_ids->resize(n);
+            _blob_row_ids->resize(n);
+        }
     }
 }
 
@@ -241,6 +409,7 @@ void ColumnFile::clear() {
     for (auto& column : _columns) {
         column->clear();
     }
+    reset_blob_ids();
 }
 
 void ColumnFile::erase(size_t start, size_t length) {
@@ -258,12 +427,23 @@ ColumnPtr ColumnFile::filter(const Filter& filter, ssize_t result_size_hint) con
     for (const auto& column : _columns) {
         children.push_back(IColumn::mutate(column->filter(filter, result_size_hint)));
     }
-    return create(std::move(children));
+    return create(std::move(children),
+                  _blob_source_ids
+                          ? IColumn::mutate(_blob_source_ids->filter(filter, result_size_hint))
+                          : nullptr,
+                  _blob_row_ids ? IColumn::mutate(_blob_row_ids->filter(filter, result_size_hint))
+                                : nullptr);
 }
 
 size_t ColumnFile::filter(const Filter& filter) {
     column_match_filter_size(size(), filter.size());
     const size_t result_size = _columns[0]->filter(filter);
+    if (result_size == 0) {
+        reset_blob_ids();
+    } else if (_blob_source_ids) {
+        _blob_source_ids->filter(filter);
+        _blob_row_ids->filter(filter);
+    }
     for (size_t i = 1; i < NUM_CHILDREN - 1; ++i) {
         const size_t child_size = _columns[i]->filter(filter);
         DCHECK_EQ(child_size, result_size);
@@ -306,18 +486,21 @@ MutableColumnPtr ColumnFile::permute(const Permutation& permutation, size_t limi
     for (const auto& column : _columns) {
         children.push_back(column->permute(permutation, limit));
     }
-    return create(std::move(children));
+    return create(std::move(children),
+                  _blob_source_ids ? _blob_source_ids->permute(permutation, limit) : nullptr,
+                  _blob_row_ids ? _blob_row_ids->permute(permutation, limit) : nullptr);
 }
 
 ColumnPtr ColumnFile::convert_column_if_overflow() {
     for (auto& column : _columns) {
         column = column->convert_column_if_overflow();
     }
+
     return IColumn::convert_column_if_overflow();
 }
 
 size_t ColumnFile::byte_size() const {
-    size_t size = 0;
+    size_t size = _blob_source_ids ? _blob_source_ids->byte_size() + _blob_row_ids->byte_size() : 0;
     for (const auto& column : _columns) {
         size += column->byte_size();
     }
@@ -325,7 +508,9 @@ size_t ColumnFile::byte_size() const {
 }
 
 size_t ColumnFile::allocated_bytes() const {
-    size_t size = 0;
+    size_t size = _blob_source_ids
+                          ? _blob_source_ids->allocated_bytes() + _blob_row_ids->allocated_bytes()
+                          : 0;
     for (const auto& column : _columns) {
         size += column->allocated_bytes();
     }
@@ -339,12 +524,25 @@ bool ColumnFile::has_enough_capacity(const IColumn& src) const {
             return false;
         }
     }
-    return true;
+    if (!_blob_source_ids) {
+        // A bound source may require allocating ID storage on the first append.
+        return !file._blob_source_ids;
+    }
+    const auto& ids = assert_cast<const ColumnOffset32&>(*_blob_source_ids).get_data();
+    const auto& row_ids = assert_cast<const ColumnOffset64&>(*_blob_row_ids).get_data();
+    return ids.capacity() - ids.size() >= file.size() &&
+           row_ids.capacity() - row_ids.size() >= file.size();
 }
 
 void ColumnFile::for_each_subcolumn(ColumnCallback callback) {
     for (auto& column : _columns) {
         callback(column);
+    }
+    if (_blob_source_ids) {
+        callback(_blob_source_ids);
+    }
+    if (_blob_row_ids) {
+        callback(_blob_row_ids);
     }
 }
 
@@ -358,7 +556,7 @@ const char* ColumnFile::deserialize_and_insert_from_arena(const char* pos) {
 }
 
 size_t ColumnFile::serialize_size_at(size_t row) const {
-    size_t size = 0;
+    size_t size = sizeof(uint32_t) + sizeof(uint64_t);
     for (const auto& column : _columns) {
         size += column->serialize_size_at(row);
     }
@@ -370,15 +568,29 @@ size_t ColumnFile::serialize_impl(char* pos, size_t row) const {
     for (const auto& column : _columns) {
         size += column->serialize_impl(pos + size, row);
     }
+    const auto source_id = blob_source_id_at(row);
+    const auto row_id = blob_row_id_at(row);
+    std::memcpy(pos + size, &source_id, sizeof(source_id));
+    size += sizeof(source_id);
+    std::memcpy(pos + size, &row_id, sizeof(row_id));
+    size += sizeof(row_id);
     DCHECK_EQ(size, serialize_size_at(row));
     return size;
 }
 
 size_t ColumnFile::deserialize_impl(const char* pos) {
+    const auto previous_rows = size();
     size_t size = 0;
     for (auto& column : _columns) {
         size += column->deserialize_impl(pos + size);
     }
+    uint32_t source_id = 0;
+    uint64_t row_id = 0;
+    std::memcpy(&source_id, pos + size, sizeof(source_id));
+    size += sizeof(source_id);
+    std::memcpy(&row_id, pos + size, sizeof(row_id));
+    size += sizeof(row_id);
+    _append_blob_reference(source_id, row_id, previous_rows);
     return size;
 }
 
@@ -398,7 +610,7 @@ void ColumnFile::deserialize_vec(StringRef* keys, size_t num_rows) {
 }
 
 size_t ColumnFile::get_max_row_byte_size() const {
-    size_t size = 0;
+    size_t size = sizeof(uint32_t) + sizeof(uint64_t);
     for (const auto& column : _columns) {
         size += column->get_max_row_byte_size();
     }

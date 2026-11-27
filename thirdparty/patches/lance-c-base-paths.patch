@@ -1,0 +1,85 @@
+# Read-only base-path inspection, matching upstream lance-c main API.
+# Base: 4fafcd64525b274b113208390bbcca86bbbc093b, after lance-c-foyer.patch.
+# Keeps local-base placement in Doris without resolving per-value physical Blob URIs.
+--- a/src/blob.rs
++++ b/src/blob.rs
+@@ -18,6 +18,42 @@
+ use crate::error::{ffi_try, swallow_unwind};
+ use crate::helpers;
+ use crate::runtime::block_on;
++
++/// Return the pinned snapshot's native base-path registry. This is the read-only
++/// metadata API from upstream lance-c main, backported without URI resolution.
++/// Caller frees the returned string with lance_free_string().
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_base_paths_json(
++    dataset: *const LanceDataset,
++) -> *const c_char {
++    ffi_try!(unsafe { base_paths_json_inner(dataset) }, null)
++}
++
++unsafe fn base_paths_json_inner(dataset: *const LanceDataset) -> Result<*const c_char> {
++    if dataset.is_null() {
++        return Err(lance_core::Error::invalid_input("dataset must not be NULL"));
++    }
++    let snapshot = unsafe { &*dataset }.snapshot();
++    let mut bases = std::collections::BTreeMap::new();
++    for (id, base) in &snapshot.manifest().base_paths {
++        bases.insert(
++            *id,
++            serde_json::json!({
++                "id": base.id,
++                "name": base.name,
++                "path": base.path,
++                "is_dataset_root": base.is_dataset_root,
++            }),
++        );
++    }
++    let json = serde_json::to_string(&bases).map_err(|error| {
++        lance_core::Error::internal(format!("failed to serialize dataset base paths: {error}"))
++    })?;
++    let json = std::ffi::CString::new(json).map_err(|error| {
++        lance_core::Error::internal(format!("invalid dataset base paths JSON: {error}"))
++    })?;
++    Ok(json.into_raw())
++}
+ 
+ /// Opaque handle to one blob value; independent of the dataset handle.
+ pub struct LanceBlobFile {
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -343,6 +343,14 @@
+     const LanceDataset* dataset,
+     LanceDataCacheStatistics* out_statistics
+ );
++
++/**
++ * Return the current snapshot's native base-path registry as a JSON object keyed
++ * by decimal base ID. Values contain id, name (string or null), path and
++ * is_dataset_root. No payload I/O or physical Blob resolution is performed.
++ * Caller frees the returned string with lance_free_string(). NULL on error.
++ */
++const char* lance_dataset_base_paths_json(const LanceDataset* dataset);
+ 
+ /** Close and free a dataset handle. Safe to call with NULL. */
+ void lance_dataset_close(LanceDataset* dataset);
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -51,6 +51,7 @@
+ object_store = "0.14.2"
+ pin-project = "1.0"
+ prost = "0.14"
++serde_json = "1"
+ snafu = "0.9"
+ uuid = { version = "1", features = ["v4"] }
+ 
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4442,6 +4442,7 @@
+  "opendal",
+  "pin-project",
+  "prost",
++ "serde_json",
+  "snafu",
+  "tempfile",
+  "tokio",

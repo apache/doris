@@ -155,6 +155,9 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
             status = fill_column(address, file.get_column_ptr(i), file_type.get_element(i),
                                  num_rows);
         }
+        if (status.ok()) {
+            file.fill_missing_blob_ids();
+        }
         break;
     }
     case PrimitiveType::TYPE_VARBINARY:
@@ -653,6 +656,9 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
     }
     case PrimitiveType::TYPE_FILE: {
         const auto& file = assert_cast<const ColumnFile&>(*data_column);
+        if (file.has_blob_references()) {
+            return Status::NotSupported("JNI cannot discard FILE read provenance");
+        }
         const auto& file_type = assert_cast<const DataTypeFile&>(*remove_nullable(data_type));
         for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
             RETURN_IF_ERROR(

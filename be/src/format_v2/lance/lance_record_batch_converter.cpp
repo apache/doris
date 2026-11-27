@@ -29,6 +29,7 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "runtime/exec_env.h"
@@ -66,6 +67,7 @@ Status LanceRecordBatchConverter::init(RuntimeState* runtime_state,
     _output_index_by_input_name.clear();
     _output_index_by_input_name.reserve(projected_columns.size());
     _global_rowid_output_index.reset();
+    _has_blob_columns = false;
     reset_schema();
 
     for (const auto& column : projected_columns) {
@@ -116,7 +118,13 @@ Status LanceRecordBatchConverter::init(RuntimeState* runtime_state,
                     "Lance full-text search column '{}' must have Doris FLOAT type, but was {}",
                     LANCE_SCORE_COLUMN, column.type->get_name());
         }
-        _output_columns.push_back({column.name, column.type->get_serde()});
+        const bool is_blob = remove_nullable(column.type)->get_primitive_type() == TYPE_FILE;
+        if (!is_blob && contains_file_type(column.type)) {
+            return Status::NotSupported(
+                    "Lance BLOB currently supports only top-level scalar FILE columns");
+        }
+        _has_blob_columns |= is_blob;
+        _output_columns.push_back({column.name, column.type->get_serde(), is_blob});
     }
     return Status::OK();
 }
@@ -137,6 +145,9 @@ Status LanceRecordBatchConverter::_bind_schema(const std::shared_ptr<arrow::Sche
         const auto& field = schema->field(arrow_index);
         const auto output = _output_index_by_input_name.find(field->name());
         if (output == _output_index_by_input_name.end()) {
+            if (_has_blob_columns && field->name() == LANCE_ROW_ID_COLUMN) {
+                continue; // Hidden identity used only by the table reader's BLOB materializer.
+            }
             const bool is_omitted_search_result =
                     (_search_kind == SearchKind::VECTOR &&
                      field->name() == LANCE_DISTANCE_COLUMN) ||
@@ -153,8 +164,10 @@ Status LanceRecordBatchConverter::_bind_schema(const std::shared_ptr<arrow::Sche
         }
         output_has_source_column[output_index] = true;
         arrow_column_to_output[arrow_index] = output_index;
-        RETURN_IF_ERROR(LanceArrowArrayNormalizer::create(
-                field, &array_normalizer_for_arrow_column[static_cast<size_t>(arrow_index)]));
+        if (!_output_columns[output_index].is_blob) {
+            RETURN_IF_ERROR(LanceArrowArrayNormalizer::create(
+                    field, &array_normalizer_for_arrow_column[static_cast<size_t>(arrow_index)]));
+        }
     }
     for (size_t output_index = 0; output_index < _output_columns.size(); ++output_index) {
         if (!output_has_source_column[output_index]) {
@@ -170,7 +183,8 @@ Status LanceRecordBatchConverter::_bind_schema(const std::shared_ptr<arrow::Sche
 
 Status LanceRecordBatchConverter::convert_record_batch_to_block(
         const std::shared_ptr<arrow::RecordBatch>& record_batch, Block* block,
-        const std::optional<GlobalRowIdContext>& global_rowid_context, size_t* rows) {
+        const std::optional<GlobalRowIdContext>& global_rowid_context, size_t* rows,
+        std::unordered_map<std::string, MutableColumnPtr>* blob_columns) {
     DORIS_CHECK(record_batch != nullptr);
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(rows != nullptr);
@@ -186,6 +200,20 @@ Status LanceRecordBatchConverter::convert_record_batch_to_block(
         }
         const auto& output = _output_columns[output_index];
         const auto& arrow_column = record_batch->column(arrow_index);
+        if (output.is_blob) {
+            if (blob_columns == nullptr || !blob_columns->contains(output.name) ||
+                blob_columns->at(output.name)->size() != row_count) {
+                return Status::InternalError("Missing or misaligned Lance BLOB column '{}'",
+                                             output.name);
+            }
+            if (columns[output_index]->empty()) {
+                columns[output_index] = std::move(blob_columns->at(output.name));
+            } else {
+                columns[output_index]->insert_range_from(*blob_columns->at(output.name), 0,
+                                                         row_count);
+            }
+            continue;
+        }
         if (is_global_rowid_output(output_index)) {
             if (!global_rowid_context.has_value()) {
                 return Status::InvalidArgument(

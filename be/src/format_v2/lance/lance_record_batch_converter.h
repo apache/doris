@@ -56,9 +56,11 @@ public:
 
     Status convert_record_batch_to_block(
             const std::shared_ptr<arrow::RecordBatch>& record_batch, Block* block,
-            const std::optional<GlobalRowIdContext>& global_rowid_context, size_t* rows);
+            const std::optional<GlobalRowIdContext>& global_rowid_context, size_t* rows,
+            std::unordered_map<std::string, MutableColumnPtr>* blob_columns = nullptr);
 
     bool requires_global_rowid() const { return _global_rowid_output_index.has_value(); }
+    bool has_blob_columns() const { return _has_blob_columns; }
     bool is_global_rowid_output(size_t output_index) const {
         return _global_rowid_output_index.has_value() &&
                *_global_rowid_output_index == output_index;
@@ -69,6 +71,7 @@ private:
     struct OutputColumn {
         std::string name;
         DataTypeSerDeSPtr serde;
+        bool is_blob = false;
     };
 
     static arrow::MemoryPool* _query_arrow_memory_pool(RuntimeState* runtime_state);
@@ -83,6 +86,7 @@ private:
     std::vector<OutputColumn> _output_columns;
     std::unordered_map<std::string, size_t> _output_index_by_input_name;
     std::optional<size_t> _global_rowid_output_index;
+    bool _has_blob_columns = false;
     std::shared_ptr<arrow::Schema> _bound_schema;
     std::vector<size_t> _arrow_column_to_output_index;
     std::vector<LanceArrowArrayNormalizer> _array_normalizer_for_arrow_column;

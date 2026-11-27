@@ -906,9 +906,9 @@ TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
 }
 
 Status RowIdStorageReader::read_lance_rows_by_row_ids(
-        const TFileRangeDesc& scan_range_desc, const std::vector<uint64_t>& row_ids,
-        const std::vector<SlotDescriptor>& slots, RuntimeState* runtime_state,
-        RuntimeProfile* runtime_profile, const TFileScanRangeParams& scan_params, Block* block,
+        const std::vector<uint64_t>& row_ids, const std::vector<SlotDescriptor>& slots,
+        RuntimeState* runtime_state, RuntimeProfile* runtime_profile,
+        const TFileScanRangeParams& scan_params, Block* block,
         RowIdStorageReader::ExternalFetchStatistics* fetch_statistics) {
     // Unlike Parquet/ORC, a Lance row ID is a native uint64 ID in a fixed dataset snapshot,
     // rather than a row ordinal interpreted by a reader for one physical file range. Phase-two
@@ -939,9 +939,8 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
                 });
             },
             &fetch_statistics->init_reader_ms));
-    RETURN_IF_ERROR(scope_timer_run(
-            [&]() { return reader.read_by_row_ids(scan_range_desc, row_ids, block); },
-            &fetch_statistics->get_block_ms));
+    RETURN_IF_ERROR(scope_timer_run([&]() { return reader.read_by_row_ids(row_ids, block); },
+                                    &fetch_statistics->get_block_ms));
     RETURN_IF_ERROR(reader.close());
 
     const auto collect_lance_fetch_time = [&](const std::string& timer_name) {
@@ -1000,10 +999,9 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     const auto format_type = scan_range_desc.__isset.format_type ? scan_range_desc.format_type
                                                                  : rpc_scan_params.format_type;
     if (format_type == TFileFormatType::FORMAT_LANCE) {
-        RETURN_IF_ERROR(read_lance_rows_by_row_ids(scan_range_desc, read_ids, scan_slots,
-                                                   runtime_state.get(), sub_runtime_profile.get(),
-                                                   rpc_scan_params, &scan_blocks[idx],
-                                                   &fetch_statistics[idx]));
+        RETURN_IF_ERROR(read_lance_rows_by_row_ids(read_ids, scan_slots, runtime_state.get(),
+                                                   sub_runtime_profile.get(), rpc_scan_params,
+                                                   &scan_blocks[idx], &fetch_statistics[idx]));
     } else {
         // Parquet/ORC IDs remain signed physical file positions; Lance keeps native uint64 IDs.
         std::list<int64_t> legacy_read_ids;
@@ -1272,7 +1270,7 @@ Status RowIdStorageReader::read_batch_external_row(
             // fragment split, phase two uses dataset-level take_rows and can fetch row IDs from
             // all of those fragments together. Group the mappings by scan node, snapshot, and
             // dataset URI; the plan node keeps independent scans of the same snapshot isolated.
-            const auto& lance_params = file_range_desc.table_format_params.lance_params;
+            const auto& lance_params = rpc_scan_params.lance_scan_params;
             return fmt::format("lance:{}:{}:{}", external_info.plan_node_id, lance_params.version,
                                lance_params.dataset_uri);
         }

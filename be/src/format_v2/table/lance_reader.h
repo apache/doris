@@ -47,8 +47,8 @@ class LanceTableReader final : public TableReader {
 public:
     ~LanceTableReader() override;
 
-    // Fetch the schema of a Lance dataset without initializing the scan path. Version zero opens
-    // the latest snapshot, which is used by backend-local TVF schema discovery.
+    // Old FEs carry dataset identity in the range; new FEs use common scan parameters.
+    // Version zero opens latest for backend-local TVF schema discovery.
     Status fetch_schema(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
                         std::vector<std::string>* column_names,
                         std::vector<DataTypePtr>* column_types) const;
@@ -59,8 +59,7 @@ public:
     // Fetch top-level projected columns by native Lance row IDs from one fixed dataset snapshot.
     // Input order and duplicates are preserved by lance-c. Missing rows are rejected because row
     // IDs produced by phase one must still exist in the same snapshot during materialization.
-    Status read_by_row_ids(const TFileRangeDesc& range, const std::vector<uint64_t>& row_ids,
-                           Block* block);
+    Status read_by_row_ids(const std::vector<uint64_t>& row_ids, Block* block);
     Status abort_split() override;
     Status close() override;
 
@@ -74,7 +73,7 @@ private:
 
     Status _resolve_search_kind();
     Status _validate_external_search_request() const;
-    Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
+    Status _ensure_dataset_open(bool prepare_fts_context = true);
     Status _open_dataset(const DatasetKey& key);
     // Rejects FE fragment ids the opened snapshot lacks; lance-c would silently skip them.
     Status _check_fragment_ids(const std::vector<uint64_t>& fragment_ids) const;
@@ -84,11 +83,11 @@ private:
     Status _open_scanner(const TFileRangeDesc& range);
     void _init_scanner_profile();
     Status _configure_scan_options(LanceScanner* scanner) const;
-    Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
+    Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& split_params) const;
     Status _configure_vector_search(LanceScanner* scanner,
-                                    const TLanceFileDesc& lance_params) const;
+                                    const TLanceFileDesc& split_params) const;
     Status _configure_full_text_search(LanceScanner* scanner,
-                                       const TLanceFileDesc& lance_params) const;
+                                       const TLanceFileDesc& split_params) const;
     // Collect the cumulative statistics owned by this dataset handle. The Lance-C API returns an
     // absolute snapshot, so this method replaces rather than increments the profile counters.
     void _collect_data_cache_statistics();
@@ -98,8 +97,13 @@ private:
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
-    Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
+    Status _convert_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch, Block* block,
+                                 size_t* rows);
+    Status _dataset_key(DatasetKey* key) const;
 
+    // During BE-first upgrades, resolve old FE split parameters into a reader-owned copy. Never
+    // modify common scan parameters shared with other scanners in the query.
+    std::optional<TFileScanRangeParams> _legacy_scan_params;
     LanceDataset* _dataset = nullptr;
     std::shared_ptr<arrow::Schema> _dataset_schema;
     LanceScanner* _scanner = nullptr;
@@ -134,6 +138,7 @@ private:
     LanceFtsQueryContext* _fts_query_context = nullptr;
     SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;
+    RuntimeProfile::Counter* _blob_descriptor_build_time = nullptr;
 };
 
 } // namespace doris::format::lance

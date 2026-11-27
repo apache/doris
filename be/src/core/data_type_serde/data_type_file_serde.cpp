@@ -30,8 +30,10 @@
 #include "core/column/column_const.h"
 #include "core/column/column_file.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
 #include "core/value/file_value.h"
 #include "util/jsonb_writer.h"
@@ -390,13 +392,28 @@ Status DataTypeFileSerDe::write_column_to_pb(const IColumn& column, PValues& res
         RETURN_IF_ERROR(_element_serdes[i]->write_column_to_pb(
                 file.get_column(i), *result.add_child_element(), start, end));
     }
+    if (file.has_blob_references()) {
+        // FE source IDs keep the same meaning on every BE. No source definitions travel here.
+        auto* ids = result.add_child_element();
+        ids->mutable_type()->set_id(PGenericType::UINT32);
+        const auto& blob_source_ids =
+                assert_cast<const ColumnOffset32&>(*file.blob_source_ids()).get_data();
+        ids->mutable_uint32_value()->Add(blob_source_ids.begin() + start,
+                                         blob_source_ids.begin() + end);
+        auto* rows = result.add_child_element();
+        rows->mutable_type()->set_id(PGenericType::UINT64);
+        const auto& row_data = assert_cast<const ColumnOffset64&>(*file.blob_row_ids()).get_data();
+        rows->mutable_uint64_value()->Add(row_data.begin() + start, row_data.begin() + end);
+    }
     return Status::OK();
 }
 
 Status DataTypeFileSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     if (arg.type().id() != PGenericType::FILE ||
-        std::cmp_not_equal(arg.child_element_size(), FILE_FIELDS)) {
-        return Status::InvalidArgument("Expected FILE protobuf with six children");
+        (std::cmp_not_equal(arg.child_element_size(), FILE_FIELDS) &&
+         std::cmp_not_equal(arg.child_element_size(), FILE_FIELDS + 2))) {
+        return Status::InvalidArgument(
+                "Expected FILE protobuf with six fields and optional provenance");
     }
     const int rows = arg.child_element(0).string_value_size();
     RETURN_IF_ERROR(check_pb_null_map(arg, rows));
@@ -421,6 +438,38 @@ Status DataTypeFileSerDe::read_column_from_pb(IColumn& column, const PValues& ar
         RETURN_IF_ERROR(_element_serdes[i]->read_column_from_pb(
                 file.get_column(i), arg.child_element(cast_set<int>(i))));
     }
+    if (std::cmp_equal(arg.child_element_size(), FILE_FIELDS + 2)) {
+        const auto& ids = arg.child_element(FILE_FIELDS);
+        const auto& row_ids = arg.child_element(FILE_FIELDS + 1);
+        if (ids.type().id() != PGenericType::UINT32 || ids.uint32_value_size() != rows ||
+            ids.has_null() || row_ids.type().id() != PGenericType::UINT64 ||
+            row_ids.uint64_value_size() != rows || row_ids.has_null()) {
+            return Status::InvalidArgument("Invalid FILE protobuf read context");
+        }
+        RETURN_IF_ERROR(check_pb_null_map(ids, rows));
+        RETURN_IF_ERROR(check_pb_null_map(row_ids, rows));
+        const auto has_ids =
+                std::any_of(ids.uint32_value().begin(), ids.uint32_value().end(),
+                            [](uint32_t id) { return id != 0; }) ||
+                std::any_of(row_ids.uint64_value().begin(), row_ids.uint64_value().end(),
+                            [](uint64_t id) { return id != 0; });
+        if (has_ids) {
+            auto restored_ids = ColumnOffset32::create();
+            auto restored_rows = ColumnOffset64::create();
+            restored_ids->reserve(rows);
+            restored_rows->reserve(rows);
+            for (int row = 0; row < rows; ++row) {
+                restored_ids->insert_value(ids.uint32_value(row));
+                restored_rows->insert_value(row_ids.uint64_value(row));
+            }
+            file.set_blob_ids(std::move(restored_ids), std::move(restored_rows));
+        } else {
+            file.reset_blob_ids();
+        }
+    } else {
+        file.reset_blob_ids();
+    }
+    file.sanity_check();
     // Internal protobuf transport restores values without repeating input validation.
     column.insert_range_from(file, 0, rows);
     return Status::OK();

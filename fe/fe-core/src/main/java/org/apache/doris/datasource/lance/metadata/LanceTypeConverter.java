@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance.metadata;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -40,6 +41,7 @@ public final class LanceTypeConverter {
     private static final String ARROW_JSON_EXTENSION = "arrow.json";
     private static final String LANCE_JSON_EXTENSION = "lance.json";
     private static final String LANCE_BFLOAT16_EXTENSION = "lance.bfloat16";
+    private static final String LANCE_BLOB_EXTENSION = "lance.blob.v2";
 
     private LanceTypeConverter() {
     }
@@ -55,7 +57,8 @@ public final class LanceTypeConverter {
                 ? null : field.getMetadata().get(ARROW_EXTENSION_NAME);
         if (ARROW_JSON_EXTENSION.equals(extensionName)
                 || LANCE_JSON_EXTENSION.equals(extensionName)
-                || LANCE_BFLOAT16_EXTENSION.equals(extensionName)) {
+                || LANCE_BFLOAT16_EXTENSION.equals(extensionName)
+                || LANCE_BLOB_EXTENSION.equals(extensionName)) {
             return true;
         }
         for (Field child : field.getChildren()) {
@@ -79,6 +82,10 @@ public final class LanceTypeConverter {
         }
         if (extensionName != null && !extensionName.isEmpty()) {
             return extensionType(field, extensionName);
+        }
+        // The first BLOB implementation materializes only top-level scalar FILE values.
+        if (field.getChildren().stream().anyMatch(LanceTypeConverter::containsBlob)) {
+            return Type.UNSUPPORTED;
         }
 
         ArrowType arrowType = field.getType();
@@ -178,9 +185,18 @@ public final class LanceTypeConverter {
                 return storageType.getTypeID() == ArrowType.ArrowTypeID.FixedSizeBinary
                                 && ((ArrowType.FixedSizeBinary) storageType).getByteWidth() == 2
                         ? Type.FLOAT : Type.UNSUPPORTED;
+            case LANCE_BLOB_EXTENSION:
+                return storageType.getTypeID() == ArrowType.ArrowTypeID.Struct
+                        ? FileType.create() : Type.UNSUPPORTED;
             default:
                 return Type.UNSUPPORTED;
         }
+    }
+
+    private static boolean containsBlob(Field field) {
+        return (field.getMetadata() != null
+                && LANCE_BLOB_EXTENSION.equals(field.getMetadata().get(ARROW_EXTENSION_NAME)))
+                || field.getChildren().stream().anyMatch(LanceTypeConverter::containsBlob);
     }
 
     /** Maps an Arrow integer to the narrowest lossless Doris type. */

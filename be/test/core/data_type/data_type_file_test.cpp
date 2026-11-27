@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/value/file_read_reference.h"
 
 namespace doris {
 
@@ -217,6 +218,45 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[0].is_null());
     EXPECT_EQ((*restored)[2].get<TYPE_FILE>()[5].as_string_view(), bytes);
     EXPECT_TRUE(validate_file_column(*restored, std::make_shared<DataTypeFile>()).ok());
+}
+
+TEST(DataTypeFileTest, BlockRoundTripPreservesReadReferencesAtVersion13) {
+    const auto type = std::make_shared<DataTypeFile>();
+    auto values = type->create_column();
+    auto binding = std::make_shared<FileReadBinding>();
+    binding->query_id_hi = 1;
+    binding->query_id_lo = 2;
+    binding->source_node_id = 7;
+    binding->dataset_uri = "s3://bucket/assets.lance";
+    binding->dataset_version = 42;
+    binding->column_name = "image";
+    for (uint64_t row_id : {91, 3, 91}) {
+        File value(DataTypeFile::FIELD_COUNT);
+        value[DataTypeFile::URI_FIELD_INDEX] =
+                Field::create_field<TYPE_STRING>("lance-blob://query/source");
+        value.read_binding = binding;
+        value.read_row_id = row_id;
+        values->insert(Field::create_field<TYPE_FILE>(std::move(value)));
+    }
+    Block source {{std::move(values), type, "blob"}};
+    PBlock wire;
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    int64_t codec_time = 0;
+    ASSERT_TRUE(source.serialize(13, &wire, &uncompressed_bytes, &compressed_bytes, &codec_time,
+                                 segment_v2::NO_COMPRESSION)
+                        .ok());
+    EXPECT_EQ(wire.be_exec_version(), 13);
+    Block restored;
+    ASSERT_TRUE(restored.deserialize(wire, &uncompressed_bytes, &codec_time).ok());
+    const auto& files = assert_cast<const ColumnFile&>(*restored.get_by_position(0).column);
+    ASSERT_EQ(files.size(), 3);
+    for (size_t row = 0; row < files.size(); ++row) {
+        ASSERT_NE(files.read_binding_at(row), nullptr);
+        EXPECT_EQ(*files.read_binding_at(row), *binding);
+        EXPECT_EQ(files.read_row_id_at(row), row == 1 ? 3 : 91);
+        EXPECT_EQ(files.read_binding_at(row), files.read_binding_at(0));
+    }
 }
 
 TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {

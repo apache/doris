@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.lance.source.LanceBlobResourcePlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
@@ -57,6 +58,7 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TLanceBlobResource;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -130,10 +132,12 @@ public class ThriftPlansBuilder {
         Multiset<DistributedPlanWorker> workerProcessInstanceNum = computeInstanceNumPerWorker(distributedPlans);
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker = Maps.newLinkedHashMap();
         int currentInstanceIndex = 0;
-        Map<Integer, TFileScanRangeParams> sharedFileScanRangeParams = Maps.newLinkedHashMap();
+        // Freeze resource IDs before serializing any scan or consumer fragment.
+        Map<Integer, TLanceBlobResource> lanceBlobResources = LanceBlobResourcePlanner.plan(
+                distributedPlans.stream().flatMap(plan -> plan.getFragmentJob().getScanNodes().stream())
+                        .collect(Collectors.toList()), coordinatorContext.queryOptions.getBeExecVersion());
+        Map<Integer, TFileScanRangeParams> sharedFileScanRangeParams = computeFileScanRangeParams(distributedPlans);
         for (PipelineDistributedPlan currentFragmentPlan : distributedPlans) {
-            sharedFileScanRangeParams.putAll(computeFileScanRangeParams(currentFragmentPlan));
-
             Map<Integer, Integer> exchangeSenderNum = computeExchangeSenderNum(currentFragmentPlan);
             ListMultimap<DistributedPlanWorker, AssignedJob> instancesPerWorker
                     = groupInstancePerWorker(currentFragmentPlan);
@@ -181,6 +185,9 @@ public class ThriftPlansBuilder {
                     fragmentParams.unsetQueryGlobals();
                     fragmentParams.unsetResourceInfo();
                     fragmentParams.setIsSimplifiedParam(true);
+                } else if (!lanceBlobResources.isEmpty()) {
+                    // The first fragment installs query resources even on consumer-only BEs.
+                    fragmentParams.setLanceBlobResources(lanceBlobResources);
                 }
                 isFirstFragmentInCurrentBackend = false;
             }
@@ -541,17 +548,20 @@ public class ThriftPlansBuilder {
     }
 
     private static Map<Integer, TFileScanRangeParams> computeFileScanRangeParams(
-            PipelineDistributedPlan distributedPlan) {
-        // scan node id -> TFileScanRangeParams
-        Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newLinkedHashMap();
-        for (ScanNode scanNode : distributedPlan.getFragmentJob().getScanNodes()) {
-            if (scanNode instanceof FileQueryScanNode) {
-                TFileScanRangeParams fileScanRangeParams = ((FileQueryScanNode) scanNode).getFileScanRangeParams();
-                fileScanRangeParamsMap.put(scanNode.getId().asInt(), fileScanRangeParams);
+            List<PipelineDistributedPlan> distributedPlans) {
+        Map<Integer, FileQueryScanNode> fileScans = new TreeMap<>();
+        for (PipelineDistributedPlan plan : distributedPlans) {
+            for (ScanNode scan : plan.getFragmentJob().getScanNodes()) {
+                if (scan instanceof FileQueryScanNode) {
+                    fileScans.put(scan.getId().asInt(), (FileQueryScanNode) scan);
+                }
             }
         }
-
-        return fileScanRangeParamsMap;
+        Map<Integer, TFileScanRangeParams> result = Maps.newLinkedHashMap();
+        for (Entry<Integer, FileQueryScanNode> entry : fileScans.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().getFileScanRangeParams());
+        }
+        return result;
     }
 
     private static TPipelineInstanceParams instanceToThrift(

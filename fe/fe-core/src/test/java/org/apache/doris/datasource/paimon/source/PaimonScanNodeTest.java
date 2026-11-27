@@ -2160,6 +2160,82 @@ public class PaimonScanNodeTest {
         Assert.assertTrue(params.isContainsNativeParquet());
     }
 
+    @Test
+    public void testManagedPrimaryKeyBlobUsesOnlyRawConvertibleSplits() throws Exception {
+        for (boolean convertible : Arrays.asList(false, true)) {
+            for (boolean forceJni : Arrays.asList(false, true)) {
+                SessionVariable session = new SessionVariable();
+                session.enableFileScannerV2 = true;
+                session.setForceJniScanner(forceJni);
+                TupleDescriptor tuple = new TupleDescriptor(new TupleId(80));
+                SlotDescriptor payload = new SlotDescriptor(new SlotId(81), tuple);
+                payload.setColumn(new Column("payload", Type.FILE));
+                tuple.addSlot(payload);
+                PaimonScanNode node = Mockito.spy(new PaimonScanNode(
+                        new PlanNodeId(80), tuple, false, session, ScanContext.EMPTY));
+                Map<String, String> options = ImmutableMap.of("blob-field", "payload");
+                FileStoreTable table = Mockito.mock(FileStoreTable.class);
+                Mockito.when(table.primaryKeys()).thenReturn(Collections.singletonList("id"));
+                Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
+                Mockito.when(table.options()).thenReturn(options);
+                Mockito.when(table.coreOptions()).thenReturn(new CoreOptions(options));
+                Mockito.when(table.rowType()).thenReturn(RowType.of(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(2, "payload", DataTypes.BLOB())));
+                setField(PaimonScanNode.class, node, "processedTable", table);
+                PaimonSource source = Mockito.mock(PaimonSource.class);
+                Mockito.when(source.getPaimonTable()).thenReturn(table);
+                node.setSource(source);
+                DataSplit dataSplit = Mockito.spy(createDataSplit("managed.parquet"));
+                if (!convertible) {
+                    Mockito.doReturn(Optional.empty()).when(dataSplit).convertToRawFiles();
+                }
+                Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+                setField(FileQueryScanNode.class, node, "fileSplitter",
+                        new FileSplitter(32L * 1024 * 1024, 64L * 1024 * 1024, 0));
+                List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+                Assert.assertEquals(1, splits.size());
+                PaimonSplit split = (PaimonSplit) splits.get(0);
+                if (convertible && !forceJni) {
+                    Assert.assertNull(split.getSplit());
+                    Assert.assertEquals(Collections.singletonList(2), split.getBlobDescriptorFieldIds());
+                } else {
+                    Assert.assertNotNull(split.getSplit());
+                    Assert.assertNull(split.getBlobDescriptorFieldIds());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testManagedBlobDescriptorEligibilityIncludesCollectionsButRejectsViews() throws Exception {
+        SessionVariable session = new SessionVariable();
+        session.enableFileScannerV2 = true;
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(82));
+        SlotDescriptor payload = new SlotDescriptor(new SlotId(83), tuple);
+        payload.setColumn(new Column("payload", Type.FILE));
+        tuple.addSlot(payload);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(82), tuple, false, session, ScanContext.EMPTY);
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.primaryKeys()).thenReturn(Collections.singletonList("id"));
+        Map<String, String> options = ImmutableMap.of("blob-field", "payload");
+        Mockito.when(table.options()).thenReturn(options);
+        Mockito.when(table.coreOptions()).thenReturn(new CoreOptions(options));
+        setField(PaimonScanNode.class, node, "processedTable", table);
+        for (org.apache.paimon.types.DataType type : Arrays.asList(DataTypes.BLOB(),
+                DataTypes.ARRAY(DataTypes.BLOB()), DataTypes.MAP(DataTypes.STRING(), DataTypes.BLOB()))) {
+            Mockito.when(table.rowType()).thenReturn(RowType.of(new DataField(2, "payload", type)));
+            Assert.assertEquals(Collections.singletonList(2), node.nativeBlobDescriptorFieldIds());
+        }
+        Mockito.when(table.options()).thenReturn(ImmutableMap.of("blob-view-field", "payload"));
+        Assert.assertTrue(node.nativeBlobDescriptorFieldIds().isEmpty());
+        Mockito.when(table.options()).thenReturn(ImmutableMap.of("blob-descriptor-field", "payload"));
+        Assert.assertTrue(node.nativeBlobDescriptorFieldIds().isEmpty());
+        Mockito.when(table.options()).thenReturn(options);
+        Mockito.when(table.primaryKeys()).thenReturn(Collections.emptyList());
+        Assert.assertTrue(node.nativeBlobDescriptorFieldIds().isEmpty());
+    }
+
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }

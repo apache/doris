@@ -402,6 +402,10 @@ struct TPaimonFileDesc {
     22: optional i64 anchor_first_row_id
     // Complete anchor range: [anchor_first_row_id, anchor_first_row_id + anchor_row_count).
     23: optional i64 anchor_row_count
+    // Field 24 is reserved for vector_payload on master.
+    // Managed primary-key BLOB fields stored as descriptors inside this native data file.
+    // Absence preserves the existing row-ID/ordinary native reader behavior.
+    25: optional list<i32> blob_descriptor_field_ids
 }
 
 struct TTrinoConnectorFileDesc {
@@ -585,7 +589,7 @@ union TExternalSearchQuery {
 }
 
 // A provider-independent logical search request. Physical target information remains in the
-// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+// provider scan/split params (for example, TLanceScanParams and TLanceFileDesc).
 struct TExternalSearchRequest {
     1: optional i32 schema_version = 1
     2: optional TExternalSearchQuery search_query
@@ -596,11 +600,13 @@ struct TExternalSearchRequest {
     5: optional bool prefilter
 }
 
-// A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
-// without fragment_ids to open the latest snapshot and scan the whole dataset on its selected BE.
+// Split-local scan work. Dataset identity and storage options live in TLanceScanParams.
 struct TLanceFileDesc {
+    // Deprecated. New FEs use TLanceScanParams.dataset_uri; BEs still read this for old FE plans.
     1: optional string dataset_uri
+    // Unset for a local whole-dataset scan or a metadata-only COUNT split.
     2: optional list<i64> fragment_ids
+    // Deprecated. New FEs use TLanceScanParams.version; BEs still read this for old FE plans.
     3: optional i64 version
     // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
     // most this many rows; the upper LIMIT operator still enforces the global bound.
@@ -634,6 +640,23 @@ struct TLanceScanParams {
     // with a static option set, so credentials that expire mid-scan are not re-vended. Renewal
     // needs a refresh channel of its own, which this field is not.
     3: optional map<string, string> lance_storage_options
+    // Common to every split of this scan node.
+    4: optional string dataset_uri
+    // FE-pinned positive version for catalog/remote TVF scans, searches and BLOB reads.
+    // Zero is allowed only for local non-BLOB TVFs, where BE opens the latest snapshot.
+    5: optional i64 version
+    // Actual Lance column name -> query-wide source ID, assigned by FE. Zero is unbound.
+    // IDs refer directly to TPipelineFragmentParams.lance_blob_resources.
+    6: optional map<string, i32> blob_read_source_ids
+}
+
+// Query-local configuration for reading one BLOB column, independent of scan-node parameters.
+// FE sends the complete resource map to every participating BE, including FILE consumers.
+struct TLanceBlobResource {
+    1: optional string dataset_uri
+    2: optional i64 version
+    3: optional string column_name
+    4: optional map<string, string> storage_options
 }
 
 struct TTableFormatFileDesc {

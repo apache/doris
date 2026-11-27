@@ -41,6 +41,7 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.lance.source.LanceBlobResourcePlanner;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -110,6 +111,7 @@ import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
+import org.apache.doris.thrift.TLanceBlobResource;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -213,6 +215,7 @@ public class Coordinator implements CoordInterface {
 
     // scan node id -> TFileScanRangeParams
     private Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
+    private Map<Integer, TLanceBlobResource> lanceBlobResources = Maps.newHashMap();
 
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -751,6 +754,7 @@ public class Coordinator implements CoordInterface {
         // compute Fragment Instance
         computeScanRangeAssignment();
 
+        lanceBlobResources = LanceBlobResourcePlanner.plan(scanNodes, queryOptions.getBeExecVersion());
         computeFragmentExecParams();
     }
 
@@ -3392,6 +3396,7 @@ public class Coordinator implements CoordInterface {
         public void unsetFields() {
             this.rpcParams.unsetDescTbl();
             this.rpcParams.unsetFileScanParams();
+            this.rpcParams.unsetLanceBlobResources();
             this.rpcParams.unsetCoord();
             this.rpcParams.unsetQueryGlobals();
             this.rpcParams.unsetResourceInfo();
@@ -3703,6 +3708,9 @@ public class Coordinator implements CoordInterface {
                     }
 
                     params.setFileScanParams(fileScanRangeParamsMap);
+                    if (!lanceBlobResources.isEmpty()) {
+                        params.setLanceBlobResources(lanceBlobResources);
+                    }
                     params.setNumBuckets(fragment.getBucketNum());
                     params.setTotalInstances(instanceExecParams.size());
                     if (ignoreDataDistribution) {

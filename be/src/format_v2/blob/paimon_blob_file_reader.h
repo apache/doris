@@ -28,9 +28,9 @@ namespace doris::format {
 
 // Physical Paimon managed-BLOB format, version 1. Row numbers are local to this file;
 // table row ids, field ids, projection, and SQL FILE values belong to the caller.
-class BlobFileReader {
+class PaimonBlobFileReader {
 public:
-    ~BlobFileReader();
+    ~PaimonBlobFileReader();
 
     struct ByteRange {
         // Absolute byte offset of the payload in this .blob file, excluding record framing.

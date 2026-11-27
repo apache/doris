@@ -159,6 +159,17 @@ public class LanceScanNode extends FileQueryScanNode {
 
     /** Checks columns read in either phase of a Lance scan. */
     private boolean projectsCurrentReaderType() {
+        Set<String> projectedColumns = projectedColumnNames();
+        for (Field field : plannedMetadata.getSchema().getFields()) {
+            if (projectedColumns.contains(field.getName().toLowerCase(Locale.ROOT))
+                    && LanceTypeConverter.requiresCurrentBeReader(field)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<String> projectedColumnNames() {
         // Global row IDs route the second-phase take back to the first-phase BE, so lazy pruning
         // must not hide a column's reader requirement when checking mixed-version backends.
         Set<String> projectedColumns = new HashSet<>(lazyMaterializedColumns);
@@ -167,13 +178,7 @@ public class LanceScanNode extends FileQueryScanNode {
                 projectedColumns.add(slot.getColumn().getName().toLowerCase(Locale.ROOT));
             }
         }
-        for (Field field : plannedMetadata.getSchema().getFields()) {
-            if (projectedColumns.contains(field.getName().toLowerCase(Locale.ROOT))
-                    && LanceTypeConverter.requiresCurrentBeReader(field)) {
-                return true;
-            }
-        }
-        return false;
+        return projectedColumns;
     }
 
     /** Rejects old smooth-upgrade source BEs for additional Lance type projections. */
@@ -242,6 +247,22 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        if (!blobReadColumns().isEmpty()
+                && (!LanceBlobResourcePlanner.isRemoteDataset(plannedMetadata.getDatasetUri())
+                        || plannedMetadata.getVersion() <= 0)) {
+            throw new UserException("Lance BLOB reads require a remote dataset and a fixed snapshot");
+        }
+        if (!sessionVariable.enableFileScannerV2) {
+            Set<String> projectedColumns = projectedColumnNames();
+            for (Field field : plannedMetadata.getSchema().getFields()) {
+                if (projectedColumns.contains(field.getName().toLowerCase(Locale.ROOT))
+                        && LanceTypeConverter.toDorisType(field).isFileType()) {
+                    throw new UserException("Lance BLOB columns require enable_file_scanner_v2=true");
+                }
+            }
+        }
+        getOrCreateLanceScanParams().setDatasetUri(plannedMetadata.getDatasetUri())
+                .setVersion(plannedMetadata.getVersion());
         super.createScanRangeLocations();
         if (lanceSubstraitFilter.length > 0) {
             getOrCreateLanceScanParams()
@@ -252,6 +273,24 @@ public class LanceScanNode extends FileQueryScanNode {
         if (!lanceStorageOptions.isEmpty()) {
             getOrCreateLanceScanParams().setLanceStorageOptions(lanceStorageOptions);
         }
+    }
+
+    private List<String> blobReadColumns() {
+        List<String> columns = new ArrayList<>();
+        Set<String> projected = projectedColumnNames();
+        for (Field field : plannedMetadata.getSchema().getFields()) {
+            if (projected.contains(field.getName().toLowerCase(Locale.ROOT))
+                    && LanceTypeConverter.toDorisType(field).isFileType()) {
+                columns.add(field.getName());
+            }
+        }
+        return columns;
+    }
+
+    @Override
+    public int assignBlobSourceIds(int nextSourceId) {
+        return LanceBlobResourcePlanner.assign(getOrCreateLanceScanParams(),
+                blobReadColumns(), nextSourceId);
     }
 
     @Override
@@ -273,21 +312,19 @@ public class LanceScanNode extends FileQueryScanNode {
             throw new IllegalArgumentException("Expected LanceSplit but got " + split.getClass().getName());
         }
         LanceSplit lanceSplit = (LanceSplit) split;
-        TLanceFileDesc lanceParams = new TLanceFileDesc();
-        lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
-        lanceParams.setVersion(lanceSplit.getVersion());
+        TLanceFileDesc splitParams = new TLanceFileDesc();
         if (lanceSplit.hasFragmentIds()) {
             if (searchKind == SearchKind.FULL_TEXT && lanceSplit.getKind() != LanceSplit.Kind.INDEX_SEGMENT) {
                 throw new IllegalArgumentException(
                         "Lance full-text search split must contain an FTS index segment");
             }
-            lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
+            splitParams.setFragmentIds(lanceSplit.getFragmentIds());
             lanceSplit.getIndexSegmentUuid().ifPresent(uuid -> {
                 ByteBuffer uuidBytes = ByteBuffer.allocate(16);
                 uuidBytes.putLong(uuid.getMostSignificantBits());
                 uuidBytes.putLong(uuid.getLeastSignificantBits());
                 uuidBytes.flip();
-                lanceParams.setIndexSegmentUuids(Collections.singletonList(uuidBytes));
+                splitParams.setIndexSegmentUuids(Collections.singletonList(uuidBytes));
             });
         } else if (!lanceSplit.isMetadataCount()) {
             // Only the metadata COUNT(*) split may omit fragment ids; it opens no BE scanner and
@@ -297,12 +334,12 @@ public class LanceScanNode extends FileQueryScanNode {
         if (lanceSplit.isScalarIndexDisabled()) {
             // Uncovered fragments belong to separate tasks. Do not repeat global index
             // evaluation on these tasks; the complete filter still applies to their rows.
-            lanceParams.setUseScalarIndex(false);
+            splitParams.setUseScalarIndex(false);
         }
         // Push LIMIT into each ordinary split scanner only when it is safe to truncate that
         // split early. External searches use their own per-split candidate bound.
         if (searchKind == SearchKind.NORMAL && canPushDownLimit()) {
-            lanceParams.setLimit(getLimit());
+            splitParams.setLimit(getLimit());
         }
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
@@ -310,7 +347,7 @@ public class LanceScanNode extends FileQueryScanNode {
         // Match the Iceberg convention: always set explicitly, -1 for ordinary and search scans
         // so BE never mistakes a stale value for a metadata count.
         tableFormatParams.setTableLevelRowCount(lanceSplit.getTableLevelRowCount());
-        tableFormatParams.setLanceParams(lanceParams);
+        tableFormatParams.setLanceParams(splitParams);
         rangeDesc.setTableFormatParams(tableFormatParams);
     }
 

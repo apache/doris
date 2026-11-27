@@ -590,17 +590,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        ConnectContext ctx = ConnectContext.get();
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
                     filePath, Collections.singletonList(storageProperties));
-            if (!lanceStorageOptions.isEmpty()) {
-                fileScanRangeParams.setLanceScanParams(
-                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
-            }
+            // Local schema discovery opens the latest dataset. Remote TVFs use FE metadata.
+            fileScanRangeParams.setLanceScanParams(new TLanceScanParams()
+                    .setDatasetUri(getFilePath()).setVersion(0)
+                    .setLanceStorageOptions(lanceStorageOptions));
         }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
-        ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
@@ -660,14 +660,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setFileSize(firstFile.getSize());
         fileRangeDesc.setModificationTime(firstFile.getModificationTime());
         if (isLanceFormat()) {
-            TLanceFileDesc lanceParams = new TLanceFileDesc();
-            lanceParams.setDatasetUri(getFilePath());
-            // Local TVF schema discovery and execution independently open the latest snapshot.
-            // S3 TVF obtains its schema and fixed snapshot metadata directly in FE instead.
-            lanceParams.setVersion(0);
             TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
             tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
-            tableFormatParams.setLanceParams(lanceParams);
+            tableFormatParams.setLanceParams(new TLanceFileDesc());
             fileRangeDesc.setTableFormatParams(tableFormatParams);
         }
         // set TFileScanRange

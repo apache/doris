@@ -22,8 +22,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <limits>
 
+#include "agent/be_exec_version_manager.h"
 #include "core/column/column_const.h"
 #include "core/column/column_file.h"
 #include "core/column/column_nullable.h"
@@ -63,6 +65,16 @@ bool contains_file_type(const DataTypePtr& original) {
 }
 
 namespace {
+bool has_serializable_blob_ids(const ColumnFile& file, int version) {
+    const bool has_blob_ids = file.has_blob_references();
+    if (has_blob_ids && version < SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "FILE Blob references require be_exec_version >= {}, got {}",
+                        SUPPORT_LANCE_BLOB_RESOURCES_VERSION, version);
+    }
+    return has_blob_ids;
+}
+
 std::optional<std::string_view> file_text_at(const ColumnNullable& column, size_t row) {
     if (column.is_null_at(row)) {
         return std::nullopt;
@@ -188,9 +200,16 @@ int64_t DataTypeFile::get_uncompressed_serialized_bytes(const IColumn& column, i
         data = &assert_cast<const ColumnConst&>(column).get_data_column();
     }
     const auto& file = assert_cast<const ColumnFile&>(*data);
+    const bool has_blob_ids = has_serializable_blob_ids(file, version);
     int64_t size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     for (size_t i = 0; i < FIELD_COUNT; ++i) {
         size += _elements[i]->get_uncompressed_serialized_bytes(file.get_column(i), version);
+    }
+    if (version >= SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+        size += sizeof(uint8_t);
+        if (has_blob_ids) {
+            size += file.size() * (sizeof(uint32_t) + sizeof(uint64_t));
+        }
     }
     return size;
 }
@@ -200,8 +219,23 @@ char* DataTypeFile::serialize(const IColumn& column, char* buf, int version) con
     size_t rows = 0;
     buf = serialize_const_flag_and_row_num(&data, buf, &rows);
     const auto& file = assert_cast<const ColumnFile&>(*data);
+    const bool has_blob_ids = has_serializable_blob_ids(file, version);
     for (size_t i = 0; i < FIELD_COUNT; ++i) {
         buf = _elements[i]->serialize(file.get_column(i), buf, version);
+    }
+    if (version < SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+        return buf;
+    }
+    // Old versions end after the six public fields. New versions explicitly mark ID presence.
+    *buf++ = static_cast<uint8_t>(has_blob_ids);
+    if (has_blob_ids) {
+        const auto id_bytes = file.size() * sizeof(uint32_t);
+        const auto row_bytes = file.size() * sizeof(uint64_t);
+        const auto& ids = assert_cast<const ColumnOffset32&>(*file.blob_source_ids()).get_data();
+        const auto& row_ids = assert_cast<const ColumnOffset64&>(*file.blob_row_ids()).get_data();
+        std::memcpy(buf, ids.data(), id_bytes);
+        std::memcpy(buf + id_bytes, row_ids.data(), row_bytes);
+        buf += id_bytes + row_bytes;
     }
     return buf;
 }
@@ -216,6 +250,27 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
         auto child = std::move(*file.get_column_ptr(i)).mutate();
         buf = _elements[i]->deserialize(buf, &child, version);
         file.get_column_ptr(i) = std::move(child);
+    }
+    if (version < SUPPORT_LANCE_BLOB_RESOURCES_VERSION) {
+        file.reset_blob_ids();
+        file.sanity_check();
+        return buf;
+    }
+    const auto has_blob_ids = static_cast<uint8_t>(*buf++);
+    if (has_blob_ids > 1) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE Blob ID presence flag");
+    }
+    if (has_blob_ids) {
+        const auto id_bytes = file.size() * sizeof(uint32_t);
+        const auto row_bytes = file.size() * sizeof(uint64_t);
+        auto ids = ColumnOffset32::create(file.size());
+        auto row_ids = ColumnOffset64::create(file.size());
+        std::memcpy(ids->get_data().data(), buf, id_bytes);
+        std::memcpy(row_ids->get_data().data(), buf + id_bytes, row_bytes);
+        file.set_blob_ids(std::move(ids), std::move(row_ids));
+        buf += id_bytes + row_bytes;
+    } else {
+        file.reset_blob_ids();
     }
     file.sanity_check();
     return buf;
