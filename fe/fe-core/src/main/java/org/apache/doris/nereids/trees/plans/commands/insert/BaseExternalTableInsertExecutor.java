@@ -53,6 +53,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
     protected final TransactionManager transactionManager;
+    protected BaseExternalTableDataSink dataSink;
     protected final String catalogName;
     protected Optional<SummaryProfile> summaryProfile = Optional.empty();
 
@@ -144,7 +145,8 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         try {
-            ((BaseExternalTableDataSink) sink).bindDataSink(insertCtx);
+            dataSink = (BaseExternalTableDataSink) sink;
+            dataSink.bindDataSink(insertCtx);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
