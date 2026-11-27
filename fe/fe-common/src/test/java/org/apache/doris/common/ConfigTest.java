@@ -22,6 +22,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -204,6 +205,32 @@ public class ConfigTest {
             Assert.assertEquals("V2", Config.inverted_index_storage_format);
         } finally {
             Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testStatisticsScannerConcurrencyConfig() throws Exception {
+        for (String key : List.of("statistics_sql_max_scanners_concurrency",
+                "statistics_sql_max_file_scanners_concurrency")) {
+            Field field = Config.getField(key);
+            int previous = field.getInt(null);
+            try {
+                ConfigBase.setMutableConfig(key, "256");
+                Assertions.assertEquals(256, field.getInt(null));
+                for (String invalid : List.of("-1", "257", "unknown")) {
+                    Assertions.assertThrows(ConfigException.class, () -> ConfigBase.setMutableConfig(key, invalid));
+                    Assertions.assertEquals(256, field.getInt(null));
+                }
+                ConfigBase.setMutableConfig(key, "0");
+                Assertions.assertEquals(0, field.getInt(null));
+
+                new Config().init(configFile(key + "=257").toString());
+                ConfigException exception = Assertions.assertThrows(ConfigException.class,
+                        Config::validateStatisticsScannerConcurrency);
+                Assertions.assertTrue(exception.getMessage().contains(key));
+            } finally {
+                field.setInt(null, previous);
+            }
         }
     }
 

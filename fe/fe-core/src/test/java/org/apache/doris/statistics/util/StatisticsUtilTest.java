@@ -18,6 +18,7 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -29,8 +30,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -44,7 +47,9 @@ import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -52,6 +57,7 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
@@ -72,6 +78,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -85,6 +92,60 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
+    @Test
+    void testStatisticsScannerConcurrencyQueryOptions() {
+        int previousMaxScanners = Config.statistics_sql_max_scanners_concurrency;
+        int previousMaxFileScanners = Config.statistics_sql_max_file_scanners_concurrency;
+        SessionVariable globalDefaults = VariableMgr.getDefaultSessionVariable();
+        int previousGlobalMaxScanners = globalDefaults.getMaxScannersConcurrency();
+        int previousGlobalMaxFileScanners = globalDefaults.maxFileScannersConcurrency;
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            globalDefaults.setMaxScannersConcurrency(6);
+            globalDefaults.maxFileScannersConcurrency = 12;
+
+            try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+                TQueryOptions options = context.connectContext.getSessionVariable().toThrift();
+                Assertions.assertEquals(1, options.getMaxScannersConcurrency());
+                Assertions.assertEquals(1, options.getMaxFileScannersConcurrency());
+            }
+
+            Config.statistics_sql_max_scanners_concurrency = 0;
+            Config.statistics_sql_max_file_scanners_concurrency = 7;
+
+            try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+                TQueryOptions options = context.connectContext.getSessionVariable().toThrift();
+                Assertions.assertEquals(6, options.getMaxScannersConcurrency());
+                Assertions.assertEquals(7, options.getMaxFileScannersConcurrency());
+            }
+
+            Config.statistics_sql_max_scanners_concurrency = 2;
+            Config.statistics_sql_max_file_scanners_concurrency = 0;
+            try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+                TQueryOptions options = context.connectContext.getSessionVariable().toThrift();
+                Assertions.assertEquals(2, options.getMaxScannersConcurrency());
+                Assertions.assertEquals(12, options.getMaxFileScannersConcurrency());
+            }
+
+            SessionVariable ordinaryQueryVariables = VariableMgr.newSessionVariable();
+            Assertions.assertEquals(6, ordinaryQueryVariables.getMaxScannersConcurrency());
+            Assertions.assertEquals(12, ordinaryQueryVariables.maxFileScannersConcurrency);
+        } finally {
+            Config.statistics_sql_max_scanners_concurrency = previousMaxScanners;
+            Config.statistics_sql_max_file_scanners_concurrency = previousMaxFileScanners;
+            globalDefaults.setMaxScannersConcurrency(previousGlobalMaxScanners);
+            globalDefaults.maxFileScannersConcurrency = previousGlobalMaxFileScanners;
+        }
+    }
+
     @Test
     void testGetIcebergColumnStatsReturnsEmptyForDisabledMetrics() {
         Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
