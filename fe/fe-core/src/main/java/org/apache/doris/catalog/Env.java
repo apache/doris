@@ -7257,6 +7257,10 @@ public class Env {
                 versionTime,
                 isForceDropOld);
         editLog.logReplaceTempPartition(info);
+        // In cloud mode, replacing an empty partition does not change the table version, so without this
+        // notification a SQL cache entry built on this FE while the replaced partition was empty could keep
+        // being served after the replacement.
+        onTableChanged(olapTable);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
                 replacePartitionOp.getPartitionNames(),
                 replacePartitionOp.getTempPartitionNames(), olapTable.getName());
