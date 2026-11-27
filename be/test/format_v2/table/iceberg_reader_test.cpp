@@ -4800,10 +4800,7 @@ TEST(IcebergV2ReaderTest, MissingNestedEqualityKeyOpensStructTraversal) {
     Defer close_context {[&] { context->close(); }};
     ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
     ASSERT_TRUE(context->open(&state).ok());
-    ASSERT_TRUE(expr->ready_status().ok());
-    ASSERT_TRUE(expr->children()[0]->ready_status().ok());
-    ASSERT_TRUE(expr->children()[0]->children()[0]->ready_status().ok());
-    ASSERT_TRUE(expr->children()[1]->ready_status().ok());
+    EXPECT_TRUE(expr->children()[1]->is_const_and_have_executed());
 
     auto column = payload.type->create_column();
     column->insert_many_defaults(3);

@@ -90,7 +90,6 @@ Status VSlotRef::open(RuntimeState* state, VExprContext* context,
                       FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 

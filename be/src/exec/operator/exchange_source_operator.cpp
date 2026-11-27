@@ -266,11 +266,6 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-Status ExchangeSourceOperatorX::close(RuntimeState* state) {
-    _is_closed = true;
-    return OperatorX<ExchangeLocalState>::close(state);
-}
-
 Status ExchangeSourceOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     return local_state.reset(state);
