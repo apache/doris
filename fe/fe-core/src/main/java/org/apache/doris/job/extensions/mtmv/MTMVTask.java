@@ -123,6 +123,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MTMVTask extends AbstractTask {
@@ -739,6 +740,20 @@ public class MTMVTask extends AbstractTask {
     private PartitionRefreshPlan planPartitionRefresh(MTMVRefreshContext context,
             RefreshRequest request) throws AnalysisException {
         if (request.explicitPartitions) {
+            // The manual partition set may have been invalidated by alignMvPartition: a base partition
+            // may have been dropped / re-partitioned between command analysis and this async task, and
+            // alignMvPartition removes the corresponding MV partition. An explicit refresh target that
+            // still has no physical partition after alignment must fail the task (not silently complete
+            // as NOT_REFRESH), so snapshot generation / the overwrite sink never dereference a removed
+            // partition and the user learns their requested partition was not refreshed.
+            Set<String> currentPartitionNames = mtmv.getPartitionNames();
+            List<String> invalidPartitions = request.partitions.stream()
+                    .filter(partition -> !currentPartitionNames.contains(partition))
+                    .collect(Collectors.toList());
+            if (!invalidPartitions.isEmpty()) {
+                throw new AnalysisException("partition not exist or was dropped by partition alignment: "
+                        + invalidPartitions);
+            }
             return PartitionRefreshPlan.success(context, request.partitions);
         }
         // The partitions the criterion says have to be rebuilt, whatever the snapshots say: a snapshot

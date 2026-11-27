@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionExprUtil;
@@ -338,13 +339,10 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());
         } else if (partitionColumnType.isTimeStampTz()) {
-            // The internal DateTimeV2Literal values are always in UTC after truncation.
-            // Emit an explicit +00:00 suffix so that downstream consumers
-            // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
-            // interpret the value as UTC rather than session-local time.
-            return String.format(PartitionExprUtil.DATETIME_FORMATTER,
-                    literal.getYear(), literal.getMonth(), literal.getDay(),
-                    literal.getHour(), literal.getMinute(), literal.getSecond()) + "+00:00";
+            // The truncated value is UTC. Use the same scale and explicit offset as stored ranges.
+            return new DateLiteral(literal.getYear(), literal.getMonth(), literal.getDay(),
+                    literal.getHour(), literal.getMinute(), literal.getSecond(), literal.getMicroSecond(),
+                    partitionColumnType).getStringValue();
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);

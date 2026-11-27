@@ -17,13 +17,18 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.List;
 import java.util.Optional;
 
 public class RangePartitionItem extends PartitionItem {
@@ -68,6 +73,19 @@ public class RangePartitionItem extends PartitionItem {
         return PartitionKeyDesc.createFixed(
                 PartitionInfo.toPartitionValue(partitionKeyRange.lowerEndpoint()),
                 PartitionInfo.toPartitionValue(partitionKeyRange.upperEndpoint()));
+    }
+
+    /** Format single-column TIMESTAMPTZ bounds using the declared column scale. */
+    public PartitionKeyDesc toTimeStampTzPartitionKeyDesc(Type columnType) {
+        return PartitionKeyDesc.createFixed(
+                List.of(toTimeStampTzPartitionValue(partitionKeyRange.lowerEndpoint(), columnType)),
+                List.of(toTimeStampTzPartitionValue(partitionKeyRange.upperEndpoint(), columnType)));
+    }
+
+    private static PartitionValue toTimeStampTzPartitionValue(PartitionKey key, Type columnType) {
+        LiteralExpr value = key.getKeys().get(0);
+        return value == MaxLiteral.MAX_VALUE ? PartitionValue.MAX_VALUE
+                : new PartitionValue(((DateLiteral) value).getStringValue(columnType));
     }
 
     @Override

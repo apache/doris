@@ -67,6 +67,7 @@ import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -369,7 +370,6 @@ public class MTMV extends OlapTable {
         IvmPlanSignature refreshedIvmPlanSignature = task.takeRefreshedIvmPlanSignature();
         MTMVRelation relation = alterMTMV.getRelation();
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = alterMTMV.getPartitionSnapshots();
-        MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
         long cacheGeneration = -1;
@@ -388,12 +388,14 @@ public class MTMV extends OlapTable {
                 if (!isReplay && Env.getCurrentEnv().getMtmvCacheManager().isEnabled()) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    // TODO: these two cache compute share something same, can be simplified in future
-                    mtmvCacheWithGuard = createRewriteCache(currentContext, true, true);
-                    mtmvCacheWithoutGuard = createRewriteCache(currentContext, true, false);
+                    // Only the unguarded cache (guardMask = 0, query session matches the creation session)
+                    // is pre-generated here. The guarded caches (masks 1/2/3) are generated lazily on first
+                    // use by a query whose session differs: their guard content must be derived from that
+                    // query's mask, and is independent of the session this refresh task happens to run in.
+                    mtmvCacheWithoutGuard = createRewriteCache(currentContext, true,
+                            SessionVarGuardRewriter.GUARD_NONE);
                 }
             } catch (Throwable e) {
-                mtmvCacheWithGuard = null;
                 mtmvCacheWithoutGuard = null;
                 LOG.warn("generate cache failed", e);
             }
@@ -473,12 +475,12 @@ public class MTMV extends OlapTable {
             if (publishCache) {
                 // Publish only after the refreshed partitions have been recorded. A partial
                 // refresh may restore NORMAL while other partitions still use the old definition.
+                // Only the unguarded cache is published: the guarded caches are built lazily by the
+                // first query whose session needs them, keyed by its guard mask.
                 MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-                if (mtmvCacheWithGuard != null) {
-                    manager.put(this.id, true, cacheWithValidOutputPredicates(mtmvCacheWithGuard));
-                }
                 if (mtmvCacheWithoutGuard != null) {
-                    manager.put(this.id, false, cacheWithValidOutputPredicates(mtmvCacheWithoutGuard));
+                    manager.put(this.id, SessionVarGuardRewriter.GUARD_NONE,
+                            cacheWithValidOutputPredicates(mtmvCacheWithoutGuard));
                 }
             }
             Env.getCurrentEnv().getMtmvService()
@@ -774,11 +776,16 @@ public class MTMV extends OlapTable {
      */
     public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
             org.apache.doris.nereids.exceptions.AnalysisException {
+        // The rewrite caches are keyed by the session-variable dependency family that differs between the
+        // query session and the MV creation session (mask 0 = no guard, 1 = time zone, 2 = other variables,
+        // 3 = both). Mask 0 is used when the session variables match, so rewriting is possible; the guarded
+        // caches carry SessionVarGuardExpr around the affected family's expressions so a cross-family query
+        // session cannot rewrite stale materialized values. Objects whose persisted session variables do not
+        // carry time_zone (pre-change metadata) always need the time-zone guard cache: their creation time
+        // zone is unknown, so time-zone sensitive expressions must never be rewritten (compatibility fence).
         Map<String, String> currentSessionVars =
                 connectionContext.getSessionVariable().getAffectQueryResultInPlanVariables();
-        boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
-                currentSessionVars, this.sessionVariables);
-        boolean guarded = !sessionVarsMatch;
+        int guardMask = SessionVarGuardRewriter.computeGuardMask(currentSessionVars, this.sessionVariables);
         MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
         StatementContext statementContext = connectionContext.getStatementContext();
 
@@ -788,9 +795,9 @@ public class MTMV extends OlapTable {
             readMvLock();
             try {
                 cacheGeneration = rewriteCacheGeneration;
-                cached = manager.isEnabled() ? manager.getIfPresent(this.id, guarded) : null;
+                cached = manager.isEnabled() ? manager.getIfPresent(this.id, guardMask) : null;
                 if (cached == null && statementContext != null) {
-                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
+                    cached = statementContext.getQueryLocalMtmvCache(this.id, guardMask, cacheGeneration);
                 }
             } finally {
                 readMvUnlock();
@@ -798,7 +805,7 @@ public class MTMV extends OlapTable {
             if (cached != null) {
                 return cached;
             }
-            MTMVCache generated = createRewriteCache(connectionContext, false, guarded);
+            MTMVCache generated = createRewriteCache(connectionContext, false, guardMask);
             readMvLock();
             try {
                 if (cacheGeneration != rewriteCacheGeneration) {
@@ -807,20 +814,20 @@ public class MTMV extends OlapTable {
                 }
                 MTMVCache published = cacheWithValidOutputPredicates(generated);
                 if (manager.isEnabled()) {
-                    MTMVCache existing = manager.getIfPresent(this.id, guarded);
+                    MTMVCache existing = manager.getIfPresent(this.id, guardMask);
                     if (existing != null) {
                         return existing;
                     }
                     if (!isDropped) {
-                        manager.put(this.id, guarded, published);
+                        manager.put(this.id, guardMask, published);
                     }
                 } else if (statementContext != null && !isDropped) {
                     // Global cache is disabled (maximumSize=0); keep one copy for this statement only.
-                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded, cacheGeneration);
+                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guardMask, cacheGeneration);
                     if (existing != null) {
                         return existing;
                     }
-                    statementContext.putQueryLocalMtmvCache(this.id, guarded, cacheGeneration, published);
+                    statementContext.putQueryLocalMtmvCache(this.id, guardMask, cacheGeneration, published);
                 }
                 return published;
             } finally {
@@ -1699,11 +1706,21 @@ public class MTMV extends OlapTable {
         }
     }
 
-    protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
-            boolean addSessionVarGuard) {
+    protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock, int guardMask) {
+        if (SessionVarGuardRewriter.isPlanSessionVarFenceNewer(this.sessionVariables)) {
+            // The definition was persisted by a newer FE, so planning its stored SQL here can only
+            // mis-analyze it: a newer function or session setting is unknown, and a dependency this FE does
+            // not classify would stay unguarded in the cache. Both the lazy query path and the refresh
+            // pre-generation path callers treat the failure as "no cache", which just disables rewrite.
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("materialized view " + getName()
+                    + " was written by a newer Doris version (plan session variable fence "
+                    + SessionVarGuardRewriter.planSessionVarFenceVersion(this.sessionVariables)
+                    + ", this frontend supports " + SessionVariable.CURRENT_PLAN_SESSION_VAR_FENCE_VERSION
+                    + "), so it is not used for rewrite until all frontends are upgraded.");
+        }
         return MTMVCache.from(this.getQuerySql(),
                 MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                true, needLock, currentContext, addSessionVarGuard);
+                true, needLock, currentContext, guardMask);
     }
 
     /**
@@ -1713,11 +1730,23 @@ public class MTMV extends OlapTable {
      */
     public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+        List<Column> partitionColumns = getPartitionColumns();
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
+            result.put(entry.getKey(), toMvPartitionKeyDesc(entry.getValue(), partitionColumns));
         }
         return result;
+    }
+
+    /** Build the descriptor used to match the stored partition to a regenerated MTMV partition. */
+    public static PartitionKeyDesc toMvPartitionKeyDesc(PartitionItem item, List<Column> partitionColumns) {
+        // An older range partition can carry a TIMESTAMPTZ bound with a different scale from the
+        // column. Format the typed value at the column scale to match the regenerated descriptor.
+        if (item instanceof RangePartitionItem && partitionColumns.size() == 1
+                && partitionColumns.get(0).getType().isTimeStampTz()) {
+            return ((RangePartitionItem) item).toTimeStampTzPartitionKeyDesc(partitionColumns.get(0).getType());
+        }
+        return item.toPartitionKeyDesc();
     }
 
     /**
@@ -1780,12 +1809,14 @@ public class MTMV extends OlapTable {
                 = getEffectiveQueryUsedBaseTablePartitionMap(
                         queryUsedBaseTablePartitionMap, mvPartitionItems, pinnedSnapshots);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        List<Column> partitionColumns = getPartitionColumns();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
                         effectiveFilter, pinnedSnapshots);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
-                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
+                    pctPartitionDescs.getOrDefault(toMvPartitionKeyDesc(entry.getValue(), partitionColumns),
+                            Maps.newHashMap()));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",

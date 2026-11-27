@@ -19,7 +19,9 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
@@ -65,7 +67,9 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
                 if (queryUsedPartitions != null && !queryUsedPartitions.contains(onePctEntry.getKey())) {
                     continue;
                 }
-                PartitionKeyDesc partitionKeyDesc = onePctEntry.getValue().toPartitionKeyDesc(relatedColPos);
+                PartitionItem item = onePctEntry.getValue();
+                PartitionKeyDesc partitionKeyDesc = item instanceof RangePartitionItem
+                        ? MTMV.toMvPartitionKeyDesc(item, partitionColumns) : item.toPartitionKeyDesc(relatedColPos);
                 if (onePctRes.containsKey(partitionKeyDesc)) {
                     onePctRes.get(partitionKeyDesc).add(onePctEntry.getKey());
                 } else {
