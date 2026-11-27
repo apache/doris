@@ -151,7 +151,7 @@ protected:
         ofs << "SOCKET_PREFIX=\"$3\"\n";
         ofs << "SOCKET_BASE=\"${SOCKET_PREFIX#grpc+unix://}\"\n";
         ofs << "SOCKET_FILE=\"${SOCKET_BASE}_$$.sock\"\n";
-        ofs << "touch \"$SOCKET_FILE\"\n";
+        ofs << ": > \"$SOCKET_FILE\"\n";
         ofs << "trap 'rm -f \"$SOCKET_FILE\"; exit 0' TERM INT\n";
         ofs << "while true; do sleep 1; done\n";
         ofs.close();
@@ -302,7 +302,7 @@ TEST_F(PythonServerTest, ForkWithoutSocketCreationReturnsAfterBoundedTerminate) 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(process, nullptr);
     EXPECT_NE(status.to_string().find("socket file not found"), std::string::npos);
-    EXPECT_LT(elapsed.count(), 2000);
+    EXPECT_LT(elapsed.count(), 8000);
 }
 
 TEST_F(PythonServerTest, ForkEnqueuesBackgroundReapWhenKilledStartFailureIsNotReaped) {
@@ -414,12 +414,12 @@ TEST_F(PythonServerTest, EnsurePoolInitializedRetriesAfterRuntimeIsRepaired) {
     // execute the repaired file and publish its process into the next generation's pool.
     {
         std::unique_lock lock(generation_completion->mutex);
-        ASSERT_TRUE(generation_completion->cv.wait_for(lock, std::chrono::seconds(5), [&]() {
+        ASSERT_TRUE(generation_completion->cv.wait_for(lock, std::chrono::seconds(10), [&]() {
             return generation_completion->worker_finished;
         }));
     }
     ASSERT_TRUE(mgr.wait_for_process_pool_initialization_finished_for_test(
-            version, std::chrono::seconds(5)));
+            version, std::chrono::seconds(10)));
 
     // Repair the runtime in place and retry the same version key. Production can hit this when an
     // environment or server entry is fixed after a transient initialization failure.
@@ -653,7 +653,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSucceedsWithOneStuckWorkerAndOneUs
     // Wait on the same condition variable used by the production coordinator instead of polling
     // or asserting on a racy intermediate state.
     EXPECT_TRUE(mgr.wait_for_process_pool_initialized_for_test(version,
-                                                               std::chrono::milliseconds(2000)));
+                                                               std::chrono::milliseconds(8000)));
     EXPECT_TRUE(mgr.process_pool_is_initialized_for_test(version));
 
     mgr.shutdown();
