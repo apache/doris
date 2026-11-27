@@ -182,12 +182,14 @@ public class QueryStatsUtil {
                         && fe.getEditLogPort() == selfHostInfo.getPort())) {
                 continue;
             }
+            TNetworkAddress address = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
             FrontendService.Client client = null;
+            boolean isReturnToPool = false;
             try {
                 int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                client = ClientPool.frontendPool.borrowObject(new TNetworkAddress(fe.getHost(), fe.getRpcPort()),
-                        waitTimeOut * 1000);
+                client = ClientPool.frontendPool.borrowObject(address, waitTimeOut * 1000);
                 TQueryStatsResult other = client.getQueryStats(request);
+                isReturnToPool = true;
                 if (!other.isSetStatus() || other.getStatus().getStatusCode() != TStatusCode.OK) {
                     LOG.info("Failed to collect stats from " + fe.getHost());
                     continue;
@@ -243,6 +245,14 @@ public class QueryStatsUtil {
                 results.add(other);
             } catch (Exception e) {
                 LOG.info("Failed to get fe client.", e);
+            } finally {
+                if (client != null) {
+                    if (isReturnToPool) {
+                        ClientPool.frontendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.frontendPool.invalidateObject(address, client);
+                    }
+                }
             }
         }
         return results;
