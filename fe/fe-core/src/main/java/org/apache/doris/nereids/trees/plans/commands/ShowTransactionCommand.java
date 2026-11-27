@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -144,8 +143,8 @@ public class ShowTransactionCommand extends ShowCommand {
             txnId = ((IntegerLikeLiteral) right).getLongValue();
         } else if (leftKey.equalsIgnoreCase("label") && (right instanceof StringLikeLiteral)) {
             label = ((StringLikeLiteral) right).getStringValue();
-        } else if (leftKey.equalsIgnoreCase("status") && (right instanceof StringLiteral)) {
-            String txnStatus = ((StringLiteral) right).getStringValue();
+        } else if (leftKey.equalsIgnoreCase("status") && (right instanceof StringLikeLiteral)) {
+            String txnStatus = ((StringLikeLiteral) right).getStringValue();
             try {
                 status = TransactionStatus.valueOf(txnStatus.toUpperCase());
             } catch (Exception e) {
