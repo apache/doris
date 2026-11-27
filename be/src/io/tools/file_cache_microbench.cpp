@@ -40,21 +40,29 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "build/proto/microbench.pb.h"
+#include "cloud/cloud_internal_service.h"
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "gflags/gflags.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/inflight_write_buffer_index.h"
+#include "io/cache/peer_file_cache_reader.h"
 #include "io/file_factory.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/fs/obj_storage_file_writer.h"
 #include "io/object_storage/be_obj_storage_config_parser.h"
@@ -102,6 +110,8 @@ using namespace doris;
 bvar::LatencyRecorder microbench_write_latency("file_cache_microbench_append");
 bvar::LatencyRecorder microbench_read_latency("file_cache_microbench_read_at");
 bvar::LatencyRecorder microbench_get_or_set_latency("file_cache_microbench_get_or_set");
+bvar::LatencyRecorder microbench_peer_seed_latency("file_cache_microbench_peer_seed");
+bvar::LatencyRecorder microbench_peer_read_latency("file_cache_microbench_peer_read");
 
 const std::string HIDDEN_PREFIX = "test_file_cache_microbench/";
 const char PAD_CHAR = 'x';
@@ -131,6 +141,8 @@ static std::string get_prefix() {
 }
 
 DEFINE_int32(port, 8888, "Http Port of this server");
+DEFINE_int32(brpc_port, 0,
+             "Optional BRPC port for peer cache server (CloudInternalServiceImpl). 0 disables it.");
 
 static std::string build_info() {
     std::stringstream ss;
@@ -256,6 +268,63 @@ public:
     }
 };
 
+static void fill_deterministic_data(const std::string& key, size_t file_size, size_t offset,
+                                    char* dst, size_t len) {
+    size_t written = 0;
+    while (written < len && offset + written < file_size) {
+        size_t abs_pos = offset + written;
+        size_t chunk_start = (abs_pos / BUFFER_SIZE) * BUFFER_SIZE;
+        size_t chunk_end = std::min(chunk_start + BUFFER_SIZE, file_size);
+        size_t chunk_offset = abs_pos - chunk_start;
+        size_t remain_in_chunk = std::min(len - written, chunk_end - abs_pos);
+
+        std::string tag = fmt::format("key={},offset={}\n", key, chunk_start);
+        if (chunk_offset < tag.size()) {
+            size_t tag_copy = std::min(tag.size() - chunk_offset, remain_in_chunk);
+            std::memcpy(dst + written, tag.data() + chunk_offset, tag_copy);
+            written += tag_copy;
+            remain_in_chunk -= tag_copy;
+        }
+        if (remain_in_chunk > 0) {
+            std::memset(dst + written, PAD_CHAR, remain_in_chunk);
+            written += remain_in_chunk;
+        }
+    }
+}
+
+class PeerOnlyFallbackFileReader final : public doris::io::FileReader {
+public:
+    PeerOnlyFallbackFileReader(doris::io::Path path, size_t size)
+            : _path(std::move(path)), _size(size) {}
+
+    doris::Status close() override {
+        _closed.store(true, std::memory_order_relaxed);
+        return doris::Status::OK();
+    }
+
+    const doris::io::Path& path() const override { return _path; }
+
+    size_t size() const override { return _size; }
+
+    bool closed() const override { return _closed.load(std::memory_order_relaxed); }
+
+    int64_t mtime() const override { return 0; }
+
+protected:
+    doris::Status read_at_impl(size_t offset, doris::Slice result, size_t* bytes_read,
+                               const doris::io::IOContext* io_ctx) override {
+        return doris::Status::NotSupported(
+                "Remote S3 fallback is disabled in peer_read job (set use_s3_fallback=true to "
+                "enable S3 fallback): path={}, offset={}, size={}",
+                _path.native(), offset, result.size);
+    }
+
+private:
+    doris::io::Path _path;
+    size_t _size;
+    std::atomic<bool> _closed {false};
+};
+
 // Define a struct to store file information
 struct FileInfo {
     std::string filename; // File name
@@ -265,15 +334,39 @@ struct FileInfo {
 
 class S3FileRecords {
 public:
-    void add_file_info(const std::string& job_id, const FileInfo& file_info) {
+    void add_file_info(const std::string& job_id, const ::FileInfo& file_info) {
         std::lock_guard<std::mutex> lock(mutex_);
         records_[job_id].emplace_back(file_info);
+    }
+
+    bool has_conflicting_prefix_for_job(const std::string& job_id, const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = records_.find(job_id);
+        if (it == records_.end() || it->second.empty()) {
+            return false;
+        }
+        const std::string& filename = it->second.front().filename;
+        return !(filename.starts_with(prefix_dir) &&
+                 filename.find('/', prefix_dir.size()) == std::string::npos);
+    }
+
+    std::string find_job_id_by_exact_prefix(const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto& [job_id, files] : records_) {
+            for (const auto& file : files) {
+                if (file.filename.starts_with(prefix_dir) &&
+                    file.filename.find('/', prefix_dir.size()) == std::string::npos) {
+                    return job_id;
+                }
+            }
+        }
+        return "";
     }
 
     int64_t get_exist_job_perfile_size_by_prefix(const std::string& file_prefix) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& pair : records_) {
-            const std::vector<FileInfo>& file_infos = pair.second;
+            const std::vector<::FileInfo>& file_infos = pair.second;
             for (const auto& file_info : file_infos) {
                 if (file_info.filename.compare(0, file_prefix.length(), file_prefix) == 0) {
                     return file_info.data_size;
@@ -287,7 +380,7 @@ public:
                                        std::vector<std::string>& result, int file_number = -1) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& pair : records_) {
-            const std::vector<FileInfo>& file_infos = pair.second;
+            const std::vector<::FileInfo>& file_infos = pair.second;
             for (const auto& file_info : file_infos) {
                 if (file_info.filename.starts_with(file_prefix)) {
                     if (file_number == -1 || result.size() < file_number) {
@@ -304,7 +397,7 @@ public:
     std::string find_job_id_by_prefix(const std::string& file_prefix) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& pair : records_) {
-            const std::vector<FileInfo>& file_infos = pair.second;
+            const std::vector<::FileInfo>& file_infos = pair.second;
             for (const auto& file_info : file_infos) {
                 if (file_info.filename.starts_with(file_prefix)) {
                     return pair.first;
@@ -316,11 +409,118 @@ public:
 
 private:
     std::mutex mutex_;
-    std::map<std::string, std::vector<FileInfo>> records_;
+    std::map<std::string, std::vector<::FileInfo>> records_;
 };
 
-// Create a global S3FileRecords instance
+// Create a global S3FileRecords instance (only S3-backed uploaded files)
 S3FileRecords s3_file_records;
+
+// Separate registry for cache-only peer_cache_seed entries so legacy S3-only readers never select
+// unuploaded keys (F-14), upserts stay O(1) (F-10), and each source_id binds to one prefix_dir to
+// prevent basename collisions in BlockFileCache (F-12).
+class PeerSeedRecords {
+public:
+    class SourceClaimGuard {
+    public:
+        SourceClaimGuard() = default;
+        SourceClaimGuard(PeerSeedRecords* owner, std::string source_id)
+                : _owner(owner), _source_id(std::move(source_id)) {}
+        SourceClaimGuard(const SourceClaimGuard&) = delete;
+        SourceClaimGuard& operator=(const SourceClaimGuard&) = delete;
+        SourceClaimGuard(SourceClaimGuard&& other) noexcept
+                : _owner(other._owner), _source_id(std::move(other._source_id)) {
+            other._owner = nullptr;
+        }
+        ~SourceClaimGuard() {
+            if (_owner != nullptr) {
+                _owner->release_source_claim(_source_id);
+            }
+        }
+
+    private:
+        PeerSeedRecords* _owner = nullptr;
+        std::string _source_id;
+    };
+
+    SourceClaimGuard claim_source_prefix(const std::string& source_id,
+                                         const std::string& prefix_dir) {
+        if (s3_file_records.has_conflicting_prefix_for_job(source_id, prefix_dir)) {
+            throw std::runtime_error(
+                    "source_job_id '" + source_id +
+                    "' is already used by an S3 write job under a different file_prefix; use a "
+                    "distinct source_job_id to avoid cache filename collision");
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(source_id);
+        if (it != entries_.end()) {
+            if (it->second.prefix_dir != prefix_dir) {
+                throw std::runtime_error(
+                        "source_job_id '" + source_id + "' is already bound to prefix '" +
+                        it->second.prefix_dir + "' (cannot reuse with '" + prefix_dir +
+                        "'); use a distinct source_job_id per file_prefix to avoid cache "
+                        "filename collision");
+            }
+            ++it->second.active_seeds;
+        } else {
+            SourceEntry entry;
+            entry.prefix_dir = prefix_dir;
+            entry.active_seeds = 1;
+            entries_.emplace(source_id, std::move(entry));
+        }
+        return SourceClaimGuard(this, source_id);
+    }
+
+    void upsert_file_info(const std::string& source_id, const std::string& prefix_dir,
+                          const ::FileInfo& file_info) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto& entry = entries_[source_id];
+        if (entry.prefix_dir.empty()) {
+            entry.prefix_dir = prefix_dir;
+        }
+        auto idx_it = entry.filename_to_index.find(file_info.filename);
+        if (idx_it != entry.filename_to_index.end()) {
+            entry.files[idx_it->second] = file_info;
+        } else {
+            entry.filename_to_index.emplace(file_info.filename, entry.files.size());
+            entry.files.emplace_back(file_info);
+        }
+        prefix_to_source_[prefix_dir] = source_id;
+    }
+
+    std::string find_source_id_by_prefix(const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = prefix_to_source_.find(prefix_dir);
+        if (it != prefix_to_source_.end()) {
+            return it->second;
+        }
+        return "";
+    }
+
+private:
+    struct SourceEntry {
+        std::string prefix_dir;
+        size_t active_seeds = 0;
+        std::vector<::FileInfo> files;
+        std::unordered_map<std::string, size_t> filename_to_index;
+    };
+
+    void release_source_claim(const std::string& source_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(source_id);
+        if (it != entries_.end() && it->second.active_seeds > 0) {
+            --it->second.active_seeds;
+            if (it->second.active_seeds == 0 && it->second.files.empty()) {
+                entries_.erase(it);
+            }
+        }
+    }
+
+    std::mutex mutex_;
+    std::unordered_map<std::string, SourceEntry> entries_;
+    std::unordered_map<std::string, std::string> prefix_to_source_;
+};
+
+PeerSeedRecords peer_seed_records;
 
 class MicrobenchS3FileWriter {
 public:
@@ -505,7 +705,7 @@ std::string get_usage(const std::string& progname) {
 
     Usage:
       Start the server:
-        )" + progname + R"( --port=<port_number>
+        )" + progname + R"( --port=<port_number> [--brpc_port=<peer_brpc_port>]
         
     API Endpoints:
       POST /submit_job
@@ -538,6 +738,56 @@ std::string get_usage(const std::string& progname) {
           "cache_type": <type>,                // NORMAL | TTL | INDEX | DISPOSABLE
           "expiration": <timestamp>            // Required for TTL cache type
         }
+
+        Submit a local file cache seed job for peer server (no S3 required):
+        {
+          "job_type": "peer_cache_seed",
+          "file_prefix": "<prefix>",
+          "source_job_id": "<optional_id>",    // Optional key id (defaults to job_id)
+          "num_threads": <count>,
+          "num_files": <count>,
+          "size_bytes_perfile": <size>,
+          "tablet_id": <id>,                   // Default 1
+          "cache_type": <type>,                // NORMAL | TTL | INDEX | DISPOSABLE
+          "expiration": <timestamp>,           // Required for TTL cache type
+          "overwrite_existing": <true|false>   // Default true
+        }
+
+        Submit an end-to-end peer read benchmark job:
+        {
+          "job_type": "peer_read",
+          "file_prefix": "<prefix>",
+          "source_job_id": "<seed_or_write_job_id>",
+          "num_threads": <count>,
+          "num_files": <count>,
+          "size_bytes_perfile": <size>,
+          "repeat": <count>,                   // Read repeat times per file, default 1
+          "read_iops": <limit>,                // Optional IOPS limit (0 = unlimited)
+          "read_offset": [<left>, <right>],    // [left, right), left+1==right for fixed offset
+          "read_length": [<left>, <right>],    // [left, right), left+1==right for fixed length
+          "read_chunk_size": <bytes>,          // Chunk size per read_at, default 4MB
+          "tablet_id": <id>,                   // Default 1
+          "peer_endpoints": [                  // Optional; also configurable via /set_peer_candidates
+            {"host": "<peer_ip>", "port": <peer_brpc_port>, "compute_group_id": "<cg>"}
+          ],
+          "use_s3_fallback": <true|false>,     // Default false (pure peer read without S3)
+          "bypass_peer_read": <true|false>,    // Default false
+          "direct_peer_rpc": <true|false>,     // Default false (true bypasses local cache layer)
+          "cache_write_mode": "<DEFAULT|SYNC_WRITE|ASYNC_WRITE>",
+          "clear_local_cache_before_read": <true|false>, // Default true
+          "clear_local_cache_each_repeat": <true|false>, // Default false
+          "verify_data": <true|false>          // Default true
+        }
+
+      POST /set_peer_candidates
+        Configure peer read candidates for a tablet_id:
+        {
+          "tablet_id": <id>,
+          "peers": [{"host": "<ip>", "port": <brpc_port>, "compute_group_id": "<cg>"}]
+        }
+
+      GET /get_peer_candidates[?tablet_id=<id>]
+        Inspect configured peer read candidates in CloudWarmUpManager.
 
       GET /get_job_status/<job_id>
         Retrieve the status of a submitted job.
@@ -594,7 +844,7 @@ std::string get_usage(const std::string& progname) {
 }
 
 // Job configuration structure
-enum class JobType { FILE_CACHE, FILE_CACHE_GET_OR_SET };
+enum class JobType { FILE_CACHE, FILE_CACHE_GET_OR_SET, PEER_CACHE_SEED, PEER_READ };
 
 static std::string job_type_to_string(JobType type) {
     switch (type) {
@@ -602,9 +852,19 @@ static std::string job_type_to_string(JobType type) {
         return "file_cache";
     case JobType::FILE_CACHE_GET_OR_SET:
         return "file_cache_get_or_set";
+    case JobType::PEER_CACHE_SEED:
+        return "peer_cache_seed";
+    case JobType::PEER_READ:
+        return "peer_read";
     }
     return "unknown";
 }
+
+struct PeerEndpointConfig {
+    std::string host;
+    int32_t port = 0;
+    std::string compute_group_id;
+};
 
 struct JobConfig {
     // Default value initialization
@@ -629,6 +889,19 @@ struct JobConfig {
     int64_t get_or_set_size_right = 4097;
     bool write_file_cache = true;
     bool bvar_enable = false;
+    // Additive peer-read / peer-seed configuration fields
+    std::string source_job_id;
+    int64_t tablet_id = 1;
+    std::vector<PeerEndpointConfig> peer_endpoints;
+    bool bypass_peer_read = false;
+    bool use_s3_fallback = false;
+    bool direct_peer_rpc = false;
+    bool clear_local_cache_before_read = true;
+    bool clear_local_cache_each_repeat = false;
+    bool overwrite_existing = true;
+    bool verify_data = true;
+    std::string cache_write_mode = "DEFAULT";
+    int64_t read_chunk_size = 4 * 1024 * 1024;
 
     // Parse configuration from JSON
     static JobConfig from_json(const std::string& json_str) {
@@ -652,6 +925,13 @@ struct JobConfig {
         if (config.job_type == JobType::FILE_CACHE_GET_OR_SET) {
             parse_get_or_set_fields(d, config);
             validate_get_or_set_config(config);
+        } else if (config.job_type == JobType::PEER_CACHE_SEED) {
+            parse_peer_common_fields(d, config);
+            validate_peer_seed_config(config);
+        } else if (config.job_type == JobType::PEER_READ) {
+            parse_peer_common_fields(d, config);
+            parse_peer_read_fields(d, config);
+            validate_peer_read_config(config);
         } else {
             parse_read_settings(d, config);
 
@@ -676,6 +956,12 @@ private:
         }
         if (type == "file_cache_get_or_set") {
             return JobType::FILE_CACHE_GET_OR_SET;
+        }
+        if (type == "peer_cache_seed") {
+            return JobType::PEER_CACHE_SEED;
+        }
+        if (type == "peer_read") {
+            return JobType::PEER_READ;
         }
         throw std::runtime_error("unsupported job_type: " + type);
     }
@@ -855,7 +1141,185 @@ private:
         }
     }
 
+    static std::vector<PeerEndpointConfig> parse_peer_endpoints_array(const rapidjson::Value& arr) {
+        if (!arr.IsArray()) {
+            throw std::runtime_error("peer_endpoints / peers must be an array");
+        }
+        std::vector<PeerEndpointConfig> endpoints;
+        endpoints.reserve(arr.Size());
+        for (rapidjson::SizeType i = 0; i < arr.Size(); ++i) {
+            const auto& item = arr[i];
+            if (!item.IsObject()) {
+                throw std::runtime_error("each peer endpoint must be a JSON object");
+            }
+            if (!item.HasMember("host") || !item["host"].IsString() ||
+                strlen(item["host"].GetString()) == 0) {
+                throw std::runtime_error("peer endpoint requires non-empty string field 'host'");
+            }
+            int32_t port = 0;
+            if (item.HasMember("port") && item["port"].IsInt()) {
+                port = item["port"].GetInt();
+            } else if (item.HasMember("brpc_port") && item["brpc_port"].IsInt()) {
+                port = item["brpc_port"].GetInt();
+            }
+            if (port <= 0 || port > 65535) {
+                throw std::runtime_error("peer endpoint requires valid port (1..65535)");
+            }
+            PeerEndpointConfig ep;
+            ep.host = item["host"].GetString();
+            ep.port = port;
+            if (item.HasMember("compute_group_id") && item["compute_group_id"].IsString()) {
+                ep.compute_group_id = item["compute_group_id"].GetString();
+            }
+            endpoints.emplace_back(std::move(ep));
+        }
+        return endpoints;
+    }
+
+    static void parse_peer_common_fields(const rapidjson::Document& d, JobConfig& config) {
+        if (d.HasMember("source_job_id") && d["source_job_id"].IsString()) {
+            config.source_job_id = d["source_job_id"].GetString();
+        }
+        if (d.HasMember("tablet_id") && d["tablet_id"].IsInt64()) {
+            config.tablet_id = d["tablet_id"].GetInt64();
+        }
+        if (d.HasMember("overwrite_existing") && d["overwrite_existing"].IsBool()) {
+            config.overwrite_existing = d["overwrite_existing"].GetBool();
+        }
+    }
+
+    static void parse_peer_read_fields(const rapidjson::Document& d, JobConfig& config) {
+        if (d.HasMember("read_offset") && d["read_offset"].IsArray() &&
+            d["read_offset"].Size() == 2 && d["read_offset"][0].IsInt64() &&
+            d["read_offset"][1].IsInt64()) {
+            config.read_offset_left = d["read_offset"][0].GetInt64();
+            config.read_offset_right = d["read_offset"][1].GetInt64();
+        } else {
+            throw std::runtime_error(
+                    "Invalid read_offset format, expected array of 2 int64 values");
+        }
+        if (d.HasMember("read_length") && d["read_length"].IsArray() &&
+            d["read_length"].Size() == 2 && d["read_length"][0].IsInt64() &&
+            d["read_length"][1].IsInt64()) {
+            config.read_length_left = d["read_length"][0].GetInt64();
+            config.read_length_right = d["read_length"][1].GetInt64();
+        } else {
+            throw std::runtime_error(
+                    "Invalid read_length format, expected array of 2 int64 values");
+        }
+        if (d.HasMember("peer_endpoints")) {
+            config.peer_endpoints = parse_peer_endpoints_array(d["peer_endpoints"]);
+        } else if (d.HasMember("peers")) {
+            config.peer_endpoints = parse_peer_endpoints_array(d["peers"]);
+        }
+        if (d.HasMember("bypass_peer_read") && d["bypass_peer_read"].IsBool()) {
+            config.bypass_peer_read = d["bypass_peer_read"].GetBool();
+        }
+        if (d.HasMember("use_s3_fallback") && d["use_s3_fallback"].IsBool()) {
+            config.use_s3_fallback = d["use_s3_fallback"].GetBool();
+        }
+        if (d.HasMember("direct_peer_rpc") && d["direct_peer_rpc"].IsBool()) {
+            config.direct_peer_rpc = d["direct_peer_rpc"].GetBool();
+        }
+        if (d.HasMember("clear_local_cache_before_read") &&
+            d["clear_local_cache_before_read"].IsBool()) {
+            config.clear_local_cache_before_read = d["clear_local_cache_before_read"].GetBool();
+        }
+        if (d.HasMember("clear_local_cache_each_repeat") &&
+            d["clear_local_cache_each_repeat"].IsBool()) {
+            config.clear_local_cache_each_repeat = d["clear_local_cache_each_repeat"].GetBool();
+        }
+        if (d.HasMember("verify_data") && d["verify_data"].IsBool()) {
+            config.verify_data = d["verify_data"].GetBool();
+        }
+        if (d.HasMember("cache_write_mode") && d["cache_write_mode"].IsString()) {
+            config.cache_write_mode = d["cache_write_mode"].GetString();
+        }
+        if (d.HasMember("read_chunk_size") && d["read_chunk_size"].IsInt64()) {
+            config.read_chunk_size = d["read_chunk_size"].GetInt64();
+        }
+    }
+
+    static void validate_peer_source_job_id(const std::string& source_job_id) {
+        if (source_job_id.empty()) {
+            return;
+        }
+        if (source_job_id == "." || source_job_id == ".." ||
+            source_job_id.find('/') != std::string::npos ||
+            source_job_id.find('\\') != std::string::npos) {
+            throw std::runtime_error(
+                    "source_job_id must not contain path separators or be '.'/'..'");
+        }
+    }
+
+    static void validate_peer_seed_config(const JobConfig& config) {
+        validate_peer_source_job_id(config.source_job_id);
+        if (config.num_threads <= 0 || config.num_threads > 10000) {
+            throw std::runtime_error("num_threads must be between 1 and 10000");
+        }
+        if (config.num_files <= 0) {
+            throw std::runtime_error("num_files must be positive");
+        }
+        if (config.size_bytes_perfile <= 0) {
+            throw std::runtime_error("size_bytes_perfile must be positive");
+        }
+        if (config.tablet_id <= 0) {
+            throw std::runtime_error("tablet_id must be positive");
+        }
+        if (config.cache_type != "NORMAL" && config.cache_type != "TTL" &&
+            config.cache_type != "INDEX" && config.cache_type != "DISPOSABLE") {
+            throw std::runtime_error("cache_type must be NORMAL, TTL, INDEX, or DISPOSABLE");
+        }
+        if (config.cache_type == "TTL" && config.expiration <= 0) {
+            throw std::runtime_error("expiration must be positive when cache type is TTL");
+        }
+    }
+
+    static void validate_peer_read_config(const JobConfig& config) {
+        validate_peer_source_job_id(config.source_job_id);
+        if (config.num_threads <= 0 || config.num_threads > 10000) {
+            throw std::runtime_error("num_threads must be between 1 and 10000");
+        }
+        if (config.num_files <= 0) {
+            throw std::runtime_error("num_files must be positive");
+        }
+        if (config.repeat <= 0) {
+            throw std::runtime_error("repeat must be positive");
+        }
+        if (config.size_bytes_perfile <= 0) {
+            throw std::runtime_error("size_bytes_perfile must be positive");
+        }
+        if (config.tablet_id <= 0) {
+            throw std::runtime_error("tablet_id must be positive");
+        }
+        if (config.read_offset_left < 0 || config.read_offset_left >= config.read_offset_right) {
+            throw std::runtime_error("read_offset must be [left, right) with 0 <= left < right");
+        }
+        if (config.read_length_left <= 0 || config.read_length_left >= config.read_length_right) {
+            throw std::runtime_error("read_length must be [left, right) with 0 < left < right");
+        }
+        if (config.read_chunk_size <= 0) {
+            throw std::runtime_error("read_chunk_size must be positive");
+        }
+        if (config.cache_type != "NORMAL" && config.cache_type != "TTL" &&
+            config.cache_type != "INDEX" && config.cache_type != "DISPOSABLE") {
+            throw std::runtime_error("cache_type must be NORMAL, TTL, INDEX, or DISPOSABLE");
+        }
+        if (config.cache_type == "TTL" && config.expiration <= 0) {
+            throw std::runtime_error("expiration must be positive when cache type is TTL");
+        }
+        if (config.cache_write_mode != "DEFAULT" && config.cache_write_mode != "SYNC_WRITE" &&
+            config.cache_write_mode != "ASYNC_WRITE") {
+            throw std::runtime_error(
+                    "cache_write_mode must be DEFAULT, SYNC_WRITE, or ASYNC_WRITE");
+        }
+    }
+
 public:
+    static std::vector<PeerEndpointConfig> parse_endpoints_from_json(const rapidjson::Value& arr) {
+        return parse_peer_endpoints_array(arr);
+    }
+
     std::string to_string() const {
         if (job_type == JobType::FILE_CACHE_GET_OR_SET) {
             return fmt::format(
@@ -866,6 +1330,30 @@ public:
                     get_prefix() + file_prefix, size_bytes_perfile, repeat, cache_type, expiration,
                     get_or_set_offset_left, get_or_set_offset_right, get_or_set_size_left,
                     get_or_set_size_right);
+        }
+        if (job_type == JobType::PEER_CACHE_SEED) {
+            return fmt::format(
+                    "job_type: {}, num_threads: {}, num_files: {}, file_prefix: {}, "
+                    "source_job_id: {}, size_bytes_perfile: {}, tablet_id: {}, cache_type: {}, "
+                    "expiration: {}, overwrite_existing: {}",
+                    job_type_to_string(job_type), num_threads, num_files,
+                    get_prefix() + file_prefix, source_job_id, size_bytes_perfile, tablet_id,
+                    cache_type, expiration, overwrite_existing);
+        }
+        if (job_type == JobType::PEER_READ) {
+            return fmt::format(
+                    "job_type: {}, num_threads: {}, num_files: {}, file_prefix: {}, "
+                    "source_job_id: {}, size_bytes_perfile: {}, repeat: {}, read_iops: {}, "
+                    "tablet_id: {}, peer_endpoints: {}, use_s3_fallback: {}, bypass_peer_read: {}, "
+                    "direct_peer_rpc: {}, cache_write_mode: {}, clear_before: {}, "
+                    "clear_each_repeat: {}, verify_data: {}, read_chunk_size: {}, "
+                    "read_offset: [{}, {}), read_length: [{}, {})",
+                    job_type_to_string(job_type), num_threads, num_files,
+                    get_prefix() + file_prefix, source_job_id, size_bytes_perfile, repeat,
+                    read_iops, tablet_id, peer_endpoints.size(), use_s3_fallback, bypass_peer_read,
+                    direct_peer_rpc, cache_write_mode, clear_local_cache_before_read,
+                    clear_local_cache_each_repeat, verify_data, read_chunk_size, read_offset_left,
+                    read_offset_right, read_length_left, read_length_right);
         }
         return fmt::format(
                 "size_bytes_perfile: {}, write_iops: {}, read_iops: {}, num_threads: {}, "
@@ -919,10 +1407,42 @@ struct Job {
         int64_t get_or_set_blocks = 0;
         double get_or_set_qps = 0;
         double avg_get_or_set_us = 0;
+        // Additive peer read / peer seed statistics
+        int64_t num_peer_io_total = 0;
+        int64_t bytes_read_from_peer = 0;
+        int64_t peer_wire_bytes_read = 0;
+        int64_t peer_io_timer = 0;
+        int64_t peer_read_ops = 0;
+        int64_t peer_total_bytes_read = 0;
+        double peer_read_qps = 0;
+        double peer_rpc_qps = 0;
+        double peer_throughput_mb_s = 0;
+        double peer_wire_throughput_mb_s = 0;
+        double peer_avg_read_us = 0;
+        double peer_p50_read_us = 0;
+        double peer_p95_read_us = 0;
+        double peer_p99_read_us = 0;
+        double peer_max_read_us = 0;
+        int64_t peer_seed_files = 0;
+        int64_t peer_seed_blocks = 0;
+        double peer_seed_throughput_mb_s = 0;
     } stats;
 
     // Record associated file information for the job
-    std::vector<FileInfo> file_records;
+    std::vector<::FileInfo> file_records;
+
+    mutable std::mutex resolved_source_mutex;
+    std::string resolved_source_job_id;
+
+    void set_resolved_source_job_id(std::string id) {
+        std::lock_guard<std::mutex> lock(resolved_source_mutex);
+        resolved_source_job_id = std::move(id);
+    }
+
+    std::string effective_source_job_id() const {
+        std::lock_guard<std::mutex> lock(resolved_source_mutex);
+        return resolved_source_job_id.empty() ? config.source_job_id : resolved_source_job_id;
+    }
 
     // Add completion_tracker
     std::shared_ptr<FileCompletionTracker> completion_tracker;
@@ -960,7 +1480,7 @@ private:
                     "file_cache_microbench_append_rate_limit_ns_" + id);
         }
 
-        if (config.read_iops > 0 && config.bvar_enable) {
+        if ((config.read_iops > 0 || config.job_type == JobType::PEER_READ) && config.bvar_enable) {
             read_latency =
                     std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_read_at_" + id);
             read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
@@ -1153,13 +1673,29 @@ public:
             return status;
         }
 
-        std::unique_ptr<doris::ThreadPool> obj_storage_upload_pool;
-        static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
-                                  .set_min_threads(256)
-                                  .set_max_threads(512)
-                                  .build(&obj_storage_upload_pool));
-        exec_env->set_obj_storage_upload_thread_pool(std::move(obj_storage_upload_pool));
-        exec_env->set_file_cache_open_fd_cache(std::make_unique<doris::io::FDCache>());
+        if (doris::config::is_cloud_mode() &&
+            exec_env->obj_storage_upload_thread_pool() != nullptr) {
+            // Keep the ExecEnv-owned pool in cloud mode so AdaptiveThreadPoolController does not
+            // hold a dangling pointer to a replaced ThreadPool.
+            auto* pool = exec_env->obj_storage_upload_thread_pool();
+            if (pool->min_threads() > 512) {
+                RETURN_IF_ERROR(pool->set_min_threads(256));
+                RETURN_IF_ERROR(pool->set_max_threads(512));
+            } else {
+                RETURN_IF_ERROR(pool->set_max_threads(512));
+                RETURN_IF_ERROR(pool->set_min_threads(256));
+            }
+        } else {
+            std::unique_ptr<doris::ThreadPool> obj_storage_upload_pool;
+            static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
+                                      .set_min_threads(256)
+                                      .set_max_threads(512)
+                                      .build(&obj_storage_upload_pool));
+            exec_env->set_obj_storage_upload_thread_pool(std::move(obj_storage_upload_pool));
+        }
+        if (exec_env->file_cache_open_fd_cache() == nullptr) {
+            exec_env->set_file_cache_open_fd_cache(std::make_unique<doris::io::FDCache>());
+        }
         return Status::OK();
     }
 
@@ -1287,13 +1823,18 @@ public:
     std::string submit_job(const JobConfig& config) {
         try {
             std::string job_id = generate_job_id();
+            JobConfig job_config = config;
+            if (job_config.job_type == JobType::PEER_CACHE_SEED &&
+                job_config.source_job_id.empty()) {
+                job_config.source_job_id = job_id;
+            }
 
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                _jobs[job_id] = std::make_shared<Job>(job_id, config);
+                _jobs[job_id] = std::make_shared<Job>(job_id, job_config);
             }
 
-            LOG(INFO) << "Submitting job " << job_id << " with config: " << config.to_string();
+            LOG(INFO) << "Submitting job " << job_id << " with config: " << job_config.to_string();
 
             // Execute the job asynchronously
             _job_executor_pool.enqueue(
@@ -1344,17 +1885,36 @@ public:
         LOG(INFO) << "JobManager stopped";
     }
 
-    // Record file information
+    // Record S3-backed file information for legacy write jobs.
     void record_file_info(const std::string& key, size_t data_size, const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
-            FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = job_id};
+            ::FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = job_id};
             it->second->file_records.push_back(file_info);
             s3_file_records.add_file_info(job_id, file_info);
         } else {
             LOG(ERROR) << "Job ID not found when recording file info: " << job_id;
         }
+    }
+
+    // Record cache-only peer seed file information without polluting S3FileRecords.
+    void record_peer_seed_file_info(const std::string& key, size_t data_size,
+                                    const std::string& owner_job_id, const std::string& source_id,
+                                    const std::string& prefix_dir) {
+        ::FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = source_id};
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            auto it = _jobs.find(owner_job_id);
+            if (it != _jobs.end()) {
+                it->second->file_records.push_back(file_info);
+            } else {
+                LOG(ERROR) << "Job ID not found when recording peer seed file info: "
+                           << owner_job_id;
+                return;
+            }
+        }
+        peer_seed_records.upsert_file_info(source_id, prefix_dir, file_info);
     }
 
     // Cancel job (not implemented yet)
@@ -1429,6 +1989,14 @@ private:
 
         if (config.job_type == JobType::FILE_CACHE_GET_OR_SET) {
             execute_file_cache_get_or_set(job);
+            return;
+        }
+        if (config.job_type == JobType::PEER_CACHE_SEED) {
+            execute_peer_cache_seed(job);
+            return;
+        }
+        if (config.job_type == JobType::PEER_READ) {
+            execute_peer_read(job);
             return;
         }
 
@@ -1724,6 +2292,940 @@ private:
                   << ", qps=" << job.stats.get_or_set_qps;
     }
 
+public:
+    static void apply_peer_candidates(int64_t tablet_id,
+                                      const std::vector<PeerEndpointConfig>& peers) {
+        if (!doris::config::is_cloud_mode()) {
+            throw std::runtime_error(
+                    "Cloud mode is required for peer candidates (set cloud_unique_id in be.conf)");
+        }
+        doris::TabletPeerCandidates tpc;
+        int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        tpc.candidates.reserve(peers.size());
+        for (const auto& ep : peers) {
+            doris::PeerCandidate cand;
+            cand.host = ep.host;
+            cand.brpc_port = ep.port;
+            cand.compute_group_id = ep.compute_group_id;
+            cand.last_access_time_ms = now_ms;
+            cand.consecutive_rpc_failures = 0;
+            tpc.candidates.emplace_back(std::move(cand));
+        }
+        doris::ExecEnv::GetInstance()
+                ->storage_engine()
+                .to_cloud()
+                .cloud_warm_up_manager()
+                .set_tablet_peer_candidates(tablet_id, std::move(tpc));
+    }
+
+private:
+    static bool has_inflight_async_write_for_key(doris::io::BlockFileCache* cache,
+                                                 const doris::io::UInt128Wrapper& hash) {
+        auto* inflight_index = cache->inflight_write_buffer_index();
+        return inflight_index != nullptr && inflight_index->has_entries_for_hash(hash);
+    }
+
+    // Drain any queued or in-flight async physical removals for `hash` without evicting healthy
+    // resident blocks. Used before non-overwrite seed admission so an older async unlink cannot
+    // delete a newly seeded file at the same storage path.
+    static void wait_for_pending_async_removes_for_key(doris::io::BlockFileCache* cache,
+                                                       const doris::io::UInt128Wrapper& hash,
+                                                       const std::string& key,
+                                                       std::chrono::milliseconds timeout) {
+        if (!cache->has_pending_async_removes(hash)) {
+            return;
+        }
+        if (!cache->wait_for_async_removes(hash, timeout)) {
+            throw std::runtime_error(
+                    "Timed out waiting for pending async physical removals to finish for key " +
+                    key);
+        }
+    }
+
+    static void clear_local_cache_for_key(const std::string& key, bool wait_for_cold = true) {
+        auto hash = doris::io::BlockFileCache::hash(doris::io::Path(key).filename().native());
+        auto* cache = doris::io::FileCacheFactory::instance()->get_by_path(hash);
+        if (cache == nullptr) {
+            return;
+        }
+        cache->remove_if_cached(hash);
+        if (!wait_for_cold) {
+            return;
+        }
+
+        constexpr auto kColdClearTimeout = std::chrono::seconds(30);
+        const auto deadline = std::chrono::steady_clock::now() + kColdClearTimeout;
+        auto* awm = cache->async_write_manager();
+        auto* inflight_index = cache->inflight_write_buffer_index();
+
+        auto has_pending_async_state = [&]() -> bool {
+            if (has_inflight_async_write_for_key(cache, hash)) {
+                return true;
+            }
+            if ((inflight_index == nullptr ||
+                 !doris::config::enable_async_file_cache_write_inflight_write_buffer_index) &&
+                awm != nullptr && awm->pending_count() > 0) {
+                return true;
+            }
+            return false;
+        };
+
+        while (true) {
+            if (!has_pending_async_state()) {
+                // Re-run remove_if_cached after async write tasks finalize (and once any pinned
+                // deleting block drops its external reference) so resident/deleting blocks exit.
+                if (!cache->dump_structure(hash).empty()) {
+                    cache->remove_if_cached(hash);
+                }
+                if (cache->has_pending_async_removes(hash)) {
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto remaining_ms =
+                            now < deadline ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                     deadline - now)
+                                           : std::chrono::milliseconds(0);
+                    static_cast<void>(cache->wait_for_async_removes(hash, remaining_ms));
+                }
+                if (cache->dump_structure(hash).empty() &&
+                    !cache->has_pending_async_removes(hash) && !has_pending_async_state()) {
+                    return;
+                }
+            }
+            if (std::chrono::steady_clock::now() >= deadline) {
+                throw std::runtime_error(
+                        "Timed out waiting for local cache blocks, async physical removals, and "
+                        "async inflight writes to drain for key " +
+                        key);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    void execute_peer_cache_seed(Job& job) {
+        const JobConfig& config = job.config;
+        const std::string seed_id =
+                config.source_job_id.empty() ? job.job_id : config.source_job_id;
+        const std::string prefix_dir = get_prefix() + config.file_prefix + "/";
+        auto source_claim = peer_seed_records.claim_source_prefix(seed_id, prefix_dir);
+        LOG(INFO) << "Executing peer_cache_seed job " << job.job_id << ", seed_id=" << seed_id
+                  << ", config: " << config.to_string();
+
+        std::vector<std::string> keys;
+        keys.reserve(config.num_files);
+        for (int i = 0; i < config.num_files; ++i) {
+            keys.push_back(prefix_dir + seed_id + "_" + std::to_string(i));
+        }
+
+        const doris::io::FileCacheType cache_type = parse_file_cache_type(config.cache_type);
+        const size_t file_size = static_cast<size_t>(config.size_bytes_perfile);
+        const size_t step_size =
+                std::max<size_t>(1, static_cast<size_t>(doris::config::file_cache_each_block_size));
+
+        BenchThreadPool pool(config.num_threads);
+        std::vector<std::future<void>> futures;
+        futures.reserve(keys.size());
+        std::mutex error_mutex;
+        std::atomic<bool> has_error {false};
+        std::string first_error;
+        std::atomic<int64_t> total_bytes_written {0};
+        std::atomic<int64_t> total_blocks_seeded {0};
+        std::atomic<int64_t> total_files_seeded {0};
+
+        doris::MonotonicStopWatch stopwatch;
+        stopwatch.start();
+
+        for (const auto& key : keys) {
+            futures.push_back(pool.enqueue([&, key]() {
+                if (has_error.load(std::memory_order_relaxed)) {
+                    return;
+                }
+                try {
+                    auto filename = doris::io::Path(key).filename().native();
+                    auto hash = doris::io::BlockFileCache::hash(filename);
+                    auto* cache = doris::io::FileCacheFactory::instance()->get_by_path(hash);
+                    if (cache == nullptr) {
+                        throw std::runtime_error("No file cache instance found for key " + key);
+                    }
+                    if (config.overwrite_existing) {
+                        clear_local_cache_for_key(key, /*wait_for_cold=*/true);
+                    } else {
+                        wait_for_pending_async_removes_for_key(cache, hash, key,
+                                                               std::chrono::seconds(30));
+                    }
+
+                    doris::io::ReadStatistics local_stats;
+                    std::vector<char> block_buf;
+                    size_t offset = 0;
+                    int64_t local_blocks = 0;
+                    int64_t local_bytes = 0;
+
+                    while (offset < file_size) {
+                        size_t req_size = std::min(step_size, file_size - offset);
+                        doris::io::CacheContext ctx;
+                        ctx.stats = &local_stats;
+                        ctx.cache_type = cache_type;
+                        ctx.expiration_time = config.expiration;
+                        ctx.tablet_id = config.tablet_id;
+
+                        doris::MonotonicStopWatch block_sw;
+                        block_sw.start();
+                        constexpr auto kSeedBlockTimeout = std::chrono::seconds(10);
+                        const auto deadline = std::chrono::steady_clock::now() + kSeedBlockTimeout;
+                        bool range_seeded = false;
+                        while (!range_seeded) {
+                            if (cache->has_pending_async_removes(hash)) {
+                                const auto now = std::chrono::steady_clock::now();
+                                const auto rem =
+                                        now < deadline
+                                                ? std::chrono::duration_cast<
+                                                          std::chrono::milliseconds>(deadline - now)
+                                                : std::chrono::milliseconds(0);
+                                wait_for_pending_async_removes_for_key(cache, hash, key, rem);
+                            }
+                            bool need_retry = false;
+                            bool saw_deleting = false;
+                            std::string last_reason;
+                            {
+                                auto holder = cache->get_or_set(hash, offset, req_size, ctx);
+                                if (holder.file_blocks.empty()) {
+                                    throw std::runtime_error(
+                                            "FileCache::get_or_set returned no blocks for key " +
+                                            key + ", offset=" + std::to_string(offset));
+                                }
+                                int64_t attempt_blocks = 0;
+                                for (auto& fb : holder.file_blocks) {
+                                    auto st_state = fb->state();
+                                    if (st_state == doris::io::FileBlock::State::SKIP_CACHE) {
+                                        throw std::runtime_error(
+                                                "FileBlock entered SKIP_CACHE while seeding key " +
+                                                key +
+                                                " (check file_cache_path total_size / "
+                                                "query_limit / disk space)");
+                                    }
+                                    if (cache->is_block_deleting(fb)) {
+                                        need_retry = true;
+                                        saw_deleting = true;
+                                        last_reason = "block is marked deleting";
+                                        break;
+                                    }
+                                    if (st_state == doris::io::FileBlock::State::EMPTY) {
+                                        if (fb->get_or_set_downloader() ==
+                                            doris::io::FileBlock::get_caller_id()) {
+                                            size_t fb_offset = fb->offset();
+                                            size_t fb_size = fb->range().size();
+                                            if (block_buf.size() < fb_size) {
+                                                block_buf.resize(fb_size);
+                                            }
+                                            fill_deterministic_data(key, file_size, fb_offset,
+                                                                    block_buf.data(), fb_size);
+                                            auto st = fb->append(
+                                                    doris::Slice(block_buf.data(), fb_size));
+                                            if (!st.ok()) {
+                                                throw std::runtime_error(
+                                                        "FileBlock::append failed for key " + key +
+                                                        ": " + st.to_string());
+                                            }
+                                            st = fb->finalize();
+                                            if (!st.ok()) {
+                                                throw std::runtime_error(
+                                                        "FileBlock::finalize failed for key " +
+                                                        key + ": " + st.to_string());
+                                            }
+                                            local_bytes += static_cast<int64_t>(fb_size);
+                                        } else {
+                                            st_state = fb->wait();
+                                        }
+                                    } else if (st_state ==
+                                               doris::io::FileBlock::State::DOWNLOADING) {
+                                        st_state = fb->wait();
+                                    }
+                                    if (cache->is_block_deleting(fb)) {
+                                        need_retry = true;
+                                        saw_deleting = true;
+                                        last_reason = "block became deleting during seed";
+                                        break;
+                                    }
+                                    st_state = fb->state();
+                                    if (st_state == doris::io::FileBlock::State::DOWNLOADING ||
+                                        st_state == doris::io::FileBlock::State::EMPTY) {
+                                        need_retry = true;
+                                        last_reason =
+                                                "block state after wait is " +
+                                                doris::io::FileBlock::state_to_string(st_state);
+                                        break;
+                                    }
+                                    if (st_state != doris::io::FileBlock::State::DOWNLOADED) {
+                                        throw std::runtime_error(
+                                                "Peer seed block is not DOWNLOADED for key " + key +
+                                                ", offset=" + std::to_string(fb->offset()) +
+                                                ", state=" +
+                                                doris::io::FileBlock::state_to_string(st_state));
+                                    }
+                                    ++attempt_blocks;
+                                }
+                                if (!need_retry) {
+                                    local_blocks += attempt_blocks;
+                                    range_seeded = true;
+                                }
+                            }
+                            if (need_retry) {
+                                if (saw_deleting) {
+                                    if (config.overwrite_existing) {
+                                        cache->remove_if_cached(hash);
+                                    }
+                                    const auto now = std::chrono::steady_clock::now();
+                                    if (now < deadline && cache->has_pending_async_removes(hash)) {
+                                        auto rem = std::chrono::duration_cast<
+                                                std::chrono::milliseconds>(deadline - now);
+                                        static_cast<void>(cache->wait_for_async_removes(hash, rem));
+                                    }
+                                }
+                                if (std::chrono::steady_clock::now() >= deadline) {
+                                    throw std::runtime_error("Timed out seeding block for key " +
+                                                             key +
+                                                             ", offset=" + std::to_string(offset) +
+                                                             ": " + last_reason);
+                                }
+                                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                            }
+                        }
+                        block_sw.stop();
+                        microbench_peer_seed_latency << (block_sw.elapsed_time() / 1000);
+                        offset += req_size;
+                    }
+
+                    record_peer_seed_file_info(key, file_size, job.job_id, seed_id, prefix_dir);
+                    total_bytes_written.fetch_add(local_bytes, std::memory_order_relaxed);
+                    total_blocks_seeded.fetch_add(local_blocks, std::memory_order_relaxed);
+                    total_files_seeded.fetch_add(1, std::memory_order_relaxed);
+                } catch (const std::exception& e) {
+                    std::lock_guard<std::mutex> lock(error_mutex);
+                    if (!has_error.exchange(true)) {
+                        first_error = e.what();
+                    }
+                    LOG(ERROR) << "peer_cache_seed failed for key " << key << ": " << e.what();
+                }
+            }));
+        }
+
+        for (auto& f : futures) {
+            f.get();
+        }
+        stopwatch.stop();
+
+        if (has_error.load()) {
+            throw std::runtime_error(first_error);
+        }
+
+        double elapsed_sec = stopwatch.elapsed_time() / 1e9;
+        job.stats.total_write_time = std::to_string(elapsed_sec) + " seconds";
+        job.stats.bytes_write_into_cache = total_bytes_written.load();
+        job.stats.peer_seed_files = total_files_seeded.load();
+        job.stats.peer_seed_blocks = total_blocks_seeded.load();
+        job.stats.peer_seed_throughput_mb_s =
+                elapsed_sec > 0 ? (static_cast<double>(job.stats.bytes_write_into_cache) /
+                                   (1024.0 * 1024.0)) /
+                                          elapsed_sec
+                                : 0;
+
+        LOG(INFO) << "Completed peer_cache_seed job " << job.job_id
+                  << ", files=" << job.stats.peer_seed_files
+                  << ", blocks=" << job.stats.peer_seed_blocks
+                  << ", bytes=" << job.stats.bytes_write_into_cache
+                  << ", elapsed_sec=" << elapsed_sec
+                  << ", throughput_mb_s=" << job.stats.peer_seed_throughput_mb_s;
+    }
+
+    void execute_peer_read(Job& job) {
+        const JobConfig& config = job.config;
+        LOG(INFO) << "Executing peer_read job " << job.job_id
+                  << " with config: " << config.to_string();
+
+        if (!config.direct_peer_rpc) {
+            if (!doris::config::is_cloud_mode()) {
+                throw std::runtime_error(
+                        "peer_read requires cloud mode (set cloud_unique_id in be.conf)");
+            }
+            if (!config.bypass_peer_read && !doris::config::enable_cache_read_from_peer) {
+                throw std::runtime_error(
+                        "config::enable_cache_read_from_peer is false; enable it via be.conf or "
+                        "/update_config before running peer_read");
+            }
+        }
+
+        if (!config.peer_endpoints.empty() && !config.direct_peer_rpc) {
+            apply_peer_candidates(config.tablet_id, config.peer_endpoints);
+        }
+
+        std::vector<PeerEndpointConfig> direct_endpoints = config.peer_endpoints;
+        if (config.direct_peer_rpc && direct_endpoints.empty()) {
+            if (doris::config::is_cloud_mode()) {
+                auto cands = doris::ExecEnv::GetInstance()
+                                     ->storage_engine()
+                                     .to_cloud()
+                                     .cloud_warm_up_manager()
+                                     .get_peer_candidates(config.tablet_id);
+                for (const auto& c : cands) {
+                    direct_endpoints.push_back({c.host, c.brpc_port, c.compute_group_id});
+                }
+            }
+            if (direct_endpoints.empty()) {
+                throw std::runtime_error(
+                        "direct_peer_rpc requires peer_endpoints or pre-configured "
+                        "/set_peer_candidates");
+            }
+        }
+
+        const std::string prefix_dir = get_prefix() + config.file_prefix + "/";
+        std::string resolved_source_job_id = config.source_job_id;
+        if (resolved_source_job_id.empty()) {
+            resolved_source_job_id = peer_seed_records.find_source_id_by_prefix(prefix_dir);
+            if (resolved_source_job_id.empty()) {
+                resolved_source_job_id = s3_file_records.find_job_id_by_exact_prefix(prefix_dir);
+            }
+            if (resolved_source_job_id.empty()) {
+                throw std::runtime_error(
+                        "source_job_id is required when no local file records match file_prefix=" +
+                        config.file_prefix);
+            }
+            job.set_resolved_source_job_id(resolved_source_job_id);
+        }
+
+        std::vector<std::string> keys;
+        keys.reserve(config.num_files);
+        for (int i = 0; i < config.num_files; ++i) {
+            keys.push_back(get_prefix() + config.file_prefix + "/" + resolved_source_job_id + "_" +
+                           std::to_string(i));
+        }
+
+        if (!config.direct_peer_rpc && config.clear_local_cache_before_read) {
+            for (const auto& key : keys) {
+                clear_local_cache_for_key(key, /*wait_for_cold=*/true);
+            }
+        }
+
+        const size_t file_size = static_cast<size_t>(config.size_bytes_perfile);
+        const int64_t offset_left = config.read_offset_left;
+        const int64_t offset_right = std::min(config.read_offset_right, config.size_bytes_perfile);
+        const int64_t length_left = config.read_length_left;
+        const int64_t length_right =
+                std::min(config.read_length_right - 1, config.size_bytes_perfile) + 1;
+        if (offset_left >= offset_right) {
+            throw std::runtime_error(
+                    "read_offset_left must be less than min(read_offset_right, "
+                    "size_bytes_perfile)");
+        }
+        if (length_left >= length_right) {
+            throw std::runtime_error(
+                    "read_length_left must be less than min(read_length_right, "
+                    "size_bytes_perfile + 1)");
+        }
+
+        const auto properties = object_storage_properties(config);
+        const std::string bucket = doris::config::test_s3_bucket.empty()
+                                           ? "microbench"
+                                           : doris::config::test_s3_bucket;
+        const std::string obj_path_prefix = "s3://" + bucket + "/";
+
+        std::mutex stats_mutex;
+        std::mutex error_mutex;
+        std::atomic<bool> has_error {false};
+        std::string first_error;
+        doris::io::FileCacheStatistics merged_stats;
+        struct WeightedLatencySample {
+            double latency_us = 0.0;
+            double weight = 1.0;
+        };
+        std::atomic<int64_t> total_ops {0};
+        std::atomic<int64_t> total_bytes_read {0};
+        std::atomic<int64_t> total_wire_bytes_read {0};
+        std::atomic<int64_t> total_read_ns {0};
+        constexpr size_t kMaxLatencySamples = 2000000;
+        std::vector<WeightedLatencySample> all_latencies_us;
+        double global_max_read_us = 0.0;
+
+        auto init_io_ctx = [&](doris::io::IOContext& io_ctx,
+                               doris::io::FileCacheStatistics* thread_stats) {
+            io_ctx.file_cache_stats = thread_stats;
+            io_ctx.bypass_peer_read = config.bypass_peer_read;
+            if (config.cache_type == "DISPOSABLE") {
+                io_ctx.is_disposable = true;
+            } else if (config.cache_type == "TTL") {
+                io_ctx.expiration_time = config.expiration;
+            } else if (config.cache_type == "INDEX") {
+                io_ctx.is_index_data = true;
+            }
+            if (config.cache_write_mode == "SYNC_WRITE") {
+                io_ctx.cache_write_mode_override = doris::io::CacheWriteMode::SYNC_WRITE;
+            } else if (config.cache_write_mode == "ASYNC_WRITE") {
+                io_ctx.cache_write_mode_override = doris::io::CacheWriteMode::ASYNC_WRITE;
+            }
+        };
+
+        auto merge_stats = [&](const doris::io::FileCacheStatistics& s) {
+            std::lock_guard<std::mutex> lock(stats_mutex);
+            merged_stats.num_local_io_total += s.num_local_io_total;
+            merged_stats.num_remote_io_total += s.num_remote_io_total;
+            merged_stats.num_peer_io_total += s.num_peer_io_total;
+            merged_stats.inverted_index_num_remote_io_total += s.inverted_index_num_remote_io_total;
+            merged_stats.local_io_timer += s.local_io_timer;
+            merged_stats.bytes_read_from_local += s.bytes_read_from_local;
+            merged_stats.bytes_read_from_remote += s.bytes_read_from_remote;
+            merged_stats.bytes_read_from_peer += s.bytes_read_from_peer;
+            merged_stats.num_same_cg_peer_io_total += s.num_same_cg_peer_io_total;
+            merged_stats.bytes_read_from_same_cg_peer += s.bytes_read_from_same_cg_peer;
+            merged_stats.same_cg_peer_io_timer += s.same_cg_peer_io_timer;
+            merged_stats.num_cross_cg_peer_io_total += s.num_cross_cg_peer_io_total;
+            merged_stats.bytes_read_from_cross_cg_peer += s.bytes_read_from_cross_cg_peer;
+            merged_stats.cross_cg_peer_io_timer += s.cross_cg_peer_io_timer;
+            merged_stats.remote_io_timer += s.remote_io_timer;
+            merged_stats.peer_io_timer += s.peer_io_timer;
+            merged_stats.write_cache_io_timer += s.write_cache_io_timer;
+            merged_stats.bytes_write_into_cache += s.bytes_write_into_cache;
+            merged_stats.num_skip_cache_io_total += s.num_skip_cache_io_total;
+            merged_stats.read_cache_file_directly_timer += s.read_cache_file_directly_timer;
+            merged_stats.cache_get_or_set_timer += s.cache_get_or_set_timer;
+            merged_stats.lock_wait_timer += s.lock_wait_timer;
+            merged_stats.get_timer += s.get_timer;
+            merged_stats.set_timer += s.set_timer;
+        };
+
+        auto open_cached_reader = [&](const std::string& key) -> doris::io::FileReaderSPtr {
+            doris::io::FileReaderOptions reader_opts;
+            reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
+            reader_opts.is_doris_table = true;
+            reader_opts.tablet_id = config.tablet_id;
+
+            doris::io::Path full_path(obj_path_prefix + key);
+            if (!config.use_s3_fallback) {
+                auto raw_reader =
+                        std::make_shared<PeerOnlyFallbackFileReader>(full_path, file_size);
+                return std::make_shared<doris::io::CachedRemoteFileReader>(std::move(raw_reader),
+                                                                           reader_opts);
+            }
+
+            doris::io::FileDescription fd;
+            fd.path = full_path;
+            fd.file_size = static_cast<int64_t>(file_size);
+            doris::io::FileSystemProperties fs_props;
+            fs_props.system_type = doris::TFileType::FILE_S3;
+            fs_props.properties = properties;
+
+            auto status_or_reader =
+                    doris::FileFactory::create_file_reader(fs_props, fd, reader_opts, nullptr);
+            if (!status_or_reader.has_value()) {
+                throw std::runtime_error("Failed to create reader for key " + key + ": " +
+                                         status_or_reader.error().to_string());
+            }
+            return status_or_reader.value();
+        };
+
+        BenchThreadPool read_pool(config.num_threads);
+        std::vector<std::future<void>> futures;
+        doris::MonotonicStopWatch stopwatch;
+        stopwatch.start();
+
+        if (config.direct_peer_rpc) {
+            const int64_t total_target_ops =
+                    static_cast<int64_t>(keys.size()) * static_cast<int64_t>(config.repeat);
+            const int worker_count =
+                    static_cast<int>(std::min<int64_t>(config.num_threads, total_target_ops));
+            const size_t block_size = std::max<size_t>(
+                    1, static_cast<size_t>(doris::config::file_cache_each_block_size));
+            const size_t worker_sample_cap =
+                    std::max<size_t>(1, kMaxLatencySamples / std::max<int>(1, worker_count));
+            futures.reserve(worker_count);
+
+            for (int w = 0; w < worker_count; ++w) {
+                futures.push_back(read_pool.enqueue([&, w, worker_sample_cap]() {
+                    try {
+                        doris::io::FileCacheStatistics local_stats;
+                        doris::io::IOContext io_ctx;
+                        init_io_ctx(io_ctx, &local_stats);
+                        std::string buffer;
+                        buffer.resize(static_cast<size_t>(length_right - 1));
+                        std::mt19937_64 gen(std::hash<int> {}(w + 1) ^ 0x9e3779b97f4a7c15ULL);
+                        std::mt19937_64 sample_gen(std::hash<int> {}(w + 1) ^
+                                                   0x517cc1b727220a95ULL);
+
+                        int64_t worker_ops = 0;
+                        int64_t worker_bytes = 0;
+                        int64_t worker_wire_bytes = 0;
+                        int64_t worker_ns = 0;
+                        double worker_max_us = 0.0;
+                        std::vector<double> worker_lat_us;
+                        worker_lat_us.reserve(std::min<size_t>(
+                                std::min<size_t>(65536, worker_sample_cap),
+                                static_cast<size_t>(total_target_ops / worker_count + 1)));
+
+                        for (int64_t op = w; op < total_target_ops; op += worker_count) {
+                            if (has_error.load(std::memory_order_relaxed)) {
+                                break;
+                            }
+                            const std::string& key = keys[static_cast<size_t>(op % keys.size())];
+                            const auto& ep = direct_endpoints[static_cast<size_t>(
+                                    op % direct_endpoints.size())];
+
+                            size_t read_offset = pick_range_value(gen, offset_left, offset_right);
+                            size_t read_length = pick_range_value(gen, length_left, length_right);
+                            if (read_offset + read_length > file_size) {
+                                read_length = file_size - read_offset;
+                            }
+                            if (read_length == 0) {
+                                continue;
+                            }
+
+                            doris::io::PeerFileCacheReader peer_reader(
+                                    doris::io::Path(obj_path_prefix + key), true, ep.host, ep.port);
+
+                            size_t done_bytes = 0;
+                            doris::MonotonicStopWatch op_sw;
+                            op_sw.start();
+                            while (done_bytes < read_length) {
+                                if (job.read_limiter) {
+                                    job.read_limiter->add(1);
+                                }
+                                size_t chunk_len =
+                                        std::min(read_length - done_bytes,
+                                                 static_cast<size_t>(config.read_chunk_size));
+                                size_t chunk_start = read_offset + done_bytes;
+                                size_t chunk_end = chunk_start + chunk_len;
+
+                                size_t aligned_start = (chunk_start / block_size) * block_size;
+                                size_t aligned_end = std::min(
+                                        file_size, ((chunk_end - 1) / block_size + 1) * block_size);
+                                std::vector<doris::io::FileBlock::Range> ranges;
+                                for (size_t cur = aligned_start; cur < aligned_end;) {
+                                    size_t seg_end = std::min(aligned_end, cur + block_size);
+                                    ranges.emplace_back(cur, seg_end - 1);
+                                    cur = seg_end;
+                                }
+                                size_t expected_fetch_bytes = aligned_end - aligned_start;
+
+                                doris::io::PeerFetchResult peer_res;
+                                doris::MonotonicStopWatch rpc_sw;
+                                rpc_sw.start();
+                                auto st =
+                                        peer_reader.fetch_blocks(ranges, &peer_res, file_size,
+                                                                 &io_ctx, false, config.tablet_id);
+                                rpc_sw.stop();
+                                if (!st.ok()) {
+                                    throw std::runtime_error("Direct peer fetch failed for key " +
+                                                             key + ": " + st.to_string());
+                                }
+                                if (peer_res.bytes_read != expected_fetch_bytes) {
+                                    throw std::runtime_error(
+                                            "Incomplete direct peer fetch: expected " +
+                                            std::to_string(expected_fetch_bytes) + ", got " +
+                                            std::to_string(peer_res.bytes_read));
+                                }
+
+                                for (const auto& chunk : peer_res.chunks) {
+                                    size_t c_begin = chunk.block_offset;
+                                    size_t c_end = c_begin + chunk.payload.size();
+                                    if (c_begin < aligned_start || c_end > aligned_end) {
+                                        throw std::runtime_error(
+                                                "Peer fetch chunk out of bounds for key " + key);
+                                    }
+                                    size_t copy_begin = std::max(c_begin, chunk_start);
+                                    size_t copy_end = std::min(c_end, chunk_end);
+                                    if (copy_begin < copy_end) {
+                                        size_t copy_len = copy_end - copy_begin;
+                                        size_t src_off = copy_begin - c_begin;
+                                        size_t dst_off = done_bytes + (copy_begin - chunk_start);
+                                        chunk.payload.copy_to(buffer.data() + dst_off, copy_len,
+                                                              src_off);
+                                    }
+                                }
+
+                                local_stats.num_peer_io_total += 1;
+                                local_stats.bytes_read_from_peer += static_cast<int64_t>(chunk_len);
+                                worker_wire_bytes += static_cast<int64_t>(peer_res.bytes_read);
+                                local_stats.peer_io_timer += rpc_sw.elapsed_time();
+                                done_bytes += chunk_len;
+                            }
+                            op_sw.stop();
+
+                            if (config.verify_data &&
+                                !DataVerifier::verify_data(key, file_size, read_offset, buffer,
+                                                           read_length)) {
+                                throw std::runtime_error("Data verification failed for key: " +
+                                                         key);
+                            }
+
+                            int64_t elapsed_ns = op_sw.elapsed_time();
+                            microbench_peer_read_latency << (elapsed_ns / 1000);
+                            if (job.read_latency) {
+                                *job.read_latency << (elapsed_ns / 1000);
+                            }
+                            const double lat_us = static_cast<double>(elapsed_ns) / 1000.0;
+                            worker_max_us = std::max(worker_max_us, lat_us);
+                            if (worker_lat_us.size() < worker_sample_cap) {
+                                worker_lat_us.push_back(lat_us);
+                            } else {
+                                size_t slot = std::uniform_int_distribution<size_t>(
+                                        0, static_cast<size_t>(worker_ops))(sample_gen);
+                                if (slot < worker_sample_cap) {
+                                    worker_lat_us[slot] = lat_us;
+                                }
+                            }
+                            ++worker_ops;
+                            worker_bytes += static_cast<int64_t>(read_length);
+                            worker_ns += elapsed_ns;
+                        }
+
+                        merge_stats(local_stats);
+                        if (worker_ops > 0) {
+                            const double sample_weight = static_cast<double>(worker_ops) /
+                                                         static_cast<double>(worker_lat_us.size());
+                            std::lock_guard<std::mutex> lock(stats_mutex);
+                            global_max_read_us = std::max(global_max_read_us, worker_max_us);
+                            for (double lat : worker_lat_us) {
+                                all_latencies_us.push_back({lat, sample_weight});
+                            }
+                        }
+                        total_ops.fetch_add(worker_ops, std::memory_order_relaxed);
+                        total_bytes_read.fetch_add(worker_bytes, std::memory_order_relaxed);
+                        total_wire_bytes_read.fetch_add(worker_wire_bytes,
+                                                        std::memory_order_relaxed);
+                        total_read_ns.fetch_add(worker_ns, std::memory_order_relaxed);
+                    } catch (const std::exception& e) {
+                        std::lock_guard<std::mutex> lock(error_mutex);
+                        if (!has_error.exchange(true)) {
+                            first_error = e.what();
+                        }
+                        LOG(ERROR) << "peer_read (direct_peer_rpc) worker failed: " << e.what();
+                    }
+                }));
+            }
+        } else {
+            const size_t worker_sample_cap =
+                    std::max<size_t>(1, kMaxLatencySamples / std::max<size_t>(1, keys.size()));
+            futures.reserve(keys.size());
+            for (size_t idx = 0; idx < keys.size(); ++idx) {
+                const std::string key = keys[idx];
+                futures.push_back(read_pool.enqueue([&, key, idx, worker_sample_cap]() {
+                    try {
+                        doris::io::FileCacheStatistics local_stats;
+                        doris::io::IOContext io_ctx;
+                        init_io_ctx(io_ctx, &local_stats);
+                        std::string buffer;
+                        buffer.resize(static_cast<size_t>(length_right - 1));
+                        std::mt19937_64 gen(std::hash<std::string> {}(key) ^
+                                            (static_cast<uint64_t>(idx) + 1));
+                        std::mt19937_64 sample_gen(
+                                std::hash<std::string> {}(key) ^
+                                ((static_cast<uint64_t>(idx) + 1) * 0x9e3779b97f4a7c15ULL));
+
+                        // Release shared ownership normally instead of calling close() eagerly:
+                        // a losing S3 peer-race task may still hold the underlying reader and
+                        // invoke read_at(), and the last CachedRemoteFileReader owner closes it.
+                        std::unique_ptr<MicrobenchFileReader> persistent_reader;
+
+                        if (!config.clear_local_cache_each_repeat) {
+                            persistent_reader = std::make_unique<MicrobenchFileReader>(
+                                    open_cached_reader(key), job.read_limiter);
+                        }
+
+                        int64_t worker_ops = 0;
+                        int64_t worker_bytes = 0;
+                        int64_t worker_ns = 0;
+                        double worker_max_us = 0.0;
+                        std::vector<double> worker_lat_us;
+                        worker_lat_us.reserve(
+                                std::min<size_t>(std::min<size_t>(65536, worker_sample_cap),
+                                                 static_cast<size_t>(config.repeat)));
+
+                        for (int j = 0; j < config.repeat; ++j) {
+                            if (has_error.load(std::memory_order_relaxed)) {
+                                break;
+                            }
+                            std::unique_ptr<MicrobenchFileReader> repeat_reader;
+                            MicrobenchFileReader* active_reader = persistent_reader.get();
+                            if (config.clear_local_cache_each_repeat) {
+                                clear_local_cache_for_key(key, /*wait_for_cold=*/true);
+                                repeat_reader = std::make_unique<MicrobenchFileReader>(
+                                        open_cached_reader(key), job.read_limiter);
+                                active_reader = repeat_reader.get();
+                            }
+
+                            size_t read_offset = pick_range_value(gen, offset_left, offset_right);
+                            size_t read_length = pick_range_value(gen, length_left, length_right);
+                            if (read_offset + read_length > file_size) {
+                                read_length = file_size - read_offset;
+                            }
+                            if (read_length == 0) {
+                                continue;
+                            }
+
+                            size_t done_bytes = 0;
+                            doris::MonotonicStopWatch op_sw;
+                            op_sw.start();
+                            while (done_bytes < read_length) {
+                                size_t chunk_len =
+                                        std::min(read_length - done_bytes,
+                                                 static_cast<size_t>(config.read_chunk_size));
+                                doris::Slice read_slice(buffer.data() + done_bytes, chunk_len);
+                                size_t bytes_read = 0;
+                                doris::Status read_status = active_reader->read_at(
+                                        read_offset + done_bytes, read_slice, &bytes_read, &io_ctx,
+                                        job.read_latency);
+                                if (!read_status.ok()) {
+                                    throw std::runtime_error("Peer read error for key " + key +
+                                                             ": " + read_status.to_string());
+                                }
+                                if (bytes_read != chunk_len) {
+                                    throw std::runtime_error("Incomplete peer read: expected " +
+                                                             std::to_string(chunk_len) +
+                                                             " bytes, got " +
+                                                             std::to_string(bytes_read));
+                                }
+                                done_bytes += bytes_read;
+                            }
+                            op_sw.stop();
+
+                            if (config.verify_data &&
+                                !DataVerifier::verify_data(key, file_size, read_offset, buffer,
+                                                           read_length)) {
+                                throw std::runtime_error("Data verification failed for key: " +
+                                                         key);
+                            }
+
+                            int64_t elapsed_ns = op_sw.elapsed_time();
+                            microbench_peer_read_latency << (elapsed_ns / 1000);
+                            const double lat_us = static_cast<double>(elapsed_ns) / 1000.0;
+                            worker_max_us = std::max(worker_max_us, lat_us);
+                            if (worker_lat_us.size() < worker_sample_cap) {
+                                worker_lat_us.push_back(lat_us);
+                            } else {
+                                size_t slot = std::uniform_int_distribution<size_t>(
+                                        0, static_cast<size_t>(worker_ops))(sample_gen);
+                                if (slot < worker_sample_cap) {
+                                    worker_lat_us[slot] = lat_us;
+                                }
+                            }
+                            ++worker_ops;
+                            worker_bytes += static_cast<int64_t>(read_length);
+                            worker_ns += elapsed_ns;
+                        }
+
+                        merge_stats(local_stats);
+                        if (worker_ops > 0) {
+                            const double sample_weight = static_cast<double>(worker_ops) /
+                                                         static_cast<double>(worker_lat_us.size());
+                            std::lock_guard<std::mutex> lock(stats_mutex);
+                            global_max_read_us = std::max(global_max_read_us, worker_max_us);
+                            for (double lat : worker_lat_us) {
+                                all_latencies_us.push_back({lat, sample_weight});
+                            }
+                        }
+                        total_ops.fetch_add(worker_ops, std::memory_order_relaxed);
+                        total_bytes_read.fetch_add(worker_bytes, std::memory_order_relaxed);
+                        total_read_ns.fetch_add(worker_ns, std::memory_order_relaxed);
+                    } catch (const std::exception& e) {
+                        std::lock_guard<std::mutex> lock(error_mutex);
+                        if (!has_error.exchange(true)) {
+                            first_error = e.what();
+                        }
+                        LOG(ERROR) << "peer_read failed for key " << key << ": " << e.what();
+                    }
+                }));
+            }
+        }
+
+        for (auto& f : futures) {
+            f.get();
+        }
+        stopwatch.stop();
+
+        if (has_error.load()) {
+            throw std::runtime_error(first_error);
+        }
+
+        double elapsed_sec = stopwatch.elapsed_time() / 1e9;
+        job.stats.total_read_time = std::to_string(elapsed_sec) + " seconds";
+        job.stats.num_local_io_total = merged_stats.num_local_io_total;
+        job.stats.num_remote_io_total = merged_stats.num_remote_io_total;
+        job.stats.num_peer_io_total = merged_stats.num_peer_io_total;
+        job.stats.num_inverted_index_remote_io_total =
+                merged_stats.inverted_index_num_remote_io_total;
+        job.stats.local_io_timer = merged_stats.local_io_timer;
+        job.stats.bytes_read_from_local = merged_stats.bytes_read_from_local;
+        job.stats.bytes_read_from_remote = merged_stats.bytes_read_from_remote;
+        job.stats.bytes_read_from_peer = merged_stats.bytes_read_from_peer;
+        job.stats.peer_wire_bytes_read = config.direct_peer_rpc
+                                                 ? total_wire_bytes_read.load()
+                                                 : (merged_stats.bytes_read_from_same_cg_peer +
+                                                    merged_stats.bytes_read_from_cross_cg_peer);
+        job.stats.remote_io_timer = merged_stats.remote_io_timer;
+        job.stats.peer_io_timer = merged_stats.peer_io_timer;
+        job.stats.write_cache_io_timer = merged_stats.write_cache_io_timer;
+        job.stats.bytes_write_into_cache = merged_stats.bytes_write_into_cache;
+        job.stats.num_skip_cache_io_total = merged_stats.num_skip_cache_io_total;
+        job.stats.read_cache_file_directly_timer = merged_stats.read_cache_file_directly_timer;
+        job.stats.cache_get_or_set_timer = merged_stats.cache_get_or_set_timer;
+        job.stats.lock_wait_timer = merged_stats.lock_wait_timer;
+        job.stats.get_timer = merged_stats.get_timer;
+        job.stats.set_timer = merged_stats.set_timer;
+        job.stats.peer_read_ops = total_ops.load();
+        job.stats.peer_total_bytes_read = total_bytes_read.load();
+        job.stats.peer_read_qps =
+                elapsed_sec > 0 ? static_cast<double>(job.stats.peer_read_ops) / elapsed_sec : 0;
+        job.stats.peer_rpc_qps =
+                elapsed_sec > 0 ? static_cast<double>(job.stats.num_peer_io_total) / elapsed_sec
+                                : 0;
+        job.stats.peer_throughput_mb_s =
+                elapsed_sec > 0 ? (static_cast<double>(job.stats.peer_total_bytes_read) /
+                                   (1024.0 * 1024.0)) /
+                                          elapsed_sec
+                                : 0;
+        job.stats.peer_wire_throughput_mb_s =
+                elapsed_sec > 0 ? (static_cast<double>(job.stats.peer_wire_bytes_read) /
+                                   (1024.0 * 1024.0)) /
+                                          elapsed_sec
+                                : 0;
+        job.stats.peer_avg_read_us =
+                job.stats.peer_read_ops > 0 ? (static_cast<double>(total_read_ns.load()) / 1000.0) /
+                                                      static_cast<double>(job.stats.peer_read_ops)
+                                            : 0;
+        if (!all_latencies_us.empty()) {
+            std::sort(all_latencies_us.begin(), all_latencies_us.end(),
+                      [](const WeightedLatencySample& a, const WeightedLatencySample& b) {
+                          return a.latency_us < b.latency_us;
+                      });
+            double total_weight = 0.0;
+            for (const auto& sample : all_latencies_us) {
+                total_weight += sample.weight;
+            }
+            auto weighted_pct = [&](double q) -> double {
+                const double target = q * total_weight;
+                double accum = 0.0;
+                for (const auto& sample : all_latencies_us) {
+                    accum += sample.weight;
+                    if (accum >= target) {
+                        return sample.latency_us;
+                    }
+                }
+                return all_latencies_us.back().latency_us;
+            };
+            job.stats.peer_p50_read_us = weighted_pct(0.50);
+            job.stats.peer_p95_read_us = weighted_pct(0.95);
+            job.stats.peer_p99_read_us = weighted_pct(0.99);
+            job.stats.peer_max_read_us = global_max_read_us;
+        }
+
+        LOG(INFO) << "Completed peer_read job " << job.job_id << ", ops=" << job.stats.peer_read_ops
+                  << ", total_bytes=" << job.stats.peer_total_bytes_read
+                  << ", bytes_from_peer=" << job.stats.bytes_read_from_peer
+                  << ", peer_wire_bytes=" << job.stats.peer_wire_bytes_read
+                  << ", bytes_from_local=" << job.stats.bytes_read_from_local
+                  << ", bytes_from_remote=" << job.stats.bytes_read_from_remote
+                  << ", elapsed_sec=" << elapsed_sec
+                  << ", throughput_mb_s=" << job.stats.peer_throughput_mb_s
+                  << ", peer_wire_throughput_mb_s=" << job.stats.peer_wire_throughput_mb_s;
+    }
+
     // Execute read tasks
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
         LOG(INFO) << "Starting read tasks for job " << job.job_id << ", num_keys=" << keys.size()
@@ -1936,12 +3438,15 @@ private:
         // Update job statistics
         job.stats.num_local_io_total = total_stats.num_local_io_total;
         job.stats.num_remote_io_total = total_stats.num_remote_io_total;
+        job.stats.num_peer_io_total = total_stats.num_peer_io_total;
         job.stats.num_inverted_index_remote_io_total =
                 total_stats.inverted_index_num_remote_io_total;
         job.stats.local_io_timer = total_stats.local_io_timer;
         job.stats.bytes_read_from_local = total_stats.bytes_read_from_local;
         job.stats.bytes_read_from_remote = total_stats.bytes_read_from_remote;
+        job.stats.bytes_read_from_peer = total_stats.bytes_read_from_peer;
         job.stats.remote_io_timer = total_stats.remote_io_timer;
+        job.stats.peer_io_timer = total_stats.peer_io_timer;
         job.stats.write_cache_io_timer = total_stats.write_cache_io_timer;
         job.stats.bytes_write_into_cache = total_stats.bytes_write_into_cache;
         job.stats.num_skip_cache_io_total = total_stats.num_skip_cache_io_total;
@@ -2187,6 +3692,10 @@ public:
             // Add configuration information
             if (job.config.job_type == JobType::FILE_CACHE_GET_OR_SET) {
                 add_get_or_set_config_info(d, allocator, job.config);
+            } else if (job.config.job_type == JobType::PEER_CACHE_SEED) {
+                add_peer_seed_config_info(d, allocator, job.config);
+            } else if (job.config.job_type == JobType::PEER_READ) {
+                add_peer_read_config_info(d, allocator, job);
             } else {
                 add_config_info(d, allocator, job.config);
             }
@@ -2194,6 +3703,10 @@ public:
             // Add statistics information
             if (job.config.job_type == JobType::FILE_CACHE_GET_OR_SET) {
                 add_get_or_set_stats_info(d, allocator, job.stats);
+            } else if (job.config.job_type == JobType::PEER_CACHE_SEED) {
+                add_peer_seed_stats_info(d, allocator, job.stats);
+            } else if (job.config.job_type == JobType::PEER_READ) {
+                add_peer_read_stats_info(d, allocator, job.stats);
             } else {
                 add_stats_info(d, allocator, job.stats);
             }
@@ -2732,6 +4245,150 @@ public:
         }
     }
 
+    void set_peer_candidates(google::protobuf::RpcController* cntl_base,
+                             const microbench::HttpRequest* request,
+                             microbench::HttpResponse* response,
+                             google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        cntl->http_response().set_content_type("application/json");
+
+        try {
+            std::string body = cntl->request_attachment().to_string();
+            rapidjson::Document d;
+            d.Parse(body.c_str());
+            if (d.HasParseError() || !d.IsObject()) {
+                throw std::runtime_error("Invalid JSON body for set_peer_candidates");
+            }
+            int64_t tablet_id = 1;
+            if (d.HasMember("tablet_id") && d["tablet_id"].IsInt64()) {
+                tablet_id = d["tablet_id"].GetInt64();
+            }
+            if (tablet_id <= 0) {
+                throw std::runtime_error("tablet_id must be positive");
+            }
+            std::vector<PeerEndpointConfig> peers;
+            if (d.HasMember("peers")) {
+                peers = JobConfig::parse_endpoints_from_json(d["peers"]);
+            } else if (d.HasMember("peer_endpoints")) {
+                peers = JobConfig::parse_endpoints_from_json(d["peer_endpoints"]);
+            } else {
+                throw std::runtime_error(
+                        "Missing required array field 'peers' or 'peer_endpoints'");
+            }
+
+            JobManager::apply_peer_candidates(tablet_id, peers);
+
+            rapidjson::Document resp_doc;
+            resp_doc.SetObject();
+            auto& allocator = resp_doc.GetAllocator();
+            resp_doc.AddMember("status", "OK", allocator);
+            resp_doc.AddMember("tablet_id", tablet_id, allocator);
+            resp_doc.AddMember("peer_count", static_cast<uint64_t>(peers.size()), allocator);
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            resp_doc.Accept(writer);
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error in set_peer_candidates: " << e.what();
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            rapidjson::Document err_doc;
+            err_doc.SetObject();
+            auto& allocator = err_doc.GetAllocator();
+            err_doc.AddMember("status", "error", allocator);
+            err_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            err_doc.Accept(writer);
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
+    void get_peer_candidates(google::protobuf::RpcController* cntl_base,
+                             const microbench::HttpRequest* request,
+                             microbench::HttpResponse* response,
+                             google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        cntl->http_response().set_content_type("application/json");
+
+        try {
+            if (!doris::config::is_cloud_mode()) {
+                throw std::runtime_error(
+                        "Cloud mode is required for peer candidates (set cloud_unique_id in "
+                        "be.conf)");
+            }
+            auto& mgr = doris::ExecEnv::GetInstance()
+                                ->storage_engine()
+                                .to_cloud()
+                                .cloud_warm_up_manager();
+
+            rapidjson::Document resp_doc;
+            resp_doc.SetObject();
+            auto& allocator = resp_doc.GetAllocator();
+            resp_doc.AddMember("status", "OK", allocator);
+
+            auto encode_tpc = [&](int64_t tid, const doris::TabletPeerCandidates& tpc) {
+                rapidjson::Value obj(rapidjson::kObjectType);
+                obj.AddMember("tablet_id", tid, allocator);
+                obj.AddMember(
+                        "last_successful_compute_group_id",
+                        rapidjson::Value(tpc.last_successful_compute_group_id.c_str(), allocator),
+                        allocator);
+                obj.AddMember("consecutive_all_miss", tpc.consecutive_all_miss, allocator);
+                obj.AddMember("cooldown_until_ms", tpc.cooldown_until_ms, allocator);
+                rapidjson::Value arr(rapidjson::kArrayType);
+                for (const auto& c : tpc.candidates) {
+                    rapidjson::Value item(rapidjson::kObjectType);
+                    item.AddMember("host", rapidjson::Value(c.host.c_str(), allocator), allocator);
+                    item.AddMember("port", c.brpc_port, allocator);
+                    item.AddMember("compute_group_id",
+                                   rapidjson::Value(c.compute_group_id.c_str(), allocator),
+                                   allocator);
+                    item.AddMember("consecutive_rpc_failures", c.consecutive_rpc_failures,
+                                   allocator);
+                    arr.PushBack(item, allocator);
+                }
+                obj.AddMember("peers", arr, allocator);
+                return obj;
+            };
+
+            const std::string* tablet_id_param = cntl->http_request().uri().GetQuery("tablet_id");
+            rapidjson::Value tablets_arr(rapidjson::kArrayType);
+            if (tablet_id_param != nullptr) {
+                int64_t tid = std::stoll(*tablet_id_param);
+                auto info = mgr.get_tablet_peer_info(tid);
+                if (info.has_value()) {
+                    tablets_arr.PushBack(encode_tpc(tid, *info), allocator);
+                }
+            } else {
+                auto all_info = mgr.get_all_peer_info(1000);
+                for (const auto& [tid, tpc] : all_info) {
+                    tablets_arr.PushBack(encode_tpc(tid, tpc), allocator);
+                }
+            }
+            resp_doc.AddMember("tablets", tablets_arr, allocator);
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            resp_doc.Accept(writer);
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error in get_peer_candidates: " << e.what();
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            rapidjson::Document err_doc;
+            err_doc.SetObject();
+            auto& allocator = err_doc.GetAllocator();
+            err_doc.AddMember("status", "error", allocator);
+            err_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            err_doc.Accept(writer);
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
 private:
     // Get string representation of job status
     std::string get_status_string(JobStatus status) {
@@ -2879,6 +4536,15 @@ private:
                             static_cast<uint64_t>(stats.bytes_read_from_remote), allocator);
         stats_obj.AddMember("remote_io_timer", static_cast<uint64_t>(stats.remote_io_timer),
                             allocator);
+        if (stats.num_peer_io_total > 0 || stats.bytes_read_from_peer > 0 ||
+            stats.peer_io_timer > 0) {
+            stats_obj.AddMember("num_peer_io_total", static_cast<uint64_t>(stats.num_peer_io_total),
+                                allocator);
+            stats_obj.AddMember("bytes_read_from_peer",
+                                static_cast<uint64_t>(stats.bytes_read_from_peer), allocator);
+            stats_obj.AddMember("peer_io_timer", static_cast<uint64_t>(stats.peer_io_timer),
+                                allocator);
+        }
         stats_obj.AddMember("write_cache_io_timer",
                             static_cast<uint64_t>(stats.write_cache_io_timer), allocator);
         stats_obj.AddMember("bytes_write_into_cache",
@@ -2919,9 +4585,153 @@ private:
         doc.AddMember("statistics", stats_obj, allocator);
     }
 
+    void add_peer_seed_config_info(rapidjson::Document& doc,
+                                   rapidjson::Document::AllocatorType& allocator,
+                                   const JobConfig& config) {
+        rapidjson::Value config_obj(rapidjson::kObjectType);
+        config_obj.AddMember("num_threads", config.num_threads, allocator);
+        config_obj.AddMember("num_files", config.num_files, allocator);
+        config_obj.AddMember("file_prefix", rapidjson::Value(config.file_prefix.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("source_job_id",
+                             rapidjson::Value(config.source_job_id.c_str(), allocator), allocator);
+        config_obj.AddMember("size_bytes_perfile", config.size_bytes_perfile, allocator);
+        config_obj.AddMember("tablet_id", config.tablet_id, allocator);
+        config_obj.AddMember("cache_type", rapidjson::Value(config.cache_type.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("expiration", config.expiration, allocator);
+        config_obj.AddMember("overwrite_existing", config.overwrite_existing, allocator);
+        doc.AddMember("config", config_obj, allocator);
+    }
+
+    void add_peer_seed_stats_info(rapidjson::Document& doc,
+                                  rapidjson::Document::AllocatorType& allocator,
+                                  const Job::Statistics& stats) {
+        rapidjson::Value stats_obj(rapidjson::kObjectType);
+        stats_obj.AddMember("total_write_time",
+                            rapidjson::Value(stats.total_write_time.c_str(), allocator), allocator);
+        stats_obj.AddMember("seeded_files", static_cast<uint64_t>(stats.peer_seed_files),
+                            allocator);
+        stats_obj.AddMember("seeded_blocks", static_cast<uint64_t>(stats.peer_seed_blocks),
+                            allocator);
+        stats_obj.AddMember("bytes_write_into_cache",
+                            static_cast<uint64_t>(stats.bytes_write_into_cache), allocator);
+        stats_obj.AddMember("throughput_mb_s", stats.peer_seed_throughput_mb_s, allocator);
+        doc.AddMember("statistics", stats_obj, allocator);
+    }
+
+    void add_peer_read_config_info(rapidjson::Document& doc,
+                                   rapidjson::Document::AllocatorType& allocator, const Job& job) {
+        const JobConfig& config = job.config;
+        const std::string source_job_id = job.effective_source_job_id();
+        rapidjson::Value config_obj(rapidjson::kObjectType);
+        config_obj.AddMember("num_threads", config.num_threads, allocator);
+        config_obj.AddMember("num_files", config.num_files, allocator);
+        config_obj.AddMember("file_prefix", rapidjson::Value(config.file_prefix.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("source_job_id", rapidjson::Value(source_job_id.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("size_bytes_perfile", config.size_bytes_perfile, allocator);
+        config_obj.AddMember("repeat", config.repeat, allocator);
+        config_obj.AddMember("read_iops", config.read_iops, allocator);
+        config_obj.AddMember("read_chunk_size", config.read_chunk_size, allocator);
+        config_obj.AddMember("tablet_id", config.tablet_id, allocator);
+        config_obj.AddMember("cache_type", rapidjson::Value(config.cache_type.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("expiration", config.expiration, allocator);
+        config_obj.AddMember("use_s3_fallback", config.use_s3_fallback, allocator);
+        config_obj.AddMember("bypass_peer_read", config.bypass_peer_read, allocator);
+        config_obj.AddMember("direct_peer_rpc", config.direct_peer_rpc, allocator);
+        config_obj.AddMember("cache_write_mode",
+                             rapidjson::Value(config.cache_write_mode.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("clear_local_cache_before_read", config.clear_local_cache_before_read,
+                             allocator);
+        config_obj.AddMember("clear_local_cache_each_repeat", config.clear_local_cache_each_repeat,
+                             allocator);
+        config_obj.AddMember("verify_data", config.verify_data, allocator);
+        config_obj.AddMember("bvar_enable", config.bvar_enable, allocator);
+
+        rapidjson::Value read_offset_array(rapidjson::kArrayType);
+        read_offset_array.PushBack(config.read_offset_left, allocator);
+        read_offset_array.PushBack(config.read_offset_right, allocator);
+        config_obj.AddMember("read_offset", read_offset_array, allocator);
+
+        rapidjson::Value read_length_array(rapidjson::kArrayType);
+        read_length_array.PushBack(config.read_length_left, allocator);
+        read_length_array.PushBack(config.read_length_right, allocator);
+        config_obj.AddMember("read_length", read_length_array, allocator);
+
+        rapidjson::Value peers_array(rapidjson::kArrayType);
+        for (const auto& ep : config.peer_endpoints) {
+            rapidjson::Value ep_obj(rapidjson::kObjectType);
+            ep_obj.AddMember("host", rapidjson::Value(ep.host.c_str(), allocator), allocator);
+            ep_obj.AddMember("port", ep.port, allocator);
+            ep_obj.AddMember("compute_group_id",
+                             rapidjson::Value(ep.compute_group_id.c_str(), allocator), allocator);
+            peers_array.PushBack(ep_obj, allocator);
+        }
+        config_obj.AddMember("peer_endpoints", peers_array, allocator);
+
+        doc.AddMember("config", config_obj, allocator);
+    }
+
+    void add_peer_read_stats_info(rapidjson::Document& doc,
+                                  rapidjson::Document::AllocatorType& allocator,
+                                  const Job::Statistics& stats) {
+        rapidjson::Value stats_obj(rapidjson::kObjectType);
+        stats_obj.AddMember("total_read_time",
+                            rapidjson::Value(stats.total_read_time.c_str(), allocator), allocator);
+        stats_obj.AddMember("read_ops", static_cast<uint64_t>(stats.peer_read_ops), allocator);
+        stats_obj.AddMember("total_bytes_read", static_cast<uint64_t>(stats.peer_total_bytes_read),
+                            allocator);
+        stats_obj.AddMember("read_qps", stats.peer_read_qps, allocator);
+        stats_obj.AddMember("peer_rpc_qps", stats.peer_rpc_qps, allocator);
+        stats_obj.AddMember("throughput_mb_s", stats.peer_throughput_mb_s, allocator);
+        stats_obj.AddMember("peer_wire_throughput_mb_s", stats.peer_wire_throughput_mb_s,
+                            allocator);
+        stats_obj.AddMember("avg_read_us", stats.peer_avg_read_us, allocator);
+        stats_obj.AddMember("p50_read_us", stats.peer_p50_read_us, allocator);
+        stats_obj.AddMember("p95_read_us", stats.peer_p95_read_us, allocator);
+        stats_obj.AddMember("p99_read_us", stats.peer_p99_read_us, allocator);
+        stats_obj.AddMember("max_read_us", stats.peer_max_read_us, allocator);
+        stats_obj.AddMember("num_peer_io_total", static_cast<uint64_t>(stats.num_peer_io_total),
+                            allocator);
+        stats_obj.AddMember("bytes_read_from_peer",
+                            static_cast<uint64_t>(stats.bytes_read_from_peer), allocator);
+        stats_obj.AddMember("peer_wire_bytes_read",
+                            static_cast<uint64_t>(stats.peer_wire_bytes_read), allocator);
+        stats_obj.AddMember("peer_io_timer", static_cast<uint64_t>(stats.peer_io_timer), allocator);
+        stats_obj.AddMember("num_local_io_total", static_cast<uint64_t>(stats.num_local_io_total),
+                            allocator);
+        stats_obj.AddMember("bytes_read_from_local",
+                            static_cast<uint64_t>(stats.bytes_read_from_local), allocator);
+        stats_obj.AddMember("local_io_timer", static_cast<uint64_t>(stats.local_io_timer),
+                            allocator);
+        stats_obj.AddMember("num_remote_io_total", static_cast<uint64_t>(stats.num_remote_io_total),
+                            allocator);
+        stats_obj.AddMember("bytes_read_from_remote",
+                            static_cast<uint64_t>(stats.bytes_read_from_remote), allocator);
+        stats_obj.AddMember("remote_io_timer", static_cast<uint64_t>(stats.remote_io_timer),
+                            allocator);
+        stats_obj.AddMember("write_cache_io_timer",
+                            static_cast<uint64_t>(stats.write_cache_io_timer), allocator);
+        stats_obj.AddMember("bytes_write_into_cache",
+                            static_cast<uint64_t>(stats.bytes_write_into_cache), allocator);
+        stats_obj.AddMember("num_skip_cache_io_total",
+                            static_cast<uint64_t>(stats.num_skip_cache_io_total), allocator);
+        stats_obj.AddMember("cache_get_or_set_timer",
+                            static_cast<uint64_t>(stats.cache_get_or_set_timer), allocator);
+        stats_obj.AddMember("lock_wait_timer", static_cast<uint64_t>(stats.lock_wait_timer),
+                            allocator);
+        stats_obj.AddMember("get_timer", static_cast<uint64_t>(stats.get_timer), allocator);
+        stats_obj.AddMember("set_timer", static_cast<uint64_t>(stats.set_timer), allocator);
+        doc.AddMember("statistics", stats_obj, allocator);
+    }
+
     // Add file records to JSON response
     void add_file_records(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
-                          const std::vector<FileInfo>& file_records, size_t max_files) {
+                          const std::vector<::FileInfo>& file_records, size_t max_files) {
         rapidjson::Value files_array(rapidjson::kArrayType);
         size_t count = 0;
 
@@ -2977,13 +4787,62 @@ public:
         }
 
         LOG(INFO) << "HTTP server started successfully";
+
+        if (FLAGS_brpc_port > 0) {
+            if (!doris::config::is_cloud_mode()) {
+                LOG(ERROR) << "Cannot start peer BRPC server on port " << FLAGS_brpc_port
+                           << " because cloud_unique_id is not set in be.conf";
+                _server->Stop(0);
+                _server->Join();
+                _server->ClearServices();
+                return;
+            }
+            _peer_brpc_server = new brpc::Server();
+            auto* exec_env = doris::ExecEnv::GetInstance();
+            if (_peer_brpc_server->AddService(
+                        new doris::CloudInternalServiceImpl(exec_env->storage_engine().to_cloud(),
+                                                            exec_env),
+                        brpc::SERVER_OWNS_SERVICE) != 0) {
+                LOG(ERROR) << "Failed to add CloudInternalServiceImpl to peer BRPC server";
+                _server->Stop(0);
+                _server->Join();
+                _server->ClearServices();
+                return;
+            }
+            brpc::ServerOptions brpc_options;
+            if (doris::config::brpc_num_threads != -1) {
+                brpc_options.num_threads = doris::config::brpc_num_threads;
+            }
+            brpc_options.idle_timeout_sec = doris::config::brpc_idle_timeout_sec;
+            brpc_options.has_builtin_services = doris::config::enable_brpc_builtin_services;
+            if (_peer_brpc_server->Start(FLAGS_brpc_port, &brpc_options) != 0) {
+                LOG(ERROR) << "Failed to start peer BRPC server on port " << FLAGS_brpc_port;
+                _server->Stop(0);
+                _server->Join();
+                _server->ClearServices();
+                return;
+            }
+            LOG(INFO) << "Peer BRPC server (CloudInternalServiceImpl) started on port "
+                      << FLAGS_brpc_port;
+        }
+
         _server->RunUntilAskedToQuit(); // Wait for signals
+        if (_peer_brpc_server) {
+            _peer_brpc_server->Stop(0);
+            _peer_brpc_server->Join();
+            _peer_brpc_server->ClearServices();
+            LOG(INFO) << "Peer BRPC server stopped";
+        }
         _server->ClearServices();
 
         LOG(INFO) << "HTTP server stopped";
     }
 
     ~HttpServer() {
+        if (_peer_brpc_server) {
+            LOG(INFO) << "Cleaning up peer BRPC server in destructor";
+            delete _peer_brpc_server;
+        }
         if (_server) {
             LOG(INFO) << "Cleaning up HTTP server in destructor";
             delete _server;
@@ -2992,6 +4851,7 @@ public:
 
 private:
     brpc::Server* _server {nullptr};
+    brpc::Server* _peer_brpc_server {nullptr};
 };
 
 int main(int argc, char* argv[]) {

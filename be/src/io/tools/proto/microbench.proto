@@ -38,4 +38,6 @@ service MicrobenchService {
       rpc show_config(HttpRequest) returns (HttpResponse);
       rpc reload_config(HttpRequest) returns (HttpResponse);
       rpc show_reload_status(HttpRequest) returns (HttpResponse);
+      rpc set_peer_candidates(HttpRequest) returns (HttpResponse);
+      rpc get_peer_candidates(HttpRequest) returns (HttpResponse);
 };

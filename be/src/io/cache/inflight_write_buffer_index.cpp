@@ -167,4 +167,19 @@ bool InflightWriteBufferIndex::remove_if(
     return false;
 }
 
+bool InflightWriteBufferIndex::has_entries_for_hash(const UInt128Wrapper& cache_hash) const {
+    if (_count.load(std::memory_order_relaxed) == 0) {
+        return false;
+    }
+    for (const auto& shard : _shards) {
+        std::lock_guard lock(shard->mutex);
+        for (const auto& [key, _] : shard->entries) {
+            if (key.cache_hash == cache_hash) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace doris::io
