@@ -747,6 +747,11 @@ public class SPMPlan2SQLBuilderTest {
                 java.util.Map.of(42L, java.util.Map.of(7L,
                         new org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin(
                                 "p1", false)));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder(java.util.Map.of()).visitPhysicalRelation(scan, null));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder(java.util.Map.of(42L, java.util.Map.of()))
+                        .visitPhysicalRelation(scan, null));
         Assertions.assertEquals("t1 PARTITION(p1)",
                 new SPMPlan2SQLBuilder(captured).visitPhysicalRelation(scan, null).getFrom(),
                 "the admitted name is frozen");

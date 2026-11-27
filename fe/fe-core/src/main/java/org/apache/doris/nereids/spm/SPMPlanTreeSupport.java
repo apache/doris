@@ -19,8 +19,12 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
@@ -7700,51 +7704,29 @@ public final class SPMPlanTreeSupport {
         return joinFingerprintEntries(entries);
     }
 
-    /**
-     * Snapshots the PARTITION NAMES of every OLAP table in the collection, WHILE the planning
-     * locks are held.
-     *
-     * A user-pinned scan is frozen as PARTITION(name), but the pinned list is a set of
-     * PARTITION IDS and the renderer runs AFTER the planning locks were released: a
-     * ALTER TABLE... RENAME PARTITION p0 p1 in that window made it read the LIVE name and emit
-     * PARTITION(p1) while the stored bind text still said PARTITION(p0). A later caller
-     * pinning p0 (now a DIFFERENT, newly added partition) matched the bind text and was answered
-     * from p1 - the metadata guards hash table identity / base schema / nullability only, and the
-     * admission selector check compares the SUBMITTED trees. Recording the names here, under the
-     * lock, gives the renderer the names the ADMITTED plan resolved; a pin whose live partition
-     * no longer carries that name makes the CREATE decline the freeze instead
-     * (see SPMPlan2SQLBuilder.renderPartitionSelection).
-     *
-     * Parameter out: table id to (partition id to name); an already recorded table is OVERWRITTEN,
-     *               because only the LOCKED state counts
-     * Parameter tables: the statement's resolved tables (may be null)
-     */
-    public static void recordPartitionNames(Map<Long, Map<Long, PartitionPin>> out,
-            java.util.Collection<TableIf> tables) {
-        if (out == null || tables == null) {
-            return;
-        }
-        for (TableIf table : tables) {
-            if (!(table instanceof org.apache.doris.catalog.OlapTable)) {
-                continue;
+    /** Records only user-pinned partition IDs from the bound plan while planning locks are held. */
+    public static void recordPartitionNames(Map<Long, Map<Long, PartitionPin>> out, Plan analyzed) {
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(analyzed, node -> {
+            if (node instanceof org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan) {
+                org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan scan =
+                        (org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan) node;
+                List<Long> ids = scan.getManuallySpecifiedPartitions();
+                if (ids.isEmpty()) {
+                    return;
+                }
+                OlapTable table = scan.getTable();
+                Map<Long, PartitionPin> pins = out.computeIfAbsent(table.getId(), id -> new HashMap<>());
+                for (long id : ids) {
+                    pins.computeIfAbsent(id, partitionId -> {
+                        org.apache.doris.catalog.Partition partition = table.getPartition(partitionId);
+                        // A missing bound ID cannot be certified. The production renderer
+                        // refuses to freeze any physical pin absent from this snapshot.
+                        return partition == null ? null : new PartitionPin(partition.getName(),
+                                table.isTemporaryPartition(partitionId));
+                    });
+                }
             }
-            org.apache.doris.catalog.OlapTable olapTable =
-                    (org.apache.doris.catalog.OlapTable) table;
-            Map<Long, PartitionPin> pins = new java.util.concurrent.ConcurrentHashMap<>();
-            for (org.apache.doris.catalog.Partition partition : olapTable.getPartitions()) {
-                pins.put(partition.getId(), new PartitionPin(partition.getName(), false));
-            }
-            // TEMPORARY partitions are recorded too: a pin admitted as
-            // TEMPORARY PARTITION(tmp) used to have no snapshot, so the decompiler read the
-            // LIVE namespace - an ALTER TABLE... REPLACE PARTITION / promotion with
-            // use_temp_partition_name=true landing between the unlock and the render turned the
-            // captured temporary pin into a FORMAL one, and an identical replay bound a
-            // different (or no) partition. The snapshot now carries the namespace as well.
-            for (org.apache.doris.catalog.Partition partition : olapTable.getAllTempPartitions()) {
-                pins.put(partition.getId(), new PartitionPin(partition.getName(), true));
-            }
-            out.put(olapTable.getId(), pins);
-        }
+        });
     }
 
     /**
@@ -7812,24 +7794,16 @@ public final class SPMPlanTreeSupport {
      */
     public static void recordTableFingerprint(Map<String, String> out, TableIf table,
             List<String> qualifier) {
+        recordTableFingerprint(out, table, qualifier, new IdentityHashMap<>());
+    }
+
+    /** Records one captured entry per table object, then reuses it for every resolution qualifier. */
+    static void recordTableFingerprint(Map<String, String> out, TableIf table,
+            List<String> qualifier, Map<TableIf, String> capturedTables) {
         if (out == null || table == null || table.getName() == null) {
             return;
         }
-        String entry;
-        try {
-            entry = describeTableForFingerprint(table);
-        } catch (RuntimeException e) {
-            return; // an unreadable table is not part of the fingerprint either way
-        }
-        // OVERWRITE, do not keep the first value: CollectRelation resolves (and caches) a
-        // relation BEFORE NereidsPlanner.collectAndLockTable takes the planning locks, so the
-        // first hash of a table can describe a schema a concurrent ALTER TABLE already
-        // replaced - the locked bind then froze the NEW schema's output slots while the entry
-        // still described the OLD one, and re-adding the dropped column restored that old
-        // name/type string, letting an identical query replay the stale column set. The capture context re-records
-        // every collected table once the locks are held
-        // (see recordTableFingerprints), which only works when a later hash may replace an
-        // earlier one.
+        String entry = capturedTables.computeIfAbsent(table, SPMPlanTreeSupport::describeLockedTableForFingerprint);
         if (qualifier != null && !qualifier.isEmpty()) {
             out.put(tableNameKey(String.join(".", qualifier)), entry);
         }
@@ -7870,10 +7844,8 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Re-records EVERY collected table's fingerprint, overwriting whatever an earlier
-     * (pre-lock) resolution put there - the capture context calls this right after the
-     * planning locks are acquired, so every stored entry describes the schema the LOCKED bind
-     * freezes (see recordTableFingerprint and SPMOptimizer's capture statement context).
+     * Records collected table fingerprints under their resolution qualifiers, reading each
+     * distinct table object once per batch. The caller must hold the planning locks.
      *
      * Parameter out: the name-to-entry map to fill
      * Parameter tables: the statement's resolved tables, keyed by the qualifier they were
@@ -7884,8 +7856,9 @@ public final class SPMPlanTreeSupport {
         if (out == null || tables == null || tables.isEmpty()) {
             return;
         }
+        Map<TableIf, String> capturedTables = new IdentityHashMap<>();
         for (Map.Entry<List<String>, TableIf> resolved : tables.entrySet()) {
-            recordTableFingerprint(out, resolved.getValue(), resolved.getKey());
+            recordTableFingerprint(out, resolved.getValue(), resolved.getKey(), capturedTables);
         }
     }
 
@@ -8349,10 +8322,43 @@ public final class SPMPlanTreeSupport {
         return fingerprint.toString();
     }
 
-    /** One table dependency entry: table name, id, ordered base-schema hash and nullability hash. */
+    /** Only native OLAP tables use the base schema version; wrappers and external tables retain content hashes. */
+    private static boolean usesOlapSchemaVersion(TableIf table) {
+        return table instanceof OlapTable && !(table instanceof OlapTableWrapper)
+                && !(table instanceof RemoteOlapTable) && table.getType() == TableIf.TableType.OLAP;
+    }
+
+    /** Live replay checks take a short read lock, as SQL Cache does, without extending the rewrite budget. */
     private static String describeTableForFingerprint(TableIf table) {
+        if (!usesOlapSchemaVersion(table)) {
+            return describeLockedTableForFingerprint(table);
+        }
+        if (!table.tryReadLock(0, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            // This entry is never emitted by capture. It cannot match a certified baseline.
+            return table.getName() + "|" + table.getId() + "|schema-version-unavailable";
+        }
+        try {
+            return describeLockedTableForFingerprint(table);
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    /** Captured under a planning lock, or by the metadata snapshot semantics of an external table. */
+    private static String describeLockedTableForFingerprint(TableIf table) {
+        if (usesOlapSchemaVersion(table)) {
+            OlapTable olap = (OlapTable) table;
+            // SQL Cache uses the same pair to recognize both light and shadow-index schema changes.
+            // Unlike SQL Cache, SPM stores a plan, so data and partition topology versions are irrelevant.
+            return table.getName() + "|" + table.getId() + "|olap-schema:"
+                    + olap.getBaseIndexId() + ":" + olap.getBaseSchemaVersion()
+                    // The old content fingerprint included the session-visible schema.
+                    // Keep the visibility mode distinct even when the catalog version is unchanged.
+                    + (Util.showHiddenColumns() ? ":hidden" : "");
+        }
+        List<Column> schema = table.getBaseSchema();
         StringBuilder nullability = new StringBuilder();
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : schema) {
             // NULLABILITY is part of the replay contract: SPM leaves ELIMINATE_NOT_NULL
             // enabled, so "v IS NOT NULL" freezes away when v is declared NOT NULL - and
             // ALTER TABLE t MODIFY COLUMN v INT NULL changes no name / type hashed here.
@@ -8371,7 +8377,7 @@ public final class SPMPlanTreeSupport {
             nullability.append(column.isAllowNull() ? '1' : '0');
         }
         return table.getName() + "|" + table.getId() + "|"
-                + SPMUtils.hashOf(schemaSectionForFingerprint(table.getBaseSchema()))
+                + SPMUtils.hashOf(schemaSectionForFingerprint(schema))
                 + "|" + NULLABILITY_SECTION + SPMUtils.hashOf(nullability.toString());
     }
 

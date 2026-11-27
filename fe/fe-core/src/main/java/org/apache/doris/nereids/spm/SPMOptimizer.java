@@ -402,9 +402,10 @@ public class SPMOptimizer {
             statementContext.addPlannerHook(new PlannerHook() {
                 @Override
                 public void afterAnalyze(NereidsPlanner planner) {
+                    Plan analyzed = planner.getCascadesContext().getRewritePlan();
                     concreteSessionSensitiveExpression[0] =
-                            SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
-                                    planner.getCascadesContext().getRewritePlan());
+                            SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(analyzed);
+                    SPMPlanTreeSupport.recordPartitionNames(statementContext.getPartitionNames(), analyzed);
                 }
             });
         }
@@ -700,7 +701,7 @@ public class SPMOptimizer {
         private final Long functionRegistryVersion;
 
         /**
-         * The PARTITION NAMES of every OLAP table the statement resolved, snapshotted WHILE the
+         * The names of explicitly pinned OLAP partitions, snapshotted WHILE the
          * planning locks were held: table id to partition id to name. The frozen
          * PARTITION(...) clause names partitions by id, and the renderer runs AFTER
          * optimize released the locks - a RENAME PARTITION in that window made it emit
@@ -785,20 +786,20 @@ public class SPMOptimizer {
     }
 
     /**
-     * Nested capture context that records table fingerprints and partition names. Initial relation lookup can
-     * occur before metadata locks are held, so lock refreshes all collected entries after acquiring the locks.
-     * Later lookups overwrite entries with the metadata seen during analysis.
+     * Nested capture context for planning-time metadata. Initial relation lookup only resolves tables;
+     * fingerprint entries are recorded once after locking, with late relations locked before capture.
+     * The analyze hook records the explicitly bound partition IDs separately.
      */
     private static final class CaptureStatementContext extends StatementContext {
         private final java.util.Map<String, String> tableFingerprints =
                 new java.util.concurrent.ConcurrentHashMap<>();
+        private final java.util.Map<org.apache.doris.catalog.TableIf, String> capturedTables =
+                new java.util.IdentityHashMap<>();
+        private boolean planningLocked;
 
-        /**
-         * table id -> partition id -> the name the LOCKED bind resolved (see
-         * OptimizeResult.getPartitionNames).
-         */
+        /** Explicitly bound partition IDs only, recorded by the afterAnalyze hook. */
         private final java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames =
-                new java.util.concurrent.ConcurrentHashMap<>();
+                new java.util.HashMap<>();
 
         CaptureStatementContext(ConnectContext ctx, String originSql) {
             super(ctx, new OriginStatement(originSql, 0));
@@ -810,36 +811,35 @@ public class SPMOptimizer {
                 java.util.Optional<org.apache.doris.nereids.analyzer.UnboundRelation> unboundRelation) {
             org.apache.doris.catalog.TableIf table =
                     super.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
-            SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table, tableQualifier);
-            SPMPlanTreeSupport.recordPartitionNames(partitionNames,
-                    java.util.List.of(table));
+            if (planningLocked) {
+                if (!capturedTables.containsKey(table)) {
+                    // The initial ordered lock acquisition cannot cover a table first
+                    // resolved during analysis. Do not wait out of lock order; fail the
+                    // capture if a concurrent writer already owns the late table.
+                    lockTableForPlanning(table, 0, java.util.concurrent.TimeUnit.MILLISECONDS);
+                }
+                SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table, tableQualifier, capturedTables);
+            }
             return table;
         }
 
-        /**
-         * Re-hashes every collected table the moment the planning locks are HELD.
-         *
-         * CollectRelation resolves (and caches) the statement's relations BEFORE
-         * NereidsPlanner.collectAndLockTable acquires the locks, so this override's
-         * getAndCacheTable hook ran UNLOCKED: for t(k, v) a concurrent
-         * ALTER TABLE t DROP COLUMN v could land between that resolution and the lock, the
-         * locked capture froze Project(k, k + ph AS z) over Scan(t[k]) (the NEW schema) while
-         * the recorded entry still described the OLD one ([k, v]), and re-adding v with the
-         * same type / nullability restored that old name-and-type string - so the identical
-         * SELECT t.*, k + 1 AS z passed BOTH fingerprint checks and replayed a plan that
-         * omits v. Re-recording here makes every stored entry describe the
-         * schema the LOCKED bind actually saw; a table FIRST resolved after the lock is
-         * recorded correctly by getAndCacheTable, which now OVERWRITES instead of keeping the
-         * first value.
-         */
+        /** CollectRelation only resolves tables. Capture metadata once after acquiring the planning locks. */
         @Override
         public synchronized void lock() {
-            super.lock();
-            SPMPlanTreeSupport.recordTableFingerprints(tableFingerprints, getTables());
-            // the PARTITION NAMES of the locked bind, snapshotted in the same window:
-            // a RENAME PARTITION committing after this point must not change the name the
-            // frozen PARTITION(...) clause carries
-            SPMPlanTreeSupport.recordPartitionNames(partitionNames, getTables().values());
+            if (!planningLocked) {
+                capturedTables.clear();
+                tableFingerprints.clear();
+                super.lock();
+                planningLocked = true;
+                getTables().forEach((qualifier, table) ->
+                        SPMPlanTreeSupport.recordTableFingerprint(tableFingerprints, table, qualifier, capturedTables));
+            }
+        }
+
+        @Override
+        public synchronized void releasePlannerResources() {
+            planningLocked = false;
+            super.releasePlannerResources();
         }
 
         java.util.Map<String, String> getTableFingerprints() {

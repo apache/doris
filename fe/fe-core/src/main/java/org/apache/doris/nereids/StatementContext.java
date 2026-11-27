@@ -1884,20 +1884,24 @@ public class StatementContext implements Closeable {
         tableIfs.addAll(mtmvRelatedTables.values());
         tableIfs.addAll(insertTargetTables.values());
         while (!tableIfs.isEmpty()) {
-            TableIf tableIf = tableIfs.poll();
-            if (!tableIf.needReadLockWhenPlan()) {
-                continue;
-            }
-            if (!tableIf.tryReadLock(1, TimeUnit.MINUTES)) {
-                close();
-                throw new RuntimeException("Failed to get read lock on table:" + tableIf.getName());
-            }
-            String fullTableName = tableIf.getNameWithFullQualifiers();
-            String resourceName = "tableReadLock(" + fullTableName + ")";
-            plannerResources.push(new CloseableResource(
-                    resourceName, Thread.currentThread().getName(),
-                    originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
+            lockTableForPlanning(tableIfs.poll(), 1, TimeUnit.MINUTES);
         }
+    }
+
+    /** Acquires and registers one planning lock, also used for a table discovered during SPM analysis. */
+    protected final synchronized void lockTableForPlanning(TableIf tableIf, long timeout, TimeUnit unit) {
+        if (!needLockTables || !tableIf.needReadLockWhenPlan()) {
+            return;
+        }
+        if (!tableIf.tryReadLock(timeout, unit)) {
+            close();
+            throw new RuntimeException("Failed to get read lock on table:" + tableIf.getName());
+        }
+        String fullTableName = tableIf.getNameWithFullQualifiers();
+        String resourceName = "tableReadLock(" + fullTableName + ")";
+        plannerResources.push(new CloseableResource(
+                resourceName, Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
     }
 
     /** releasePlannerResources */

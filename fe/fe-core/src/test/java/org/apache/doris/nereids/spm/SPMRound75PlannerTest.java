@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
@@ -27,6 +30,7 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.qe.ConnectContext;
@@ -38,6 +42,8 @@ import org.mockito.Mockito;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Round-75 review fixes on the capture side.
@@ -48,8 +54,8 @@ import java.util.Map;
  *       them, so a concurrent `DROP COLUMN v` between that resolution and the lock left an
  *       entry describing the OLD schema while the locked bind froze the NEW one - re-adding
  *       the column then restored the old name/type string and the identical query replayed a
- *       plan that omitted it. A later hash now REPLACES an earlier one, and the capture
- *       context re-records every collected table once the locks are held;</li>
+ *       plan that omitted it. Capture now records each distinct table once, after acquiring
+ *       the planning locks;</li>
  *   <li>#2 the parser's TYPE-CONSTRUCTOR fallback (`DATE 'not-a-date'` becomes a
  *       NON-explicit `CAST('not-a-date' AS DATE)`) is a user-visible conversion, not an
  *       execution detail: stripping it froze the raw STRING and the replay returned
@@ -93,11 +99,11 @@ public class SPMRound75PlannerTest {
     }
 
     /**
-     * The capture context re-hashes every collected table when the planning locks are taken,
-     * so the map it hands back to the CREATE describes the locked schema.
+     * The capture context does not read metadata before locking, and aliases reuse the
+     * one entry describing the locked schema.
      */
     @Test
-    public void testCaptureContextRehashesWhenTheLocksAreTaken() throws Exception {
+    public void testCaptureContextReadsSchemaOnceAfterLocking() throws Exception {
         java.util.concurrent.atomic.AtomicReference<List<Column>> schema =
                 new java.util.concurrent.atomic.AtomicReference<>(
                         List.of(column("k"), column("v")));
@@ -113,30 +119,146 @@ public class SPMRound75PlannerTest {
         // no physical locks for a mocked table: the hook itself is what this test observes
         capture.setNeedLockTables(false);
 
-        capture.setTables(Map.of(List.of("db", "t"), table));
+        capture.setTables(Map.of(List.of("db", "t"), table, List.of("internal", "db", "t"), table));
         // the pre-lock CollectRelation hook: it resolves the relation BEFORE the locks
         capture.getAndCacheTable(List.of("db", "t"), StatementContext.TableFrom.QUERY,
                 java.util.Optional.empty());
         Map<String, String> preLock = new HashMap<>(fingerprintsOf(captureClass, capture));
-        Assertions.assertNotNull(preLock.get("t"),
-                "the pre-lock hook already recorded a first value");
+        Assertions.assertTrue(preLock.isEmpty());
+        Mockito.verify(table, Mockito.never()).getBaseSchema();
 
         schema.set(List.of(column("k")));
         capture.lock();
 
         Map<String, String> underLocks = new HashMap<>(fingerprintsOf(captureClass, capture));
-        Assertions.assertEquals(1, capture.getTables().size(),
-                "the statement caches its resolved table: " + capture.getTables());
-        Map<String, String> direct = new HashMap<>();
-        SPMPlanTreeSupport.recordTableFingerprints(direct, capture.getTables());
-        Assertions.assertEquals(direct.get("t"), underLocks.get("t"),
-                "the entry matches the CURRENT schema the statement holds");
-        Assertions.assertNotEquals(preLock.get("t"), underLocks.get("t"),
-                "taking the locks must rehash the collected tables");
+        capture.getAndCacheTable(List.of("db", "t"), StatementContext.TableFrom.QUERY,
+                Optional.empty());
+        capture.getAndCacheTable(List.of("internal", "db", "t"), StatementContext.TableFrom.QUERY,
+                Optional.empty());
+        Mockito.verify(table, Mockito.times(1)).getBaseSchema();
+        Assertions.assertEquals(underLocks.get("db.t"), underLocks.get("internal.db.t"));
         Map<String, String> expected = new HashMap<>();
         SPMPlanTreeSupport.recordTableFingerprint(expected, table, List.of("db", "t"));
-        Assertions.assertEquals(expected.get("t"), underLocks.get("t"),
-                "the entry the CREATE receives describes the LOCKED schema: " + underLocks);
+        Assertions.assertEquals(expected.get("t"), underLocks.get("t"));
+        capture.close();
+    }
+
+    @Test
+    public void testLateTableIsLockedBeforeCaptureAndReleased() throws Exception {
+        Class<?> captureClass = Class.forName(
+                "org.apache.doris.nereids.spm.SPMOptimizer$CaptureStatementContext");
+        java.lang.reflect.Constructor<?> ctor =
+                captureClass.getDeclaredConstructor(ConnectContext.class, String.class);
+        ctor.setAccessible(true);
+        StatementContext capture = (StatementContext) ctor.newInstance(
+                new ConnectContext(), "SELECT k FROM t");
+        TableIf late = mockedTable(new java.util.concurrent.atomic.AtomicReference<>(List.of(column("k"))));
+        Mockito.when(late.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(late.tryReadLock(0, TimeUnit.MILLISECONDS)).thenReturn(true);
+        capture.lock();
+        capture.getTables().put(List.of("db", "t"), late);
+        capture.getAndCacheTable(List.of("db", "t"), StatementContext.TableFrom.QUERY, Optional.empty());
+        capture.getAndCacheTable(List.of("db", "t"), StatementContext.TableFrom.QUERY, Optional.empty());
+        Assertions.assertNotNull(fingerprintsOf(captureClass, capture).get("db.t"));
+        capture.releasePlannerResources();
+        org.mockito.InOrder order = Mockito.inOrder(late);
+        order.verify(late).tryReadLock(0, TimeUnit.MILLISECONDS);
+        order.verify(late).getBaseSchema();
+        order.verify(late).readUnlock();
+        Mockito.verify(late, Mockito.times(1)).getBaseSchema();
+        capture.close();
+    }
+
+    @Test
+    public void testLateTableLockFailureDoesNotCaptureUnprotectedMetadata() throws Exception {
+        Class<?> captureClass = Class.forName(
+                "org.apache.doris.nereids.spm.SPMOptimizer$CaptureStatementContext");
+        java.lang.reflect.Constructor<?> ctor =
+                captureClass.getDeclaredConstructor(ConnectContext.class, String.class);
+        ctor.setAccessible(true);
+        StatementContext capture = (StatementContext) ctor.newInstance(
+                new ConnectContext(), "SELECT k FROM t");
+        TableIf late = mockedTable(new java.util.concurrent.atomic.AtomicReference<>(List.of(column("k"))));
+        Mockito.when(late.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(late.tryReadLock(0, TimeUnit.MILLISECONDS)).thenReturn(false);
+        capture.lock();
+        capture.getTables().put(List.of("db", "t"), late);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> capture.getAndCacheTable(List.of("db", "t"), StatementContext.TableFrom.QUERY,
+                        Optional.empty()));
+        Mockito.verify(late, Mockito.never()).getBaseSchema();
+        Mockito.verify(late, Mockito.never()).readUnlock();
+        Assertions.assertTrue(fingerprintsOf(captureClass, capture).isEmpty());
+    }
+
+    @Test
+    public void testNativeOlapFingerprintUsesBaseIndexAndSchemaVersion() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getId()).thenReturn(100L);
+        Mockito.when(table.getType()).thenReturn(TableIf.TableType.OLAP);
+        Mockito.when(table.getBaseIndexId()).thenReturn(200L);
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(3);
+        Map<String, String> entries = new HashMap<>();
+        SPMPlanTreeSupport.recordTableFingerprints(entries, Map.of(
+                List.of("db", "t"), table, List.of("internal", "db", "t"), table));
+        Assertions.assertEquals("t|100|olap-schema:200:3", entries.get("db.t"));
+        Assertions.assertEquals(entries.get("db.t"), entries.get("internal.db.t"));
+        Mockito.verify(table, Mockito.times(1)).getBaseSchemaVersion();
+        Mockito.verify(table, Mockito.never()).getBaseSchema();
+        Mockito.when(table.getBaseSchemaVersion()).thenReturn(4);
+        SPMPlanTreeSupport.recordTableFingerprint(entries, table, List.of("db", "t"));
+        Assertions.assertEquals("t|100|olap-schema:200:4", entries.get("db.t"));
+        Mockito.when(table.getBaseIndexId()).thenReturn(201L);
+        SPMPlanTreeSupport.recordTableFingerprint(entries, table, List.of("db", "t"));
+        Assertions.assertEquals("t|100|olap-schema:201:4", entries.get("db.t"));
+    }
+
+    @Test
+    public void testRemoteOlapStillUsesContentFingerprint() {
+        RemoteOlapTable table = Mockito.mock(RemoteOlapTable.class);
+        Mockito.when(table.getName()).thenReturn("remote");
+        Mockito.when(table.getId()).thenReturn(100L);
+        Mockito.when(table.getType()).thenReturn(TableIf.TableType.OLAP);
+        Mockito.when(table.getBaseSchema()).thenReturn(List.of(column("k")));
+        Map<String, String> entries = new HashMap<>();
+        SPMPlanTreeSupport.recordTableFingerprint(entries, table);
+        Assertions.assertTrue(entries.get("remote").contains("|nullable:"));
+        Mockito.verify(table, Mockito.times(1)).getBaseSchema();
+        Mockito.verify(table, Mockito.never()).getBaseSchemaVersion();
+    }
+
+    @Test
+    public void testPartitionSnapshotOnlyReadsExplicitPins() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(100L);
+        LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
+        Map<Long, Map<Long, SPMPlanTreeSupport.PartitionPin>> pins = new HashMap<>();
+        SPMPlanTreeSupport.recordPartitionNames(pins, scan);
+        Assertions.assertTrue(pins.isEmpty());
+        Mockito.verify(table, Mockito.never()).getPartition(Mockito.anyLong());
+
+        Partition p1 = Mockito.mock(Partition.class);
+        Partition p2 = Mockito.mock(Partition.class);
+        Mockito.when(p1.getName()).thenReturn("p1");
+        Mockito.when(p2.getName()).thenReturn("tmp");
+        Mockito.when(table.getPartition(1L)).thenReturn(p1);
+        Mockito.when(table.getPartition(2L)).thenReturn(p2);
+        Mockito.when(table.isTemporaryPartition(2L)).thenReturn(true);
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(1L, 2L));
+        SPMPlanTreeSupport.recordPartitionNames(pins, scan);
+        SPMPlanTreeSupport.recordPartitionNames(pins, scan);
+        Assertions.assertEquals(2, pins.get(100L).size());
+        Assertions.assertEquals("p1", pins.get(100L).get(1L).getName());
+        Assertions.assertFalse(pins.get(100L).get(1L).isTemporary());
+        Assertions.assertEquals("tmp", pins.get(100L).get(2L).getName());
+        Assertions.assertTrue(pins.get(100L).get(2L).isTemporary());
+        Mockito.verify(table, Mockito.times(1)).getPartition(1L);
+        Mockito.verify(table, Mockito.times(1)).getPartition(2L);
+        Mockito.verify(table, Mockito.never()).getPartitions();
+        Mockito.verify(table, Mockito.never()).getAllTempPartitions();
     }
 
     // ==================== #2: the parser's type-constructor fallback ====================

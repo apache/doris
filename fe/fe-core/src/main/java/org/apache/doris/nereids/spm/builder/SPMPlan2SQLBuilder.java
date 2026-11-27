@@ -292,7 +292,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * decompile): a pinned partition is then named from the live catalog.
      */
     public SPMPlan2SQLBuilder() {
-        this(java.util.Map.of());
+        this(null);
     }
 
     /**
@@ -304,8 +304,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     public SPMPlan2SQLBuilder(
             Map<Long, Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>>
                     partitionNames) {
-        this.capturedPartitionNames = partitionNames == null
-                ? java.util.Map.of() : partitionNames;
+        this.capturedPartitionNames = partitionNames;
     }
 
     /** Fuses freeze guards while retaining session, subquery, reserved-name error precedence. */
@@ -1339,7 +1338,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         List<Long> sortedIds = new ArrayList<>(pinnedIds);
         Collections.sort(sortedIds);
         Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin> tablePins =
-                capturedPartitionNames.get(table.getId());
+                capturedPartitionNames == null ? null : capturedPartitionNames.get(table.getId());
+        if (capturedPartitionNames != null
+                && (tablePins == null || !tablePins.keySet().containsAll(pinnedIds))) {
+            throw new UnsupportedOperationException("SPM decompile: partition pin missing from the capture snapshot"
+                    + " for table " + table.getName());
+        }
         // The NAMESPACE comes from the CAPTURE: a temporary pin promoted to a
         // formal partition (use_temp_partition_name=true) between the unlock and this render made
         // the live check say "formal", the frozen text said PARTITION(name), and an identical

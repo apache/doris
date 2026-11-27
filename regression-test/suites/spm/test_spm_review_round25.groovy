@@ -145,8 +145,8 @@ suite("test_spm_review_round25", "spm") {
                     + wideFingerprint.length())
     assertEquals(10, wideFingerprint.split(";").findAll { it.startsWith("spm_r25_w") }.size(),
             "one entry per table: " + wideFingerprint)
-    assertTrue(wideFingerprint.contains("nullable:"),
-            "the nullability digest section is persisted: " + wideFingerprint)
+    assertEquals(10, wideFingerprint.split(";").findAll { it.contains("|olap-schema:") }.size(),
+            "native OLAP dependencies use base-index/schema versions: " + wideFingerprint)
     assertTrue(explainOf(wideQuery).contains("SPM baseline hit: id=${wideId}"),
             "the wide baseline must be usable: " + explainOf(wideQuery))
 }
