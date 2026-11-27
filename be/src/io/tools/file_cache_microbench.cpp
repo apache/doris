@@ -40,6 +40,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -333,16 +334,18 @@ struct FileInfo {
 
 class S3FileRecords {
 public:
-    void add_file_info(const std::string& source_id, const ::FileInfo& file_info) {
+    void add_file_info(const std::string& job_id, const ::FileInfo& file_info) {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto& files = records_[source_id];
-        for (auto& existing : files) {
-            if (existing.filename == file_info.filename) {
-                existing = file_info;
-                return;
-            }
+        records_[job_id].emplace_back(file_info);
+    }
+
+    bool has_conflicting_prefix_for_job(const std::string& job_id, const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = records_.find(job_id);
+        if (it == records_.end() || it->second.empty()) {
+            return false;
         }
-        files.emplace_back(file_info);
+        return !it->second.front().filename.starts_with(prefix_dir);
     }
 
     int64_t get_exist_job_perfile_size_by_prefix(const std::string& file_prefix) {
@@ -394,8 +397,115 @@ private:
     std::map<std::string, std::vector<::FileInfo>> records_;
 };
 
-// Create a global S3FileRecords instance
+// Create a global S3FileRecords instance (only S3-backed uploaded files)
 S3FileRecords s3_file_records;
+
+// Separate registry for cache-only peer_cache_seed entries so legacy S3-only readers never select
+// unuploaded keys (F-14), upserts stay O(1) (F-10), and each source_id binds to one prefix_dir to
+// prevent basename collisions in BlockFileCache (F-12).
+class PeerSeedRecords {
+public:
+    class SourceClaimGuard {
+    public:
+        SourceClaimGuard() = default;
+        SourceClaimGuard(PeerSeedRecords* owner, std::string source_id)
+                : _owner(owner), _source_id(std::move(source_id)) {}
+        SourceClaimGuard(const SourceClaimGuard&) = delete;
+        SourceClaimGuard& operator=(const SourceClaimGuard&) = delete;
+        SourceClaimGuard(SourceClaimGuard&& other) noexcept
+                : _owner(other._owner), _source_id(std::move(other._source_id)) {
+            other._owner = nullptr;
+        }
+        ~SourceClaimGuard() {
+            if (_owner != nullptr) {
+                _owner->release_source_claim(_source_id);
+            }
+        }
+
+    private:
+        PeerSeedRecords* _owner = nullptr;
+        std::string _source_id;
+    };
+
+    SourceClaimGuard claim_source_prefix(const std::string& source_id,
+                                         const std::string& prefix_dir) {
+        if (s3_file_records.has_conflicting_prefix_for_job(source_id, prefix_dir)) {
+            throw std::runtime_error(
+                    "source_job_id '" + source_id +
+                    "' is already used by an S3 write job under a different file_prefix; use a "
+                    "distinct source_job_id to avoid cache filename collision");
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(source_id);
+        if (it != entries_.end()) {
+            if (it->second.prefix_dir != prefix_dir) {
+                throw std::runtime_error(
+                        "source_job_id '" + source_id + "' is already bound to prefix '" +
+                        it->second.prefix_dir + "' (cannot reuse with '" + prefix_dir +
+                        "'); use a distinct source_job_id per file_prefix to avoid cache "
+                        "filename collision");
+            }
+            ++it->second.active_seeds;
+        } else {
+            SourceEntry entry;
+            entry.prefix_dir = prefix_dir;
+            entry.active_seeds = 1;
+            entries_.emplace(source_id, std::move(entry));
+        }
+        return SourceClaimGuard(this, source_id);
+    }
+
+    void upsert_file_info(const std::string& source_id, const std::string& prefix_dir,
+                          const ::FileInfo& file_info) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto& entry = entries_[source_id];
+        if (entry.prefix_dir.empty()) {
+            entry.prefix_dir = prefix_dir;
+        }
+        auto idx_it = entry.filename_to_index.find(file_info.filename);
+        if (idx_it != entry.filename_to_index.end()) {
+            entry.files[idx_it->second] = file_info;
+        } else {
+            entry.filename_to_index.emplace(file_info.filename, entry.files.size());
+            entry.files.emplace_back(file_info);
+        }
+        prefix_to_source_[prefix_dir] = source_id;
+    }
+
+    std::string find_source_id_by_prefix(const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = prefix_to_source_.find(prefix_dir);
+        if (it != prefix_to_source_.end()) {
+            return it->second;
+        }
+        return "";
+    }
+
+private:
+    struct SourceEntry {
+        std::string prefix_dir;
+        size_t active_seeds = 0;
+        std::vector<::FileInfo> files;
+        std::unordered_map<std::string, size_t> filename_to_index;
+    };
+
+    void release_source_claim(const std::string& source_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(source_id);
+        if (it != entries_.end() && it->second.active_seeds > 0) {
+            --it->second.active_seeds;
+            if (it->second.active_seeds == 0 && it->second.files.empty()) {
+                entries_.erase(it);
+            }
+        }
+    }
+
+    std::mutex mutex_;
+    std::unordered_map<std::string, SourceEntry> entries_;
+    std::unordered_map<std::string, std::string> prefix_to_source_;
+};
+
+PeerSeedRecords peer_seed_records;
 
 class MicrobenchS3FileWriter {
 public:
@@ -1115,7 +1225,20 @@ private:
         }
     }
 
+    static void validate_peer_source_job_id(const std::string& source_job_id) {
+        if (source_job_id.empty()) {
+            return;
+        }
+        if (source_job_id == "." || source_job_id == ".." ||
+            source_job_id.find('/') != std::string::npos ||
+            source_job_id.find('\\') != std::string::npos) {
+            throw std::runtime_error(
+                    "source_job_id must not contain path separators or be '.'/'..'");
+        }
+    }
+
     static void validate_peer_seed_config(const JobConfig& config) {
+        validate_peer_source_job_id(config.source_job_id);
         if (config.num_threads <= 0 || config.num_threads > 10000) {
             throw std::runtime_error("num_threads must be between 1 and 10000");
         }
@@ -1138,6 +1261,7 @@ private:
     }
 
     static void validate_peer_read_config(const JobConfig& config) {
+        validate_peer_source_job_id(config.source_job_id);
         if (config.num_threads <= 0 || config.num_threads > 10000) {
             throw std::runtime_error("num_threads must be between 1 and 10000");
         }
@@ -1746,22 +1870,36 @@ public:
         LOG(INFO) << "JobManager stopped";
     }
 
-    // Record file information.
-    // owner_job_id identifies the submitted Job in _jobs; source_id identifies the key namespace
-    // stored in S3FileRecords (defaults to owner_job_id when empty).
-    void record_file_info(const std::string& key, size_t data_size, const std::string& owner_job_id,
-                          const std::string& source_id = "") {
-        const std::string& effective_source_id = source_id.empty() ? owner_job_id : source_id;
+    // Record S3-backed file information for legacy write jobs.
+    void record_file_info(const std::string& key, size_t data_size, const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _jobs.find(owner_job_id);
+        auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
-            ::FileInfo file_info = {
-                    .filename = key, .data_size = data_size, .job_id = effective_source_id};
+            ::FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = job_id};
             it->second->file_records.push_back(file_info);
-            s3_file_records.add_file_info(effective_source_id, file_info);
+            s3_file_records.add_file_info(job_id, file_info);
         } else {
-            LOG(ERROR) << "Job ID not found when recording file info: " << owner_job_id;
+            LOG(ERROR) << "Job ID not found when recording file info: " << job_id;
         }
+    }
+
+    // Record cache-only peer seed file information without polluting S3FileRecords.
+    void record_peer_seed_file_info(const std::string& key, size_t data_size,
+                                    const std::string& owner_job_id, const std::string& source_id,
+                                    const std::string& prefix_dir) {
+        ::FileInfo file_info = {.filename = key, .data_size = data_size, .job_id = source_id};
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            auto it = _jobs.find(owner_job_id);
+            if (it != _jobs.end()) {
+                it->second->file_records.push_back(file_info);
+            } else {
+                LOG(ERROR) << "Job ID not found when recording peer seed file info: "
+                           << owner_job_id;
+                return;
+            }
+        }
+        peer_seed_records.upsert_file_info(source_id, prefix_dir, file_info);
     }
 
     // Cancel job (not implemented yet)
@@ -2169,23 +2307,12 @@ public:
 
 private:
     static bool has_inflight_async_write_for_key(doris::io::BlockFileCache* cache,
-                                                 const doris::io::UInt128Wrapper& hash,
-                                                 size_t file_size) {
+                                                 const doris::io::UInt128Wrapper& hash) {
         auto* inflight_index = cache->inflight_write_buffer_index();
-        if (inflight_index != nullptr && inflight_index->count() > 0 && file_size > 0) {
-            const size_t block_size = std::max<size_t>(
-                    1, static_cast<size_t>(doris::config::file_cache_each_block_size));
-            for (size_t off = 0; off < file_size; off += block_size) {
-                if (inflight_index->lookup(hash, off) != nullptr) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return inflight_index != nullptr && inflight_index->has_entries_for_hash(hash);
     }
 
-    static void clear_local_cache_for_key(const std::string& key, size_t file_size,
-                                          bool wait_for_cold = true) {
+    static void clear_local_cache_for_key(const std::string& key, bool wait_for_cold = true) {
         auto hash = doris::io::BlockFileCache::hash(doris::io::Path(key).filename().native());
         auto* cache = doris::io::FileCacheFactory::instance()->get_by_path(hash);
         if (cache == nullptr) {
@@ -2202,7 +2329,7 @@ private:
         auto* inflight_index = cache->inflight_write_buffer_index();
 
         auto has_pending_async_state = [&]() -> bool {
-            if (has_inflight_async_write_for_key(cache, hash, file_size)) {
+            if (has_inflight_async_write_for_key(cache, hash)) {
                 return true;
             }
             if ((inflight_index == nullptr ||
@@ -2220,14 +2347,23 @@ private:
                 if (!cache->dump_structure(hash).empty()) {
                     cache->remove_if_cached(hash);
                 }
-                if (cache->dump_structure(hash).empty() && !has_pending_async_state()) {
+                if (cache->has_pending_async_removes(hash)) {
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto remaining_ms =
+                            now < deadline ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                     deadline - now)
+                                           : std::chrono::milliseconds(0);
+                    static_cast<void>(cache->wait_for_async_removes(hash, remaining_ms));
+                }
+                if (cache->dump_structure(hash).empty() &&
+                    !cache->has_pending_async_removes(hash) && !has_pending_async_state()) {
                     return;
                 }
             }
             if (std::chrono::steady_clock::now() >= deadline) {
                 throw std::runtime_error(
-                        "Timed out waiting for local cache blocks and async inflight writes to "
-                        "drain for key " +
+                        "Timed out waiting for local cache blocks, async physical removals, and "
+                        "async inflight writes to drain for key " +
                         key);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2238,14 +2374,15 @@ private:
         const JobConfig& config = job.config;
         const std::string seed_id =
                 config.source_job_id.empty() ? job.job_id : config.source_job_id;
+        const std::string prefix_dir = get_prefix() + config.file_prefix + "/";
+        auto source_claim = peer_seed_records.claim_source_prefix(seed_id, prefix_dir);
         LOG(INFO) << "Executing peer_cache_seed job " << job.job_id << ", seed_id=" << seed_id
                   << ", config: " << config.to_string();
 
         std::vector<std::string> keys;
         keys.reserve(config.num_files);
         for (int i = 0; i < config.num_files; ++i) {
-            keys.push_back(get_prefix() + config.file_prefix + "/" + seed_id + "_" +
-                           std::to_string(i));
+            keys.push_back(prefix_dir + seed_id + "_" + std::to_string(i));
         }
 
         const doris::io::FileCacheType cache_type = parse_file_cache_type(config.cache_type);
@@ -2279,7 +2416,7 @@ private:
                         throw std::runtime_error("No file cache instance found for key " + key);
                     }
                     if (config.overwrite_existing) {
-                        clear_local_cache_for_key(key, file_size, /*wait_for_cold=*/true);
+                        clear_local_cache_for_key(key, /*wait_for_cold=*/true);
                     }
 
                     doris::io::ReadStatistics local_stats;
@@ -2389,8 +2526,16 @@ private:
                                 }
                             }
                             if (need_retry) {
-                                if (saw_deleting && config.overwrite_existing) {
-                                    cache->remove_if_cached(hash);
+                                if (saw_deleting) {
+                                    if (config.overwrite_existing) {
+                                        cache->remove_if_cached(hash);
+                                    }
+                                    const auto now = std::chrono::steady_clock::now();
+                                    if (now < deadline && cache->has_pending_async_removes(hash)) {
+                                        auto rem = std::chrono::duration_cast<
+                                                std::chrono::milliseconds>(deadline - now);
+                                        static_cast<void>(cache->wait_for_async_removes(hash, rem));
+                                    }
                                 }
                                 if (std::chrono::steady_clock::now() >= deadline) {
                                     throw std::runtime_error("Timed out seeding block for key " +
@@ -2406,7 +2551,7 @@ private:
                         offset += req_size;
                     }
 
-                    record_file_info(key, file_size, job.job_id, seed_id);
+                    record_peer_seed_file_info(key, file_size, job.job_id, seed_id, prefix_dir);
                     total_bytes_written.fetch_add(local_bytes, std::memory_order_relaxed);
                     total_blocks_seeded.fetch_add(local_blocks, std::memory_order_relaxed);
                     total_files_seeded.fetch_add(1, std::memory_order_relaxed);
@@ -2488,10 +2633,13 @@ private:
             }
         }
 
+        const std::string prefix_dir = get_prefix() + config.file_prefix + "/";
         std::string resolved_source_job_id = config.source_job_id;
         if (resolved_source_job_id.empty()) {
-            resolved_source_job_id =
-                    s3_file_records.find_job_id_by_prefix(get_prefix() + config.file_prefix + "/");
+            resolved_source_job_id = peer_seed_records.find_source_id_by_prefix(prefix_dir);
+            if (resolved_source_job_id.empty()) {
+                resolved_source_job_id = s3_file_records.find_job_id_by_prefix(prefix_dir);
+            }
             if (resolved_source_job_id.empty()) {
                 throw std::runtime_error(
                         "source_job_id is required when no local file records match file_prefix=" +
@@ -2507,10 +2655,9 @@ private:
                            std::to_string(i));
         }
 
-        const size_t file_size_for_clear = static_cast<size_t>(config.size_bytes_perfile);
         if (!config.direct_peer_rpc && config.clear_local_cache_before_read) {
             for (const auto& key : keys) {
-                clear_local_cache_for_key(key, file_size_for_clear, /*wait_for_cold=*/true);
+                clear_local_cache_for_key(key, /*wait_for_cold=*/true);
             }
         }
 
@@ -2519,7 +2666,7 @@ private:
         const int64_t offset_right = std::min(config.read_offset_right, config.size_bytes_perfile);
         const int64_t length_left = config.read_length_left;
         const int64_t length_right =
-                std::min(config.read_length_right, config.size_bytes_perfile + 1);
+                std::min(config.read_length_right - 1, config.size_bytes_perfile) + 1;
         if (offset_left >= offset_right) {
             throw std::runtime_error(
                     "read_offset_left must be less than min(read_offset_right, "
@@ -2703,8 +2850,7 @@ private:
 
                                 size_t aligned_start = (chunk_start / block_size) * block_size;
                                 size_t aligned_end = std::min(
-                                        file_size,
-                                        ((chunk_end + block_size - 1) / block_size) * block_size);
+                                        file_size, ((chunk_end - 1) / block_size + 1) * block_size);
                                 std::vector<doris::io::FileBlock::Range> ranges;
                                 for (size_t cur = aligned_start; cur < aligned_end;) {
                                     size_t seg_end = std::min(aligned_end, cur + block_size);
@@ -2791,8 +2937,6 @@ private:
                                                          static_cast<double>(worker_lat_us.size());
                             std::lock_guard<std::mutex> lock(stats_mutex);
                             global_max_read_us = std::max(global_max_read_us, worker_max_us);
-                            all_latencies_us.reserve(all_latencies_us.size() +
-                                                     worker_lat_us.size());
                             for (double lat : worker_lat_us) {
                                 all_latencies_us.push_back({lat, sample_weight});
                             }
@@ -2830,14 +2974,10 @@ private:
                                 std::hash<std::string> {}(key) ^
                                 ((static_cast<uint64_t>(idx) + 1) * 0x9e3779b97f4a7c15ULL));
 
+                        // Release shared ownership normally instead of calling close() eagerly:
+                        // a losing S3 peer-race task may still hold the underlying reader and
+                        // invoke read_at(), and the last CachedRemoteFileReader owner closes it.
                         std::unique_ptr<MicrobenchFileReader> persistent_reader;
-                        doris::Defer close_persistent {[&]() {
-                            if (persistent_reader) {
-                                if (auto st = persistent_reader->close(); !st.ok()) {
-                                    LOG(ERROR) << "close peer reader failed: " << st.to_string();
-                                }
-                            }
-                        }};
 
                         if (!config.clear_local_cache_each_repeat) {
                             persistent_reader = std::make_unique<MicrobenchFileReader>(
@@ -2859,16 +2999,8 @@ private:
                             }
                             std::unique_ptr<MicrobenchFileReader> repeat_reader;
                             MicrobenchFileReader* active_reader = persistent_reader.get();
-                            doris::Defer close_repeat {[&]() {
-                                if (repeat_reader) {
-                                    if (auto st = repeat_reader->close(); !st.ok()) {
-                                        LOG(ERROR) << "close repeat peer reader failed: "
-                                                   << st.to_string();
-                                    }
-                                }
-                            }};
                             if (config.clear_local_cache_each_repeat) {
-                                clear_local_cache_for_key(key, file_size, /*wait_for_cold=*/true);
+                                clear_local_cache_for_key(key, /*wait_for_cold=*/true);
                                 repeat_reader = std::make_unique<MicrobenchFileReader>(
                                         open_cached_reader(key), job.read_limiter);
                                 active_reader = repeat_reader.get();
@@ -2940,8 +3072,6 @@ private:
                                                          static_cast<double>(worker_lat_us.size());
                             std::lock_guard<std::mutex> lock(stats_mutex);
                             global_max_read_us = std::max(global_max_read_us, worker_max_us);
-                            all_latencies_us.reserve(all_latencies_us.size() +
-                                                     worker_lat_us.size());
                             for (double lat : worker_lat_us) {
                                 all_latencies_us.push_back({lat, sample_weight});
                             }

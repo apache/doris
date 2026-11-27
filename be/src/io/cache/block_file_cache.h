@@ -316,6 +316,11 @@ public:
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
 
+    // Wait until all queued and in-flight async storage removals for `hash` finish on disk.
+    // Returns true when no async removals remain before `timeout`, or false on timeout/shutdown.
+    bool wait_for_async_removes(const UInt128Wrapper& hash, std::chrono::milliseconds timeout);
+    [[nodiscard]] bool has_pending_async_removes(const UInt128Wrapper& hash) const;
+
     // Reset the block size and keep FileBlock, LRU queue, and cache counters consistent.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
                      std::lock_guard<std::mutex>& cache_lock);
@@ -578,8 +583,10 @@ private:
 
     mutable std::mutex _mutex;
     bool _close {false};
+    bool _gc_wake {false};
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
+    std::condition_variable _gc_cv;
     std::thread _cache_background_monitor_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
@@ -614,6 +621,11 @@ private:
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
+    mutable std::mutex _recycle_mtx;
+    std::condition_variable _recycle_cv;
+    bool _recycle_closed {false};
+    std::unordered_map<UInt128Wrapper, size_t, KeyHash> _pending_async_removes;
+    void _finish_async_remove(const UInt128Wrapper& hash);
 
     // Blocks that were busy when something asked to delete them. They keep sitting in _files
     // until their last reference goes away. Only FileBlocksHolder and FileBlocksProbeResult

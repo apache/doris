@@ -473,6 +473,12 @@ BlockFileCache::~BlockFileCache() {
         _close = true;
     }
     _close_cv.notify_all();
+    _gc_cv.notify_all();
+    {
+        std::lock_guard recycle_lock(_recycle_mtx);
+        _recycle_closed = true;
+    }
+    _recycle_cv.notify_all();
     if (_cache_background_monitor_thread.joinable()) {
         _cache_background_monitor_thread.join();
     }
@@ -2025,13 +2031,17 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 LOG_WARNING("").error(st);
             }
         } else {
-            // the file will be deleted in the bottom half
-            // so there will be a window that the file is not in the cache but still in the storage
-            // but it's ok, because the rowset is stale already
+            // Track queued and in-flight async storage removals before enqueuing (and before
+            // erasing _files) so retirement barriers cover the entire physical unlink window.
+            {
+                std::lock_guard recycle_lock(_recycle_mtx);
+                ++_pending_async_removes[key.hash];
+            }
             bool ret = _recycle_keys.enqueue(key);
             if (ret) [[likely]] {
                 *_recycle_keys_length_recorder << _recycle_keys.size_approx();
             } else {
+                Defer finish_remove {[&]() { _finish_async_remove(key.hash); }};
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 int64_t duration_ns = 0;
                 Status st;
@@ -2626,7 +2636,9 @@ void BlockFileCache::run_background_gc() {
         size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
         {
             std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
+            _gc_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms),
+                            [this]() { return _close || _gc_wake; });
+            _gc_wake = false;
             if (_close) {
                 break;
             }
@@ -2637,6 +2649,7 @@ void BlockFileCache::run_background_gc() {
         recycle_deleting_blocks(batch_limit);
 
         while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
+            Defer finish_remove {[&]() { _finish_async_remove(key.hash); }};
             int64_t duration_ns = 0;
             Status st;
             {
@@ -2652,6 +2665,58 @@ void BlockFileCache::run_background_gc() {
         }
         *_recycle_keys_length_recorder << _recycle_keys.size_approx();
         batch_count = 0;
+    }
+}
+
+void BlockFileCache::_finish_async_remove(const UInt128Wrapper& hash) {
+    std::lock_guard recycle_lock(_recycle_mtx);
+    auto it = _pending_async_removes.find(hash);
+    DORIS_CHECK(it != _pending_async_removes.end());
+    if (--it->second == 0) {
+        _pending_async_removes.erase(it);
+        _recycle_cv.notify_all();
+    }
+}
+
+bool BlockFileCache::has_pending_async_removes(const UInt128Wrapper& hash) const {
+    std::lock_guard recycle_lock(_recycle_mtx);
+    return _pending_async_removes.find(hash) != _pending_async_removes.end();
+}
+
+bool BlockFileCache::wait_for_async_removes(const UInt128Wrapper& hash,
+                                            std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        {
+            std::lock_guard recycle_lock(_recycle_mtx);
+            if (_pending_async_removes.find(hash) == _pending_async_removes.end()) {
+                return true;
+            }
+            if (_recycle_closed) {
+                return false;
+            }
+        }
+        {
+            std::lock_guard close_lock(_close_mtx);
+            if (_close) {
+                return false;
+            }
+            _gc_wake = true;
+        }
+        _gc_cv.notify_one();
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return !has_pending_async_removes(hash);
+        }
+        const auto wait_until = std::min(deadline, now + std::chrono::milliseconds(50));
+        std::unique_lock recycle_lock(_recycle_mtx);
+        if (_recycle_cv.wait_until(recycle_lock, wait_until, [&]() {
+                return _recycle_closed ||
+                       _pending_async_removes.find(hash) == _pending_async_removes.end();
+            })) {
+            return _pending_async_removes.find(hash) == _pending_async_removes.end();
+        }
     }
 }
 

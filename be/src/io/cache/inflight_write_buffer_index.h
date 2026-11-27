@@ -91,6 +91,9 @@ public:
     /// Return the number of indexed block payloads.
     size_t count() const { return _count.load(std::memory_order_relaxed); }
 
+    /// Return whether any in-flight payload is currently indexed for `cache_hash`.
+    bool has_entries_for_hash(const UInt128Wrapper& cache_hash) const;
+
     /// Return the buffer-capacity bytes retained by all current index entries.
     size_t buffer_bytes() const { return _buffer_bytes.load(std::memory_order_relaxed); }
 
