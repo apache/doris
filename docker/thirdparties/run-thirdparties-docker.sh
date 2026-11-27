@@ -1395,6 +1395,7 @@ start_hive_stack() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
+    local iceberg_data_url="${ICEBERG_DATA_ARCHIVE_URL:-https://doris-teamcity-regression.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/iceberg_data_spark40_paimon210.zip}"
     LANCE_SPARK_VERSION=0.4.0
     LANCE_SPARK_JAR="lance-spark-bundle-4.0_2.13-${LANCE_SPARK_VERSION}.jar"
     LANCE_SPARK_JAR_PATH="${ICEBERG_DIR}/data/input/jars/${LANCE_SPARK_JAR}"
@@ -1405,15 +1406,28 @@ start_iceberg() {
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
     compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # Reused data from the previous archive lacks the Paimon jars mounted below.
+        # Check only Paimon here; the Lance jar is downloaded separately afterward.
+        if [[ -d "${ICEBERG_DIR}/data" ]]; then
+            local jar
+            for jar in $(grep -o '\./data/input/jars/paimon[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
+                if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
+                    echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
+                    reset_data_dirs "${ICEBERG_DIR:?}/data"
+                    rmdir "${ICEBERG_DIR}/data"
+                    break
+                fi
+            done
+        fi
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
-                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
-                unzip iceberg_data_spark40_paimon142.zip
+                wget -O iceberg_data_spark40_paimon210.zip "${iceberg_data_url}"
+                unzip iceberg_data_spark40_paimon210.zip
                 mv iceberg_data data
-                rm -rf iceberg_data_spark40_paimon142.zip
+                rm -rf iceberg_data_spark40_paimon210.zip
             )
         else
             echo "${ICEBERG_DIR}/data exists, continue !"
