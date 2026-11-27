@@ -885,6 +885,7 @@ struct OrcReaderScanState {
     size_t orc_lazy_input_rows = 0;
     bool enable_lazy_materialization = true;
     bool enable_filter_by_min_max = true;
+    bool enable_dict_filter_for_expr = false;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
     OrcSargBuildOptions sarg_build_options;
@@ -1026,16 +1027,25 @@ private:
     void _add_predicate(const VExprContextSPtr& conjunct) {
         const auto& root = conjunct->root();
         const auto& children = root->children();
-        // Only direct slot/literal comparisons and IN lists are stable dictionary predicates.
+        // Direct slot/literal comparisons and IN lists are stable dictionary predicates. A
+        // planner-approved value-derived predicate such as split_by_string(col, '|')[1] = 'cn'
+        // is equally stable: _has_match evaluates the whole conjunct over the dictionary values
+        // and over a NULL row, so a NULL-propagating expression over this single column is exact.
         // Casts, multi-column expressions and mutable runtime filters retain row-level evaluation.
         if ((root->node_type() != TExprNodeType::BINARY_PRED &&
              root->node_type() != TExprNodeType::IN_PRED) ||
-            root->is_rf_wrapper() || children.size() < 2 || !children[0]->is_slot_ref() ||
+            root->is_rf_wrapper() || children.size() < 2 ||
             !std::ranges::all_of(children.begin() + 1, children.end(),
                                  [](const auto& child) { return child->is_literal(); })) {
             return;
         }
-        const auto* slot = assert_cast<const VSlotRef*>(children[0].get());
+        const auto* slot = VExpr::first_slot_ref(children[0]);
+        if (slot == nullptr ||
+            (!children[0]->is_slot_ref() &&
+             !VExpr::can_push_down_to_dict_filter(root, slot->column_id(),
+                                                  _reader->_state->enable_dict_filter_for_expr))) {
+            return;
+        }
         const auto& request = *_reader->_request;
         const auto column = std::ranges::find_if(request.local_positions, [&](const auto& entry) {
             return static_cast<int64_t>(entry.second.value()) == slot->column_id();
@@ -1291,6 +1301,7 @@ Status OrcReader::init(RuntimeState* state) {
     if (state != nullptr) {
         _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
+        _state->enable_dict_filter_for_expr = state->query_options().enable_dict_filter_for_expr;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
         if (state->query_options().__isset.max_pushdown_conditions_per_column) {

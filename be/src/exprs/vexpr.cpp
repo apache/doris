@@ -478,6 +478,21 @@ bool VExpr::can_push_down_to_dict_filter(const VExprSPtr& root, int slot_id, boo
            !references_dict_unsafe_function(*children[0]);
 }
 
+const VSlotRef* VExpr::first_slot_ref(const VExprSPtr& root) {
+    if (root == nullptr) {
+        return nullptr;
+    }
+    if (root->is_slot_ref()) {
+        return assert_cast<const VSlotRef*>(root.get());
+    }
+    for (const auto& child : root->children()) {
+        if (const auto* slot = first_slot_ref(child); slot != nullptr) {
+            return slot;
+        }
+    }
+    return nullptr;
+}
+
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {

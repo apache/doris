@@ -2802,12 +2802,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = ENABLE_DICT_FILTER_FOR_EXPR,
-            description = {"控制 orc/parquet reader 是否允许把单列确定性字符串表达式谓词"
-                    + "(如 split_by_string(col,sep)[n]='x')下推到列字典上求值。默认为 true。",
-                    "Controls whether orc/parquet readers may evaluate a single-slot "
-                            + "deterministic string expression predicate (e.g. "
-                            + "split_by_string(col,sep)[n]='x') on the column dictionary. "
-                            + "The default value is true."},
+            description = "Controls whether orc/parquet readers may evaluate a single-slot "
+                    + "deterministic string expression predicate (e.g. "
+                    + "split_by_string(col,sep)[n]='x') on the column dictionary. "
+                    + "The default value is true.",
             needForward = true)
     public boolean enableDictFilterForExpr = true;
 

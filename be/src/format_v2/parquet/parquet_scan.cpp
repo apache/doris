@@ -44,6 +44,7 @@
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -1917,13 +1918,54 @@ detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
     return schedule;
 }
 
-bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
+// A value-derived dictionary conjunct is an EQ/IN predicate whose comparison side is a
+// planner-approved expression over exactly one slot, e.g. split_by_string(col, '|')[1] = 'cn'.
+// VExpr::can_push_down_to_dict_filter re-verifies the planner verdict, the single-slot
+// derivation and the known-unsafe function veto on the BE side; bare slot references are left
+// to the typed comparison kernels.
+bool is_value_derived_dictionary_conjunct(const VExprSPtr& root, size_t block_position) {
+    DORIS_CHECK(root != nullptr);
+    if (!VExpr::can_push_down_to_dict_filter(root, cast_set<int>(block_position), true)) {
+        return false;
+    }
+    return !root->children().front()->is_slot_ref();
+}
+
+// The dictionary block carries the file type, while the predicate was prepared on the slot
+// type. STRING and VARCHAR share one in-memory representation, so a Hive VARCHAR slot over a
+// STRING file column evaluates unchanged; every other type must match exactly.
+bool dictionary_block_type_matches(const DataTypePtr& slot_type, const DataTypePtr& column_type) {
+    const auto slot_primitive = remove_nullable(slot_type)->get_primitive_type();
+    const auto column_primitive = remove_nullable(column_type)->get_primitive_type();
+    const auto is_unpadded_string = [](PrimitiveType type) {
+        return type == TYPE_STRING || type == TYPE_VARCHAR;
+    };
+    return remove_nullable(slot_type)->equals(*remove_nullable(column_type)) ||
+           (is_unpadded_string(slot_primitive) && is_unpadded_string(column_primitive));
+}
+
+bool is_value_derived_dictionary_conjunct(const VExprSPtr& root, size_t block_position,
+                                          const DataTypePtr& column_type) {
+    if (!is_value_derived_dictionary_conjunct(root, block_position)) {
+        return false;
+    }
+    // The slot inside the value side must read the dictionary column unchanged.
+    const auto* slot = VExpr::first_slot_ref(root->children().front());
+    return slot != nullptr && dictionary_block_type_matches(slot->data_type(), column_type);
+}
+
+bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts, size_t block_position,
+                                      const DataTypePtr& column_type, bool allow_expr) {
     if (conjuncts.empty()) {
         return false;
     }
-    return std::ranges::all_of(conjuncts, [](const auto& conjunct) {
-        return conjunct != nullptr && conjunct->root() != nullptr &&
-               conjunct->root()->can_evaluate_dictionary_filter();
+    return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+        if (conjunct == nullptr || conjunct->root() == nullptr) {
+            return false;
+        }
+        return conjunct->root()->can_evaluate_dictionary_filter() ||
+               (allow_expr && is_value_derived_dictionary_conjunct(conjunct->root(), block_position,
+                                                                   column_type));
     });
 }
 
@@ -1996,6 +2038,7 @@ enum class DictionaryEntryFilterKernel {
     TYPED_FIXED_WIDTH,
     TYPED_STRING,
     VECTORIZED_RUNTIME_FILTER,
+    VECTORIZED_VALUE_DERIVED,
 };
 
 template <typename ColumnType>
@@ -2045,6 +2088,27 @@ bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn
     }
 }
 
+// One temporary block over the dictionary entries: constant placeholders up to the predicate
+// slot (slot position is metadata, so every unused position shares one constant column), then
+// the dictionary values under the file type. Dictionary entries are never NULL.
+Block build_dictionary_block(size_t block_position, const ParquetColumnSchema& column_schema,
+                             const IColumn& dictionary) {
+    Block dictionary_block;
+    const size_t dictionary_size = dictionary.size();
+    const auto dummy_type = std::make_shared<DataTypeUInt8>();
+    for (size_t position = 0; position < block_position; ++position) {
+        dictionary_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), dictionary_size),
+                                 dummy_type, "dictionary_dummy"});
+    }
+    ColumnPtr dictionary_column = dictionary.get_ptr();
+    if (column_schema.type->is_nullable()) {
+        dictionary_column =
+                ColumnNullable::create(dictionary_column, ColumnUInt8::create(dictionary_size, 0));
+    }
+    dictionary_block.insert({std::move(dictionary_column), column_schema.type, "dictionary_value"});
+    return dictionary_block;
+}
+
 Status try_apply_runtime_filters_to_dictionary(size_t block_position,
                                                const ParquetColumnSchema& column_schema,
                                                const VExprContextSPtrs& conjuncts,
@@ -2062,21 +2126,8 @@ Status try_apply_runtime_filters_to_dictionary(size_t block_position,
         return Status::OK();
     }
 
-    Block dictionary_block;
+    Block dictionary_block = build_dictionary_block(block_position, column_schema, dictionary);
     const size_t dictionary_size = dictionary.size();
-    const auto dummy_type = std::make_shared<DataTypeUInt8>();
-    for (size_t position = 0; position < block_position; ++position) {
-        // Slot position is metadata, not a reason to allocate position*rows bytes. Every unused
-        // slot shares the same one-value constant representation while preserving block indexing.
-        dictionary_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), dictionary_size),
-                                 dummy_type, "dictionary_dummy"});
-    }
-    ColumnPtr dictionary_column = dictionary.get_ptr();
-    if (column_schema.type->is_nullable()) {
-        dictionary_column =
-                ColumnNullable::create(dictionary_column, ColumnUInt8::create(dictionary_size, 0));
-    }
-    dictionary_block.insert({std::move(dictionary_column), column_schema.type, "dictionary_value"});
 
     dictionary_filter->clear();
     dictionary_filter->resize_fill(dictionary_size, 1);
@@ -2092,6 +2143,52 @@ Status try_apply_runtime_filters_to_dictionary(size_t block_position,
         }
     }
     *applied = true;
+    return Status::OK();
+}
+
+// Whether every conjunct of the group evaluates exactly on a dictionary block: the existing
+// dictionary-exact shapes (comparisons, IN, RF wrappers, compound over them) plus planner-approved
+// value-derived predicates whose slot reads the dictionary column unchanged.
+bool can_evaluate_all_on_dictionary_block(const VExprContextSPtrs& conjuncts, size_t block_position,
+                                          const DataTypePtr& column_type) {
+    return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+        return can_evaluate_dictionary_exactly(conjunct->root()) ||
+               is_value_derived_dictionary_conjunct(conjunct->root(), block_position, column_type);
+    });
+}
+
+// Evaluate the whole conjunct group over the distinct dictionary values instead of every row.
+// Every conjunct depends only on this column and constants, so the per-entry verdict is exact and
+// no residual survives; NULL rows have no dictionary entry and the reader drops them, which is
+// correct because value-derived predicates are NULL-propagating by planner verdict.
+Status apply_dictionary_block_conjuncts(size_t block_position,
+                                        const ParquetColumnSchema& column_schema,
+                                        const VExprContextSPtrs& conjuncts,
+                                        const IColumn& dictionary,
+                                        IColumn::Filter* dictionary_filter) {
+    DORIS_CHECK(dictionary_filter != nullptr);
+    Block dictionary_block = build_dictionary_block(block_position, column_schema, dictionary);
+    const size_t dictionary_size = dictionary.size();
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary_size, 1);
+    for (const auto& conjunct : conjuncts) {
+        bool can_filter_all = false;
+        const auto& root = conjunct->root();
+        if (root->is_rf_wrapper()) {
+            // Same reason as the runtime-filter kernel: the wrapper's selectivity tracking must
+            // not sample the tiny dictionary, so probe the wrapped implementation directly.
+            RETURN_IF_ERROR(root->get_impl()->execute_filter(
+                    conjunct.get(), &dictionary_block, dictionary_filter->data(), dictionary_size,
+                    false, &can_filter_all));
+        } else {
+            RETURN_IF_ERROR(conjunct->execute_filter(&dictionary_block, dictionary_filter->data(),
+                                                     dictionary_size, false, &can_filter_all));
+        }
+        if (can_filter_all) {
+            std::ranges::fill(*dictionary_filter, 0);
+            break;
+        }
+    }
     return Status::OK();
 }
 
@@ -2188,7 +2285,7 @@ bool try_apply_string_dictionary_conjunct(size_t block_position, const DataTypeP
 Status build_dictionary_entry_filter(size_t block_position,
                                      const ParquetColumnSchema& column_schema,
                                      const VExprContextSPtrs& conjuncts, const IColumn& dictionary,
-                                     IColumn::Filter* dictionary_filter,
+                                     IColumn::Filter* dictionary_filter, bool allow_expr,
                                      DictionaryEntryFilterKernel* kernel) {
     DORIS_CHECK(dictionary_filter != nullptr);
     DORIS_CHECK(kernel != nullptr);
@@ -2237,6 +2334,24 @@ Status build_dictionary_entry_filter(size_t block_position,
         return Status::OK();
     }
 
+    if (allow_expr &&
+        std::ranges::any_of(conjuncts, [&](const auto& conjunct) {
+            return is_value_derived_dictionary_conjunct(conjunct->root(), block_position,
+                                                        column_schema.type);
+        }) &&
+        can_evaluate_all_on_dictionary_block(conjuncts, block_position, column_schema.type)) {
+        // A value-derived predicate needs a real evaluation per distinct value; carry the plain
+        // comparisons of the same group on the same block instead of a second pass. Groups
+        // without one keep their typed or generic kernels: a plain comparison whose slot type
+        // differs from the file type is only the generic path's business.
+        RETURN_IF_ERROR(apply_dictionary_block_conjuncts(block_position, column_schema, conjuncts,
+                                                         dictionary, dictionary_filter));
+        *kernel = DictionaryEntryFilterKernel::VECTORIZED_VALUE_DERIVED;
+        return Status::OK();
+    }
+    // Otherwise the generic zone-map walk only evaluates the shapes it knows; a value-derived
+    // conjunct in such a group stays a residual and runs on the materialized rows.
+
     dictionary_filter->clear();
     dictionary_filter->resize_fill(dictionary.size(), 1);
     DictionaryEvalContext ctx;
@@ -2283,6 +2398,10 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
     }
 
     SCOPED_TIMER(_scan_profile.dict_filter_rewrite_time);
+    // Value-derived predicates ride on the planner verdict; an older FE that never stamps it only
+    // gets the pre-existing bare-column shapes.
+    const bool allow_expr = _runtime_state == nullptr ||
+                            _runtime_state->query_options().enable_dict_filter_for_expr;
     for (const auto& col : physical_predicate_columns) {
         const auto local_id = col.column_id();
         if (!local_id.is_valid() || local_id.value() >= static_cast<int32_t>(file_schema.size())) {
@@ -2292,8 +2411,13 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         DORIS_CHECK(position_it != request.local_positions.end());
         const auto block_position = static_cast<size_t>(position_it->second.value());
         const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
-        if (conjunct_it == schedule.single_column_conjuncts.end() ||
-            !can_evaluate_all_with_dictionary(conjunct_it->second)) {
+        if (conjunct_it == schedule.single_column_conjuncts.end()) {
+            continue;
+        }
+        const auto& column_schema = file_schema[local_id.value()];
+        DORIS_CHECK(column_schema != nullptr);
+        if (!can_evaluate_all_with_dictionary(conjunct_it->second, block_position,
+                                              column_schema->type, allow_expr)) {
             continue;
         }
         update_counter_if_not_null(_scan_profile.dict_filter_candidate_columns, 1);
@@ -2301,8 +2425,6 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         // This optimization is deliberately limited to single-column predicates with a dictionary
         // evaluable part. Mixed AND predicates are split so dictionary-covered children run as a
         // dict-id prefilter and residual children keep the normal row-level expression path.
-        const auto& column_schema = file_schema[local_id.value()];
-        DORIS_CHECK(column_schema != nullptr);
         if (column_schema->leaf_column_id < 0 ||
             column_schema->leaf_column_id >= static_cast<int>(row_group_metadata.columns.size())) {
             update_counter_if_not_null(_scan_profile.dict_filter_unsupported_columns, 1);
@@ -2336,17 +2458,18 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         }
 
         // Build a safe dictionary prefilter from the dictionary-filter interface instead of
-        // executing the row expression on a temporary dictionary block. For compound AND,
-        // VCompoundPred intentionally evaluates only dictionary-capable children, so residual
-        // predicates still run later on surviving rows.
+        // executing the row expression on a temporary dictionary block, except for the
+        // value-derived kernel which has to evaluate its expression once per distinct entry. For
+        // compound AND, VCompoundPred intentionally evaluates only dictionary-capable children, so
+        // residual predicates still run later on surviving rows.
         IColumn::Filter dictionary_filter;
         OwnedExpressionConjuncts residual_conjuncts;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_build_time);
             DictionaryEntryFilterKernel filter_kernel = DictionaryEntryFilterKernel::GENERIC;
-            RETURN_IF_ERROR(build_dictionary_entry_filter(block_position, *column_schema,
-                                                          conjunct_it->second, *dictionary_values,
-                                                          &dictionary_filter, &filter_kernel));
+            RETURN_IF_ERROR(build_dictionary_entry_filter(
+                    block_position, *column_schema, conjunct_it->second, *dictionary_values,
+                    &dictionary_filter, allow_expr, &filter_kernel));
             if (filter_kernel == DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH) {
                 update_counter_if_not_null(_scan_profile.dict_filter_typed_compare_columns, 1);
             } else if (filter_kernel == DictionaryEntryFilterKernel::TYPED_STRING) {
@@ -2354,8 +2477,13 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
             } else if (filter_kernel == DictionaryEntryFilterKernel::VECTORIZED_RUNTIME_FILTER) {
                 update_counter_if_not_null(
                         _scan_profile.dict_filter_vectorized_runtime_filter_columns, 1);
+            } else if (filter_kernel == DictionaryEntryFilterKernel::VECTORIZED_VALUE_DERIVED) {
+                update_counter_if_not_null(_scan_profile.dict_filter_value_derived_columns, 1);
+                // That kernel evaluated every conjunct exactly on the dictionary entries, so
+                // nothing of this group survives as a residual.
+            } else {
+                residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
             }
-            residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
         }
 
         // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the

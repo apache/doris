@@ -95,6 +95,8 @@ struct AnnRangeSearchEvaluationResult {
     bool dist_fulfilled = false;
 };
 
+class VSlotRef;
+
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows() and return param column index
@@ -355,6 +357,9 @@ public:
     // When allow_expr is false, only the original form (a bare column ref compared to
     // constants) is accepted, so a session variable can disable the expression case.
     static bool can_push_down_to_dict_filter(const VExprSPtr& root, int slot_id, bool allow_expr);
+
+    // First slot reference of `root`'s tree in pre-order, or nullptr when the tree reads no slot.
+    static const VSlotRef* first_slot_ref(const VExprSPtr& root);
 
     Status deep_clone(VExprSPtr* cloned_expr,
                       const VExprCloneNodeOverride& clone_node_override = {}) const;

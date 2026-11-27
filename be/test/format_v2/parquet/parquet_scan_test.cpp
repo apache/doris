@@ -573,6 +573,68 @@ VExprContextSPtr create_string_function_conjunct(int column_id, const std::strin
     return VExprContext::create_shared(std::move(root));
 }
 
+// split_by_string(slot, delimiter)[index] = literal built from the real builtin functions, the
+// shape the planner produces for a value-derived dictionary predicate. `planner_verdict` stamps
+// TExprNode.can_dict_filter exactly as the FE does for a NULL-propagating single-slot expression.
+VExprContextSPtr create_string_split_part_equals_conjunct(int column_id,
+                                                          const std::string& delimiter,
+                                                          int32_t index, const std::string& value,
+                                                          bool planner_verdict) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    // The FE types split_by_string over a nullable column as a nullable array, and the BE
+    // function's default null handling produces exactly that column type.
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(nullable_string_type));
+    auto function_node = [](const std::string& name, TExprNodeType::type node_type,
+                            TExprOpcode::type opcode, const DataTypePtr& return_type,
+                            const std::vector<DataTypePtr>& argument_types) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> thrift_argument_types;
+        for (const auto& argument_type : argument_types) {
+            thrift_argument_types.push_back(argument_type->to_thrift());
+        }
+        function.__set_arg_types(thrift_argument_types);
+        function.__set_ret_type(return_type->to_thrift());
+        function.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(node_type);
+        node.__set_opcode(opcode);
+        node.__set_type(return_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(static_cast<int16_t>(argument_types.size()));
+        node.__set_is_nullable(return_type->is_nullable());
+        return node;
+    };
+
+    auto split = VectorizedFnCall::create_shared(function_node(
+            "split_by_string", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+            array_type, {nullable_string_type, string_type}));
+    split->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_string_type, "dict_text"));
+    split->add_child(
+            VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(delimiter)));
+    auto element = VectorizedFnCall::create_shared(
+            function_node("element_at", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+                          nullable_string_type, {array_type, int_type}));
+    element->add_child(std::move(split));
+    element->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(index)));
+    auto root_node = function_node("eq", TExprNodeType::BINARY_PRED, TExprOpcode::EQ,
+                                   nullable_bool_type, {nullable_string_type, string_type});
+    if (planner_verdict) {
+        root_node.__set_can_dict_filter(true);
+    }
+    auto root = VectorizedFnCall::create_shared(root_node);
+    root->add_child(std::move(element));
+    root->add_child(VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value)));
+    return VExprContext::create_shared(std::move(root));
+}
+
 VExprContextSPtr create_string_in_conjunct(int column_id, const std::vector<std::string>& values,
                                            bool is_not_in) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
@@ -1716,6 +1778,23 @@ void write_nullable_dictionary_string_pair_parquet_file(const std::string& file_
     write_table(file_path, table, 4, true, false, false);
 }
 
+// Dictionary-encoded "region|city" strings so a value-derived predicate such as
+// split_by_string(text, '|')[1] = 'cn' has to look at a function of the dictionary entries.
+void write_dictionary_region_pair_parquet_file(const std::string& file_path, bool nullable) {
+    auto schema = arrow::schema({
+            arrow::field("text", arrow::utf8(), nullable),
+            arrow::field("score", arrow::int32(), false),
+    });
+    const std::vector<std::optional<std::string>> texts =
+            nullable ? std::vector<std::optional<std::string>> {"cn|beijing", std::nullopt,
+                                                                "us|new york", "cn|shanghai"}
+                     : std::vector<std::optional<std::string>> {"cn|beijing", "us|new york",
+                                                                "cn|shanghai", "uk|london"};
+    auto table = arrow::Table::Make(
+            schema, {build_nullable_string_array(texts), build_int32_array({10, 20, 30, 40})});
+    write_table(file_path, table, 4, true, false, false);
+}
+
 void write_int_triple_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("left", arrow::int32(), false),
@@ -2001,6 +2080,41 @@ protected:
         return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
                                                                 std::move(io_ctx), profile,
                                                                 global_rowid_context);
+    }
+
+    // Reads a dictionary-encoded "region|city" file under split_by_string(text, '|')[1] = 'cn' and
+    // returns the surviving scores; `planner_verdict` mirrors TExprNode.can_dict_filter.
+    std::vector<int32_t> read_split_part_matches(bool nullable_file, bool planner_verdict,
+                                                 bool session_enabled, RuntimeProfile* profile) {
+        write_dictionary_region_pair_parquet_file(_file_path, nullable_file);
+        auto reader = create_reader(0, -1, profile);
+        TQueryOptions options;
+        options.__set_enable_dict_filter_for_expr(session_enabled);
+        RuntimeState state {options, TQueryGlobals()};
+        EXPECT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        EXPECT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder request_builder(request.get());
+        EXPECT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        EXPECT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+        auto conjunct = create_string_split_part_equals_conjunct(0, "|", 1, "cn", planner_verdict);
+        EXPECT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        EXPECT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        EXPECT_TRUE(reader->open(request).ok());
+        std::vector<int32_t> scores;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            EXPECT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+            scores.insert(scores.end(), score_column.get_data().begin(),
+                          score_column.get_data().end());
+        }
+        conjunct->close();
+        return scores;
     }
 
     std::shared_ptr<format::FileScanRequest> open_all_row_groups(
@@ -4381,6 +4495,43 @@ TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryInRuntimeFilterUsesVectoriz
     EXPECT_EQ(counter_value(profile, "DictFilterVectorizedRuntimeFilterColumns"), 1);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 4);
     conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ValueDerivedStringPredicateFiltersThroughDictionary) {
+    RuntimeProfile profile("profile");
+    // 'cn|beijing' and 'cn|shanghai' match; the predicate never runs per row for the other two.
+    EXPECT_EQ(read_split_part_matches(false, true, true, &profile),
+              (std::vector<int32_t> {10, 30}));
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+    auto* value_derived_columns = profile.get_counter("DictFilterValueDerivedColumns");
+    ASSERT_NE(value_derived_columns, nullptr);
+    EXPECT_EQ(value_derived_columns->value(), 1);
+}
+
+TEST_F(ParquetScanTest, ValueDerivedStringPredicateDropsNullRowsLikeRowEvaluation) {
+    RuntimeProfile profile("profile");
+    // NULL text yields NULL for the split part, so the predicate is not true: the NULL row (20) is
+    // dropped by the dictionary exactly as the row-level path drops it; 'cn|shanghai' (40) stays.
+    EXPECT_EQ(read_split_part_matches(true, true, true, &profile), (std::vector<int32_t> {10, 40}));
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+}
+
+TEST_F(ParquetScanTest, ValueDerivedStringPredicateFallsBackWithoutPlannerVerdict) {
+    RuntimeProfile profile("profile");
+    // An older FE that never stamps can_dict_filter keeps the bare-column shapes only, so the
+    // conjunct runs per row and must produce the same rows.
+    EXPECT_EQ(read_split_part_matches(false, false, true, &profile),
+              (std::vector<int32_t> {10, 30}));
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterValueDerivedColumns"), 0);
+}
+
+TEST_F(ParquetScanTest, ValueDerivedStringPredicateFallsBackWhenSessionDisabled) {
+    RuntimeProfile profile("profile");
+    EXPECT_EQ(read_split_part_matches(false, true, false, &profile),
+              (std::vector<int32_t> {10, 30}));
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 0);
+    EXPECT_EQ(counter_value(profile, "DictFilterValueDerivedColumns"), 0);
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryMinMaxRuntimeFilterUsesVectorizedValues) {

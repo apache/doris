@@ -2971,6 +2971,34 @@ void write_string_filter_orc_file(const std::string& path, bool dictionary,
     out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
 }
 
+// Dictionary-encoded "region|city" strings so a value-derived predicate such as
+// split_by_string(value, '|')[1] = 'cn' has to evaluate a function of the dictionary entries.
+void write_region_filter_orc_file(const std::string& path, bool with_null = false) {
+    auto type = ::orc::Type::buildTypeFromString("struct<value:string,payload:string>");
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setDictionaryKeySizeThreshold(1.0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    auto batch = writer->createRowBatch(64);
+    auto& fields = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& values = dynamic_cast<::orc::StringVectorBatch&>(*fields.fields[0]);
+    auto& payloads = dynamic_cast<::orc::StringVectorBatch&>(*fields.fields[1]);
+    const std::array<std::string, 4> dictionary_values {"cn|beijing", "us|new york", "cn|shanghai",
+                                                        "uk|london"};
+    values.hasNulls = with_null;
+    for (size_t row = 0; row < 64; ++row) {
+        values.notNull[row] = !with_null || row % 4 != 1;
+        set_string_value(values, row, dictionary_values[row % 4]);
+        set_string_value(payloads, row, "payload");
+    }
+    fields.numElements = values.numElements = payloads.numElements = 64;
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+}
+
 void write_dictionary_name_collision_file(const std::string& path, bool nested_first,
                                           const std::string& root_name) {
     auto type = ::orc::createStructType();
@@ -4643,6 +4671,11 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
     return projection;
 }
 
+VExprContextSPtr create_string_split_part_equals_conjunct(int column_id,
+                                                          const std::string& delimiter,
+                                                          int32_t index, const std::string& value,
+                                                          bool planner_verdict);
+
 class NewOrcReaderTest : public testing::Test {
 protected:
     static void SetUpTestSuite() { TimezoneUtils::load_timezones_to_cache(); }
@@ -4699,6 +4732,52 @@ protected:
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description, io_ctx,
                                                         profile, global_rowid_context,
                                                         enable_mapping_timestamp_tz);
+    }
+
+    // Scans a dictionary-encoded "region|city" file under split_by_string(value, '|')[1] = 'cn' and
+    // returns {surviving rows, dictionary entries evaluated}. `planner_verdict` mirrors
+    // TExprNode.can_dict_filter; `session_enabled` mirrors enable_dict_filter_for_expr.
+    std::pair<size_t, int64_t> read_split_part_matches(bool with_null, bool planner_verdict,
+                                                       bool session_enabled) {
+        const auto path = (_test_dir / "dictionary_region.orc").string();
+        write_region_filter_orc_file(path, with_null);
+        RuntimeProfile profile("dictionary-region");
+        auto reader = create_reader_for_path(path, &profile);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(false);
+        options.__set_enable_dict_filter_for_expr(session_enabled);
+        RuntimeState state {options, TQueryGlobals()};
+        EXPECT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        EXPECT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {field_projection(1)};
+        auto conjunct = create_string_split_part_equals_conjunct(0, "|", 1, "cn", planner_verdict);
+        EXPECT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        EXPECT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        EXPECT_TRUE(reader->open(request).ok());
+        size_t total_rows = 0;
+        size_t null_rows = 0;
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            const auto status = reader->get_block(&block, &rows, &eof);
+            if (!status.ok()) {
+                ADD_FAILURE() << status;
+                break;
+            }
+            total_rows += rows;
+            for (size_t row = 0; row < rows; ++row) {
+                null_rows += block.get_by_position(0).column->is_null_at(row);
+            }
+        }
+        conjunct->close();
+        // Both 'cn' entries and the trailing NULL probe row are evaluated per stripe.
+        EXPECT_EQ(null_rows, 0);
+        return {total_rows, profile.get_counter("DictionaryValuesEvaluated")->value()};
     }
 
     // Builds a reader whose FileDescription carries the split byte window
@@ -8394,6 +8473,91 @@ TEST_F(NewOrcReaderTest, DictionaryKeepsNullSafeMatches) {
     EXPECT_EQ(total_rows, 1);
     EXPECT_EQ(profile.get_counter("DictionaryStripesFiltered")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictionaryValuesEvaluated")->value(), 3);
+}
+
+// split_by_string(value, delimiter)[index] = literal built from the real builtin functions, the
+// shape the planner produces for a value-derived dictionary predicate. `planner_verdict` stamps
+// TExprNode.can_dict_filter exactly as the FE does for a NULL-propagating single-slot expression.
+VExprContextSPtr create_string_split_part_equals_conjunct(int column_id,
+                                                          const std::string& delimiter,
+                                                          int32_t index, const std::string& value,
+                                                          bool planner_verdict) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    // The FE types split_by_string over a nullable column as a nullable array, and the BE
+    // function's default null handling produces exactly that column type.
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(nullable_string_type));
+    auto function_node = [](const std::string& name, TExprNodeType::type node_type,
+                            TExprOpcode::type opcode, const DataTypePtr& return_type,
+                            const std::vector<DataTypePtr>& argument_types) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> thrift_argument_types;
+        for (const auto& argument_type : argument_types) {
+            thrift_argument_types.push_back(argument_type->to_thrift());
+        }
+        function.__set_arg_types(thrift_argument_types);
+        function.__set_ret_type(return_type->to_thrift());
+        function.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(node_type);
+        node.__set_opcode(opcode);
+        node.__set_type(return_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(static_cast<int16_t>(argument_types.size()));
+        node.__set_is_nullable(return_type->is_nullable());
+        return node;
+    };
+
+    auto split = VectorizedFnCall::create_shared(function_node(
+            "split_by_string", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+            array_type, {nullable_string_type, string_type}));
+    split->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_string_type, "dict_text"));
+    split->add_child(
+            VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(delimiter)));
+    auto element = VectorizedFnCall::create_shared(
+            function_node("element_at", TExprNodeType::FUNCTION_CALL, TExprOpcode::INVALID_OPCODE,
+                          nullable_string_type, {array_type, int_type}));
+    element->add_child(std::move(split));
+    element->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(index)));
+    auto root_node = function_node("eq", TExprNodeType::BINARY_PRED, TExprOpcode::EQ,
+                                   nullable_bool_type, {nullable_string_type, string_type});
+    if (planner_verdict) {
+        root_node.__set_can_dict_filter(true);
+    }
+    auto root = VectorizedFnCall::create_shared(root_node);
+    root->add_child(std::move(element));
+    root->add_child(VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value)));
+    return VExprContext::create_shared(std::move(root));
+}
+
+TEST_F(NewOrcReaderTest, DictionaryFiltersValueDerivedStringPredicate) {
+    // 32 'cn' rows survive out of 64; the predicate ran on the 4 dictionary entries plus the NULL
+    // probe row.
+    EXPECT_EQ(read_split_part_matches(false, true, true), (std::pair<size_t, int64_t> {32, 5}));
+}
+
+TEST_F(NewOrcReaderTest, DictionaryValueDerivedPredicateDropsNullRows) {
+    // NULL value gives a NULL split part, so the predicate is not true for NULL rows: the same 32
+    // 'cn' rows survive and none of the 16 NULL rows leaks through. Every 'us' row is NULL, so the
+    // dictionary holds 3 values plus the NULL probe.
+    EXPECT_EQ(read_split_part_matches(true, true, true), (std::pair<size_t, int64_t> {32, 4}));
+}
+
+TEST_F(NewOrcReaderTest, DictionaryIgnoresValueDerivedPredicateWithoutPlannerVerdict) {
+    // An older FE that never stamps can_dict_filter keeps the direct slot/literal shapes only; the
+    // conjunct still runs per row and must produce the same rows.
+    EXPECT_EQ(read_split_part_matches(false, false, true), (std::pair<size_t, int64_t> {32, 0}));
+}
+
+TEST_F(NewOrcReaderTest, DictionaryIgnoresValueDerivedPredicateWhenSessionDisabled) {
+    EXPECT_EQ(read_split_part_matches(false, true, false), (std::pair<size_t, int64_t> {32, 0}));
 }
 
 TEST_F(NewOrcReaderTest, DictionaryPruningRespectsDirectEncodingAndPredicateFence) {
