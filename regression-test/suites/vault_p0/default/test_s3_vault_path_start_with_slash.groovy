@@ -34,12 +34,11 @@ suite("test_s3_vault_path_start_with_slash", "nonConcurrent") {
         CREATE STORAGE VAULT ${s3VaultName}
         PROPERTIES (
             "type"="S3",
-            "s3.endpoint"="${getS3Endpoint()}",
-            "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}",
-            "s3.root.path" = "/test_s3_vault_path_start_with_slash_vault",
-            "s3.bucket" = "${getS3BucketName()}",
+            "s3.endpoint"="${getS3WriteEndpoint()}",
+            "s3.region" = "${getS3WriteRegion()}",
+            ${getS3CredentialProperties()},
+            "s3.root.path" = "/${getS3WriteKey("test_s3_vault_path_start_with_slash_vault")}",
+            "s3.bucket" = "${getS3WriteBucketName()}",
             "s3.external_endpoint" = "",
             "provider" = "${getS3Provider()}",
             "use_path_style" = "false"

@@ -28,13 +28,13 @@ suite("test_outfile_orc_timestamp", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def export_table_name = "outfile_orc_complex_type_export_test"
-    def outFilePath = "${bucket}/outfile/orc/complex_type/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/orc/complex_type/exp_")}"
 
 
     def create_table = {table_name, struct_field ->
@@ -58,8 +58,7 @@ suite("test_outfile_orc_timestamp", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -98,8 +97,7 @@ suite("test_outfile_orc_timestamp", "p0") {
 
         qt_select_tvf1 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "orc",
                             "region" = "${region}"
                         );

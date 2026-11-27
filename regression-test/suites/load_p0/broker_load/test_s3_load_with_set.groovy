@@ -111,8 +111,7 @@ suite("test_s3_load_with_set", "load_p0") {
                 $attributes.dataDesc.whereExpr
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${s3Endpoint}",
                 "AWS_REGION" = "${s3Region}",
                 "use_path_style" = "$attributes.usePathStyle"

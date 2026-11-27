@@ -206,8 +206,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         qt_sql_arr_json_without_quote_s3 """
         select * from s3("uri" = "${json_files[i]}",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "json",
                 "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true") order by k1 limit 1;
@@ -216,8 +215,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         sql """
         insert into ${table_names[i]} select * from s3("uri" = "${json_files[i]}",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "json",
                 "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true")
@@ -234,8 +232,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         select * from s3(
                 "uri" = "${json_files[i]}",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "json",
                 "provider" = "${getS3Provider()}",
                 "read_json_by_line"="true") order by k1 limit 1;
@@ -245,8 +242,7 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} select * from s3 (
                "uri" = "${json_files[i]}",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "json",
                 "read_json_by_line"="true");"""
 

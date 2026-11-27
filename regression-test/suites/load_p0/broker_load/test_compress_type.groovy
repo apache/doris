@@ -136,8 +136,7 @@ suite("test_compress_type", "load_p0") {
                 $compressType
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "provider" = "${getS3Provider()}"

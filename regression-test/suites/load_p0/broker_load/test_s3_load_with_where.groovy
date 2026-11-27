@@ -80,8 +80,7 @@ suite("test_s3_load_with_where", "load_p0") {
                             FORMAT AS "${format}"
                         )
                         WITH S3 (
-                            "AWS_ACCESS_KEY" = "${getS3AK()}",
-                            "AWS_SECRET_KEY" = "${getS3SK()}",
+                            ${getS3CredentialProperties("AWS")},
                             "AWS_ENDPOINT" = "${getS3Endpoint()}",
                             "AWS_REGION" = "${getS3Region()}",
                             "PROVIDER" = "${getS3Provider()}"
@@ -111,8 +110,7 @@ suite("test_s3_load_with_where", "load_p0") {
                                 ) 
                         )
                         WITH S3 (
-                            "AWS_ACCESS_KEY" = "${getS3AK()}",
-                            "AWS_SECRET_KEY" = "${getS3SK()}",
+                            ${getS3CredentialProperties("AWS")},
                             "AWS_ENDPOINT" = "${getS3Endpoint()}",
                             "AWS_REGION" = "${getS3Region()}",
                             "PROVIDER" = "${getS3Provider()}"

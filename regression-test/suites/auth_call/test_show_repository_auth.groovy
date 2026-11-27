@@ -25,9 +25,9 @@ suite("test_show_repository_auth","p0,auth_call") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     //cloud-mode
     if (isCloudMode()) {
@@ -43,13 +43,12 @@ suite("test_show_repository_auth","p0,auth_call") {
 
     sql """CREATE REPOSITORY `${repositoryName}`
             WITH S3
-            ON LOCATION "s3://${bucket}/${repositoryName}"
+            ON LOCATION "s3://${bucket}/${getS3WriteKey(repositoryName)}"
             PROPERTIES
             (
                 "s3.endpoint" = "http://${endpoint}",
                 "s3.region" = "${region}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}"
+                ${getS3CredentialProperties()}
             )"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {

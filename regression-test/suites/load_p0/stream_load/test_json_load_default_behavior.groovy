@@ -227,8 +227,7 @@ suite("test_json_load_default_behavior", "p0") {
                     SELECT * FROM S3
                     (
                         "uri" = "s3://${s3BucketName}/load/data_by_line.json",
-                        "s3.access_key" = "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "s3.endpoint" = "${s3Endpoint}",
                         "s3.region" = "${s3Region}",
                         "format" = "json"
@@ -244,8 +243,7 @@ suite("test_json_load_default_behavior", "p0") {
             SELECT * FROM S3
             (
                 "uri" = "s3://${s3BucketName}/load/data_by_array_oneLine.json",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}",
                 "format" = "json"
@@ -259,8 +257,7 @@ suite("test_json_load_default_behavior", "p0") {
                     SELECT * FROM S3
                     (
                         "uri" = "s3://${s3BucketName}/load/data_by_array_oneLine.json",
-                        "s3.access_key" = "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "s3.endpoint" = "${s3Endpoint}",
                         "s3.region" = "${s3Region}",
                         "format" = "json",
@@ -275,8 +272,7 @@ suite("test_json_load_default_behavior", "p0") {
                     SELECT * FROM S3
                     (
                         "uri" = "s3://${s3BucketName}/load/data_by_array_MultiLine.json",
-                        "s3.access_key" = "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "s3.endpoint" = "${s3Endpoint}",
                         "s3.region" = "${s3Region}",
                         "format" = "json",
@@ -311,8 +307,7 @@ suite("test_json_load_default_behavior", "p0") {
                 (a, b)
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             );
@@ -366,8 +361,7 @@ suite("test_json_load_default_behavior", "p0") {
                 )
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             );
@@ -425,8 +419,7 @@ suite("test_json_load_default_behavior", "p0") {
                 )
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             );
@@ -480,8 +473,7 @@ suite("test_json_load_default_behavior", "p0") {
                 )
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             );

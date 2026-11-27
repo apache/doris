@@ -91,8 +91,7 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
                 $attributes.dataDesc.whereExpr
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "provider" = "${getS3Provider()}"

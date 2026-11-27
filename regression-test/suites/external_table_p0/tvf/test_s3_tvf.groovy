@@ -25,10 +25,13 @@ suite("test_s3_tvf", "p0,external") {
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
+    String writeBucket = getS3WriteBucketName()
+    String writeEndpoint = getS3WriteEndpoint()
+    String writeRegion = getS3WriteRegion()
 
 
     def export_table_name = "test_s3_tvf_export_test"
-    def outFilePath = "${bucket}/est_s3_tvf/export_test/exp_"
+    def outFilePath = "${writeBucket}/${getS3WriteKey("est_s3_tvf/export_test/exp_")}"
 
 
     def create_table = {table_name ->
@@ -50,10 +53,9 @@ suite("test_s3_tvf", "p0,external") {
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS ORC
             PROPERTIES (
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.endpoint" = "${writeEndpoint}",
+                "s3.region" = "${writeRegion}",
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -79,11 +81,10 @@ suite("test_s3_tvf", "p0,external") {
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            "uri" = "http://${writeBucket}.${writeEndpoint}${outfile_url.substring(5 + writeBucket.length(), outfile_url.length() - 1)}0.orc",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "orc",
-                            "region" = "${region}"
+                            "region" = "${writeRegion}"
                         );
                         """
     } finally {
@@ -94,11 +95,10 @@ suite("test_s3_tvf", "p0,external") {
     try {
         order_qt_select_2 """ SELECT * FROM S3 (
                             "uri" = "http://${outfile_url.substring(5)}0.orc",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
-                            "s3.endpoint" = "${s3_endpoint}",
+                            ${getS3CredentialProperties()},
+                            "s3.endpoint" = "${writeEndpoint}",
                             "format" = "orc",
-                            "region" = "${region}"
+                            "region" = "${writeRegion}"
                         );
                         """
     } finally {
@@ -107,12 +107,11 @@ suite("test_s3_tvf", "p0,external") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
+                            "uri" = "http://${writeBucket}.${writeEndpoint}${outfile_url.substring(5 + writeBucket.length(), outfile_url.length() - 1)}0.orc",
+                            ${getS3CredentialProperties()},
                             "format" = "orc",
                             "use_path_style" = "false", -- aliyun does not support path_style
-                            "region" = "${region}"
+                            "region" = "${writeRegion}"
                         );
                         """
     } finally {
@@ -121,8 +120,7 @@ suite("test_s3_tvf", "p0,external") {
     try {
         order_qt_select_4 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
+                            ${getS3CredentialProperties()},
                             "format" = "hive_text",
                             "region" = "${region}"
                         ) order by c1,c2,c3;
@@ -133,8 +131,7 @@ suite("test_s3_tvf", "p0,external") {
     try {
         order_qt_select_5 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
+                            ${getS3CredentialProperties()},
                             "format" = "hive_text",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
@@ -146,8 +143,7 @@ suite("test_s3_tvf", "p0,external") {
     try {
         order_qt_select_6 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
+                            ${getS3CredentialProperties()},
                             "format" = "hive_text",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
@@ -159,8 +155,7 @@ suite("test_s3_tvf", "p0,external") {
     try {
         order_qt_select_7 """ SELECT * FROM S3 (
                             "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
-                            "s3.access_key"= "${ak}",
-                            "s3.secret_key" = "${sk}",
+                            ${getS3CredentialProperties()},
                             "format" = "hive_text",
                             "region" = "${region}",
                             "csv_schema"="k1:int;k2:string;k3:double"
@@ -171,12 +166,11 @@ suite("test_s3_tvf", "p0,external") {
 
     // Exercise schema conversion with both readers, including failed casts, source NULLs and
     // multiple batches. The BIGINT seed must be listed before the STRING file for TVF inference.
-    String castPrefix = "s3://${getS3BucketName()}/regression/parquet_invalid_string_cast/${UUID.randomUUID()}"
+    String castPrefix = "s3://${writeBucket}/${getS3WriteKey("regression/parquet_invalid_string_cast/${UUID.randomUUID()}")}"
     String castStorageProperties = """
-        "s3.endpoint" = "${s3_endpoint}",
-        "s3.region" = "${region}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}"
+        "s3.endpoint" = "${writeEndpoint}",
+        "s3.region" = "${writeRegion}",
+        ${getS3CredentialProperties()}
     """
     sql """SELECT CAST(1 AS BIGINT) AS id, CAST('seed' AS STRING) AS name
            INTO OUTFILE "${castPrefix}/00_seed/part_" FORMAT AS parquet

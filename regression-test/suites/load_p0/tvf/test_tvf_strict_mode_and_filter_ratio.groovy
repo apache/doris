@@ -39,8 +39,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     sql "set insert_max_filter_ratio=0"
     sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}",
                             "column_separator" = "|"
@@ -58,8 +57,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -85,8 +83,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     sql "set insert_max_filter_ratio=0"
     sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}",
                             "column_separator" = "|"
@@ -104,8 +101,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -134,8 +130,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -159,8 +154,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     sql "set insert_max_filter_ratio=0.3"
     sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}",
                             "column_separator" = "|"
@@ -178,8 +172,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -213,8 +206,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -234,8 +226,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     sql "set insert_max_filter_ratio=0.3"
     sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}",
                             "column_separator" = "|"
@@ -253,8 +244,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"
@@ -282,8 +272,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     sql "set insert_max_filter_ratio=0"
     sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}",
                             "column_separator" = "|"
@@ -301,8 +290,7 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
     test {
        sql """ insert into test_insert_select_tvf_strict_mode_and_filter_ratio SELECT * FROM S3 (
                                "uri" = "http://${bucket}.${s3_endpoint}/${path}/${csvFile}",
-                               "ACCESS_KEY"= "${ak}",
-                               "SECRET_KEY" = "${sk}",
+                               ${getS3CredentialProperties("tvf")},
                                "format" = "csv",
                                "region" = "${region}",
                                "column_separator" = "|"

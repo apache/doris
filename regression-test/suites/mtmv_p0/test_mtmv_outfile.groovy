@@ -63,13 +63,13 @@ suite("test_mtmv_outfile","mtmv") {
     // use to outfile to s3
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def outfile_to_S3_directly = {
         // select ... into outfile ...
-        def s3_outfile_path = "${bucket}/outfile/csv/test-mtmv-outfile"
+        def s3_outfile_path = "${bucket}/${getS3WriteKey("outfile/csv/test-mtmv-outfile")}"
         def uri = "s3://${s3_outfile_path}/exp_"
 
         def res = sql """
@@ -79,8 +79,7 @@ suite("test_mtmv_outfile","mtmv") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         logger.info("outfile to s3 success path: " + res[0][3]);

@@ -29,15 +29,15 @@ suite("test_with_bom", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def this_db = "regression_test_export_p0"
     def table_export_name = "test_with_bom"
     def table_load_name = "test_with_bom_load_back"
-    def outfile_path_prefix = """${bucket}/export/test_with_bom/exp_"""
+    def outfile_path_prefix = """${bucket}/${getS3WriteKey("export/test_with_bom/exp_")}"""
     def file_format = "csv"
 
     // test csv with bom
@@ -108,8 +108,7 @@ suite("test_with_bom", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -117,8 +116,7 @@ suite("test_with_bom", "p0") {
         
         order_qt_select_load1 """ select * from s3(
                                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "csv",
                                     "provider" = "${getS3Provider()}",
                                     "region" = "${region}"
@@ -147,8 +145,7 @@ suite("test_with_bom", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -156,8 +153,7 @@ suite("test_with_bom", "p0") {
         
         order_qt_select_load1 """ select * from s3(
                                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "csv",
                                     "provider" = "${getS3Provider()}",
                                     "region" = "${region}"
@@ -186,8 +182,7 @@ suite("test_with_bom", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -195,8 +190,7 @@ suite("test_with_bom", "p0") {
         
         order_qt_select_load1 """ select * from s3(
                                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "csv_with_names",
                                     "provider" = "${getS3Provider()}",
                                     "region" = "${region}"
@@ -225,8 +219,7 @@ suite("test_with_bom", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -234,8 +227,7 @@ suite("test_with_bom", "p0") {
         
         order_qt_select_load1 """ select * from s3(
                                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "csv_with_names_and_types",
                                     "provider" = "${getS3Provider()}",
                                     "region" = "${region}"

@@ -80,8 +80,7 @@ suite("test_tz_load", "nonConcurrent") {
             (id, dt_datetime, dt_date)
         )
         WITH S3 (
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.endpoint" = "${s3Endpoint}",
             "s3.region" = "${s3Region}"
         )
@@ -129,8 +128,7 @@ suite("test_tz_load", "nonConcurrent") {
             (id, dt_datetime, dt_date)
         )
         WITH S3 (
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.endpoint" = "${s3Endpoint}",
             "s3.region" = "${s3Region}"
         );
@@ -144,8 +142,7 @@ suite("test_tz_load", "nonConcurrent") {
             CAST(split_part(c1, ',', 3) AS DATE) AS dt_date
         FROM S3 (
             "uri" = "s3://${s3BucketName}/load/test_global_timezone_streamload.csv",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.endpoint" = "${s3Endpoint}",
             "s3.region" = "${s3Region}",
             "format" = "csv"
@@ -191,8 +188,7 @@ suite("test_tz_load", "nonConcurrent") {
             (id, dt_datetime, dt_date)
         )
         WITH S3 (
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.endpoint" = "${s3Endpoint}",
             "s3.region" = "${s3Region}"
         )
@@ -208,8 +204,7 @@ suite("test_tz_load", "nonConcurrent") {
             CAST(split_part(c1, ',', 3) AS DATE) AS dt_date
         FROM S3 (
             "uri" = "s3://${s3BucketName}/load/test_global_timezone_streamload.csv",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.endpoint" = "${s3Endpoint}",
             "s3.region" = "${s3Region}",
             "format" = "csv"

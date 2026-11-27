@@ -20,9 +20,9 @@ import org.junit.Assert;
 suite("show_create_repository_command") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
     String repoName = "test_show_create_repository"
     String readOnlyRepoName = "test_show_create_read_only_repository"
 
@@ -37,30 +37,28 @@ suite("show_create_repository_command") {
     // create S3 repo
     sql """CREATE REPOSITORY `${repoName}`
             WITH S3
-            ON LOCATION "s3://${bucket}/${repoName}"
+            ON LOCATION "s3://${bucket}/${getS3WriteKey(repoName)}"
             PROPERTIES
             (
                 "s3.endpoint" = "http://${endpoint}",
                 "s3.region" = "${region}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}"
+                ${getS3CredentialProperties()}
             )"""
 
     // create S3 read only repo
     sql """CREATE READ ONLY REPOSITORY `${readOnlyRepoName}`
             WITH S3
-            ON LOCATION "s3://${bucket}/${readOnlyRepoName}"
+            ON LOCATION "s3://${bucket}/${getS3WriteKey(readOnlyRepoName)}"
             PROPERTIES
             (
                 "s3.endpoint" = "http://${endpoint}",
                 "s3.region" = "${region}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}"
+                ${getS3CredentialProperties()}
             )"""
 
     def create_repo = checkNereidsExecuteWithResult("""SHOW CREATE REPOSITORY for `${repoName}`;""").toString();
     assertTrue(create_repo.contains("${repoName}"))
-    assertTrue(create_repo.contains("s3://${bucket}/${repoName}"))
+    assertTrue(create_repo.contains("s3://${bucket}/${getS3WriteKey(repoName)}"))
 
     def create_read_only_repo = checkNereidsExecuteWithResult("""SHOW CREATE REPOSITORY for `${readOnlyRepoName}`;""").toString();
     assertTrue(create_read_only_repo.contains("${readOnlyRepoName}"))

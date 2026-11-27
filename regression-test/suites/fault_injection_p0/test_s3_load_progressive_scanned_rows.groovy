@@ -59,8 +59,7 @@ suite("test_s3_load_progressive_scanned_rows", "nonConcurrent,p0") {
                 $columns_str
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "$endpoint",
                 "AWS_REGION" = "$region",
                 "provider" = "${getS3Provider()}"

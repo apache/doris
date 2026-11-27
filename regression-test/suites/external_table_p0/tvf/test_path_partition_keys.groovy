@@ -84,8 +84,7 @@ suite("test_path_partition_keys", "p0,external") {
     select dt1 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt1=cyw/b.csv",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "FORMAT" = "csv",
         "column_separator" = ",",
         "use_path_style" = "false", -- aliyun does not support path_style
@@ -98,8 +97,7 @@ suite("test_path_partition_keys", "p0,external") {
     select c1,dt1 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt1=hello/c.csv",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "FORMAT" = "csv",
         "column_separator" = ",",
         "use_path_style" = "false", -- aliyun does not support path_style
@@ -111,8 +109,7 @@ suite("test_path_partition_keys", "p0,external") {
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt2=two/dt1=hello/c.csv",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "FORMAT" = "csv",
         "column_separator" = ",",
         "use_path_style" = "false", -- aliyun does not support path_style
@@ -124,8 +121,7 @@ suite("test_path_partition_keys", "p0,external") {
     select *from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt2=two/dt1=cyw/b.csv",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "FORMAT" = "csv",
         "use_path_style" = "false", -- aliyun does not support path_style
         "column_separator" = ",",

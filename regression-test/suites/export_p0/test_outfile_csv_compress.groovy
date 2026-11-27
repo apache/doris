@@ -22,9 +22,9 @@ suite("test_outfile_csv_compress", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def create_table = {table_name -> 
         sql """ DROP TABLE IF EXISTS ${table_name} """
@@ -55,7 +55,7 @@ suite("test_outfile_csv_compress", "p0") {
     def table_name = "test_outfile_csv_compress"
     create_table(table_name)
 
-    def outFilePath = """s3://${bucket}/outfile_"""
+    def outFilePath = """s3://${bucket}/${getS3WriteKey("outfile_")}"""
     def csv_outfile_result = { the_table_name, compression_type, format_type ->
         def result = sql """
                 select * from ${the_table_name}
@@ -64,8 +64,7 @@ suite("test_outfile_csv_compress", "p0") {
                 PROPERTIES(
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}",
+                    ${getS3CredentialProperties()},
                     "compress_type" = "${compression_type}"
                 );
             """
@@ -78,8 +77,7 @@ suite("test_outfile_csv_compress", "p0") {
             print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
             qt_select """ select c1, c2 from s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -88,8 +86,7 @@ suite("test_outfile_csv_compress", "p0") {
                     """
             qt_select """ select count(c1), count(c2) from s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -98,8 +95,7 @@ suite("test_outfile_csv_compress", "p0") {
                     """
             qt_select """desc function s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -115,8 +111,7 @@ suite("test_outfile_csv_compress", "p0") {
             print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
             qt_select """ select id, name from s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -125,8 +120,7 @@ suite("test_outfile_csv_compress", "p0") {
                     """
             qt_select """ select count(id), count(name) from s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -135,8 +129,7 @@ suite("test_outfile_csv_compress", "p0") {
                     """
             qt_select """desc function s3(
                         "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "${format_type}",
                         "provider" = "${getS3Provider()}",
                         "region" = "${region}",
@@ -152,8 +145,7 @@ suite("test_outfile_csv_compress", "p0") {
         print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
         qt_select """ select c1, c2 from s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "csv",
                     "provider" = "${getS3Provider()}",
                     "region" = "${region}",
@@ -162,8 +154,7 @@ suite("test_outfile_csv_compress", "p0") {
                 """
         qt_select """ select count(c1), count(c2) from s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "csv",
                     "provider" = "${getS3Provider()}",
                     "region" = "${region}",
@@ -172,8 +163,7 @@ suite("test_outfile_csv_compress", "p0") {
                 """
         qt_select """desc function s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "csv",
                     "provider" = "${getS3Provider()}",
                     "region" = "${region}",
@@ -191,8 +181,7 @@ suite("test_outfile_csv_compress", "p0") {
                 PROPERTIES(
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}",
+                    ${getS3CredentialProperties()},
                     "compress_type" = "invalid"
                 );
             """
@@ -205,8 +194,7 @@ suite("test_outfile_csv_compress", "p0") {
     def empty_outfile_url = csv_outfile_result("test_outfile_csv_compress_empty_table", "gz", "csv");
     qt_select """desc function s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${empty_outfile_url.substring(5 + bucket.length(), empty_outfile_url.length() - 1)}*",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "provider" = "${getS3Provider()}",
                 "region" = "${region}",
@@ -222,8 +210,7 @@ suite("test_outfile_csv_compress", "p0") {
             PROPERTIES(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "compress_type" = "gz",
                 "with_bom" = "true"
             );
@@ -232,8 +219,7 @@ suite("test_outfile_csv_compress", "p0") {
     print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.")
     qt_select """ select c1, c2 from s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "with_bom" = "true",
                 "provider" = "${getS3Provider()}",

@@ -47,8 +47,7 @@ suite("test_bulk_load_empty_field_as_null", "p0") {
                 )
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "provider" = "${getS3Provider()}"

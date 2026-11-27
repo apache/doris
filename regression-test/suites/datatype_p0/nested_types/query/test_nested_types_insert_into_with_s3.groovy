@@ -203,16 +203,14 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
     for (int i = 0; i < 2; ++i) {
         qt_sql_arr_orc_s3 """
         select * from s3("uri" = "${orcFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}",
                 "format" = "orc") order by k1 limit 1;
             """
 
         sql """
         insert into ${table_names[i]} select * from s3("uri" = "${orcFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}",
                 "format" = "orc")
              """
@@ -231,8 +229,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
     for (int i = 0; i < 2; ++i) {
         qt_sql_arr_parquet_s3 """
          select * from s3("uri" = "${parquetFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}",
                 "hive.parquet.time-zone" = "Asia/Shanghai",
                 "format" = "parquet") order by k1 limit 1;
@@ -240,8 +237,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
 
         sql """
         insert into ${table_names[i]} select * from s3("uri" = "${parquetFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}",
                 "hive.parquet.time-zone" = "Asia/Shanghai",
                 "format" = "parquet") order by k1 limit 1;
@@ -255,8 +251,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         qt_sql_arr_orc_s3 """
         select c_bool,c_bigint,c_decimalv3,c_datetimev2 from s3(
                 "uri" = "${orcFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}",
                 "format" = "orc") order by k1 limit 1;
             """
@@ -265,8 +260,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} (k1, c_bool, c_tinyint,  c_smallint, c_int, c_bigint, c_float, c_double, c_decimal, c_decimalv3, c_date, c_datetime, c_datev2,c_datetimev2, c_varchar, c_string)  
             select k1, c_bool, c_tinyint,  c_smallint, c_int, c_bigint, c_float, c_double, c_decimal, c_decimalv3, c_date, c_datetime, c_datev2,c_datetimev2, c_varchar, c_string from s3 (
                "uri" = "${orcFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "orc");"""
 
         qt_sql_arr_orc_doris """ select c_bool,c_bigint,c_decimalv3,c_datetimev2 from ${table_names[i]} order by k1 limit 1; """
@@ -278,8 +272,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         qt_sql_arr_parquet_s3 """
         select c_bool,c_bigint,c_decimalv3,c_datetimev2 from s3 (
             "uri" = "${parquetFiles[i]}",
-            "s3.access_key"= "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "hive.parquet.time-zone" = "Asia/Shanghai",
             "format" = "parquet") order by k1 limit 1;
             """
@@ -288,8 +281,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} (k1, c_bool, c_tinyint,  c_smallint, c_int, c_bigint, c_float, c_double, c_decimal, c_decimalv3, c_date, c_datetime, c_datev2,c_datetimev2, c_varchar, c_string)  
             select k1, c_bool, c_tinyint,  c_smallint, c_int, c_bigint, c_float, c_double, c_decimal, c_decimalv3, c_date, c_datetime, c_datev2,c_datetimev2, c_varchar, c_string from s3 (
                 "uri" = "${parquetFiles[i]}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "hive.parquet.time-zone" = "Asia/Shanghai",
                 "format" = "parquet");"""
 

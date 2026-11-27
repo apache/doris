@@ -20,7 +20,7 @@ import com.azure.storage.common.StorageSharedKeyCredential
 
 suite("test_parquet_boolean_dictionary", "p0,external") {
     String provider = getS3Provider()
-    String endpoint = getS3Endpoint()
+    String endpoint = getS3WriteEndpoint()
     if (provider.equalsIgnoreCase("AZURE")) {
         if (endpoint == "azure-endpoint") {
             endpoint = "https://${getS3AK()}.blob.core.windows.net"
@@ -28,8 +28,8 @@ suite("test_parquet_boolean_dictionary", "p0,external") {
             endpoint = "https://${endpoint}"
         }
     }
-    String bucket = context.config.otherConfigs.get('s3BucketName')
-    String key = "parquet_boolean_dictionary/${UUID.randomUUID()}/values.parquet"
+    String bucket = getS3WriteBucketName()
+    String key = getS3WriteKey("parquet_boolean_dictionary/${UUID.randomUUID()}/values.parquet")
     File fixture = new File(context.dataPath, "test_data/boolean_rle_dictionary.parquet")
     def blobClient = null
     def s3Client = null
@@ -49,13 +49,13 @@ suite("test_parquet_boolean_dictionary", "p0,external") {
                     .buildClient()
             blobClient.uploadFromFile(fixture.absolutePath)
         } else {
-            s3Client = getS3Client()
+            s3Client = getS3WriteClient()
             s3Client.putObject(bucket, key, fixture)
         }
         uploaded = true
         String source = """S3('uri'='s3://${bucket}/${key}', 'format'='parquet',
-                'provider'='${provider}', 's3.endpoint'='${endpoint}', 's3.region'='${getS3Region()}',
-                's3.access_key'='${getS3AK()}', 's3.secret_key'='${getS3SK()}')"""
+                'provider'='${provider}', 's3.endpoint'='${endpoint}', 's3.region'='${getS3WriteRegion()}',
+                ${getS3CredentialProperties()})"""
         // OUTFILE writes PLAIN booleans, so use a fixture whose BOOLEAN values require dictionary
         // decoding. Compare with SQL literals to check NULL alignment without hand-written output.
         String expected = """(

@@ -47,8 +47,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_data_with_length_limit.csv",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "csv",
                                 "column_separator" = ",",
                                 "enclose" = "\\"",
@@ -66,8 +65,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_column_with_wrong_type.csv",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "csv",
                                 "column_separator" = ",",
                                 "enclose" = "\\"",
@@ -84,8 +82,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_not_column_with_null_data.csv",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "csv",
                                 "column_separator" = ",",
                                 "region" = "${region}"
@@ -100,8 +97,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_not_null_column_with_empty_string_data.csv",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "csv",
                                 "column_separator" = ",",
                                 "region" = "${region}"
@@ -117,8 +113,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_data_with_varchar_quotatio.csv",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "parquet",
                                 "column_separator" = ",",
                                 "region" = "${region}"
@@ -134,8 +129,7 @@ suite("test_tvf_error_column", "p0") {
                 INSERT INTO ${tableName}
                         SELECT * FROM S3 (
                                 "uri" = "http://${bucket}.${s3_endpoint}/${path}/tvf_error_data_with_varchar_quotatio.csv.zip",
-                                "ACCESS_KEY"= "${ak}",
-                                "SECRET_KEY" = "${sk}",
+                                ${getS3CredentialProperties("tvf")},
                                 "format" = "csv",
                                 "compress" = "gz",
                                 "column_separator" = ",",

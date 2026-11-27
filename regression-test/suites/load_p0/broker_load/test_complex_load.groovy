@@ -160,8 +160,7 @@ suite("test_complex_load", "load_p0") {
             (k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -201,8 +200,7 @@ suite("test_complex_load", "load_p0") {
             DELETE ON k01 = '2023-08-08'
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -241,8 +239,7 @@ suite("test_complex_load", "load_p0") {
             SET (k00 = k00 + 1)
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -284,8 +281,7 @@ suite("test_complex_load", "load_p0") {
             WHERE k03 <= k00
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
