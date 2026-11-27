@@ -1,0 +1,333 @@
+--- a/src/brpc/event_dispatcher.h
++++ b/src/brpc/event_dispatcher.h
+@@ -21,2 +21,3 @@
+ 
++#include "butil/atomicops.h"
+ #include "butil/macros.h"                     // DISALLOW_COPY_AND_ASSIGN
+@@ -89,3 +90,3 @@
+     // false unless Stop() is called.
+-    volatile bool _stop;
++    butil::atomic<bool> _stop;
+ 
+--- a/src/bthread/stack.h
++++ b/src/bthread/stack.h
+@@ -30,2 +30,6 @@
+ 
++#if defined(BRPC_TSAN_FIBERS)
++#include <sanitizer/tsan_interface.h>
++#endif
++
+ namespace bthread {
+@@ -67,2 +71,5 @@
+     StackStorage storage;
++#if defined(BRPC_TSAN_FIBERS)
++    void* tsan_fiber;
++#endif
+ };
+--- a/src/bthread/stack_inl.h
++++ b/src/bthread/stack_inl.h
+@@ -70,3 +70,14 @@
+     static ContextualStack* get_stack(void (*entry)(intptr_t)) {
+-        return butil::get_object<Wrapper>(entry);
++        ContextualStack* stack = butil::get_object<Wrapper>(entry);
++#if defined(BRPC_TSAN_FIBERS)
++        if (stack != NULL && stack->context != NULL) {
++            // A new fiber must enter at task_runner. A recycled fcontext
++            // would resume frames belonging to the destroyed fiber.
++            stack->context = bthread_make_fcontext(stack->storage.bottom,
++                                                   stack->storage.stacksize,
++                                                   entry);
++            stack->tsan_fiber = __tsan_create_fiber(0);
++        }
++#endif
++        return stack;
+     }
+@@ -74,2 +85,7 @@
+     static void return_stack(ContextualStack* sc) {
++#if defined(BRPC_TSAN_FIBERS)
++        if (sc->context != NULL) {
++            __tsan_destroy_fiber(sc->tsan_fiber);
++        }
++#endif
+         butil::return_object(static_cast<Wrapper*>(sc));
+@@ -87,2 +103,5 @@
+         s->storage.zeroize();
++#if defined(BRPC_TSAN_FIBERS)
++        s->tsan_fiber = __tsan_get_current_fiber();
++#endif
+         return s;
+@@ -131,3 +150,12 @@
+ inline void jump_stack(ContextualStack* from, ContextualStack* to) {
++#if defined(BRPC_TSAN_FIBERS)
++    bthread_fcontext_t* saved_context = &from->context;
++    bthread_fcontext_t next_context = to->context;
++    // The destination takes over the current worker, including its pending
++    // scheduler cleanup, only after the source stops executing on it.
++    __tsan_switch_to_fiber(to->tsan_fiber, 0);
++    bthread_jump_fcontext(saved_context, next_context, 0);
++#else
+     bthread_jump_fcontext(&from->context, to->context, 0/*not skip remained*/);
++#endif
+ }
+--- a/src/bthread/task_control.cpp
++++ b/src/bthread/task_control.cpp
+@@ -417,3 +417,3 @@
+         if (_groups[i]) {
+-            cputime_ns += _groups[i]->_cumulated_cputime_ns;
++            cputime_ns += _groups[i]->cumulated_cputime_ns();
+         }
+@@ -429,3 +429,3 @@
+         if (_groups[i]) {
+-            c += _groups[i]->_nswitch;
++            c += _groups[i]->_nswitch.load(butil::memory_order_relaxed);
+         }
+@@ -442,3 +442,4 @@
+         if (g) {
+-            c += g->_nsignaled + g->_remote_nsignaled;
++            c += g->_nsignaled.load(butil::memory_order_relaxed) +
++                 g->_remote_nsignaled.load(butil::memory_order_relaxed);
+         }
+--- a/src/bthread/task_group.cpp
++++ b/src/bthread/task_group.cpp
+@@ -83,3 +83,3 @@
+         BAIDU_SCOPED_LOCK(m->version_lock);
+-        if (given_ver == *m->version_butex) {
++        if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+             *out = m->attr;
+@@ -97,3 +97,3 @@
+         BAIDU_SCOPED_LOCK(m->version_lock);
+-        if (given_ver == *m->version_butex) {
++        if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+             m->stop = true;
+@@ -108,3 +108,3 @@
+         BAIDU_SCOPED_LOCK(m->version_lock);
+-        if (given_ver == *m->version_butex) {
++        if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+             return m->stop;
+@@ -240,3 +240,3 @@
+     m->attr = BTHREAD_ATTR_TASKGROUP;
+-    m->tid = make_tid(*m->version_butex, slot);
++    m->tid = make_tid(__atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE), slot);
+     m->set_stack(stk);
+@@ -333,5 +333,5 @@
+             BAIDU_SCOPED_LOCK(m->version_lock);
+-            if (0 == ++*m->version_butex) {
+-                ++*m->version_butex;
+-            }
++            uint32_t next_version = __atomic_load_n(m->version_butex, __ATOMIC_RELAXED) + 1;
++            __atomic_store_n(m->version_butex, next_version ? next_version : 1,
++                             __ATOMIC_RELEASE);
+         }
+@@ -389,3 +389,3 @@
+     m->stat = EMPTY_STAT;
+-    m->tid = make_tid(*m->version_butex, slot);
++    m->tid = make_tid(__atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE), slot);
+     *th = m->tid;
+@@ -447,3 +447,3 @@
+     m->stat = EMPTY_STAT;
+-    m->tid = make_tid(*m->version_butex, slot);
++    m->tid = make_tid(__atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE), slot);
+     *th = m->tid;
+@@ -488,3 +488,3 @@
+     const uint32_t expected_version = get_version(tid);
+-    while (*m->version_butex == expected_version) {
++    while (__atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE) == expected_version) {
+         if (butex_wait(m->version_butex, expected_version, NULL) < 0 &&
+@@ -504,3 +504,3 @@
+         if (m != NULL) {
+-            return (*m->version_butex == get_version(tid));
++            return (__atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE) == get_version(tid));
+         }
+@@ -535,3 +535,9 @@
+     if (next_meta->stack == NULL) {
++#if defined(BRPC_TSAN_FIBERS)
++        // Keep the fiber identity tied to one logical task.
++        if (next_meta->stack_type() == STACK_TYPE_PTHREAD &&
++            cur_meta->stack_type() == STACK_TYPE_PTHREAD) {
++#else
+         if (next_meta->stack_type() == cur_meta->stack_type()) {
++#endif
+             // also works with pthread_task scheduling to pthread_task, the
+@@ -593,6 +599,6 @@
+     if (cur_meta->tid != g->main_tid()) {
+-        g->_cumulated_cputime_ns += elp_ns;
++        g->_cumulated_cputime_ns.fetch_add(elp_ns, butil::memory_order_relaxed);
+     }
+     ++cur_meta->stat.nswitch;
+-    ++ g->_nswitch;
++    g->_nswitch.fetch_add(1, butil::memory_order_relaxed);
+     // Switch to the task
+@@ -664,3 +670,3 @@
+         _num_nosignal = 0;
+-        _nsignaled += 1 + additional_signal;
++        _nsignaled.fetch_add(1 + additional_signal, butil::memory_order_relaxed);
+         _control->signal_task(1 + additional_signal);
+@@ -673,3 +679,3 @@
+         _num_nosignal = 0;
+-        _nsignaled += val;
++        _nsignaled.fetch_add(val, butil::memory_order_relaxed);
+         _control->signal_task(val);
+@@ -693,3 +699,3 @@
+         _remote_num_nosignal = 0;
+-        _remote_nsignaled += 1 + additional_signal;
++        _remote_nsignaled.fetch_add(1 + additional_signal, butil::memory_order_relaxed);
+         _remote_rq._mutex.unlock();
+@@ -706,3 +712,3 @@
+     _remote_num_nosignal = 0;
+-    _remote_nsignaled += val;
++    _remote_nsignaled.fetch_add(val, butil::memory_order_relaxed);
+     locked_mutex.unlock();
+@@ -803,2 +809,3 @@
+     g = *pg;
++    BAIDU_SCOPED_LOCK(e.meta->version_lock);
+     e.meta->current_sleep = 0;
+@@ -829,3 +836,3 @@
+     BAIDU_SCOPED_LOCK(m->version_lock);
+-    if (given_ver == *m->version_butex) {
++    if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+         *pw = m->current_waiter.exchange(NULL, butil::memory_order_acquire);
+@@ -844,3 +851,3 @@
+         BAIDU_SCOPED_LOCK(m->version_lock);
+-        if (given_ver == *m->version_butex) {
++        if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+             // Release fence makes m->interrupted visible to butex_wait
+@@ -921,3 +928,3 @@
+         BAIDU_SCOPED_LOCK(m->version_lock);
+-        if (given_ver == *m->version_butex) {
++        if (given_ver == __atomic_load_n(m->version_butex, __ATOMIC_ACQUIRE)) {
+             matched = true;
+--- a/src/bthread/task_group.h
++++ b/src/bthread/task_group.h
+@@ -150,3 +150,5 @@
+     // Active time in nanoseconds spent by this TaskGroup.
+-    int64_t cumulated_cputime_ns() const { return _cumulated_cputime_ns; }
++    int64_t cumulated_cputime_ns() const {
++        return _cumulated_cputime_ns.load(butil::memory_order_relaxed);
++    }
+ 
+@@ -228,8 +230,8 @@
+     int _num_nosignal;
+-    int _nsignaled;
++    butil::atomic<int64_t> _nsignaled;
+     // last scheduling time
+     int64_t _last_run_ns;
+-    int64_t _cumulated_cputime_ns;
++    butil::atomic<int64_t> _cumulated_cputime_ns;
+ 
+-    size_t _nswitch;
++    butil::atomic<size_t> _nswitch;
+     RemainedFn _last_context_remained;
+@@ -248,3 +250,3 @@
+     int _remote_num_nosignal;
+-    int _remote_nsignaled;
++    butil::atomic<int64_t> _remote_nsignaled;
+ 
+--- a/src/bthread/remote_task_queue.h
++++ b/src/bthread/remote_task_queue.h
+@@ -51,5 +51,2 @@
+     bool pop(bthread_t* task) {
+-        if (_tasks.empty()) {
+-            return false;
+-        }
+         _mutex.lock();
+--- a/src/bthread/timer_thread.cpp
++++ b/src/bthread/timer_thread.cpp
+@@ -168,12 +168,7 @@
+     Task* head = NULL;
+-    if (_task_head) { // NOTE: schedule() and consume_tasks() are sequenced
+-        // by TimerThread._nearest_run_time and fenced by TimerThread._mutex.
+-        // We can avoid touching the mutex and related cacheline when the
+-        // bucket is actually empty.
+-        BAIDU_SCOPED_LOCK(_mutex);
+-        if (_task_head) {
+-            head = _task_head;
+-            _task_head = NULL;
+-            _nearest_run_time = std::numeric_limits<int64_t>::max();
+-        }
++    BAIDU_SCOPED_LOCK(_mutex);
++    if (_task_head) {
++        head = _task_head;
++        _task_head = NULL;
++        _nearest_run_time = std::numeric_limits<int64_t>::max();
+     }
+@@ -309,3 +304,3 @@
+ static T deref_value(void* arg) {
+-    return *(T*)arg;
++    return static_cast<butil::atomic<T>*>(arg)->load(butil::memory_order_relaxed);
+ }
+@@ -326,9 +321,9 @@
+     // vars
+-    size_t nscheduled = 0;
++    butil::atomic<size_t> nscheduled(0);
+     bvar::PassiveStatus<size_t> nscheduled_var(deref_value<size_t>, &nscheduled);
+     bvar::PerSecond<bvar::PassiveStatus<size_t> > nscheduled_second(&nscheduled_var);
+-    size_t ntriggered = 0;
++    butil::atomic<size_t> ntriggered(0);
+     bvar::PassiveStatus<size_t> ntriggered_var(deref_value<size_t>, &ntriggered);
+     bvar::PerSecond<bvar::PassiveStatus<size_t> > ntriggered_second(&ntriggered_var);
+-    double busy_seconds = 0;
++    butil::atomic<double> busy_seconds(0);
+     bvar::PassiveStatus<double> busy_seconds_var(deref_value<double>, &busy_seconds);
+@@ -353,3 +348,4 @@
+             Bucket& bucket = _buckets[i];
+-            for (Task* p = bucket.consume_tasks(); p != nullptr; ++nscheduled) {
++            for (Task* p = bucket.consume_tasks(); p != nullptr;
++                 nscheduled.fetch_add(1, butil::memory_order_relaxed)) {
+                 // p->next should be kept first
+@@ -393,3 +389,3 @@
+             if (task1->run_and_delete()) {
+-                ++ntriggered;
++                ntriggered.fetch_add(1, butil::memory_order_relaxed);
+             }
+@@ -429,3 +425,5 @@
+         }
+-        busy_seconds += (now - last_sleep_time) / 1000000.0;
++        const double busy = busy_seconds.load(butil::memory_order_relaxed) +
++                            (now - last_sleep_time) / 1000000.0;
++        busy_seconds.store(busy, butil::memory_order_relaxed);
+         futex_wait_private(&_nsignals, expected_nsignals, ptimeout);
+--- a/src/butil/resource_pool_inl.h
++++ b/src/butil/resource_pool_inl.h
+@@ -116,3 +116,3 @@
+         char items[sizeof(T) * BLOCK_NITEM];
+-        size_t nitem;
++        butil::atomic<size_t> nitem;
+ 
+@@ -190,3 +190,3 @@
+             }                                                           \
+-            ++_cur_block->nitem;                                        \
++            _cur_block->nitem.fetch_add(1, butil::memory_order_release); \
+             return p;                                                   \
+@@ -202,3 +202,3 @@
+             }                                                           \
+-            ++_cur_block->nitem;                                        \
++            _cur_block->nitem.fetch_add(1, butil::memory_order_release); \
+             return p;                                                   \
+@@ -269,3 +269,4 @@
+                     const size_t offset = id.value - block_index * BLOCK_NITEM;
+-                    if (__builtin_expect(offset < b->nitem, 1)) {
++                    if (__builtin_expect(
++                            offset < b->nitem.load(butil::memory_order_acquire), 1)) {
+                         return (T*)b->items + offset;
+@@ -508,7 +509,2 @@
+     bool pop_free_chunk(FreeChunk& c) {
+-        // Critical for the case that most return_object are called in
+-        // different threads of get_object.
+-        if (_free_chunks.empty()) {
+-            return false;
+-        }
+         pthread_mutex_lock(&_free_chunks_mutex);
+--- a/src/butil/third_party/dynamic_annotations/dynamic_annotations.c
++++ b/src/butil/third_party/dynamic_annotations/dynamic_annotations.c
+@@ -169,3 +169,3 @@
+ void DYNAMIC_ANNOTATIONS_NAME(AnnotateBenignRaceSized)(
+-    const char *file, int line, const volatile void *mem, long size,
++    const char *file, int line, const volatile void *mem, size_t size,
+     const char *description)
+--- a/src/butil/third_party/dynamic_annotations/dynamic_annotations.h
++++ b/src/butil/third_party/dynamic_annotations/dynamic_annotations.h
+@@ -500,3 +500,3 @@
+ void DYNAMIC_ANNOTATIONS_NAME(AnnotateBenignRaceSized)(
+-    const char *file, int line, const volatile void *mem, long size,
++    const char *file, int line, const volatile void *mem, size_t size,
+     const char *description) DYNAMIC_ANNOTATIONS_ATTRIBUTE_WEAK;

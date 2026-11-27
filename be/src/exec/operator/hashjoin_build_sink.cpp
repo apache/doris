@@ -236,21 +236,16 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         if (!_should_build_hash_table) {
             return;
         }
-        // The build side hash key column maybe no need output, but we need to keep the column in block
-        // because it is used to compare with probe side hash key column
-
-        if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
-            // when key column from build side tuple, we should keep it
-            // if key column belong to intermediate tuple, it means _build_col_ids[0] >= _should_keep_column_flags.size(),
-            // key column still kept too.
-            if (_build_col_ids[0] < p._should_keep_column_flags.size()) {
-                p._should_keep_column_flags[_build_col_ids[0]] = true;
-            }
-        }
-
         if (_shared_state->build_block) {
-            // release the memory of unused column in probe stage
-            _shared_state->build_block->clear_column_mem_not_keep(p._should_keep_column_flags,
+            auto keep_column_flags = p._should_keep_column_flags;
+            if (_should_keep_hash_key_column && _build_col_ids.size() == 1) {
+                // The hash table can borrow a key column omitted from the output.
+                // Computed keys appended beyond the output mask are already kept.
+                if (_build_col_ids[0] < keep_column_flags.size()) {
+                    keep_column_flags[_build_col_ids[0]] = true;
+                }
+            }
+            _shared_state->build_block->clear_column_mem_not_keep(keep_column_flags,
                                                                   p._use_shared_hash_table);
         }
 
@@ -691,7 +686,7 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
         }
     }
     if (_build_expr_ctxs.size() == 1) {
-        p._should_keep_hash_key_column = true;
+        _should_keep_hash_key_column = true;
     }
 
     std::vector<std::shared_ptr<JoinDataVariants>> variant_ptrs;

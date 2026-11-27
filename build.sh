@@ -38,6 +38,12 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+# Force Linux BE builds to use TSan on this experiment branch.
+BE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+if [[ "${TARGET_SYSTEM}" == "Linux" ]]; then
+    BE_BUILD_TYPE="TSAN"
+fi
+
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
@@ -140,13 +146,39 @@ clean_be() {
 
     # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
     # while building be.
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="${BE_BUILD_TYPE}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
     popd
 }
+
+build_tsan_brpc() (
+    local build_dir="$1"
+    local install_dir="${DORIS_THIRDPARTY}/installed"
+    export TP_DIR="${DORIS_HOME}/thirdparty"
+    source "${TP_DIR}/vars.sh"
+
+    bash "${TP_DIR}/download-thirdparty.sh" brpc
+    # Keep the TSan patch out of the source tree used by ordinary third-party builds.
+    rm -rf "${build_dir}/source"
+    mkdir -p "${build_dir}"
+    cp -a "${TP_SOURCE_DIR}/${BRPC_SOURCE}" "${build_dir}/source"
+    patch -d "${build_dir}/source" -p1 <"${TP_PATCH_DIR}/tsan/${BRPC_SOURCE}.patch"
+
+    "${CMAKE_CMD}" -S "${build_dir}/source" -B "${build_dir}/build" -G "${GENERATOR}" \
+        -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_PREFIX_PATH="${install_dir}" \
+        -DCMAKE_INCLUDE_PATH="${install_dir}/include" \
+        -DCMAKE_LIBRARY_PATH="${install_dir}/lib;${install_dir}/lib64" \
+        -DPROTOBUF_PROTOC_EXECUTABLE="${install_dir}/bin/protoc" \
+        -DWITH_GLOG=ON -DBUILD_BRPC_TOOLS=OFF -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CPP_FLAGS="-fsanitize=thread -DBRPC_TSAN_FIBERS -DTHREAD_SANITIZER" \
+        -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread
+    "${CMAKE_CMD}" --build "${build_dir}/build" --target brpc-static -j "${PARALLEL}"
+)
 
 clean_fe() {
     pushd "${DORIS_HOME}/fe"
@@ -965,7 +997,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
-    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    CMAKE_BUILD_TYPE="${BE_BUILD_TYPE}"
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
     if [[ "${CLEAN}" -eq 1 ]]; then
@@ -1000,6 +1032,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
+    BE_USE_JEMALLOC="${USE_JEMALLOC}"
+    if [[ "${CMAKE_BUILD_TYPE}" == "TSAN" ]]; then
+        BE_USE_JEMALLOC=OFF
+        build_tsan_brpc "${CMAKE_BUILD_DIR}/tsan-brpc"
+        export DORIS_TSAN_BRPC_ARCHIVE="${CMAKE_BUILD_DIR}/tsan-brpc/build/output/lib/libbrpc.a"
+    fi
     cd "${CMAKE_BUILD_DIR}"
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
         compile_bench_phase_begin "cmake_configure"
@@ -1026,7 +1064,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
-        -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DUSE_JEMALLOC="${BE_USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \

@@ -63,7 +63,6 @@ Status ShortCircuitExpr::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -180,7 +179,6 @@ void execute_if_selector(const ColumnPtr& cond_column, const Selector* selector,
 Status ShortCircuitIfExpr::execute_column_impl(VExprContext* context, const Block* block,
                                                const Selector* selector, size_t count,
                                                ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr cond_column;
     RETURN_IF_ERROR(
@@ -258,7 +256,6 @@ void execute_case_selector(const ColumnPtr& cond_column, const Selector* executo
 Status ShortCircuitCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
                                                  const Selector* selector, size_t count,
                                                  ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
 
     // Structure: WHEN expr1 THEN result1 [WHEN expr2 THEN result2 ...] [ELSE else_result]
@@ -377,7 +374,6 @@ void execute_ifnull_selector(const ColumnPtr& cond_column, const Selector* selec
 Status ShortCircuitIfNullExpr::execute_column_impl(VExprContext* context, const Block* block,
                                                    const Selector* selector, size_t count,
                                                    ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
     ColumnPtr expr1_column;
     RETURN_IF_ERROR(
@@ -443,7 +439,6 @@ void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* exe
 Status ShortCircuitCoalesceExpr::execute_column_impl(VExprContext* context, const Block* block,
                                                      const Selector* selector, size_t count,
                                                      ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
 
     std::vector<ColumnAndSelector> columns_and_selectors;

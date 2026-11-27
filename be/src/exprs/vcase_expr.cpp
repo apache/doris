@@ -66,7 +66,6 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -82,7 +81,6 @@ Status VCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
         result_column = get_result_from_const(count);
         return Status::OK();
     }
-    DCHECK(_open_finished || block == nullptr);
 
     size_t rows_count = count;
     std::vector<ColumnPtr> when_columns;
