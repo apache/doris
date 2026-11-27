@@ -23,7 +23,9 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <exception>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -754,13 +756,23 @@ Status PipelineTask::execute(bool* done) {
 
 Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
     auto fragment_context = _fragment_context.lock();
+    std::optional<AttachTask> attach_task;
+    // Count even if the fragment expired or attaching/terminating the task throws.
+    // Keep attachment and the fragment alive until after the completion callback.
+    Defer completion_defer {[&]() {
+        // Direct unit-test calls may omit the spill batch.
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
+    }};
     if (!fragment_context) {
         return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
     }
 
-    SCOPED_ATTACH_TASK(_state);
+    attach_task.emplace(_state);
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
+    bool revoke_failed = false;
     Defer running_defer {[&]() {
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
@@ -770,31 +782,70 @@ Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill
         // If task is woke up early, unblock all dependencies and terminate all operators,
         // so this task could be closed immediately.
         if (_wake_up_early) {
-            unblock_all_dependencies();
-            THROW_IF_ERROR(_root->terminate(_state));
-            THROW_IF_ERROR(_sink->terminate(_state));
-            _eos = true;
-        }
-
-        // SpillContext tracks pipeline task count, not operator count.
-        // Notify completion once after all operators + sink have finished revoking.
-        if (spill_context) {
-            spill_context->on_task_finished();
+            try {
+                unblock_all_dependencies();
+                THROW_IF_ERROR(_root->terminate(_state));
+                THROW_IF_ERROR(_sink->terminate(_state));
+                _eos = true;
+            } catch (const std::exception& e) {
+                // For example, revoke returned an I/O error and RF termination then
+                // failed too. Keep the first error for the scheduler to cancel with.
+                if (!revoke_failed) {
+                    throw;
+                }
+                LOG(WARNING) << "Query: " << print_id(_query_id)
+                             << " spill termination failed after revoke error: " << e.what();
+            } catch (...) {
+                // Preserve a returned revoke error even for a non-standard cleanup exception.
+                if (!revoke_failed) {
+                    throw;
+                }
+                LOG(WARNING) << "Query: " << print_id(_query_id)
+                             << " unknown spill termination exception after revoke error";
+            }
         }
     }};
 
-    // Revoke memory from every operator that has enough revocable memory,
-    // then revoke from the sink.
-    for (auto& op : _operators) {
-        if (op->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
-            RETURN_IF_ERROR(op->revoke_memory(_state));
+    auto result = [&]() -> Status {
+        // Revoke memory from every operator that has enough revocable memory,
+        // then revoke from the sink.
+        for (auto& op : _operators) {
+            if (op->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+                RETURN_IF_ERROR(op->revoke_memory(_state));
+            }
+        }
+        if (_sink->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+            RETURN_IF_ERROR(_sink->revoke_memory(_state));
+        }
+        return Status::OK();
+    }();
+    // The return value may be moved before the cleanup guard runs.
+    revoke_failed = !result.ok();
+    return result;
+}
+
+RevokableTask::~RevokableTask() {
+    // Rejected submissions, scheduler skips and queue shutdown never call execute.
+    // In those cases the last wrapper owner must settle this task's completion.
+    if (_spill_context) {
+        try {
+            _spill_context->on_task_finished();
+        } catch (const std::exception& e) {
+            LOG(FATAL) << "Query: " << print_id(_spill_context->query_id)
+                       << " spill completion callback threw: " << e.what();
+        } catch (...) {
+            LOG(FATAL) << "Query: " << print_id(_spill_context->query_id)
+                       << " spill completion callback threw an unknown exception";
         }
     }
+}
 
-    if (_sink->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
-        RETURN_IF_ERROR(_sink->revoke_memory(_state));
-    }
-    return Status::OK();
+Status RevokableTask::execute(bool* /* done */) {
+    DCHECK(_spill_context);
+    // Move the obligation before executing, including when do_revoke_memory throws.
+    // Destruction after execution must not decrement the same task a second time.
+    auto spill_context = std::move(_spill_context);
+    return _task->do_revoke_memory(spill_context);
 }
 
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
@@ -1067,24 +1118,42 @@ size_t PipelineTask::get_revocable_size() const {
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
     DCHECK(spill_context);
+    std::shared_ptr<RevokableTask> revokable_task;
+    bool transferred = false;
+    bool dispatch_ok = false;
+    Defer submission_defer {[&]() {
+        // Mark failure before the last wrapper reference can complete the batch:
+        // a one-task rejection must not resume the query before its caller cancels.
+        if (!dispatch_ok) {
+            spill_context->mark_submission_failed();
+        }
+        // Finalized/small tasks and failures before wrapper construction still owe
+        // one completion. Once constructed, the wrapper owns that obligation.
+        if (!transferred) {
+            spill_context->on_task_finished();
+        }
+    }};
     if (is_finalized()) {
-        spill_context->on_task_finished();
         VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                    << " finalized";
+        dispatch_ok = true;
         return Status::OK();
     }
 
     const auto revocable_size = get_revocable_size();
     if (revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
-        auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
-        // Submit a revocable task to run, the run method will call revoke memory. Currently the
-        // underline pipeline task is still blocked.
-        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
+        revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
+        transferred = true;
+        // Keep a local reference through submission_defer so rejection is marked
+        // before the wrapper destructor can invoke the completion callback.
+        auto status = _state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task);
+        dispatch_ok = status.ok();
+        return status;
     } else {
-        spill_context->on_task_finished();
         VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                    << " has not enough data to revoke: " << revocable_size;
     }
+    dispatch_ok = true;
     return Status::OK();
 }
 
