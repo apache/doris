@@ -3031,3 +3031,8 @@ SET TIME ZONE DEFAULT;
 INSERT INTO catalog_pg_test.test_array_null VALUES (1, NULL, NULL, NULL);
 INSERT INTO catalog_pg_test.test_array_null VALUES (2, ARRAY['hello', 'world'], ARRAY[1, 2, 3], ARRAY['a', 'b']);
 INSERT INTO catalog_pg_test.test_array_null VALUES (3, ARRAY['foo', NULL], ARRAY[NULL, 4], ARRAY[NULL, 'c']);
+
+-- Test array dimension detection when no value carries dimension information.
+INSERT INTO catalog_pg_test.test_array_no_values VALUES
+    (1, NULL, '{}'::text[], NULL, '{}'::text[][]),
+    (2, NULL, '{}'::text[], NULL, '{}'::text[][]);

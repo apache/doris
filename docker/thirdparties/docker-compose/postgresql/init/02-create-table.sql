@@ -443,3 +443,11 @@ CREATE TABLE catalog_pg_test.test_array_null (
     int_arr int4[] NULL,
     varchar_arr varchar[] NULL
 );
+
+CREATE TABLE catalog_pg_test.test_array_no_values (
+    id int4 NOT NULL,
+    all_null_1d text[] NULL,
+    empty_1d text[] NULL,
+    all_null_2d text[][] NULL,
+    empty_2d text[][] NULL
+);
