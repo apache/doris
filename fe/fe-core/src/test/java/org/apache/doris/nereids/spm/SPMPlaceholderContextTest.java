@@ -68,6 +68,31 @@ public class SPMPlaceholderContextTest {
     }
 
     @Test
+    public void testScalarMarkersKeepOriginalPayloadsRegardlessOfConsumers() {
+        for (String query : List.of(
+                "SELECT k > 0 OR ifnull(NULL, NULL) FROM t",
+                "SELECT k > 0 OR CASE WHEN k = NULL THEN NULL ELSE NULL END FROM t",
+                "SELECT k > 0 OR element_at(element_at([[NULL]], 1), 1) FROM t",
+                "SELECT k > 0 OR element_at({'x': NULL}, 'x') FROM t",
+                "SELECT k > 0 OR element_at(array_concat(NULL, array_sort(NULL)), 1) FROM t",
+                "SELECT k > 0 OR element_at(array_map(x -> NULL, [1, 2]), 1) FROM t",
+                "SELECT k > 0 OR (SELECT min(NULL) FROM u) FROM t")) {
+            TestSPMPlaceholderBuilder builder = parameterize(query);
+            List<PlaceholderSnapshot> markers = builder.getPlaceholderExprs();
+            Assertions.assertFalse(markers.isEmpty(), query);
+            for (PlaceholderSnapshot marker : markers) {
+                SpmConstVar scalar = (SpmConstVar) marker.placeholderExpr();
+                Assertions.assertSame(marker.originalExpr(), scalar.getValue(), query);
+                Assertions.assertEquals(marker.originalExpr().getDataType(), scalar.getDataType(), query);
+            }
+            int count = markers.size();
+            builder.startNewTree();
+            SPMPlanTreeSupport.transform(parse(query), builder);
+            Assertions.assertEquals(count, builder.getPlaceholderExprs().size(), query);
+        }
+    }
+
+    @Test
     public void testAllNullContainerProducersPreserveLiteralTypes() {
         String[] containers = {
                 "array(NULL)", "map('x', NULL)", "array_repeat(NULL, 2)",

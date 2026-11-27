@@ -211,13 +211,13 @@ public class SPMOptimizer {
             SessionVariable.CTE_INLINE_MODE);
 
     /**
-     * Depth of the SPM CAPTURE optimizations running on this thread (see
+     * Whether an SPM CAPTURE optimization is running on this thread (see
      * isCaptureInProgress): the parameterized plan of a baseline is optimized by
      * this class, and a rule that must not lose a piece of USER-VISIBLE intent while that
      * plan is turned into the frozen text (an explicit CAST over a substitutable literal)
      * consults it.
      */
-    private static final ThreadLocal<Integer> CAPTURE_DEPTH = ThreadLocal.withInitial(() -> 0);
+    private static final ThreadLocal<Boolean> CAPTURE_IN_PROGRESS = new ThreadLocal<>();
 
     private SPMOptimizer() {
     }
@@ -473,13 +473,17 @@ public class SPMOptimizer {
             // while it is produced: a rule that would erase user-visible intent the frozen
             // text must keep (an explicit CAST over a substitutable literal, see
             // SimplifyCastRule) holds back.
-            CAPTURE_DEPTH.set(CAPTURE_DEPTH.get() + 1);
+            boolean wasCapturing = isCaptureInProgress();
+            CAPTURE_IN_PROGRESS.set(true);
             Plan resultPlan;
             try {
                 resultPlan = planner.planWithLock(logicalPlan,
                         PhysicalProperties.ANY, ExplainLevel.NONE);
             } finally {
-                CAPTURE_DEPTH.set(CAPTURE_DEPTH.get() - 1);
+                // A nested optimization must not clear the enclosing capture's state.
+                if (!wasCapturing) {
+                    CAPTURE_IN_PROGRESS.remove();
+                }
             }
             if (!(resultPlan instanceof PhysicalPlan)) {
                 throw new AnalysisException("SPM failed to plan SQL: " + originSql);
@@ -862,7 +866,6 @@ public class SPMOptimizer {
      * Returns: true while a capture optimization (or its replan probe) is running here
      */
     public static boolean isCaptureInProgress() {
-        Integer depth = CAPTURE_DEPTH.get();
-        return depth != null && depth > 0;
+        return Boolean.TRUE.equals(CAPTURE_IN_PROGRESS.get());
     }
 }

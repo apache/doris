@@ -277,6 +277,43 @@ public class SPMOptimizerTest {
 
     // ====================: the nested statement context is closed ====================
 
+    @Test
+    public void testCaptureFlagRestoresOuterStateOnNestedSuccessAndFailure() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setSessionVariable(new SessionVariable());
+        ctx.setThreadLocalInfo();
+        StatementContext outer = new StatementContext(ctx, new OriginStatement("SELECT 1", 0));
+        ctx.setStatementContext(outer);
+        LogicalPlan plan = (LogicalPlan) new NereidsParser().parseSingle("SELECT 1");
+        try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
+                NereidsPlanner.class, (planner, construction) -> Mockito
+                        .when(planner.planWithLock(Mockito.any(), Mockito.any(), Mockito.any()))
+                        .thenAnswer(invocation -> {
+                            Assertions.assertTrue(SPMOptimizer.isCaptureInProgress());
+                            if (construction.getCount() == 1) {
+                                SPMOptimizer.optimize(ctx, plan, "SELECT 1");
+                                Assertions.assertTrue(SPMOptimizer.isCaptureInProgress(),
+                                        "nested success must preserve the outer capture");
+                                IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                                        () -> SPMOptimizer.optimize(ctx, plan, "SELECT 1"));
+                                Assertions.assertEquals("inner capture failed", failure.getMessage());
+                                Assertions.assertTrue(SPMOptimizer.isCaptureInProgress(),
+                                        "nested failure must preserve the outer capture");
+                            } else if (construction.getCount() == 3) {
+                                throw new IllegalStateException("inner capture failed");
+                            }
+                            return Mockito.mock(PhysicalPlan.class);
+                        }))) {
+            Assertions.assertFalse(SPMOptimizer.isCaptureInProgress());
+            SPMOptimizer.optimize(ctx, plan, "SELECT 1");
+            Assertions.assertEquals(3, mocked.constructed().size());
+            Assertions.assertSame(outer, ctx.getStatementContext());
+            Assertions.assertFalse(SPMOptimizer.isCaptureInProgress());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     /**
      * The nested statement context installed while the baseline plan is produced OWNS
      * everything the nested plan registered on it - the connector scope an external (e.g.
@@ -300,8 +337,12 @@ public class SPMOptimizerTest {
             try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
                     NereidsPlanner.class, (planner, construction) -> Mockito
                             .when(planner.planWithLock(Mockito.any(), Mockito.any(), Mockito.any()))
-                            .thenReturn(Mockito.mock(PhysicalPlan.class)))) {
+                            .thenAnswer(invocation -> {
+                                Assertions.assertTrue(SPMOptimizer.isCaptureInProgress());
+                                return Mockito.mock(PhysicalPlan.class);
+                            }))) {
                 SPMOptimizer.optimize(ctx, plan, "SELECT 1");
+                Assertions.assertFalse(SPMOptimizer.isCaptureInProgress());
                 Assertions.assertEquals(1, mocked.constructed().size(),
                         "the nested plan runs on its own planner");
             }
@@ -316,11 +357,15 @@ public class SPMOptimizerTest {
             try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
                     NereidsPlanner.class, (planner, construction) -> Mockito
                             .when(planner.planWithLock(Mockito.any(), Mockito.any(), Mockito.any()))
-                            .thenThrow(new IllegalStateException("nested plan failed")))) {
+                            .thenAnswer(invocation -> {
+                                Assertions.assertTrue(SPMOptimizer.isCaptureInProgress());
+                                throw new IllegalStateException("nested plan failed");
+                            }))) {
                 IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
                         () -> SPMOptimizer.optimize(ctx, plan, "SELECT 1"),
                         "the nested failure must not be swallowed");
                 Assertions.assertEquals("nested plan failed", failure.getMessage());
+                Assertions.assertFalse(SPMOptimizer.isCaptureInProgress());
             }
             Assertions.assertEquals(2, contexts.constructed().size(),
                     "the failing optimization still created its own nested context");
