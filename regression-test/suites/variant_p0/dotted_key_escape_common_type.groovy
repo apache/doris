@@ -16,7 +16,11 @@
 // under the License.
 
 suite("dotted_key_escape_common_type", "p0") {
+    sql "set debug_variant_max_subcolumns_count=2048"
     sql "set debug_variant_enable_doc_mode=false"
+    sql "set debug_variant_doc_materialization_min_rows=0"
+    sql "set debug_variant_doc_hash_shard_count=0"
+    sql "set debug_variant_max_sparse_column_statistics_size=10000"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"

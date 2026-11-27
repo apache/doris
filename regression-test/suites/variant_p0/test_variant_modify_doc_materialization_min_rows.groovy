@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_variant_modify_doc_materialization_min_rows", "p0") {
+    // DESC prints the subcolumn count of a doc mode column too, and fuzzy mode picks the default at random
+    sql """ set debug_variant_max_subcolumns_count = 2048 """
     def variantV2Function = "parse_to_variant"
     def tableName = "test_variant_modify_doc_min_rows"
 

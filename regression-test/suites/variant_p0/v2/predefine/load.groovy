@@ -23,6 +23,7 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
                 "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
     }
     sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {
@@ -113,7 +114,7 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
                 'float_':decimalv3(26,9),
                 'boolean_':boolean,
                 'varchar_': text,
-                properties("variant_max_subcolumns_count" = "6", "variant_enable_typed_paths_to_sparse" = "false")
+                properties("variant_max_subcolumns_count" = "6")
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");

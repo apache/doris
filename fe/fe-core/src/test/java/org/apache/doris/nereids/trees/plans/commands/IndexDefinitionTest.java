@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -242,7 +243,7 @@ public class IndexDefinitionTest {
     @Test
     void testValuesIndexUnsupportedTypes() {
         List<DataType> types = List.of(StringType.INSTANCE,
-                new VariantType(List.of(), 0, false, 10000, 0, false, 0L, 64, true),
+                new VariantType(List.of(), 0, false, 10000, 0, false, 0L, 64, true, TVariantSerializeType.V2),
                 new VariantType(List.of(new VariantField("wide", DecimalV3Type.createDecimalV3TypeNotCheck256(76, 2), ""))),
                 new VariantType(List.of(new VariantField("wide",
                         ArrayType.of(DecimalV3Type.createDecimalV3TypeNotCheck256(76, 2)), ""))));

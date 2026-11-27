@@ -94,6 +94,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -579,7 +580,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     /*variantEnableDocMode*/ enableDocMode,
                     /*variantDocMaterializationMinRows*/ 0,
                     /*variantDocShardCount*/ 0,
-                    /*enableNestedGroup*/ false);
+                    /*enableNestedGroup*/ false,
+                    /*variantSerializeType*/ TVariantSerializeType.V1);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),

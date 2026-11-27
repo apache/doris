@@ -19,20 +19,20 @@ suite("dotted_key_legacy_semantics", "p0") {
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
     sql "set debug_variant_enable_doc_mode = false"
+    // DESC prints the row threshold and the layout depends on it, which fuzzy mode picks at random
+    sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "drop table if exists dotted_key_legacy_read"
     sql """
         create table dotted_key_legacy_read (
             id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>,
             sparse_v variant<properties(
                 "variant_max_subcolumns_count"="1",
-                "variant_enable_typed_paths_to_sparse"="false",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>
         ) duplicate key(id) distributed by hash(id) buckets 1
         properties("replication_num"="1", "disable_auto_compaction"="true")
@@ -70,10 +70,9 @@ suite("dotted_key_legacy_semantics", "p0") {
     sql "drop table if exists dotted_key_legacy_index"
     sql """create table dotted_key_legacy_index (
         id int, v variant<properties(
-                "variant_max_subcolumns_count"="0",
-                "variant_enable_typed_paths_to_sparse"="false",
+                "variant_max_subcolumns_count"="2048",
                 "variant_max_sparse_column_statistics_size"="10000",
-                "variant_sparse_hash_shard_count"="1",
+                "variant_doc_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>,
         index idx_v(v) using inverted
     ) duplicate key(id) distributed by hash(id) buckets 1

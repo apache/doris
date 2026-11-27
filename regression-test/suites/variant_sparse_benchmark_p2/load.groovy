@@ -47,9 +47,9 @@ suite("variant_stream_load_batch", "variant_type,p2") {
                 id BIGINT NOT NULL,
                 v_map Map<String, String> NULL,
                 v_json JSON NULL,
-                v_variant_1 VARIANT<properties("variant_sparse_hash_shard_count" = "1")> NULL,
-                v_variant_32 VARIANT<properties("variant_sparse_hash_shard_count" = "32")> NULL,
-                v_variant_64 VARIANT<properties("variant_sparse_hash_shard_count" = "64")> NULL
+                v_variant_1 VARIANT<properties("variant_doc_hash_shard_count" = "1")> NULL,
+                v_variant_32 VARIANT<properties("variant_doc_hash_shard_count" = "32")> NULL,
+                v_variant_64 VARIANT<properties("variant_doc_hash_shard_count" = "64")> NULL
             )
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY RANDOM BUCKETS 1

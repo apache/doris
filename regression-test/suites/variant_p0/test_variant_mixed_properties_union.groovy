@@ -17,20 +17,21 @@
 
 suite("test_variant_mixed_properties_union", "p0") {
     sql "DROP TABLE IF EXISTS variant_mixed_properties_union"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set debug_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE variant_mixed_properties_union (
             id INT NOT NULL,
             typed_paths VARIANT<'nested.b': INT, 'kind': STRING, PROPERTIES (
-                "variant_max_subcolumns_count" = "0",
-                "variant_enable_typed_paths_to_sparse" = "false")>,
+                "variant_max_subcolumns_count" = "0")>,
             encoded_paths VARIANT<PROPERTIES (
-                "variant_max_subcolumns_count" = "1",
-                "variant_enable_typed_paths_to_sparse" = "true")>
+                "variant_max_subcolumns_count" = "1")>
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
     sql """
         INSERT INTO variant_mixed_properties_union VALUES
             (1,

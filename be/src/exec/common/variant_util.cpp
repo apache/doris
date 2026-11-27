@@ -183,6 +183,43 @@ PathToDataTypes collect_regular_types_outside_nested_group(
     return regular_path_to_data_types;
 }
 
+namespace {
+
+// The dynamic paths of a doc column, chosen once for all doc buckets: each bucket writer sees only
+// its own paths. Typed paths do not count.
+void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColumn& column,
+                                    const PathToNoneNullValues& path_stats,
+                                    VariantCompactionPaths& paths_set_info) {
+    PathToNoneNullValues dynamic_path_stats;
+    for (const auto& [path, size] : path_stats) {
+        TabletSchema::SubColumnInfo typed_info;
+        if (!generate_sub_column_info(target, column.unique_id(), path, &typed_info)) {
+            dynamic_path_stats.emplace(path, size);
+        }
+    }
+    VariantCompactionUtil::get_subpaths(column.variant_max_subcolumns_count(),
+                                        column.variant_serialize_type(), dynamic_path_stats,
+                                        paths_set_info);
+}
+
+// The subpaths of a column without doc mode. Below the row threshold (a V1 column with a count of 0
+// has none) every path goes to the sparse column, also subcolumns that inputs already extracted.
+void choose_sparse_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
+                                       const PathToNoneNullValues& path_stats,
+                                       VariantCompactionPaths& paths_set_info) {
+    if (input_rows < column.variant_doc_materialization_min_rows()) {
+        for (const auto& [path, _] : path_stats) {
+            paths_set_info.sparse_path_set.emplace(path);
+        }
+        return;
+    }
+    VariantCompactionUtil::get_subpaths(column.variant_max_subcolumns_count(),
+                                        column.variant_serialize_type(), path_stats,
+                                        paths_set_info);
+}
+
+} // namespace
+
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         return type_array->get_number_of_dimensions();
@@ -798,6 +835,7 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): one loop per kind of path statistics.
 Status VariantCompactionUtil::aggregate_variant_extended_info(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info) {
@@ -831,7 +869,12 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
-            if (!column->variant_enable_nested_group()) {
+            if (column->variant_enable_doc_mode()) {
+                // the document holds every path of a doc column, so its statistics rank them
+                for (const auto& [path, size] : source_stats->doc_value_column_non_null_size) {
+                    extended_info.path_to_none_null_values[path] += size;
+                }
+            } else if (!column->variant_enable_nested_group()) {
                 // NG roots still need type metadata for regular subpaths such as `v.owner`,
                 // but their compaction schema should not be driven by flat path stats.
                 for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
@@ -841,6 +884,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
                 for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                     extended_info.path_to_none_null_values[path] += size;
+                    extended_info.extracted_paths.emplace(path);
                 }
             }
 
@@ -861,8 +905,14 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
 // get the subpaths and sparse paths for the variant column
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
+                                         VariantSerializeTypePB serialize_type,
                                          const PathToNoneNullValues& stats,
                                          VariantCompactionPaths& paths_set_info) {
+    // Count 0 means no limit under V1, and no dynamic subcolumn under V2 (every path stays sparse).
+    if (max_subcolumns_count == 0 &&
+        serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2) {
+        return;
+    }
     // max_subcolumns_count is 0 means no limit
     if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -1222,6 +1272,13 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
     }
 
+    // The rows this compaction writes, compared with variant_doc_materialization_min_rows below.
+    // A load decides per segment; here the whole output stands for its segments.
+    int64_t input_rows = 0;
+    for (const auto& rs : rowsets) {
+        input_rows += rs->num_rows();
+    }
+
     // build the output schema
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
@@ -1274,7 +1331,25 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             for (int b = 0; b < bucket_num; ++b) {
                 output_schema->append_column(create_doc_value_compaction_column(*column, b));
             }
+            choose_doc_compaction_subpaths(*target, *column, extended_info.path_to_none_null_values,
+                                           paths_set_info);
             continue;
+        }
+
+        // A count of 0 under V2 keeps every dynamic path in the sparse column. An input that extracted
+        // dynamic paths was written by an older BE under a newer FE, which the upgrade order rules out:
+        // this compaction would drop those paths, so fail it and keep the input rowsets.
+        if (column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
+            column->variant_max_subcolumns_count() == 0 &&
+            (!extended_info.extracted_paths.empty() || !extended_info.nested_paths.empty())) {
+            const std::string& path = extended_info.extracted_paths.empty()
+                                              ? extended_info.nested_paths.begin()->get_path()
+                                              : *extended_info.extracted_paths.begin();
+            return Status::InternalError(
+                    "variant column {} uses serialize type V2 with max subcolumns count 0, but the "
+                    "input rowsets of tablet {} extract {} dynamic paths, such as {}",
+                    column->name(), rowsets.front()->rowset_meta()->tablet_id(),
+                    extended_info.extracted_paths.size() + extended_info.nested_paths.size(), path);
         }
 
         // 1. append typed columns
@@ -1287,8 +1362,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
-                     paths_set_info);
+        choose_sparse_compaction_subpaths(*column, input_rows,
+                                          extended_info.path_to_none_null_values, paths_set_info);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
@@ -1297,11 +1372,15 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                     extended_info.sparse_paths, output_schema);
         }
         // variant_max_subcolumns_count == 0 and no typed paths materialized
-        // it means that all subcolumns are materialized, may be from old data
-        else {
+        // under V1 it means that all subcolumns are materialized, may be from old data
+        else if (column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
             get_compaction_subcolumns_from_data_types(paths_set_info, column, target,
                                                       extended_info.path_to_data_types,
                                                       output_schema);
+        } else {
+            // under V2 it means no subcolumn: every dynamic path stays sparse, and a path chosen to
+            // be extracted would be dropped from the sparse column with no subcolumn to hold it
+            DORIS_CHECK(paths_set_info.sub_path_set.empty());
         }
 
         // append sparse column(s)

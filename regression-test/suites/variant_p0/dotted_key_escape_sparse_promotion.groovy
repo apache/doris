@@ -25,7 +25,7 @@ suite("dotted_key_escape_sparse_promotion", "p0,nonConcurrent") {
     sql "set batch_size=1024"
     sql "set debug_variant_enable_doc_mode=false"
     sql "set debug_variant_enable_nested_group=false"
-    sql "set debug_variant_max_subcolumns_count=0"
+    sql "set debug_variant_max_subcolumns_count=2048"
     sql "set debug_variant_enable_typed_paths_to_sparse=false"
     sql "set debug_variant_max_sparse_column_statistics_size=10000"
     sql "set enable_unique_key_partial_update=false"
@@ -66,7 +66,7 @@ suite("dotted_key_escape_sparse_promotion", "p0,nonConcurrent") {
                             v VARIANT<PROPERTIES(
                                 "variant_max_subcolumns_count"="1",
                                 "variant_enable_nested_group"="false",
-                                "variant_sparse_hash_shard_count"="${shardCount}")>
+                                "variant_doc_hash_shard_count"="${shardCount}")>
                         ) ${keyModel} KEY(id)
                         DISTRIBUTED BY HASH(id) BUCKETS 1
                         PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
@@ -170,7 +170,7 @@ suite("dotted_key_escape_sparse_promotion", "p0,nonConcurrent") {
         sql """CREATE TABLE dotted_escape_extended_deep (id INT, v VARIANT<PROPERTIES(
             "variant_max_subcolumns_count"="1",
             "variant_enable_nested_group"="false",
-            "variant_sparse_hash_shard_count"="3")>)
+            "variant_doc_hash_shard_count"="3")>)
             DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
                        "storage_format"="V3")"""
@@ -234,7 +234,7 @@ suite("dotted_key_escape_sparse_promotion", "p0,nonConcurrent") {
         sql """CREATE TABLE dotted_escape_extended_mow (id INT, v VARIANT<PROPERTIES(
             "variant_max_subcolumns_count"="1",
             "variant_enable_nested_group"="false",
-            "variant_sparse_hash_shard_count"="3")>) UNIQUE KEY(id)
+            "variant_doc_hash_shard_count"="3")>) UNIQUE KEY(id)
             DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1",
             "disable_auto_compaction"="true", "enable_unique_key_merge_on_write"="true",
             "storage_format"="V3")"""

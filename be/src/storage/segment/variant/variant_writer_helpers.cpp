@@ -83,6 +83,7 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
             .max_subcolumns_count = cast_set<size_t>(parent_column.variant_max_subcolumns_count()),
             .typed_paths_to_sparse = parent_column.variant_enable_typed_paths_to_sparse(),
             .escape_dots_in_keys = tablet_schema.variant_escape_dots_in_keys(),
+            .serialize_type = parent_column.variant_serialize_type(),
             .sparse_bucket_count = cast_set<uint32_t>(
                     std::max(1, parent_column.variant_sparse_hash_shard_count())),
             .max_sparse_column_statistics_size =
@@ -166,9 +167,11 @@ void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
         meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
-        if (!column.is_extracted_column() &&
-            opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
-            meta->set_variant_path_encoding(1);
+        if (!column.is_extracted_column()) {
+            meta->set_variant_serialize_type(column.variant_serialize_type());
+            if (opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+                meta->set_variant_path_encoding(1);
+            }
         }
     }
 }

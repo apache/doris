@@ -20,7 +20,7 @@ suite("dotted_key_escape_stream_load", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_escape_stream_load"
     sql """create table dotted_key_escape_stream_load(id int,v variant<properties(
         "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="1",
+        "variant_max_subcolumns_count"="1", "variant_doc_hash_shard_count"="1",
         "variant_max_sparse_column_statistics_size"="10000")>)
         duplicate key(id) distributed by hash(id) buckets 1
         properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""

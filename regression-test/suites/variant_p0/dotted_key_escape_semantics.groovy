@@ -17,13 +17,15 @@
 
 suite("dotted_key_escape_semantics", "p0") {
     sql "set debug_variant_enable_doc_mode = false"
+    // DESC prints the row threshold and the layout depends on it, which fuzzy mode picks at random
+    sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "set describe_extend_variant_column = true"
     sql "drop table if exists dotted_key_escape_gate"
     sql "drop table if exists dotted_key_escape_values"
     sql """create table dotted_key_escape_values (
-        id int, v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+        id int, v variant<properties("variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
         index idx_v(v) using inverted properties("parser"="english")
     ) duplicate key(id) distributed by hash(id) buckets 1
     properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true",
@@ -95,21 +97,21 @@ suite("dotted_key_escape_semantics", "p0") {
     // Phase 1 forbids both directions; the remaining properties stay identical.
     test {
         sql """alter table dotted_key_escape_values modify column v variant<properties("variant_escape_dots_in_keys"="false",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+            "variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
         exception "variant_escape_dots_in_keys is a table property"
     }
     sql "drop table if exists dotted_key_escape_legacy"
-    sql """create table dotted_key_escape_legacy(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """create table dotted_key_escape_legacy(id int,v variant<properties("variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>)
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>)
         duplicate key(id) distributed by hash(id) buckets 1 properties("replication_num"="1")"""
     test {
         sql """alter table dotted_key_escape_legacy modify column v variant<properties("variant_escape_dots_in_keys"="true",
-            "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+            "variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
         exception "variant_escape_dots_in_keys is a table property"
     }
     // Only a non-conflicting row is copied: a legacy sink intentionally flattens the key.
@@ -124,9 +126,9 @@ suite("dotted_key_escape_semantics", "p0") {
     }
     sql "drop table if exists dotted_key_escape_template"
     sql """create table dotted_key_escape_template(id int,
-        v variant<MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+        v variant<MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, properties("variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>,
         index idx_dotted(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"),
         index idx_nested(v) using inverted properties("field_pattern"="a.b","parser"="english")
     ) duplicate key(id) distributed by hash(id) buckets 1
@@ -147,15 +149,15 @@ suite("dotted_key_escape_semantics", "p0") {
     }
     test {
         sql """create table dotted_key_escape_gate(id int,
-            v variant<MATCH_NAME 'bad%':int,properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+            v variant<MATCH_NAME 'bad%':int,properties("variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>) duplicate key(id)
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>) duplicate key(id)
             distributed by hash(id) buckets 1 properties("variant_escape_dots_in_keys"="true", "replication_num"="1")"""
         exception "Invalid escaped Variant path component"
     }
     // A new escaped column is legal when old segments have no physical root for it.
-    sql """alter table dotted_key_escape_legacy add column e variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
+    sql """alter table dotted_key_escape_legacy add column e variant<properties("variant_max_subcolumns_count"="2048",
             "variant_max_sparse_column_statistics_size"="10000",
-            "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
+            "variant_doc_hash_shard_count"="3", "variant_enable_nested_group"="false")>"""
     order_qt_absent_root "select id,e from dotted_key_escape_legacy"
 }

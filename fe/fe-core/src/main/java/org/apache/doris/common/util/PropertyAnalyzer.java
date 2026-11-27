@@ -353,15 +353,17 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
-    // number of buckets when using bucketized sparse serialization
+    // The shard count of the sparse encoding before variant_doc_hash_shard_count took both modes: accepted, so that
+    // the DDL older versions print still runs, and ignored.
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
 
+    // Rows a data file needs before it extracts subcolumns, with or without doc mode.
     public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
             "variant_doc_materialization_min_rows";
 
-    // number of buckets when using doc snapshot serialization
+    // Number of shards of the sparse encoding, or of the document with doc mode.
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
 
     // stream properties
@@ -2391,19 +2393,19 @@ public class PropertyAnalyzer {
         return maxSubcoumnsCount;
     }
 
+    // variant_enable_typed_paths_to_sparse is internal now: accepted and ignored so that DDL printed by
+    // older versions (which emitted "variant_enable_typed_paths_to_sparse" = "false") and persisted SQL
+    // still parse, while new columns take the value from debug_variant_enable_typed_paths_to_sparse.
     public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
                         boolean defaultValue) throws AnalysisException {
-        boolean enableTypedPathsToSparse = defaultValue;
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
-            try {
-                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
-            } catch (Exception e) {
-                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            String value = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be  or ");
             }
             properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
         }
-        return enableTypedPathsToSparse;
+        return defaultValue;
     }
 
     public static boolean analyzeEnableNestedGroup(Map<String, String> properties,
@@ -2642,21 +2644,10 @@ public class PropertyAnalyzer {
     }
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
-        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
-            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
-                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
-            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-                throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
+        // doc mode keeps the subcolumn count, the row threshold and the shard count, but not this setting
+        if (properties != null && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
             if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
                 throw new AnalysisException("variant_max_sparse_column_statistics_size and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
-            if (properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
-                throw new AnalysisException("variant_sparse_hash_shard_count and variant_enable_doc_mode "
                         + "cannot be set together");
             }
         }

@@ -16,6 +16,8 @@
 // under the License.
 
 suite("dotted_key_escape_index_rewrite", "p0,nonConcurrent") {
+    // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
+    sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "set debug_variant_enable_doc_mode=false"
     ["V2", "V3"].each { format ->
         sql "drop table if exists dotted_key_escape_index_rewrite"
@@ -23,7 +25,7 @@ suite("dotted_key_escape_index_rewrite", "p0,nonConcurrent") {
             MATCH_NAME 'a%2Eb':string, MATCH_NAME 'a.b':string, MATCH_NAME 'a%252Eb':string,
             properties(
             "variant_enable_nested_group"="false",
-            "variant_max_subcolumns_count"="0")>,
+            "variant_max_subcolumns_count"="2048")>,
             index idx_dot(v) using inverted properties("field_pattern"="a%2Eb","parser"="english"),
             index idx_nested(v) using inverted properties("field_pattern"="a.b","parser"="english"),
             index idx_percent(v) using inverted properties("field_pattern"="a%252Eb","parser"="english"))

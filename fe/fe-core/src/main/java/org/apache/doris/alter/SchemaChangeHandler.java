@@ -1008,6 +1008,8 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                // Keep idempotent with ModifyColumnOp.validate(): preserve immutable internal VARIANT layout flags.
+                modColumn.inheritImmutableVariantProperties(col);
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered

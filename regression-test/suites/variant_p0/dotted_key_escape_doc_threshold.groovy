@@ -16,6 +16,8 @@
 // under the License.
 
 suite("dotted_key_escape_doc_threshold", "p0,nonConcurrent") {
+    // DESC prints the subcolumn count of a doc mode column too, and fuzzy mode picks the default at random
+    sql "set debug_variant_max_subcolumns_count=2048"
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_doc_threshold"
     sql """create table dotted_key_escape_doc_threshold(id int, v variant<properties(

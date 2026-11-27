@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -824,6 +825,10 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
                 throw new DdlException("Can not change variant enable typed paths to sparse");
             }
+            if (this.getVariantMaxSubcolumnsCount() == 0 && !this.getVariantEnableNestedGroup()
+                    && this.getVariantSerializeType() != other.getVariantSerializeType()) {
+                throw new DdlException("Can not change variant serialize type");
+            }
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
             }
@@ -835,6 +840,13 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
+            }
+            // Without doc mode a column of an older version with a count of 0 extracts every path, which a row
+            // threshold would break in compaction, so it takes none.
+            if (!this.getVariantEnableDocMode() && this.getVariantSerializeType() == TVariantSerializeType.V1
+                    && this.getVariantMaxSubcolumnsCount() == 0 && other.getvariantDocMaterializationMinRows() != 0) {
+                throw new DdlException("Can not set variant_doc_materialization_min_rows on a column of an older "
+                        + "version whose variant_max_subcolumns_count is 0");
             }
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
@@ -932,6 +944,12 @@ public class Column implements GsonPostProcessable {
             sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
+        }
+        if (isCompatible && type.isVariantType()) {
+            // The DDL of an internal table shows the serialize type in a comment, which the parser skips: a column
+            // the DDL creates is new (V2) whatever it says.
+            sb.append(" /* variant_serialize_type = ")
+                    .append(getVariantSerializeType() == TVariantSerializeType.V2 ? "v2" : "v1").append(" */");
         }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
@@ -1211,6 +1229,22 @@ public class Column implements GsonPostProcessable {
 
     public boolean getVariantEnableNestedGroup() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSerializeType() : TVariantSerializeType.V1;
+    }
+
+    /**
+     * Preserves immutable internal VARIANT layout flags from the existing column on MODIFY COLUMN,
+     * since restated DDL always parses as V2 and cannot set variant_enable_typed_paths_to_sparse.
+     */
+    public void inheritImmutableVariantProperties(Column originalColumn) {
+        if (originalColumn != null && originalColumn.getType().isVariantType() && this.type.isVariantType()) {
+            this.type = ((VariantType) this.type)
+                    .withSerializeType(originalColumn.getVariantSerializeType())
+                    .withEnableTypedPathsToSparse(originalColumn.getVariantEnableTypedPathsToSparse());
+        }
     }
 
     public void setFieldPatternType(PatternType type) {

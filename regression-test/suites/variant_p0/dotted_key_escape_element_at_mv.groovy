@@ -25,7 +25,7 @@ suite("dotted_key_escape_element_at_mv", "p0") {
     sql "set batch_size=1024"
     sql "set debug_variant_enable_doc_mode=false"
     sql "set debug_variant_enable_nested_group=false"
-    sql "set debug_variant_max_subcolumns_count=0"
+    sql "set debug_variant_max_subcolumns_count=2048"
     sql "set debug_variant_enable_typed_paths_to_sparse=false"
     sql "set debug_variant_max_sparse_column_statistics_size=10000"
     sql "set enable_unique_key_partial_update=false"
@@ -40,7 +40,7 @@ suite("dotted_key_escape_element_at_mv", "p0") {
     sql "DROP TABLE IF EXISTS dotted_key_escape_element_at_mv"
     sql """CREATE TABLE dotted_key_escape_element_at_mv(k INT, v VARIANT<PROPERTIES(
         "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="2", "variant_sparse_hash_shard_count"="3")>)
+        "variant_max_subcolumns_count"="2", "variant_doc_hash_shard_count"="3")>)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """INSERT INTO dotted_key_escape_element_at_mv VALUES

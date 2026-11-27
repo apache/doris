@@ -80,6 +80,8 @@ struct VariantExtendedInfo {
     PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
     std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column
     std::unordered_set<std::string> typed_paths;   // typed paths in this variant column
+    // dynamic paths that input segments extracted as subcolumns; typed subcolumns record no stats
+    std::unordered_set<std::string> extracted_paths;
     std::unordered_set<PathInData, PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
@@ -197,7 +199,8 @@ public:
             VariantCompactionPathsSPtr* paths);
 
     // get the subpaths and sparse paths for the variant column
-    static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
+    static void get_subpaths(int32_t max_subcolumns_count, VariantSerializeTypePB serialize_type,
+                             const PathToNoneNullValues& path_stats,
                              VariantCompactionPaths& paths_set_info);
 
     // collect extended info from the variant column

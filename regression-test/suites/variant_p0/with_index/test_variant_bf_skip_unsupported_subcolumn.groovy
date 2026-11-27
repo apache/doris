@@ -18,13 +18,14 @@
 suite("test_variant_bf_skip_unsupported_subcolumn", "p0") {
     def variantV2Function = "parse_to_variant"
     def tableName = "variant_bf_skip_unsupported_subcolumn"
+    sql "set debug_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE ${tableName} (
             k bigint,
             v variant<'m.d' : double, properties(
-                "variant_max_subcolumns_count" = "0",
-                "variant_enable_typed_paths_to_sparse" = "false")>
+                "variant_max_subcolumns_count" = "0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1

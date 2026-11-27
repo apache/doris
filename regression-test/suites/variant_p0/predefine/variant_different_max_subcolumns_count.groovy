@@ -21,11 +21,12 @@ suite("variant_different_max_subcolumns_count", "p0") {
     def variantV2Function = "parse_to_variant"
     def table_name = "variant_different_max_subcolumns_count"
     sql """ set debug_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_typed_paths_to_sparse = false """
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")>,
+            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0")>,
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -42,18 +43,21 @@ suite("variant_different_max_subcolumns_count", "p0") {
     qt_sql "select v['a'], v['b'], v['c'], * from ${table_name} order by k"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set debug_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")>,
-            v2 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1", "variant_enable_typed_paths_to_sparse" = "false")>,
+            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0")>,
+            v2 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1")>,
             v3 variant,
-            v4 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1", "variant_enable_typed_paths_to_sparse" = "true")>
+            v4 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
 
     sql """INSERT INTO ${table_name} values(1, ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'), ${variantV2Function}('{"a": "1", "b": "hello", "c": 1.1}'))"""
     sql """INSERT INTO ${table_name} values(2, ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'), ${variantV2Function}('{"c": 2.2}'))"""
