@@ -121,10 +121,11 @@ void TimezoneUtils::load_timezones_to_cache() {
                          << ": " << e.what();
         }
     }
-    // some special cases. Z = Zulu. CST = Asia/Shanghai
-    if (auto it = lower_zone_cache_->find("zulu"); it != lower_zone_cache_->end()) {
-        lower_zone_cache_->emplace("z", it->second);
-    }
+    // some special cases. Z/z/Zulu = the ISO 8601 / RFC 3339 UTC designator, mapped to
+    // UTC unconditionally so it resolves even when the system tzdata has no "Zulu"
+    // file (e.g. Ubuntu ships only Etc/Zulu). CST = Asia/Shanghai
+    lower_zone_cache_->emplace("z", cctz::utc_time_zone());
+    lower_zone_cache_->emplace("zulu", cctz::utc_time_zone());
     if (auto it = lower_zone_cache_->find("asia/shanghai"); it != lower_zone_cache_->end()) {
         lower_zone_cache_->emplace("cst", it->second);
     }
@@ -267,7 +268,7 @@ static bool normalize_offset_string(const std::string& timezone, bool allow_hour
 
 bool TimezoneUtils::normalize_timezone_name(const std::string& timezone, std::string* normalized) {
     const std::string lower = to_lower_copy(timezone);
-    if (lower == "utc" || lower == "etc/utc" || lower == "zulu") {
+    if (lower == "utc" || lower == "etc/utc" || lower == "zulu" || lower == "z") {
         *normalized = "UTC";
         return true;
     }
