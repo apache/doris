@@ -215,6 +215,7 @@ private:
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
+    void _init_sequence_retention_meta();
     Status _generate_delete_bitmap(int32_t segment_id);
     // `completed_segment_ids`, when requested, is populated from the same statistics snapshot
     // used to build the rowset meta.

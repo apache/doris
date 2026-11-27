@@ -50,7 +50,8 @@ enum class KeyProbeResult : uint8_t {
 
 struct ProbeOutcome {
     KeyProbeResult result {KeyProbeResult::NOT_FOUND};
-    // Only meaningful when result != NOT_FOUND; a miss leaves it default-constructed.
+    // Also identifies an expired delete sign when NOT_FOUND means logically absent; an actual
+    // miss leaves it default-constructed. Expired rows are still marked in the final bitmap.
     RowLocation loc;
     // Keeps the rowset holding `loc` alive while the caller reads old-row columns.
     RowsetSharedPtr rowset;
@@ -161,7 +162,8 @@ public:
                                PartialUpdateStats& stats) const;
 
     // Lookup without the seq suffix; returns the old row plus its encoded sequence value
-    // (BlockAggregator). Never touches the delete bitmap, and ignores the policy entirely.
+    // (BlockAggregator). Never marks the delete bitmap. Expired external delete signs must not
+    // supply an inherited sequence, so retention still applies to this lookup.
     Result<PrevSeqProbe> probe_previous_seq_value(
             const std::string& key, const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) const;

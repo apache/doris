@@ -1091,7 +1091,21 @@ public class CreateTableInfo {
      */
     public static Map<String, String> addOlapHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
             boolean isEnableMergeOnWrite, Map<String, String> properties, boolean includeRowStoreColumn) {
+        long sequenceRetentionGap = 0;
+        if (properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP)) {
+            try {
+                sequenceRetentionGap = PropertyAnalyzer.parseSequenceRetentionGap(
+                        properties.get(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP));
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
         boolean hasSeqMapping = properties != null && PropertyAnalyzer.hasSeqMapping(properties);
+        if (sequenceRetentionGap > 0 && (keysType != KeysType.UNIQUE_KEYS
+                || !isEnableMergeOnWrite || hasSeqMapping)) {
+            throw new AnalysisException(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP
+                    + " requires a MOW unique-key table with row-level sequence");
+        }
         if (keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
             if (isEnableMergeOnWrite) {
                 columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
@@ -1128,7 +1142,8 @@ public class CreateTableInfo {
             }
         }
 
-        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
+        if ((Config.enable_hidden_version_column_by_default || sequenceRetentionGap > 0)
+                && keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
             if (isEnableMergeOnWrite) {
                 columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
             } else {

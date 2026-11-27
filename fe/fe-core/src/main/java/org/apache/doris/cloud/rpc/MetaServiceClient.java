@@ -323,6 +323,12 @@ public class MetaServiceClient {
                 .getTxn(request);
     }
 
+    public Cloud.RecordSequenceRetentionPlanResponse recordSequenceRetentionPlan(
+            Cloud.RecordSequenceRetentionPlanRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .recordSequenceRetentionPlan(request);
+    }
+
     public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .getTxnId(request);

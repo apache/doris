@@ -284,6 +284,7 @@ struct TCreateTabletReq {
     31: optional i32 vertical_compaction_num_columns_per_group = 5
     32: optional TTabletRole tablet_role = TTabletRole.TABLET_ROLE_DATA
     33: optional TRowTtlConfig row_ttl_config
+    35: optional i64 sequence_retention_gap
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -550,6 +551,8 @@ struct TCalcDeleteBitmapPartitionInfo {
     6: optional list<i64> cumulative_points
     7: optional list<i64> sub_txn_ids
     8: optional list<i64> tablet_states
+
+    10: optional i64 sequence_retention_plan_version
 }
 
 struct TCalcDeleteBitmapRequest {

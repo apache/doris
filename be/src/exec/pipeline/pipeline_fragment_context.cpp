@@ -1309,7 +1309,9 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     case TDataSinkType::OLAP_TABLE_SINK: {
         auto& pipeline = _pipelines[cur_pipeline_id];
         int child_node_id = pipeline->operators().back()->node_id();
-        if (state->query_options().enable_memtable_on_sink_node &&
+        const bool sequence_retention =
+                thrift_sink.olap_table_sink.partition.sequence_retention_gap > 0;
+        if (state->query_options().enable_memtable_on_sink_node && !sequence_retention &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !_has_changelog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
             _sink = std::make_shared<OlapTableSinkV2OperatorX>(

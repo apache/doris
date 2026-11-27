@@ -98,7 +98,7 @@ class TBinlogConfig;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta : public MetadataAdder<TabletMeta> {
 public:
-    static TabletMetaSharedPtr create(
+    static Result<TabletMetaSharedPtr> create(
             const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
             uint32_t next_unique_id,
             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
@@ -287,6 +287,10 @@ public:
     const RowTtlConfigPB& row_ttl_config() const { return _row_ttl_config; }
     Status update_row_ttl_config(const RowTtlConfigPB& config);
 
+    // Read/write under the owning tablet's metadata lock. Rowset schemas cannot switch policy.
+    int64_t sequence_retention_gap() const { return _sequence_retention_gap; }
+    Status init_sequence_retention_gap(int64_t gap);
+
     // TODO(Drogon): thread safety
     const BinlogConfig& binlog_config() const { return _binlog_config; }
     void set_binlog_config(BinlogConfig binlog_config) {
@@ -427,6 +431,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     RowTtlConfigPB _row_ttl_config;
+    int64_t _sequence_retention_gap = 0;
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
     int64_t _changelog_tablet_id = 0;
 

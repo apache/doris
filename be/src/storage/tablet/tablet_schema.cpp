@@ -1130,7 +1130,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _skip_write_index_on_load = schema.skip_write_index_on_load();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
-    _version_col_idx = schema.version_col_idx();
+    // Older tablet-creation metadata omitted this index even when the VERSION column
+    // was present. append_column already found its physical position by name.
+    _version_col_idx =
+            schema.has_version_col_idx() ? schema.version_col_idx() : field_index(VERSION_COL);
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
     _row_lsn_col_idx = schema.row_lsn_col_idx();

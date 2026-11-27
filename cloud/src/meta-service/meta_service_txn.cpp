@@ -54,6 +54,63 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+// Check pending Rowsets against the first planning versions persisted in the transaction.
+class SequenceRetentionCommitGuard {
+public:
+    explicit SequenceRetentionCommitGuard(const TxnInfoPB& transaction) {
+        for (const auto& plan : transaction.sequence_retention_plans()) {
+            _plans.emplace(plan.table_id(), &plan);
+        }
+    }
+
+    bool check(const TabletIndexPB& index, const RowsetMetaCloudPB& input, int64_t commit_version,
+               MetaServiceCode& code, std::string& error) const {
+        auto plan = _plans.find(index.table_id());
+        if (plan == _plans.end() && !input.requires_sequence_retention()) {
+            return true;
+        }
+        auto reject = [&](std::string reason) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            error = std::move(reason);
+            return false;
+        };
+        if (plan == _plans.end()) {
+            return reject("Sequence retention planning version was not captured");
+        }
+        const auto& versions = plan->second->partition_versions();
+        auto version = versions.find(index.partition_id());
+        const auto& retained = input.sequence_retention_input();
+        if (version == versions.end() || !input.requires_sequence_retention() ||
+            input.partition_id() != index.partition_id() ||
+            retained.plan_version() != version->second) {
+            return reject(
+                    fmt::format("Sequence retention input does not match the planning version: "
+                                "tablet={}, table={}, partition={}",
+                                input.tablet_id(), index.table_id(), index.partition_id()));
+        }
+        const int64_t planned = version->second;
+        const int64_t gap = plan->second->version_gap();
+        if (planned <= 0 || commit_version <= planned || commit_version - planned > gap) {
+            return reject(
+                    fmt::format("Sequence retention transaction exceeded version window: "
+                                "partition={}, plan={}, commit={}, gap={}",
+                                index.partition_id(), planned, commit_version, gap));
+        }
+        if (!retained.has_original_segment_count() ||
+            retained.original_segment_count() > input.num_segments() ||
+            retained.finalized_version() != commit_version) {
+            return reject(
+                    fmt::format("Sequence retention pending rowset has no final decisions for "
+                                "its assigned version: tablet={}, final={}, commit={}",
+                                input.tablet_id(), retained.finalized_version(), commit_version));
+        }
+        return true;
+    }
+
+private:
+    std::unordered_map<int64_t, const SequenceRetentionPlanPB*> _plans;
+};
+
 static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
 
 void repair_tablet_index(std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
@@ -2172,6 +2229,7 @@ void MetaServiceImpl::commit_txn_immediately(
         record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
                                 txn_id);
 
+        SequenceRetentionCommitGuard retention_guard(txn_info);
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
@@ -2212,6 +2270,9 @@ void MetaServiceImpl::commit_txn_immediately(
 
             // Update rowset version
             int64_t new_version = versions[partition_id] + 1;
+            if (!retention_guard.check(tablet_ids.at(tablet_id), i, new_version, code, msg)) {
+                return;
+            }
             i.set_start_version(new_version);
             i.set_end_version(new_version);
             i.set_visible_ts_ms(rowsets_visible_ts_ms);
@@ -2979,6 +3040,14 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
+        SequenceRetentionCommitGuard retention_guard(txn_info);
+        for (const auto& [_, input] : tmp_rowsets_meta) {
+            if (!retention_guard.check(tablet_ids.at(input.tablet_id()), input,
+                                       versions.at(input.partition_id()) + 1, code, msg)) {
+                return;
+            }
+        }
+
         // save versions for partition
         int64_t version_update_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -3455,6 +3524,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
                                 txn_id);
 
+        SequenceRetentionCommitGuard retention_guard(txn_info);
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
@@ -3493,6 +3563,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                     new_versions[partition_id] = new_version + 1;
                     new_version = new_versions[partition_id];
                     partition_id_to_version[partition_id] = new_version;
+                }
+                if (!retention_guard.check(tablet_ids.at(tablet_id), i, new_version, code, msg)) {
+                    return;
                 }
                 i.set_start_version(new_version);
                 i.set_end_version(new_version);
@@ -4332,6 +4405,94 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
     VLOG_DEBUG << "txn_info=" << txn_info.ShortDebugString();
     DCHECK(txn_info.txn_id() == txn_id);
     response->mutable_txn_info()->CopyFrom(txn_info);
+}
+
+void MetaServiceImpl::record_sequence_retention_plan(
+        ::google::protobuf::RpcController* controller,
+        const RecordSequenceRetentionPlanRequest* request,
+        RecordSequenceRetentionPlanResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(record_sequence_retention_plan, get, put);
+    const auto& observed = request->plan();
+    const int64_t db_id = request->db_id();
+    const int64_t txn_id = request->txn_id();
+    if (db_id <= 0 || txn_id <= 0 || observed.table_id() <= 0 || observed.version_gap() <= 0 ||
+        observed.partition_versions().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Invalid sequence retention planning request";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    RPC_RATE_LIMIT(record_sequence_retention_plan)
+
+    auto err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "Cannot open transaction to record the sequence retention plan";
+        return;
+    }
+    const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    std::string info_val;
+    err = txn->get(info_key, &info_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                                      : cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("Cannot read transaction {} in database {}, err={}", txn_id, db_id, err);
+        return;
+    }
+    TxnInfoPB txn_info;
+    if (!txn_info.ParseFromString(info_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Cannot parse transaction {} in database {}", txn_id, db_id);
+        return;
+    }
+
+    auto* plans = txn_info.mutable_sequence_retention_plans();
+    auto existing =
+            std::ranges::find(*plans, observed.table_id(), &SequenceRetentionPlanPB::table_id);
+    const bool first_plan = existing == plans->end();
+    auto* saved = first_plan ? plans->Add() : &*existing;
+    if (first_plan) {
+        saved->set_table_id(observed.table_id());
+        saved->set_version_gap(observed.version_gap());
+    } else if (saved->version_gap() != observed.version_gap()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Sequence retention gap must remain fixed";
+        return;
+    }
+    bool changed = false;
+    for (const auto& [partition_id, version] : observed.partition_versions()) {
+        if (partition_id <= 0 || version <= 0) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Invalid sequence retention partition or planning version";
+            return;
+        }
+        changed |= saved->mutable_partition_versions()->emplace(partition_id, version).second;
+    }
+    if (changed) {
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_PREPARED ||
+            std::ranges::find(txn_info.table_ids(), observed.table_id()) ==
+                    txn_info.table_ids().end()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Cannot capture a new sequence retention partition for this transaction";
+            return;
+        }
+        // A conflicting or uncertain write is retried by the RPC proxy. The saved versions win
+        // when the transaction is read again.
+        TEST_SYNC_POINT_CALLBACK("record_sequence_retention_plan::before_commit", &txn_info);
+        txn->put(info_key, txn_info.SerializeAsString());
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = "Cannot persist the first sequence retention planning snapshot";
+            return;
+        }
+    }
+    response->mutable_plan()->CopyFrom(*saved);
 }
 
 //To get current max txn id for schema change watermark etc.

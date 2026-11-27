@@ -211,6 +211,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
 }
 
 Status CloudCumulativeCompaction::request_global_lock() {
+    RETURN_IF_ERROR(snapshot_sequence_retention());
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();

@@ -437,6 +437,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
                         tbl.getVerticalCompactionNumColumnsPerGroup(), tabletRole);
+                setSequenceRetentionGap(builder, tbl.getSequenceRetentionGap());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -536,6 +537,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         int deleteSign = -1;
         int sequenceCol = -1;
+        int versionCol = -1;
         int commitTsoCol = -1;
         int rowLsnCol = -1;
         for (int i = 0; i < schemaColumns.size(); i++) {
@@ -546,6 +548,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isVersionColumn()) {
+                versionCol = i;
+            }
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
@@ -555,6 +560,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         schemaBuilder.setDeleteSignIdx(deleteSign);
         schemaBuilder.setSequenceColIdx(sequenceCol);
+        schemaBuilder.setVersionColIdx(versionCol);
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
         schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
@@ -699,6 +705,15 @@ public class CloudInternalCatalog extends InternalCatalog {
             builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
+    }
+
+    public static void setSequenceRetentionGap(OlapFile.TabletMetaCloudPB.Builder builder, long gap) {
+        if (gap > 0) {
+            builder.setSequenceRetentionGap(gap);
+            for (int i = 0; i < builder.getRsMetasCount(); i++) {
+                builder.getRsMetasBuilder(i).setRequiresSequenceRetention(true);
+            }
+        }
     }
 
     static void setRowTtlSchemaFields(OlapFile.TabletSchemaCloudPB.Builder schemaBuilder,
@@ -1114,6 +1129,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new DdlException(response.getStatus().getMsg());
+        }
+        boolean needsRetention = createTabletsReq.getTabletMetasList().stream()
+                .anyMatch(meta -> meta.getSequenceRetentionGap() > 0);
+        if (needsRetention && !response.getSupportsSequenceRetention()) {
+            throw new DdlException("Meta Service does not support sequence retention rule 1");
         }
         return response;
     }

@@ -72,6 +72,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _rowset_meta->set_txn_id(_context.txn_id);
     _rowset_meta->set_txn_expiration(_context.txn_expiration);
     _rowset_meta->set_compaction_level(_context.compaction_level);
+    _init_sequence_retention_meta();
     if (_context.rowset_state == PREPARED || _context.rowset_state == COMMITTED) {
         _is_pending = true;
         _rowset_meta->set_load_id(_context.load_id);
@@ -145,7 +146,8 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // transfer 0 (PREPARED -> COMMITTED): finish writing a rowset and the rowset' meta will not be changed
     // transfer 1 (PREPARED -> BEGIN_PARTIAL_UPDATE): finish writing a rowset, but may append new segments later and the rowset's meta may be changed
     // transfer 2 (BEGIN_PARTIAL_UPDATE -> VISIBLE): finish adding new segments and the rowset' meta will not be changed, the rowset is visible to users
-    if (_context.partial_update_info && _context.partial_update_info->is_partial_update()) {
+    if (_context.sequence_retention ||
+        (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         _rowset_meta->set_rowset_state(BEGIN_PARTIAL_UPDATE);
     } else {
         _rowset_meta->set_rowset_state(COMMITTED);

@@ -1592,8 +1592,8 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
 
     // We generate a new tablet_uid for this new tablet.
     uint64_t shard_id = store->get_shard();
-    *tablet_meta = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
-                                      col_idx_to_unique_id);
+    *tablet_meta = DORIS_TRY(TabletMeta::create(request, TabletUid::gen_uid(), shard_id,
+                                                next_unique_id, col_idx_to_unique_id));
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
             (*tablet_meta)->set_preferred_rowset_type(_engine.default_rowset_type());

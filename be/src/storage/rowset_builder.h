@@ -129,6 +129,10 @@ protected:
     // current rowset_ids, used to do diff in publish_version
     std::shared_ptr<RowsetIdUnorderedSet> _rowset_ids {std::make_shared<RowsetIdUnorderedSet>()};
     int64_t _max_version_in_flush_phase {-1};
+    std::shared_ptr<const SequenceRetentionBitmapBaseline> _sequence_retention_baseline;
+    DeleteBitmapPtr _sequence_retention_read_bitmap;
+
+    Status _prepare_sequence_retention_bitmap();
 
     std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 

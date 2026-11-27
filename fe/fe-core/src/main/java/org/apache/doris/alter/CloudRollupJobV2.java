@@ -250,6 +250,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getColumnSeqMapping(),
                                     tbl.getVerticalCompactionNumColumnsPerGroup(),
                                     OlapFile.TabletRolePB.TABLET_ROLE_DATA);
+                CloudInternalCatalog.setSequenceRetentionGap(builder, tbl.getSequenceRetentionGap());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

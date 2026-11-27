@@ -26,6 +26,8 @@
 #include <string>
 #include <utility>
 
+#include "storage/sequence_retention.h"
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -54,6 +56,17 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+Status BaseDeltaWriter::check_sequence_retention_context(int64_t gap, int64_t plan_version) const {
+    const auto original =
+            _req.sequence_retention ? *_req.sequence_retention : SequenceRetentionContext {};
+    if (original.gap != gap || original.plan_version != plan_version) {
+        return Status::InvalidArgument(
+                "sequence retention version changed while reopening writer: tablet={}, txn={}",
+                _req.tablet_id, _req.txn_id);
+    }
+    return Status::OK();
+}
 
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
                                  const UniqueId& load_id)

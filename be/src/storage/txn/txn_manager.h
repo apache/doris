@@ -77,6 +77,12 @@ struct TxnPublishInfo {
     int64_t cumulative_point {-1};
 };
 
+struct SequenceRetentionBitmapBaseline {
+    RowsetId rowset_id;
+    int64_t version;
+    std::shared_ptr<const DeleteBitmap> intra_rowset_bitmap;
+};
+
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
@@ -87,6 +93,7 @@ struct TabletTxnInfo {
     DeleteBitmapPtr delete_bitmap;
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
+    std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline;
     int64_t creation_time;
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
@@ -247,12 +254,13 @@ public:
     void get_partition_ids(const TTransactionId transaction_id,
                            std::vector<TPartitionId>* partition_ids);
 
-    void set_txn_related_delete_bitmap(TPartitionId partition_id, TTransactionId transaction_id,
-                                       TTabletId tablet_id, TabletUid tablet_uid,
-                                       bool unique_key_merge_on_write,
-                                       DeleteBitmapPtr delete_bitmap,
-                                       const RowsetIdUnorderedSet& rowset_ids,
-                                       std::shared_ptr<PartialUpdateInfo> partial_update_info);
+    void set_txn_related_delete_bitmap(
+            TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+            TabletUid tablet_uid, bool unique_key_merge_on_write, DeleteBitmapPtr delete_bitmap,
+            const RowsetIdUnorderedSet& rowset_ids,
+            std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline =
+                    nullptr);
     void get_all_commit_tablet_txn_info_by_tablet(
             const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 

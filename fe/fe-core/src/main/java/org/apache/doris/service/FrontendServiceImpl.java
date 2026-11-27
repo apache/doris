@@ -125,6 +125,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.SequenceRetentionPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
@@ -3065,6 +3066,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(request.getDb());
             OlapTable table = (OlapTable) db.getTableOrDdlException(request.getTbl());
+            // The shared-nothing planner records the first snapshot in the master's transaction journal.
+            if (!Config.isCloudMode() && table.getSequenceRetentionGap() > 0) {
+                return null;
+            }
             if (!table.getTableProperty().getUseSchemaLightChange()) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs(
@@ -3146,6 +3151,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
+                SequenceRetentionPlanner.prepare(result.getPipelineParams().getFragment()
+                        .getOutputSink().getOlapTableSink());
                 if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
                     result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
                 }
@@ -4929,6 +4936,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             olapTable.readUnlock();
         }
 
+        try {
+            SequenceRetentionPlanner.preparePartitions(dbId, txnId, olapTable,
+                    partitionSnapshots.stream().map(snapshot -> snapshot.tPartition).collect(Collectors.toList()));
+        } catch (UserException e) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+            result.setStatus(errorStatus);
+            return result;
+        }
         // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
         String cachedClusterId = null;
         for (PartitionResultSnapshot partitionSnapshot : partitionSnapshots) {

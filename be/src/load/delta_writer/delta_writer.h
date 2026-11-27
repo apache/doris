@@ -93,6 +93,8 @@ public:
 
     int64_t txn_id() const { return _req.txn_id; }
 
+    Status check_sequence_retention_context(int64_t gap, int64_t plan_version) const;
+
     int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
 
     int64_t num_rows_filtered() const;

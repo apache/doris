@@ -164,6 +164,7 @@ using BlockRow = std::pair<Block*, int32_t>;
 using BlockRowWithIndicator = std::tuple<Block*, int32_t, bool>; // [block, row, is_transformed]
 
 struct VOlapTablePartition {
+    int64_t sequence_retention_plan_version = 0;
     int64_t id = 0;
     BlockRow start_key;
     BlockRow end_key;
@@ -297,6 +298,7 @@ public:
     }
 
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
+    int64_t sequence_retention_gap() const { return _t_param.sequence_retention_gap; }
 
     // it's same with auto now because we only support transformed partition in auto partition. may expand in future
     bool is_projection_partition() const { return _is_auto_partition; }

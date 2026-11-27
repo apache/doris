@@ -38,6 +38,8 @@ BvarLatencyRecorderWithTag g_bvar_ms_commit_txn("ms", "commit_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually("ms", "commit_txn_eventually");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn("ms", "abort_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn("ms", "get_txn");
+BvarLatencyRecorderWithTag g_bvar_ms_record_sequence_retention_plan("ms",
+                                                               "record_sequence_retention_plan");
 BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id("ms", "get_current_max_txn_id");
 BvarLatencyRecorderWithTag g_bvar_ms_create_meta_sync_point("ms", "create_meta_sync_point");
 BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn("ms", "begin_sub_txn");
@@ -491,6 +493,11 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_counter("rpc_kv_abort_txn_put_counte
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_counter("rpc_kv_abort_txn_del_counter",{"instance_id"});
 // get_txn
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_counter("rpc_kv_get_txn_get_counter",{"instance_id"});
+// record_sequence_retention_plan
+mBvarInt64Adder g_bvar_rpc_kv_record_sequence_retention_plan_get_counter(
+        "rpc_kv_record_sequence_retention_plan_get_counter", {"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_record_sequence_retention_plan_put_counter(
+        "rpc_kv_record_sequence_retention_plan_put_counter", {"instance_id"});
 // get_current_max_txn_id
 mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_counter("rpc_kv_get_current_max_txn_id_get_counter",{"instance_id"});
 // create_meta_sync_point
@@ -700,6 +707,11 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_bytes("rpc_kv_abort_txn_put_bytes",{
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_bytes("rpc_kv_abort_txn_del_bytes",{"instance_id"});
 // get_txn
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_bytes("rpc_kv_get_txn_get_bytes",{"instance_id"});
+// record_sequence_retention_plan
+mBvarInt64Adder g_bvar_rpc_kv_record_sequence_retention_plan_get_bytes(
+        "rpc_kv_record_sequence_retention_plan_get_bytes", {"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_record_sequence_retention_plan_put_bytes(
+        "rpc_kv_record_sequence_retention_plan_put_bytes", {"instance_id"});
 // get_current_max_txn_id
 mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_bytes("rpc_kv_get_current_max_txn_id_get_bytes",{"instance_id"});
 // create_meta_sync_point

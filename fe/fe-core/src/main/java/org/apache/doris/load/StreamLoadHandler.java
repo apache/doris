@@ -42,6 +42,7 @@ import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.SequenceRetentionPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
@@ -316,6 +317,11 @@ public class StreamLoadHandler {
             }
         } finally {
             table.readUnlock();
+        }
+        TPipelineFragmentParams params = (TPipelineFragmentParams) fragmentParams.get(fragmentParams.size() - 1);
+        if (params.getFragment().getOutputSink().getType()
+                != org.apache.doris.thrift.TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+            SequenceRetentionPlanner.prepare(getOlapTableSink(params));
         }
     }
 

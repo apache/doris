@@ -29,6 +29,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
@@ -38,8 +39,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +60,70 @@ public class CreateTableTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
+    }
+
+    @Test
+    public void testCreateSequenceRetention() throws Exception {
+        boolean original = Config.enable_hidden_version_column_by_default;
+        Config.enable_hidden_version_column_by_default = false;
+        try {
+            createTable("CREATE TABLE test.sequence_retention_new (k INT, seq BIGINT, v INT) "
+                    + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES "
+                    + "('replication_num'='1', 'function_column.sequence_col'='seq', "
+                    + "'sequence_delete_retention_version_gap'='100')");
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrDdlException("test")
+                    .getTableOrDdlException("sequence_retention_new");
+            Assertions.assertTrue(table.getEnableUniqueKeyMergeOnWrite());
+            Assertions.assertNotNull(table.getColumn("__DORIS_VERSION_COL__"));
+            Assertions.assertEquals(100, table.getSequenceRetentionGap());
+            OlapTable replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(table), OlapTable.class);
+            Assertions.assertEquals(100, replayed.getSequenceRetentionGap());
+            List<String> ddl = new ArrayList<>();
+            Env.getDdlStmt(table, ddl, null, null, false, true, -1L);
+            Assertions.assertTrue(ddl.get(0).contains("\"sequence_delete_retention_version_gap\" = \"100\""));
+            createTable("CREATE TABLE test.sequence_retention_off (k INT, v INT) "
+                    + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num'='1', 'sequence_delete_retention_version_gap'='0')");
+            OlapTable off = (OlapTable) Env.getCurrentInternalCatalog().getDbOrDdlException("test")
+                    .getTableOrDdlException("sequence_retention_off");
+            Assertions.assertEquals(0, off.getSequenceRetentionGap());
+            Assertions.assertNull(off.getColumn("__DORIS_VERSION_COL__"));
+            String alterSetting = " SET ('sequence_delete_retention_version_gap'='";
+            UserException disable = Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                    () -> alterTableSync("ALTER TABLE test.sequence_retention_new" + alterSetting + "0')"));
+            UserException enable = Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                    () -> alterTableSync("ALTER TABLE test.sequence_retention_off" + alterSetting + "100')"));
+            Assertions.assertTrue(disable.getMessage().contains("can only be set at CREATE TABLE"));
+            Assertions.assertTrue(enable.getMessage().contains("can only be set at CREATE TABLE"));
+            Assertions.assertEquals(100, table.getSequenceRetentionGap());
+            Assertions.assertEquals(0, off.getSequenceRetentionGap());
+            createTable("CREATE TABLE test.sequence_retention_partitioned (k INT, seq BIGINT) "
+                    + "UNIQUE KEY(k) PARTITION BY RANGE(k) (PARTITION p0 VALUES LESS THAN (10), "
+                    + "PARTITION p1 VALUES LESS THAN (20)) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num'='1', 'function_column.sequence_col'='seq', "
+                    + "'sequence_delete_retention_version_gap'='100')");
+            OlapTable partitioned = (OlapTable) Env.getCurrentInternalCatalog().getDbOrDdlException("test")
+                    .getTableOrDdlException("sequence_retention_partitioned");
+            Assertions.assertEquals(2, partitioned.getPartitions().size());
+            Assertions.assertEquals(100, partitioned.getSequenceRetentionGap());
+        } finally {
+            Config.enable_hidden_version_column_by_default = original;
+        }
+    }
+
+    @Test
+    public void testCreateSequenceRetentionValidation() {
+        String prefix = "CREATE TABLE test.sequence_retention_invalid (k INT, seq BIGINT) ";
+        String distribution = " DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1', ";
+        Assertions.assertThrows(AnalysisException.class, () -> createTable(prefix + "UNIQUE KEY(k)"
+                + distribution + "'sequence_delete_retention_version_gap'='-1')"));
+        Assertions.assertThrows(AnalysisException.class, () -> createTable(prefix + "DUPLICATE KEY(k)"
+                + distribution + "'sequence_delete_retention_version_gap'='100')"));
+        Assertions.assertThrows(AnalysisException.class, () -> createTable(prefix + "UNIQUE KEY(k)"
+                + distribution + "'enable_unique_key_merge_on_write'='false', "
+                + "'sequence_delete_retention_version_gap'='100')"));
+        Assertions.assertThrows(DdlException.class, () -> createTable(prefix + "UNIQUE KEY(k)"
+                + distribution + "'sequence_delete_retention_version_gap'='100')"));
     }
 
     @Test

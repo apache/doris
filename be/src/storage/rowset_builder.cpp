@@ -28,6 +28,8 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/cloud_tablet.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -48,6 +50,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema_change/schema_change.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
@@ -149,6 +152,19 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 
     std::lock_guard lck(tablet()->get_header_lock());
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
+    const int64_t gap = _req.sequence_retention ? _req.sequence_retention->gap : 0;
+    if (gap != tablet()->tablet_meta()->sequence_retention_gap()) {
+        return Status::InvalidArgument("sequence retention gap does not match tablet {}",
+                                       _req.tablet_id);
+    }
+    if (_req.sequence_retention) {
+        RETURN_IF_ERROR(_req.sequence_retention->validate());
+        if (tablet()->table_id() != _req.table_schema_param->table_id() ||
+            tablet()->partition_id() != _req.partition_id) {
+            return Status::InvalidArgument("sequence retention request does not match tablet {}",
+                                           _req.tablet_id);
+        }
+    }
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TabletState::TABLET_NOTREADY) {
@@ -159,7 +175,9 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
                     "the tablet is undergoing a 'schema changing process'");
         }
         _rowset_ids->clear();
-    } else {
+    } else if (!_req.sequence_retention) {
+        // Retained inputs do not probe external history during flush. Capture that view only
+        // at the final predecessor, instead of pinning an unused early rowset snapshot.
         RETURN_IF_ERROR(
                 tablet()->get_all_rs_id_unlocked(_max_version_in_flush_phase, _rowset_ids.get()));
         rowset_ptrs = tablet()->get_rowset_by_ids(_rowset_ids.get());
@@ -167,6 +185,7 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
     mow_context = std::make_shared<MowContext>(_max_version_in_flush_phase, _req.txn_id,
                                                _rowset_ids, rowset_ptrs, _delete_bitmap);
+    mow_context->sequence_retention = _req.sequence_retention;
     return Status::OK();
 }
 
@@ -282,6 +301,11 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.sequence_retention = _req.sequence_retention;
+    if (_req.sequence_retention) {
+        context.sequence_retention_enabled = true;
+        context.enable_segcompaction = false;
+    }
     context.write_file_cache = _req.write_file_cache;
 
     return Status::OK();
@@ -295,6 +319,12 @@ Status BaseRowsetBuilder::build_rowset() {
     SCOPED_TIMER(_build_rowset_timer);
     // use rowset meta manager to save meta
     RETURN_NOT_OK_STATUS_WITH_WARN(_rowset_writer->build(_rowset), "fail to build rowset");
+    if (_req.sequence_retention) {
+        auto* input = _rowset->rowset_meta()->mutable_sequence_retention_input();
+        input->set_original_segment_count(cast_set<uint32_t>(_rowset->num_segments()));
+        input->set_raw_partial_update(_partial_update_info &&
+                                      _partial_update_info->is_partial_update());
+    }
     return Status::OK();
 }
 
@@ -313,6 +343,9 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
+    if (_req.sequence_retention) {
+        return _prepare_sequence_retention_bitmap();
+    }
     if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
         if (_rowset->num_segments() > 1) {
             // in flexible partial update, when there are more one segment in one load,
@@ -363,6 +396,54 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
                                                          _calc_delete_bitmap_token.get(), nullptr);
 }
 
+Status BaseRowsetBuilder::_prepare_sequence_retention_bitmap() {
+    // A row derived from history can need different values at publish. Such inputs still use the
+    // retained-column path.
+    if (_partial_update_info->is_partial_update() || !_attach_rowset_ids.empty()) {
+        return Status::OK();
+    }
+
+    int64_t version;
+    std::vector<RowsetSharedPtr> rowsets;
+    {
+        auto* cloud_tablet = dynamic_cast<CloudTablet*>(_tablet.get());
+        std::unique_lock<bthread::Mutex> sync_lock;
+        if (cloud_tablet != nullptr) {
+            sync_lock = std::unique_lock<bthread::Mutex>(cloud_tablet->get_sync_meta_lock());
+        }
+        std::shared_lock rlock(_tablet->get_header_lock());
+        version = _tablet->max_version_unlocked();
+        // Without a usable early prefix, publish will compute from the complete predecessor.
+        if (_tablet->tablet_state() != TabletState::TABLET_RUNNING ||
+            version < _req.sequence_retention->expiry_version() ||
+            (cloud_tablet != nullptr &&
+             cloud_tablet->sequence_retention_bitmap_ready_version_unlocked() < version)) {
+            return Status::OK();
+        }
+        RowsetIdUnorderedSet ids;
+        if (!_tablet->get_all_rs_id_unlocked(version, &ids).ok()) {
+            return Status::OK();
+        }
+        *_rowset_ids = std::move(ids);
+        rowsets = _tablet->get_rowset_by_ids(_rowset_ids.get());
+        _sequence_retention_read_bitmap = _tablet->tablet_meta()->delete_bitmap_ptr();
+    }
+
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(_rowset)->load_segments(&segments));
+    auto intra_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+    RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(
+            _tablet_schema, _rowset->rowset_id(), segments, intra_bitmap));
+    _delete_bitmap->merge(*intra_bitmap);
+    _sequence_retention_baseline = std::make_shared<SequenceRetentionBitmapBaseline>(
+            SequenceRetentionBitmapBaseline {_rowset->rowset_id(), version, intra_bitmap});
+    auto options = std::make_shared<SequenceRetentionBitmapOptions>();
+    options->retention = _req.sequence_retention;
+    return BaseTablet::calc_delete_bitmap(_tablet, _rowset, segments, rowsets, _delete_bitmap,
+                                          version, _calc_delete_bitmap_token.get(), nullptr,
+                                          _sequence_retention_read_bitmap, options);
+}
+
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     DCHECK(is_data_builder());
     if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
@@ -371,6 +452,26 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    if (_sequence_retention_baseline) {
+        auto* cloud_tablet = dynamic_cast<CloudTablet*>(_tablet.get());
+        std::unique_lock<bthread::Mutex> sync_lock;
+        if (cloud_tablet != nullptr) {
+            sync_lock = std::unique_lock<bthread::Mutex>(cloud_tablet->get_sync_meta_lock());
+        }
+        std::shared_lock rlock(_tablet->get_header_lock());
+        RowsetIdUnorderedSet ids;
+        // New versions add bitmap entries above F. A compaction can retire or aggregate
+        // bitmap entries of F itself, so keep the early result only while that layout survived.
+        if (_tablet->tablet_state() != TabletState::TABLET_RUNNING ||
+            _tablet->tablet_meta()->delete_bitmap_ptr() != _sequence_retention_read_bitmap ||
+            !_tablet->get_all_rs_id_unlocked(_sequence_retention_baseline->version, &ids).ok() ||
+            ids != *_rowset_ids) {
+            *_delete_bitmap = *_sequence_retention_baseline->intra_rowset_bitmap;
+            _rowset_ids->clear();
+            _sequence_retention_baseline.reset();
+        }
+        _sequence_retention_read_bitmap.reset();
+    }
     return Status::OK();
 }
 
@@ -403,11 +504,13 @@ Status RowsetBuilder::commit_txn() {
                      << " for rowset: " << _rowset->rowset_id();
         return res;
     }
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    // A duplicate load can return success using an existing Rowset with a different ID.
+    // Keep that Rowset's speculative bitmap and input mask together.
+    if (_tablet->enable_unique_key_merge_on_write() && (!_req.sequence_retention || res.ok())) {
         // no need to update changelog tablet delete bitmap, it'll be updated in publish phase
         _engine.txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, tablet()->tablet_id(), tablet()->tablet_uid(), true,
-                _delete_bitmap, *_rowset_ids, _partial_update_info);
+                _delete_bitmap, *_rowset_ids, _partial_update_info, _sequence_retention_baseline);
     }
 
     _is_committed = true;

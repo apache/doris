@@ -140,6 +140,20 @@ public:
         *(_rowset_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
     }
 
+    bool requires_sequence_retention() const {
+        return _rowset_meta_pb.requires_sequence_retention();
+    }
+    void set_requires_sequence_retention(bool required) {
+        _rowset_meta_pb.set_requires_sequence_retention(required);
+    }
+
+    const SequenceRetentionInputPB& sequence_retention_input() const {
+        return _rowset_meta_pb.sequence_retention_input();
+    }
+    SequenceRetentionInputPB* mutable_sequence_retention_input() {
+        return _rowset_meta_pb.mutable_sequence_retention_input();
+    }
+
     int64_t txn_id() const { return _rowset_meta_pb.txn_id(); }
 
     void set_txn_id(int64_t txn_id) { _rowset_meta_pb.set_txn_id(txn_id); }

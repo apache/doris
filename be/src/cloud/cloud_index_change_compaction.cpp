@@ -136,6 +136,7 @@ Status CloudIndexChangeCompaction::rebuild_tablet_schema() {
 }
 
 Status CloudIndexChangeCompaction::request_global_lock(bool& should_skip_err) {
+    RETURN_IF_ERROR(snapshot_sequence_retention());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());

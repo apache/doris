@@ -30,6 +30,7 @@
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/sequence_retention.h"
 #include "storage/tablet/tablet_meta.h"
 
 namespace doris {
@@ -78,6 +79,34 @@ protected:
                        uint32_t segment_id, uint32_t row_id) {
         return mow->delete_bitmap->contains({rsid, segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                             row_id);
+    }
+
+    TabletSchemaSPtr retention_schema(bool clustered = false) {
+        TabletSchemaPB pb;
+        create_mow_schema(true)->to_schema_pb(&pb);
+        pb.set_delete_sign_idx(3);
+        auto* version = pb.add_column();
+        version->set_unique_id(4);
+        version->set_name(VERSION_COL);
+        version->set_type("BIGINT");
+        version->set_is_key(false);
+        version->set_is_nullable(false);
+        version->set_length(8);
+        version->set_aggregation("NONE");
+        version->set_default_value("0");
+        pb.set_version_col_idx(4);
+        if (clustered) {
+            pb.add_cluster_key_uids(1);
+            pb.mutable_column(1)->set_is_nullable(false);
+        }
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    void enable_retention(const std::shared_ptr<MowContext>& mow, int64_t plan_version = 620) {
+        mow->sequence_retention = std::make_shared<SequenceRetentionContext>(
+                SequenceRetentionContext {.gap = 100, .plan_version = plan_version});
     }
 
     static RowsetId writing_rowset_id() {
@@ -570,6 +599,146 @@ TEST_F(RowCacheProbeTest, KeepsTheCacheForNonDirectWritesAndNonRowStoreSchemas) 
     static_cast<void>(encode_and_invalidate(row_store_schema, row_store_encoder, 1,
                                             /*row_has_seq=*/false, 0, DataWriteType::TYPE_DIRECT));
     EXPECT_FALSE(cached(kTabletId, key));
+}
+
+TEST_F(KeyProbeTest, ExpiredDeleteSignBecomesNewKeyWithoutSequenceInheritance) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 4801, 520, {{1, 11, 100, 1}}, &tablet);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto probe = make_fill_probe(schema, tablet, mow);
+    auto result = probe.probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false, rowsets,
+                              caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::NOT_FOUND, result->result);
+    EXPECT_TRUE(result->use_default_or_null);
+    EXPECT_TRUE(marked(mow, rowset->rowset_id(), 0, 0));
+    EXPECT_FALSE(marked(mow, writing_rowset_id(), 0, 0));
+    auto inherited =
+            probe.probe_previous_seq_value(encode_key(schema, encoder, 1), rowsets, caches);
+    ASSERT_TRUE(inherited.has_value()) << inherited.error();
+    EXPECT_EQ(KeyProbeResult::NOT_FOUND, inherited->outcome.result);
+    EXPECT_TRUE(inherited->encoded_seq_value.empty());
+}
+
+TEST_F(KeyProbeTest, UnexpiredDeleteSignStillRejectsLowerSequence) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 4802, 521, {{1, 11, 100, 1}}, &tablet);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::FOUND_NEWER, result->result);
+    EXPECT_TRUE(marked(mow, writing_rowset_id(), 0, 0));
+    EXPECT_FALSE(marked(mow, rowset->rowset_id(), 0, 0));
+}
+
+TEST_F(KeyProbeTest, MaskedHigherSequenceCannotHideTheEffectiveLowerSequenceRow) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto deleted = write_rowset(schema, 4803, 500, {{1, 11, 100, 1}}, &tablet);
+    auto live = write_rowset(schema, 4804, 621, {{1, 22, 80, 0}}, &tablet);
+    tablet->tablet_meta()->delete_bitmap().add({deleted->rowset_id(), 0, 621}, 0);
+    // Probe the obsolete row first to cover KEY_ALREADY_EXISTS before any sequence-expiry check.
+    std::vector<RowsetSharedPtr> rowsets {deleted, live};
+    auto mow = make_mow_context(621, rowsets);
+    enable_retention(mow, 550);
+    EXPECT_TRUE(mow->sequence_retention->check_commit(622).ok());
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(2);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::FOUND, result->result);
+    EXPECT_EQ(live->rowset_id(), result->loc.rowset_id);
+    EXPECT_TRUE(marked(mow, live->rowset_id(), 0, 0));
+    EXPECT_FALSE(marked(mow, writing_rowset_id(), 0, 0));
+}
+
+TEST_F(KeyProbeTest, PublishedCloudRowWithCommittedStateStillExpires) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 4805, 500, {{1, 11, 100, 1}}, &tablet);
+    rowset->rowset_meta()->set_rowset_state(COMMITTED);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::NOT_FOUND, result->result);
+}
+
+TEST_F(KeyProbeTest, RetentionDoesNotExpireSameTransactionDeleteSign) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 4806, 0, {{1, 11, 100, 1}}, &tablet);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    mow->sequence_retention_in_transaction_rowsets.insert(rowset->rowset_id());
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::FOUND_NEWER, result->result);
+}
+
+TEST_F(KeyProbeTest, PublishedDeleteSignWithUnknownOriginalVersionFails) {
+    auto schema = retention_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 4807, 0, {{1, 11, 100, 1}}, &tablet);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(std::string::npos, result.error().to_string().find("unknown original version"));
+}
+
+TEST_F(KeyProbeTest, ClusteredSequenceLoserBitmapUsesPhysicalRowId) {
+    auto schema = retention_schema(true);
+    TabletSharedPtr tablet;
+    // Physical order is v order: key 1 has row id 1, but primary-index ordinal 0.
+    auto rowset = write_rowset(schema, 4808, 600, {{2, 11, 100, 0}, {1, 22, 100, 1}}, &tablet);
+    tablet->tablet_meta()->delete_bitmap().add({rowset->rowset_id(), 0, 610}, 1);
+    auto mow = make_mow_context(620, {rowset});
+    enable_retention(mow);
+    RowKeyEncoder encoder {*schema, true};
+    std::vector<RowsetSharedPtr> rowsets {rowset};
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    PartialUpdateStats stats;
+    auto result = make_fill_probe(schema, tablet, mow)
+                          .probe(encode_key_with_seq(schema, encoder, 1, 90), 0, true, false,
+                                 rowsets, caches, stats);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(KeyProbeResult::NOT_FOUND, result->result);
 }
 
 } // namespace doris

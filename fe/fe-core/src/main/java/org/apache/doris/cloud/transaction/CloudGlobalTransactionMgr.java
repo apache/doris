@@ -68,8 +68,11 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceResponseStatus;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.RecordSequenceRetentionPlanRequest;
+import org.apache.doris.cloud.proto.Cloud.RecordSequenceRetentionPlanResponse;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
+import org.apache.doris.cloud.proto.Cloud.SequenceRetentionPlanPB;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
@@ -466,7 +469,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     throw new UserException(
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
                 }
-                backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
+                backendToPartitionInfos = getCalcDeleteBitmapInfo(dbId, lockContext, null);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos, streamUpdateInfos);
@@ -1262,11 +1265,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
+        return getPartitionVersions(partitionMap, false);
+    }
+
+    private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap, boolean forceWait) {
         if (!Config.calc_delete_bitmap_get_versions_in_batch) {
             Map<Long, Long> partitionToVersions = Maps.newHashMap();
             partitionMap.forEach((key, value) -> {
                 long visibleVersion = ((CloudPartition) value).getVisibleVersionFromMs(
-                        Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
+                        forceWait || Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
                 long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
                 partitionToVersions.put(key, newVersion);
             });
@@ -1279,7 +1286,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<Long> partitionVersions;
         try {
             partitionVersions = CloudPartition.getSnapshotVisibleVersionFromMs(
-                    partitions, Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
+                    partitions, forceWait || Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
         } catch (RpcException e) {
             LOG.warn("get partition versions from ms failed, partitions: {}", partitions, e);
             throw new RuntimeException("get partition versions from ms failed", e);
@@ -1295,9 +1302,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private Map<Long, List<TCalcDeleteBitmapPartitionInfo>> getCalcDeleteBitmapInfo(
-            DeleteBitmapUpdateLockContext lockContext, Map<Long, List<Long>> partitionToSubTxnIds) {
+            long dbId, DeleteBitmapUpdateLockContext lockContext, Map<Long, List<Long>> partitionToSubTxnIds)
+            throws UserException {
+        Map<Long, Long> gaps = new HashMap<>();
+        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        for (long tableId : lockContext.getTableToPartitions().keySet()) {
+            OlapTable table = (OlapTable) database.getTableOrMetaException(tableId);
+            gaps.put(tableId, table.getSequenceRetentionGap());
+        }
+        boolean retention = gaps.values().stream().anyMatch(gap -> gap > 0);
+        TransactionState state = retention ? getTransactionState(dbId, lockContext.getLockId()) : null;
+        if (retention && state == null) {
+            throw new UserException("Missing sequence retention transaction context: " + lockContext.getLockId());
+        }
+        if (state != null && (state.getTransactionStatus() == TransactionStatus.COMMITTED
+                || state.getTransactionStatus() == TransactionStatus.VISIBLE)) {
+            return Collections.emptyMap();
+        }
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = Maps.newHashMap();
-        Map<Long, Long> partitionVersions = getPartitionVersions(lockContext.getPartitions());
+        Map<Long, Long> partitionVersions = retention ? getPartitionVersions(lockContext.getPartitions(), true)
+                : getPartitionVersions(lockContext.getPartitions());
         for (Map.Entry<Long, Map<Long, Set<Long>>> entry : lockContext.getBackendToPartitionTablets().entrySet()) {
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos = Lists.newArrayList();
             for (Map.Entry<Long, Set<Long>> partitionToTablets : entry.getValue().entrySet()) {
@@ -1306,6 +1330,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 TCalcDeleteBitmapPartitionInfo partitionInfo = new TCalcDeleteBitmapPartitionInfo(partitionId,
                         partitionVersions.get(partitionId),
                         Lists.newArrayList(tabletList));
+                long tableId = lockContext.getTabletToTabletMeta().get(tabletList.iterator().next()).getTableId();
+                long gap = gaps.get(tableId);
+                if (gap > 0) {
+                    int statementCount = partitionToSubTxnIds == null ? 1
+                            : partitionToSubTxnIds.getOrDefault(partitionId, Collections.emptyList()).size();
+                    long lastVersion = partitionVersions.get(partitionId) + Math.max(0, statementCount - 1);
+                    state.checkSequenceRetentionCommit(tableId, partitionId, gap, lastVersion);
+                    partitionInfo.setSequenceRetentionPlanVersion(
+                            state.getSequenceRetentionPlanVersion(tableId, partitionId));
+                }
                 if (!lockContext.getBaseCompactionCnts().isEmpty()
                         && !lockContext.getCumulativeCompactionCnts().isEmpty()
                         && !lockContext.getCumulativePoints().isEmpty()) {
@@ -1804,7 +1838,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         lockContext.getTableToTabletList(),
                         lockContext.getTabletToTabletMeta());
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(
-                        lockContext, partitionToSubTxnIds);
+                        db.getId(), lockContext, partitionToSubTxnIds);
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
                     backendToPartitionInfos);
@@ -2653,6 +2687,34 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("Get transaction id by label " + label + " failed", e);
             return null;
         }
+    }
+
+    @Override
+    public Map<Long, Long> captureSequenceRetentionVersions(long dbId, long txnId, long tableId, long gap,
+            Map<Long, Long> observedVersions) throws UserException {
+        long parentTxnId = subTxnIdToTxnId.getOrDefault(txnId, txnId);
+        SequenceRetentionPlanPB.Builder observed = SequenceRetentionPlanPB.newBuilder()
+                .setTableId(tableId).setVersionGap(gap).putAllPartitionVersions(observedVersions);
+        RecordSequenceRetentionPlanRequest request = RecordSequenceRetentionPlanRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id).setDbId(dbId).setTxnId(parentTxnId)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached()).setPlan(observed).build();
+        RecordSequenceRetentionPlanResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().recordSequenceRetentionPlan(request);
+        } catch (RpcException e) {
+            throw new UserException("Cannot record sequence retention planning version: transaction="
+                    + parentTxnId + ", table=" + tableId, e);
+        }
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(response.getStatus().getMsg());
+        }
+        SequenceRetentionPlanPB saved = response.getPlan();
+        Map<Long, Long> versions = saved.getPartitionVersionsMap();
+        if (saved.getTableId() == tableId && saved.getVersionGap() == gap
+                && observedVersions.keySet().stream().allMatch(id -> versions.getOrDefault(id, 0L) > 0)) {
+            return versions;
+        }
+        throw new UserException("Meta Service did not capture the sequence retention planning versions");
     }
 
     @Override

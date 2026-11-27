@@ -754,9 +754,10 @@ Status CloudMetaMgr::_log_mow_delete_bitmap(CloudTablet* tablet, GetRowsetRespon
 
 Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                   std::unique_lock<bthread::Mutex>& lock,
-                                                  const SyncOptions& options,
+                                                  const SyncOptions& requested_options,
                                                   SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
+    SyncOptions options = requested_options;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
     DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
@@ -768,6 +769,13 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
     });
 
+    {
+        std::shared_lock rlock(tablet->get_header_lock());
+        if (tablet->tablet_meta()->sequence_retention_gap() > 0) {
+            options.sync_delete_bitmap = true;
+            options.full_sync |= tablet->sequence_retention_bitmap_ready_version_unlocked() < 0;
+        }
+    }
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
     std::string tablet_info =
@@ -1025,6 +1033,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->set_cumulative_layer_point(stats.cumulative_point());
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
+
+            if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
+                tablet->tablet_state() == TABLET_RUNNING) {
+                tablet->set_sequence_retention_bitmap_ready_version_unlocked(
+                        tablet->max_version_unlocked());
+            }
 
             // Sync last active cluster info for compaction read-write separation
             if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
@@ -2083,7 +2097,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           DeleteBitmap* delete_bitmap_v2, std::string rowset_id,
                                           std::optional<StorageResource> storage_resource,
                                           int64_t store_version, int64_t table_id, int64_t txn_id,
-                                          bool is_explicit_txn, int64_t next_visible_version) {
+                                          bool is_explicit_txn, int64_t next_visible_version,
+                                          bool reset_pending) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     if (config::enable_mow_verbose_log) {
         std::stringstream ss;
@@ -2106,6 +2121,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     req.set_is_explicit_txn(is_explicit_txn);
+    if (reset_pending) {
+        req.set_reset_pending_delete_bitmap(true);
+    }
     if (txn_id > 0) {
         req.set_txn_id(txn_id);
     }

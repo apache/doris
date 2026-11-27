@@ -26,6 +26,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "storage/sequence_retention.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <initializer_list>
@@ -53,6 +54,17 @@
 #include "util/defer_op.h"
 
 namespace doris {
+
+static Result<std::shared_ptr<const SequenceRetentionContext>> make_sequence_retention_context(
+        int64_t gap, int64_t plan_version) {
+    if (gap == 0 && plan_version == 0) {
+        return std::shared_ptr<const SequenceRetentionContext>();
+    }
+    SequenceRetentionContext context {gap, plan_version};
+    RETURN_IF_ERROR_RESULT(context.validate());
+    return std::make_shared<const SequenceRetentionContext>(context);
+}
+
 class SlotDescriptor;
 
 bvar::Adder<int64_t> g_tablets_channel_send_data_allocated_size(
@@ -242,7 +254,9 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     // every change will hold _lock. this find in under _lock too. so no need _tablet_writers_lock again.
     for (const auto& tablet : params.tablets()) {
-        if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
+        if (auto it = _tablet_writers.find(tablet.tablet_id()); it != _tablet_writers.end()) {
+            RETURN_IF_ERROR(it->second->check_sequence_retention_context(
+                    params.sequence_retention_gap(), tablet.sequence_retention_plan_version()));
             continue;
         }
         incremental_tablet_num++;
@@ -254,6 +268,8 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.schema_hash = schema_hash;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
+        wrequest.sequence_retention = DORIS_TRY(make_sequence_retention_context(
+                params.sequence_retention_gap(), tablet.sequence_retention_plan_version()));
         wrequest.load_id = params.id();
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
@@ -617,7 +633,9 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
     int tablet_cnt = 0;
     // under _lock. no need _tablet_writers_lock again.
     for (const auto& tablet : request.tablets()) {
-        if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
+        if (auto it = _tablet_writers.find(tablet.tablet_id()); it != _tablet_writers.end()) {
+            RETURN_IF_ERROR(it->second->check_sequence_retention_context(
+                    request.sequence_retention_gap(), tablet.sequence_retention_plan_version()));
             continue;
         }
         tablet_cnt++;
@@ -638,6 +656,8 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
                 .load_cancel_status = _load_cancel_status,
         };
+        wrequest.sequence_retention = DORIS_TRY(make_sequence_retention_context(
+                request.sequence_retention_gap(), tablet.sequence_retention_plan_version()));
         if (tablet.has_changelog_tablet_id()) {
             wrequest.changelog_tablet_id = tablet.changelog_tablet_id();
         }

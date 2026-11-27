@@ -149,6 +149,27 @@ Status probe_and_plan_flexible(TransformExecContext& ctx, RowKeyEncoder& key_enc
 
 } // namespace
 
+Status SequenceRetentionUpsertStage::apply(TransformExecContext& ctx, Block* block) const {
+    const auto& schema = *ctx.tablet_schema;
+    RowKeyEncoder encoder(schema, true);
+    std::vector<const IColumn*> keys;
+    collect_key_columns(schema, *block, keys);
+    const auto* sequence = block->get_by_position(schema.sequence_col_idx()).column.get();
+    const auto* signs = BaseTablet::get_delete_sign_column_data(*block, block->rows());
+    auto probe = MowKeyProbe::for_partial_update(ctx.tablet.get(), ctx.tablet_schema.get(), true,
+                                                 ctx.mow_context, ctx.rowset_id,
+                                                 cast_set<uint32_t>(ctx.segment_id), false);
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(ctx.mow_context->rowset_ptrs.size());
+    for (size_t pos = 0; pos < block->rows(); ++pos) {
+        auto key = encoder.full_encode_primary_keys(keys, pos);
+        encoder.append_seq_suffix(&key, sequence, pos);
+        DORIS_TRY(probe.probe(key, pos, true, signs != nullptr && signs[pos] != 0,
+                              ctx.mow_context->rowset_ptrs, caches, ctx.partial_update_stats));
+    }
+    maybe_add_sentinel_mark(ctx);
+    return Status::OK();
+}
+
 Status FixedPartialUpdateFillStage::apply(TransformExecContext& ctx, Block* block) const {
     DBUG_EXECUTE_IF("_append_block_with_partial_content.block", DBUG_BLOCK);
 

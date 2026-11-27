@@ -730,6 +730,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
+    @Override
+    public Map<Long, Long> captureSequenceRetentionVersions(long dbId, long txnId, long tableId, long gap,
+            Map<Long, Long> observedVersions) throws UserException {
+        return getDatabaseTransactionMgr(dbId).captureSequenceRetentionVersions(txnId, tableId, observedVersions);
+    }
+
     public TransactionState getTransactionState(long dbId, long transactionId) {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);

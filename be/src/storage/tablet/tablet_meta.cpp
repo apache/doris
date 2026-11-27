@@ -83,7 +83,7 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_h
         "g_contains_agg_with_cache_if_eligible_full_hit_1m",
         &g_contains_agg_with_cache_if_eligible_full_hit, 60);
 
-TabletMetaSharedPtr TabletMeta::create(
+Result<TabletMetaSharedPtr> TabletMeta::create(
         const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
         uint32_t next_unique_id,
         const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id) {
@@ -135,7 +135,29 @@ TabletMetaSharedPtr TabletMeta::create(
         meta->_row_ttl_config.set_duration_us(request.row_ttl_config.duration_us);
         meta->_row_ttl_config.set_config_version(request.row_ttl_config.config_version);
     }
+    if (request.__isset.sequence_retention_gap) {
+        RETURN_IF_ERROR_RESULT(meta->init_sequence_retention_gap(request.sequence_retention_gap));
+    }
     return meta;
+}
+
+Status TabletMeta::init_sequence_retention_gap(int64_t gap) {
+    if (gap < 0) {
+        return Status::InvalidArgument("invalid sequence retention version gap: {}", gap);
+    }
+    if (_sequence_retention_gap != 0 && _sequence_retention_gap != gap) {
+        return Status::InvalidArgument("sequence retention gap is fixed at table creation");
+    }
+    if (gap > 0 && !is_changelog_tablet() &&
+        (!_enable_unique_key_merge_on_write || !_schema->has_sequence_col() ||
+         _schema->version_col_idx() < 0 || _schema->has_seq_map())) {
+        return Status::InvalidArgument(
+                "sequence retention requires a MOW tablet with row-level sequence and VERSION, "
+                "tablet={}",
+                tablet_id());
+    }
+    _sequence_retention_gap = gap;
+    return Status::OK();
 }
 
 Status TabletMeta::update_row_ttl_config(const RowTtlConfigPB& config) {
@@ -291,6 +313,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
           _row_ttl_config(b._row_ttl_config),
+          _sequence_retention_gap(b._sequence_retention_gap),
           _tablet_role(b._tablet_role),
           _changelog_tablet_id(b._changelog_tablet_id),
           _compaction_policy(b._compaction_policy),
@@ -423,6 +446,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
     tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    if (tablet_schema.__isset.version_col_idx) {
+        tablet_schema_pb->set_version_col_idx(tablet_schema.version_col_idx);
+    }
     if (tablet_schema.__isset.row_lsn_col_idx) {
         tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
@@ -949,6 +975,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+    _sequence_retention_gap = tablet_meta_pb.sequence_retention_gap();
     _row_ttl_config = tablet_meta_pb.row_ttl_config();
     if (!tablet_meta_pb.has_row_ttl_config()) {
         // Pre-ALTER metadata stored the policy in the immutable tablet schema.
@@ -1067,6 +1094,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+    if (_sequence_retention_gap != 0) {
+        tablet_meta_pb->set_sequence_retention_gap(_sequence_retention_gap);
+    }
     if (_row_ttl_config.duration_us() >= 0) {
         *tablet_meta_pb->mutable_row_ttl_config() = _row_ttl_config;
     }

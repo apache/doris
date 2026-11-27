@@ -762,6 +762,13 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     }
     // Adaptive random bucket open RPCs initialize receiver-side selected-tablet state.
     request->set_is_adaptive_random_bucket(_parent->_tablet_finder->is_adaptive_random_bucket());
+    std::unordered_map<int64_t, int64_t> retention_versions;
+    if (const auto gap = _parent->_vpartition->sequence_retention_gap(); gap > 0) {
+        request->set_sequence_retention_gap(gap);
+        for (const auto* partition : _parent->_vpartition->get_partitions()) {
+            retention_versions.emplace(partition->id, partition->sequence_retention_plan_version);
+        }
+    }
     std::set<int64_t> deduper;
     for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
@@ -770,6 +777,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         auto* ptablet = request->add_tablets();
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
+        if (auto it = retention_versions.find(tablet.partition_id);
+            it != retention_versions.end()) {
+            ptablet->set_sequence_retention_plan_version(it->second);
+        }
         // only write changelog on backends that also own the changelog tablet.
         int64_t changelog_tablet_id =
                 _parent->_location->get_changelog_tablet_id(tablet.tablet_id, _node_id);
