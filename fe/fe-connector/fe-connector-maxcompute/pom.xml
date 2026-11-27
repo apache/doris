@@ -82,6 +82,14 @@ under the License.
 
         <!-- MaxCompute (ODPS) SDK -->
         <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>aliyun-http-apache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
         </dependency>

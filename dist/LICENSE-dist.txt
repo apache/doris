@@ -1424,6 +1424,7 @@ The MIT License -- licenses/LICENSE-MIT.txt
 Revised BSD -- licenses/LICENSE-JSch.txt
     * JSch:
         - com.jcraft:jsch:0.1.51 (http://www.jcraft.com/jsch/)
+        - com.github.mwiede:jsch:2.28.8 (https://github.com/mwiede/jsch)
 
 Sun Binary Code License Agreement -- licenses/LICENSE-jta.txt
     * Java Transaction API:
