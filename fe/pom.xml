@@ -312,9 +312,9 @@ under the License.
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
         <netty-all.version>4.2.18.Final</netty-all.version>
-        <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
-             baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
-        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <!-- Align the complete OpenTelemetry graph on the fixed W3C tracestate parser
+             (CVE-2026-118259), retaining the earlier baggage parser fix. -->
+        <opentelemetry.version>1.67.0</opentelemetry.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -324,7 +324,9 @@ under the License.
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <grpc.version>1.75.0</grpc.version>
+        <!-- GCS also needs grpc-alts/xds, which reference shaded Netty directly. Upgrade the
+             complete gRPC family so its bundled Netty includes the HTTP/2 continuation fix. -->
+        <grpc.version>1.85.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
         <cel.version>0.12.0</cel.version>
         <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
