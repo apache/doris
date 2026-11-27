@@ -323,7 +323,9 @@ public class Partition extends MetaObject {
                     // (e.g. replica becomes bad, lastFailedVersion is set, version/state changes).
                     updateMetaChecksum(digest, (byte) 5, replica.getVersion());
                     updateMetaChecksum(digest, (byte) 6, replica.getLastFailedVersion());
-                    updateMetaChecksum(digest, (byte) 7, replica.getPathHash());
+                    // pathHash (tag 7) is left out: it is not serialized in the payload sent to the
+                    // remote cluster, and followers keep -1 because only the master learns it from
+                    // tablet reports, so it would make the checksum differ between FEs.
                     Replica.ReplicaState state = replica.getState();
                     updateMetaChecksum(digest, (byte) 8, state == null ? -1L : state.ordinal());
                     updateMetaChecksum(digest, (byte) 9, replica.isBad() ? 1L : 0L);

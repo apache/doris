@@ -364,9 +364,10 @@ public class MaterializedIndexTest {
         Assertions.assertTrue(replica.setBad(false));
         Assertions.assertEquals(original, partition.getMetaChecksum());
 
-        // 4) pathHash change must invalidate the checksum.
+        // 4) pathHash must not change the checksum. Only the master learns it from tablet
+        // reports (followers keep -1), and it is not sent to the remote cluster.
         replica.setPathHash(99L);
-        Assertions.assertNotEquals(original, partition.getMetaChecksum());
+        Assertions.assertEquals(original, partition.getMetaChecksum());
         replica.setPathHash(-1L);
         Assertions.assertEquals(original, partition.getMetaChecksum());
 
@@ -374,6 +375,28 @@ public class MaterializedIndexTest {
         // refuses to roll back, so this is asserted last with a one-way change.
         replica.updateVersion(7L);
         Assertions.assertNotEquals(original, partition.getMetaChecksum());
+    }
+
+    @Test
+    public void testPartitionMetaChecksumSameOnMasterAndFollower() {
+        // The master sets pathHash from tablet reports; a follower that replayed the same
+        // metadata keeps -1. Both must return the same checksum, or a remote Doris catalog
+        // that reaches different FEs refreshes every partition on each switch.
+        MaterializedIndex masterIndex = new MaterializedIndex(1L, IndexState.NORMAL);
+        LocalTablet masterTablet = new LocalTablet(10L);
+        LocalReplica masterReplica = new LocalReplica(100L, 1000L, Replica.ReplicaState.NORMAL, 1L, 1);
+        masterReplica.setPathHash(12345L);
+        masterTablet.addReplica(masterReplica, true);
+        masterIndex.addTablet(masterTablet, null, true);
+        Partition masterPartition = new Partition(1L, "p1", masterIndex, null);
+
+        Partition followerPartition = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(masterPartition),
+                Partition.class);
+        Replica followerReplica = followerPartition.getBaseIndex().getTablets().get(0).getReplicas().get(0);
+        // pathHash is not serialized, so the copy sent to a remote cluster never carries it.
+        Assertions.assertEquals(-1L, followerReplica.getPathHash());
+
+        Assertions.assertEquals(masterPartition.getMetaChecksum(), followerPartition.getMetaChecksum());
     }
 
     @Test
