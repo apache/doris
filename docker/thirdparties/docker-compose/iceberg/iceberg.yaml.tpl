@@ -20,7 +20,7 @@ version: "3"
 services:
 
   spark-iceberg:
-    image: apache/spark:4.0.0
+    image: ${THIRDPARTY_ICEBERG_SPARK_IMAGE}
     container_name: doris--spark-iceberg
     hostname: doris--spark-iceberg
     depends_on:
@@ -54,7 +54,7 @@ services:
       retries: 120
 
   postgres:
-    image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
+    image: ${ICEBERG_POSTGRES_IMAGE}
     container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456
@@ -71,7 +71,7 @@ services:
       - doris--iceberg
 
   rest:
-    image: apache/iceberg-rest-fixture:1.10.0
+    image: ${THIRDPARTY_ICEBERG_REST_IMAGE}
     container_name: doris--iceberg-rest
     ports:
       - ${REST_CATALOG_PORT}:8181
@@ -107,7 +107,7 @@ services:
     # Content pinned by digest: upstream main b0df3ca01d61b2f7ae7143ac660c6b16e33b6e46,
     # built 2026-04-29 before the 1.11.0 release; same pin as apache/iceberg-go.
     # Replace after CI maintainers publish a verified 1.11.0 build to doristhirdpartydocker.
-    image: apache/iceberg-rest-fixture:latest@sha256:db8de90b5b7693d4ac334c336f91d9bbe320d7b19f4f514d26de84cdfbcbfe8d
+    image: ${THIRDPARTY_ICEBERG_REST_PINNED_IMAGE}
     container_name: doris--iceberg-rest-scan-planning
     ports:
       - ${ICEBERG_SCAN_PLANNING_REST_PORT:-18182}:8181
@@ -126,7 +126,7 @@ services:
       - doris--iceberg
 
   scan-planning-init:
-    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    image: ${THIRDPARTY_MINIO_CLIENT_IMAGE}
     container_name: doris--iceberg-scan-planning-init
     depends_on:
       minio:
@@ -175,7 +175,7 @@ services:
       retries: 30
 
   trino:
-    image: trinodb/trino:482
+    image: ${THIRDPARTY_ICEBERG_TRINO_IMAGE}
     container_name: doris--iceberg-trino
     # JDBC regressions connect from FE/BE outside this Compose network.
     ports:
@@ -195,7 +195,7 @@ services:
       retries: 120
 
   minio:
-    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
+    image: ${THIRDPARTY_DATALAKE_MINIO_IMAGE}
     container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -221,7 +221,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    image: ${THIRDPARTY_MINIO_CLIENT_IMAGE}
     container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin
@@ -253,7 +253,7 @@ services:
       "
 
   encryption-hms:
-    image: apache/hive:4.0.0@sha256:c0b241c544d341c16a6d8cafcb801a071be9b02054a5add255e9a0e826095e88
+    image: ${THIRDPARTY_ICEBERG_HIVE_IMAGE}
     container_name: doris--iceberg-encryption-hms
     environment:
       SERVICE_NAME: metastore
@@ -273,7 +273,7 @@ services:
       - doris--iceberg
 
   encryption-kms:
-    image: motoserver/moto:5.1.11@sha256:8ca337023ebaa5c0b8b33503b178d4db3326fca184551d6f47b07b8dd8532644
+    image: ${THIRDPARTY_ICEBERG_MOTO_IMAGE}
     container_name: doris--iceberg-encryption-kms
     ports:
       - ${ICEBERG_ENCRYPTION_KMS_PORT:-18384}:5000
@@ -286,7 +286,7 @@ services:
       - doris--iceberg
 
   encryption-kms-init:
-    image: motoserver/moto:5.1.11@sha256:8ca337023ebaa5c0b8b33503b178d4db3326fca184551d6f47b07b8dd8532644
+    image: ${THIRDPARTY_ICEBERG_MOTO_IMAGE}
     container_name: doris--iceberg-encryption-kms-init
     depends_on:
       encryption-kms:
@@ -301,7 +301,7 @@ services:
       - doris--iceberg
 
   encryption-fixture:
-    image: apache/spark:4.0.0
+    image: ${THIRDPARTY_ICEBERG_SPARK_IMAGE}
     container_name: doris--iceberg-encryption-fixture
     depends_on:
       encryption-hms:

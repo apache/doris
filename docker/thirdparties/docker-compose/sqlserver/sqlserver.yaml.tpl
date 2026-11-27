@@ -18,7 +18,7 @@
 version: '3'
 services:
   doris--sqlserver_2022:
-    image: "doristhirdpartydocker/mssql-server:2022-latest"
+    image: ${THIRDPARTY_SQLSERVER_IMAGE}
     container_name: "doris--sqlserver_2022"
     ports:
       - ${DOCKER_SQLSERVER_EXTERNAL_PORT}:1433

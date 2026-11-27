@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--oceanbase:
-    image: quay.io/oceanbase/obbinlog-ce:4.2.5-test
+    image: ${THIRDPARTY_OCEANBASE_IMAGE}
     restart: always
     environment:
       MODE: slim
@@ -38,7 +38,7 @@ services:
       - doris--oceanbase
 
   doris--oceanbase-init:
-    image: quay.io/oceanbase/obbinlog-ce:4.2.5-test
+    image: ${THIRDPARTY_OCEANBASE_IMAGE}
     depends_on:
       doris--oceanbase:
         condition: service_healthy

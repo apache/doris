@@ -19,7 +19,7 @@ version: '3.7'
 services:
 
   ranger-admin:
-    image: ghcr.io/takezoe/ranger-docker/ranger-admin:v2.4.0
+    image: ${THIRDPARTY_RANGER_IMAGE}
     # build:
     #   context: ./ranger-admin
     #   dockerfile: Dockerfile
@@ -66,7 +66,7 @@ services:
     entrypoint : ["bash", "-c", "bash /opt/ranger-entrypoint.sh"]
 
   ranger-mysql:
-    image: mysql:8.0.33
+    image: ${THIRDPARTY_RANGER_MYSQL_IMAGE}
     container_name: ranger-mysql
     ports:
       - ${RANGER_MYSQL_PORT}:3306
@@ -86,7 +86,7 @@ services:
       MYSQL_DATABASE: ranger
 
   ranger-solr:
-    image: solr:8.11.2
+    image: ${THIRDPARTY_RANGER_SOLR_IMAGE}
     container_name: ranger-solr
     ports:
       - ${RANGER_SOLR_PORT}:8983

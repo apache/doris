@@ -71,3 +71,87 @@ Image pulls and fixture downloads still require access to their registries
 and artifact repositories. `--no-load-data` skips Hive fixture refresh;
 combine it with `--hive-mode rebuild` to validate a fresh Hive installation
 without downloading a regression-data baseline.
+
+
+## Image registries
+
+`custom_settings.env` declares the image-source configuration. Environment
+variables take precedence over its defaults:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `THIRDPARTY_IMAGE_MODE` | `native` | `native` preserves references; `mapped` resolves external images to the configured registry. |
+| `THIRDPARTY_IMAGE_REGISTRY` | empty | Target registry host and optional port, without a scheme or project path. |
+| `THIRDPARTY_IMAGE_REGISTRY_MAP` | empty | Comma-separated `source-registry=project[/prefix]` entries. |
+
+For example, with matching proxy-cache projects in Harbor:
+
+```bash
+export THIRDPARTY_IMAGE_MODE=mapped
+export THIRDPARTY_IMAGE_REGISTRY=harbor.example.com:443
+export THIRDPARTY_IMAGE_REGISTRY_MAP='docker.io=dockerhub,ghcr.io=ghcr,quay.io=quay,icr.io=icr,cgr.dev=cgr,mcr.microsoft.com=mcr'
+export CONTAINER_UID=external-test-
+
+bash run-thirdparties-docker.sh -c mysql,hive3 --list-images
+bash run-thirdparties-docker.sh -c mysql,hive3 --pull-images
+bash run-thirdparties-docker.sh -c mysql,hive3
+```
+
+This maps `mysql:5.7.36` to
+`harbor.example.com:443/dockerhub/library/mysql:5.7.36`. Tags and digests are
+preserved. The target must already contain the images or have the corresponding
+upstream proxy-cache projects configured. Ordinary projects containing copied
+images work with the same path layout. Authentication and CA trust are managed
+by the operator through Docker, not through these settings. IPv6 registry
+literals are not supported by this mapping configuration.
+
+`native` does not disable a daemon's existing Docker Hub registry mirror.
+`mapped` uses explicit registry references and does not fall back to the original
+image name. Missing mappings for selected components or their helpers fail
+before deployment. Mapped starts fetch missing remote images, including build
+bases and helpers, before stopping containers or changing fixture data. Cached
+images follow Compose's default missing-image policy; tags are not forcibly
+refreshed. Local build outputs such as `doris-kerberos-minimal` are not mapped or
+pulled. `--stop` performs no registry probe or image prefetch.
+
+`--list-images` prints a tab-separated inventory with component membership,
+override variable, kind, source, and target, without accessing Docker. Without
+`-c`, it lists the launcher's default components. `--pull-images` fetches missing
+images without starting containers, building local images, or initializing data.
+`--image-config-version` prints `1` without accessing Docker, so CI can detect
+this interface before choosing it instead of a legacy source-rewriting path.
+
+### Individual images and maintenance
+
+`image-catalog.env` is the list of default images, their component membership,
+and their override variables. A user override is applied before registry
+mapping. An override already under the exact target registry is preserved,
+including references to private projects:
+
+```bash
+export THIRDPARTY_CLICKHOUSE_IMAGE=harbor.example.com:443/private/clickhouse-server:23.8
+```
+
+Existing `FLUSS_SERVER_IMAGE`, `FLUSS_FLINK_IMAGE`,
+`ICEBERG_POSTGRES_IMAGE`, and `THIRDPARTY_FILESYSTEM_IMAGE` overrides are
+supported. Iceberg retains its platform-specific PostgreSQL default. Hive's
+baseline probe and restore helper retains the original `alpine` reference via
+`THIRDPARTY_HIVE_FILESYSTEM_IMAGE`; the cleanup and snapshot helper retains
+`alpine:3.20` via `THIRDPARTY_FILESYSTEM_IMAGE`.
+
+Add new images to the catalog and reference their exported variables in Compose
+templates. Pass build bases through Dockerfile `ARG` and Compose `build.args`.
+Standalone snapshot/export tools load the same settings. Source templates are
+not scanned or rewritten for image mapping; use the launcher to initialize
+image variables before operating its generated Compose configurations.
+
+The image-source contract tests run without a Docker daemon (Compose v2 is used
+only for interpolation):
+
+```bash
+python3 test/test_image_registry.py
+```
+
+These settings control container images only. Artifact downloads, fixture data,
+cloud credentials, host aliases and cross-node service connectivity remain
+separate deployment requirements.

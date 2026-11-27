@@ -18,7 +18,7 @@
 
 services:
   namenode:
-    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    image: ${THIRDPARTY_HADOOP3_NAMENODE_IMAGE}
     restart: always
     hostname: ${HIVE_HOST_ALIAS}
     environment:
@@ -41,7 +41,7 @@ services:
     network_mode: "host"
 
   datanode:
-    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    image: ${THIRDPARTY_HADOOP3_DATANODE_IMAGE}
     restart: always
     hostname: ${HIVE_HOST_ALIAS}
     env_file:
@@ -63,7 +63,7 @@ services:
     network_mode: "host"
 
   hive-server:
-    image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
+    image: ${THIRDPARTY_HIVE3_IMAGE}
     restart: always
     hostname: ${HIVE_HOST_ALIAS}
     env_file:
@@ -94,7 +94,7 @@ services:
 
 
   hive-metastore:
-    image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
+    image: ${THIRDPARTY_HIVE3_IMAGE}
     hostname: ${HIVE_HOST_ALIAS}
     env_file:
       - ./hadoop-hive-3x.env
@@ -122,7 +122,7 @@ services:
     network_mode: "host"
 
   hive-metastore-postgresql:
-    image: bde2020/hive-metastore-postgresql:3.1.0
+    image: ${THIRDPARTY_HIVE3_POSTGRES_IMAGE}
     container_name: ${CONTAINER_UID}hive3-metastore-postgresql
     ports:
       - "${PG_PORT}:5432"

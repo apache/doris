@@ -26,7 +26,7 @@ fixture="${test_dir}/thirdparties"
 mkdir -p "${fixture}" "${test_dir}/bin"
 for file in \
     run-thirdparties-docker.sh docker-command.sh docker-health.sh \
-    juicefs-helpers.sh custom_settings.env \
+    juicefs-helpers.sh custom_settings.env image-registry.sh image-catalog.env \
     docker-compose/hive/scripts/bootstrap/bootstrap-groups.sh \
     docker-compose/hive/hive-3x_settings.env \
     docker-compose/hive/hadoop-hive.env.tpl \
@@ -79,3 +79,14 @@ bash "${fixture}/run-thirdparties-docker.sh" -c fluss --stop \
 grep -q '/fluss/fluss.yaml ' "${STOP_TEST_DOCKER_LOG}"
 echo "Hive stop bypasses data preparation and only tears down compose"
 echo "Fluss stop needs no network-address discovery"
+
+# Explicit image mapping must not introduce pulls or probes when stopping.
+export THIRDPARTY_IMAGE_MODE=mapped
+export THIRDPARTY_IMAGE_REGISTRY=harbor.example:443
+export THIRDPARTY_IMAGE_REGISTRY_MAP=docker.io=dockerhub
+bash "${fixture}/run-thirdparties-docker.sh" -c hive3 --stop \
+    >"${test_dir}/mapped-hive-stop.log" 2>&1
+bash "${fixture}/run-thirdparties-docker.sh" -c fluss --stop \
+    >"${test_dir}/mapped-fluss-stop.log" 2>&1
+[[ ! -e "${STOP_TEST_PREPARE_MARKER}" ]]
+echo "Mapped stops require no registry access or fixture preparation"

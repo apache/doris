@@ -20,7 +20,7 @@ version: "3.8"
 services:
   # MinIO: S3 compatible object storage for local dev
   minio:
-    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
+    image: ${THIRDPARTY_DATALAKE_MINIO_IMAGE}
     container_name: ${CONTAINER_UID}polaris-minio
     ports:
       - "${MINIO_API_PORT}:9000"
@@ -42,7 +42,7 @@ services:
 
   # MinIO client to bootstrap bucket and path
   minio-client:
-    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    image: ${THIRDPARTY_MINIO_CLIENT_IMAGE}
     container_name: ${CONTAINER_UID}polaris-mc
     depends_on:
       minio:
@@ -60,7 +60,7 @@ services:
 
   # S3 Catalog with AWS S3
   polaris:
-    image: apache/polaris:1.0.1-incubating
+    image: ${THIRDPARTY_POLARIS_IMAGE}
     container_name: ${CONTAINER_UID}polaris
     depends_on:
       minio:
@@ -97,7 +97,7 @@ services:
 
   # Initialize a Polaris INTERNAL catalog pointing to MinIO
   polaris-init:
-    image: curlimages/curl:8.11.1
+    image: ${THIRDPARTY_CURL_IMAGE}
     container_name: ${CONTAINER_UID}polaris-init
     depends_on:
       polaris:

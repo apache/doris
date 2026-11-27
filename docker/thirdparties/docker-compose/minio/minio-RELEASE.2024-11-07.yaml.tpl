@@ -19,7 +19,7 @@ version: '3'
 
 services:
   doris--minio:
-    image: doristhirdpartydocker/minio:RELEASE.2024-11-07T00-52-20Z
+    image: ${THIRDPARTY_MINIO_IMAGE}
     restart: always
     ports:
       - ${DOCKER_MINIO_EXTERNAL_PORT}:9000
