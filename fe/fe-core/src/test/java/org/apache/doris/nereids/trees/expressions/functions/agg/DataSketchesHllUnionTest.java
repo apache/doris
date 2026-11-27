@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -256,6 +258,16 @@ class DataSketchesHllUnionTest {
                     "Window function does not support aggregate function: datasketches_hll_union",
                     ex.getMessage());
         }
+
+        ForEachCombinator forEach = new ForEachCombinator(
+                ImmutableList.of(SlotReference.of("sketches", ArrayType.of(StringType.INSTANCE))),
+                new DataSketchesHllUnion(SKETCH));
+        WindowExpression forEachWindow = new WindowExpression(forEach, ImmutableList.of(), ImmutableList.of());
+        AnalysisException forEachEx = Assertions.assertThrows(AnalysisException.class,
+                () -> new WindowFunctionChecker(forEachWindow).checkWindowFunction());
+        Assertions.assertEquals(
+                "Window function does not support aggregate function: datasketches_hll_union_foreach",
+                forEachEx.getMessage());
     }
 
     @Test

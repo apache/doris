@@ -292,6 +292,14 @@ suite("test_datasketches_hll_union") {
         sql """SELECT ds_hll_union(sk, 12, 'HLL_8') OVER (PARTITION BY grp) FROM test_datasketches_hll_union_tbl"""
         exception "Window function does not support aggregate function: datasketches_hll_union"
     }
+    test {
+        sql """SELECT datasketches_hll_union_foreach(sks) OVER () FROM (SELECT array(sk) AS sks FROM test_datasketches_hll_union_tbl) t"""
+        exception "Window function does not support aggregate function: datasketches_hll_union_foreach"
+    }
+    test {
+        sql """SELECT ds_hll_union_foreach(sks) OVER (PARTITION BY grp) FROM (SELECT grp, array(sk) AS sks FROM test_datasketches_hll_union_tbl) t"""
+        exception "Window function does not support aggregate function: datasketches_hll_union_foreach"
+    }
 
     // 8) FE-validated option literals are bound into the call even when constant folding is skipped
     sql "SET debug_skip_fold_constant = true"
