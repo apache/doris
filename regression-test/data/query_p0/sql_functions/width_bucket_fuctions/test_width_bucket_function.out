@@ -123,3 +123,33 @@
 -- !width_bucket_dense_5 --
 0
 
+-- !width_bucket_integer_precision --
+15
+
+-- !width_bucket_integer_negative --
+3
+
+-- !width_bucket_integer_overflow --
+2
+
+-- !width_bucket_integer_boundaries --
+5	5
+
+-- !width_bucket_equal_bounds --
+21	21
+
+-- !width_bucket_large_num_buckets --
+1073741824
+
+-- !width_bucket_double_underflow --
+1
+
+-- !width_bucket_double_large_range --
+2
+
+-- !width_bucket_double_nan --
+0
+
+-- !width_bucket_double_boundaries --
+1	5
+

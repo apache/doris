@@ -99,6 +99,17 @@ suite("test_width_bucket_function", "arrow_flight_sql") {
     // Test the case where `max_value = min_value`.
     qt_width_bucket_dense_5 "select width_bucket(0, 10, 10, 20);"
 
+    qt_width_bucket_integer_precision "select width_bucket(9, 0, 18, 28);"
+    qt_width_bucket_integer_negative "select width_bucket(-5, -10, 0, 4);"
+    qt_width_bucket_integer_overflow "select width_bucket(cast(0 as int), cast('-2147483648' as int), cast('2147483647' as int), 2);"
+    qt_width_bucket_integer_boundaries "select width_bucket(10, 0, 10, 4), width_bucket(11, 0, 10, 4);"
+    qt_width_bucket_equal_bounds "select width_bucket(10, 10, 10, 20), width_bucket(11, 10, 10, 20);"
+    qt_width_bucket_large_num_buckets "select width_bucket(cast(1 as int), cast(0 as int), cast(2 as int), 2147483647);"
+    qt_width_bucket_double_underflow "select width_bucket(cast(0 as double), cast(0 as double), cast('5e-324' as double), 2);"
+    qt_width_bucket_double_large_range "select width_bucket(cast(0 as double), cast('-1e308' as double), cast('1e308' as double), 2);"
+    qt_width_bucket_double_nan "select width_bucket(cast('nan' as double), cast(0 as double), cast(10 as double), 2);"
+    qt_width_bucket_double_boundaries "select width_bucket(cast(0 as double), cast(0 as double), cast(1 as double), 4), width_bucket(cast(1 as double), cast(0 as double), cast(1 as double), 4);"
+
     
     test {
       sql "select width_bucket(4, 0, 8, 0)"
