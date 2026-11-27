@@ -201,6 +201,7 @@ suite("test_routine_load_metrics","p0") {
                 httpTest {
                     endpoint context.config.feHttpAddress
                     uri "/metrics?type=json"
+                    basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                     op "get"
                     check { code, body ->
                         logger.debug("code:${code} body:${body}");

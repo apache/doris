@@ -196,6 +196,7 @@ suite("test_routine_load_abnormal_job_monitor","p0") {
                 httpTest {
                     endpoint masterHttpAddress
                     uri "/metrics?type=json"
+                    basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                     op "get"
                     check { code, body ->
                         def jsonSlurper = new JsonSlurper()

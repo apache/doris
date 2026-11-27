@@ -170,7 +170,7 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_version_info", version_action);
 
     // Register BE health action
-    HealthAction* health_action = _pool.add(new HealthAction(_env));
+    HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Clear cache action

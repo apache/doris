@@ -18,6 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
@@ -43,7 +45,21 @@ public class MetricsAction extends RestBaseController {
 
     @GetMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
-        // Metrics endpoint is public - no authentication required
+        // Metric labels carry user, job and compute group names, so /metrics is gated like the rest of
+        // the REST surface. Any authenticated account may read it; no privilege is required.
+        if (Config.enable_all_http_auth) {
+            try {
+                executeCheckPassword(request, response);
+            } catch (UnauthorizedException e) {
+                // Scrapers such as Prometheus judge a scrape by its HTTP status, so answer a real 401
+                // rather than the HTTP 200 JSON envelope that RestApiExceptionHandler gives other endpoints.
+                LOG.info("reject /metrics request from {}: {}", request.getRemoteAddr(), e.getMessage());
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setHeader("WWW-Authenticate", "Basic realm=\"Restricted\"");
+                writeText(response, e.getMessage());
+                return;
+            }
+        }
         Env.getCurrentEnv().debugBlockAllOnGlobalLock("FE.BLOCK_IMPORT_LOCK");
 
         String type = request.getParameter(TYPE_PARAM);
@@ -55,12 +71,15 @@ public class MetricsAction extends RestBaseController {
         } else {
             visitor = new PrometheusMetricVisitor();
         }
+        writeText(response, MetricRepo.getMetric(visitor));
+    }
+
+    private void writeText(HttpServletResponse response, String text) {
         response.setContentType("text/plain");
         try {
-            response.getWriter().write(MetricRepo.getMetric(visitor));
+            response.getWriter().write(text);
         } catch (IOException e) {
             LOG.warn("", e);
         }
-
     }
 }

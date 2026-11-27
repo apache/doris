@@ -18,18 +18,17 @@
 #pragma once
 
 #include "service/http/http_handler.h"
-#include "service/http/http_handler_with_auth.h"
 namespace doris {
 
 class HttpRequest;
-class ExecEnv;
 
 // Get BE health state from http API.
-class HealthAction : public HttpHandlerWithAuth {
+// Always answers without credentials, also when enable_all_http_auth is on: Kubernetes probes and
+// load balancers poll it anonymously, and it reports only whether this BE is ready. Every other
+// handler, /metrics included, stays behind HttpHandlerWithAuth.
+class HealthAction : public HttpHandler {
 public:
-    HealthAction(ExecEnv* exec_env)
-            : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::NONE) {}
-    // Use NONE type: public API, no auth required
+    HealthAction() = default;
 
     ~HealthAction() override = default;
 

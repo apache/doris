@@ -51,7 +51,7 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // FE Metrics - no auth needed
+        // FE Metrics - no auth needed while the flag is off; the default-on block below gets 401
         httpTest {
             endpoint feHost
             uri "/metrics"
@@ -72,11 +72,11 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // The assertions above hold no matter how the flag is set, so on their own they would
-        // still pass if this cluster's startup override were ignored or misspelled. This one
-        // depends on the flag: /api/show_runtime_info gates its whole auth block on
-        // enable_all_http_auth, so with the flag off an anonymous caller gets the payload, and
-        // the default-on block below proves the same request is rejected when it is on.
+        // The health assertions above hold no matter how the flag is set, so on their own they
+        // would still pass if this cluster's startup override were ignored or misspelled. The
+        // metrics one and this one depend on the flag: /api/show_runtime_info gates its whole
+        // auth block on enable_all_http_auth, so with the flag off an anonymous caller gets the
+        // payload, and the default-on block below proves the same request is rejected when it is on.
         httpTest {
             endpoint feHost
             uri "/api/show_runtime_info"
@@ -92,11 +92,16 @@ suite("test_http_api_auth", "docker") {
     // ========== enable_all_http_auth = true (the default) ==========
     def options = new ClusterOptions()
     options.cloudMode = false  // 存算一体模式
+    // BE ships with the flag off; turn it on here so the BE side of "health is public, the rest
+    // needs credentials" is exercised too.
+    options.beConfigs.add("enable_all_http_auth=true")
 
     docker(options) {
-        // Get FE HTTP address from cluster
+        // Get FE and BE HTTP addresses from cluster
         def fe = cluster.getFeByIndex(1)
+        def be = cluster.getBeByIndex(1)
         def feHost = fe.host + ":" + fe.httpPort
+        def beHost = be.host + ":" + be.httpPort
 
         // ========== Setup ==========
         sql """CREATE USER IF NOT EXISTS 'test_user'@'%' IDENTIFIED BY 'test_password'"""
@@ -105,8 +110,9 @@ suite("test_http_api_auth", "docker") {
         sql """CREATE USER IF NOT EXISTS 'admin_user'@'%' IDENTIFIED BY 'admin_password'"""
         sql """GRANT ADMIN_PRIV ON *.*.* TO 'admin_user'@'%'"""
 
-        // ========== Test Scenario 2: Public APIs ==========
-        // Health and Metrics endpoints are always public (no auth required)
+        // ========== Test Scenario 2: Health is public, metrics need credentials ==========
+        // /api/health is the one endpoint the flag leaves open, on FE and on BE, because probes and
+        // load balancers poll it without credentials. /metrics is gated like everything else.
 
         // FE Health - still accessible without auth (public endpoint)
         httpTest {
@@ -131,18 +137,31 @@ suite("test_http_api_auth", "docker") {
             }
         }
 
-        // FE Metrics - still accessible without auth (public endpoint)
+        // FE Metrics - an anonymous scrape is rejected with a real HTTP 401, not with the HTTP 200
+        // JSON envelope the other REST endpoints use, because a scraper reads the status code.
         httpTest {
             endpoint feHost
             uri "/metrics"
             op "get"
             check { code, body ->
-                assertEquals(200, code)
-                assertTrue(body.contains("doris_"))  // Metrics is always public
+                assertEquals(401, code)
+                assertFalse(body.contains("doris_"))
             }
         }
 
-        // FE Metrics - also works with auth
+        // FE Metrics - a wrong password is rejected the same way
+        httpTest {
+            endpoint feHost
+            uri "/metrics"
+            op "get"
+            basicAuthorization "test_user", "wrong_password"
+            check { code, body ->
+                assertEquals(401, code)
+                assertFalse(body.contains("doris_"))
+            }
+        }
+
+        // FE Metrics - any valid account may read it: test_user holds SELECT_PRIV only
         httpTest {
             endpoint feHost
             uri "/metrics"
@@ -151,6 +170,38 @@ suite("test_http_api_auth", "docker") {
             check { code, body ->
                 assertEquals(200, code)
                 assertTrue(body.contains("doris_"))
+            }
+        }
+
+        // BE Health - still answers anonymous probes with the BE flag on
+        httpTest {
+            endpoint beHost
+            uri "/api/health"
+            op "get"
+            check { code, body ->
+                assertEquals(200, code)
+                assertEquals("OK", jsonSlurper.parseText(body).status)
+            }
+        }
+
+        // BE Metrics - unlike health, needs credentials once the BE flag is on
+        httpTest {
+            endpoint beHost
+            uri "/metrics"
+            op "get"
+            check { code, body ->
+                assertEquals(401, code)
+            }
+        }
+
+        httpTest {
+            endpoint beHost
+            uri "/metrics"
+            op "get"
+            basicAuthorization "test_user", "test_password"
+            check { code, body ->
+                assertEquals(200, code)
+                assertTrue(body.contains("doris_be_"))
             }
         }
 

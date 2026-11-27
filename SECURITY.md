@@ -27,7 +27,8 @@ cluster can have no `false` entry anywhere in `fe.conf` and still be
 running with authentication off. Read the value back from
 `/api/show_config` (or `ADMIN SHOW FRONTEND CONFIG`) and check both
 files. With it off, FE serves part of its HTTP surface (metadata,
-statistics and import REST endpoints) without checking credentials,
+statistics and import REST endpoints, and `/metrics`) without checking
+credentials,
 and every finding that depends on it being off is out of model. On BE
 the same flag still defaults to `false`; BE 8040 is an internal port
 that operators are required to keep off end-user networks, so findings

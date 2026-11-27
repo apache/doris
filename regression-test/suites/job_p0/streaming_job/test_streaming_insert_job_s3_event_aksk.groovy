@@ -180,6 +180,7 @@ suite("test_streaming_insert_job_s3_event_aksk") {
             httpTest {
                 endpoint getMasterIp() + ":" + getMasterPort("http")
                 uri "/metrics?type=json"
+                basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
                 op "get"
                 check { code, body ->
                     assertEquals(200, code)

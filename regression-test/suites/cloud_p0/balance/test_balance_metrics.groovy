@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.Http
 
 
 suite('test_balance_metrics', 'docker') {
@@ -51,7 +52,7 @@ suite('test_balance_metrics', 'docker') {
     def getFEMetrics = {ip, port, name ->
         def url = "http://${ip}:${port}/metrics"
         logger.info("getFEMetrics1, url: ${url}, name: ${name}")
-        def metrics = new URL(url).text
+        def metrics = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
         def pattern = java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(name) + "\\s+(\\d+)")
         def matcher = pattern.matcher(metrics)
         if (matcher.find()) {

@@ -56,6 +56,7 @@ suite("test_version_metrics") {
     httpTest {
         endpoint context.config.feHttpAddress
         uri "/metrics"
+        basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
         op "get"
         check { code, body ->
             logger.debug("code:${code} body:${body}");
