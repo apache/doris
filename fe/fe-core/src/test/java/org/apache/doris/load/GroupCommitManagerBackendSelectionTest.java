@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.BackendSelection;
@@ -66,6 +67,31 @@ public class GroupCommitManagerBackendSelectionTest {
 
         Assert.assertNull(GroupCommitManager.getGroupCommitLoadSelectionHint(context));
         Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
+    }
+
+    @Test
+    public void testSchemaChangeBlocksSelectionEvenForCachedBackend() throws Exception {
+        Config.cloud_unique_id = "";
+        Config.deploy_mode = "";
+        long tableId = 10001L;
+        GroupCommitManager manager = new GroupCommitManager();
+        Env env = mockEnv(tableId);
+        SystemInfoService systemInfoService = mockSystemInfoService();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            long backendId = manager.selectBackendForGroupCommitInternal(tableId, "", null);
+
+            manager.blockTable(tableId);
+            DdlException error = Assertions.assertThrows(DdlException.class,
+                    () -> manager.selectBackendForGroupCommitInternal(tableId, "", null));
+            Assertions.assertTrue(error.getMessage().contains(
+                    "insert table " + tableId + " is blocked on schema change"));
+
+            manager.unblockTable(tableId);
+            Assertions.assertEquals(backendId, manager.selectBackendForGroupCommitInternal(tableId, "", null));
+        }
     }
 
     @Test
