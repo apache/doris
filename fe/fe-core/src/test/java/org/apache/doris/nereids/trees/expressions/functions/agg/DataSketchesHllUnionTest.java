@@ -21,17 +21,22 @@ import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.analysis.WindowFunctionChecker;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -205,7 +210,7 @@ class DataSketchesHllUnionTest {
         for (String name : ImmutableList.of("datasketches_hll_union", "ds_hll_union")) {
             FunctionBuilder directBuilder = registry.findFunctionBuilder(name, SKETCH);
             Assertions.assertInstanceOf(DataSketchesHllUnion.class, directBuilder.build(name, SKETCH).first);
-            Assertions.assertTrue(BuiltinAggregateFunctions.INSTANCE.notSupportAggStateFuncNames.contains(name));
+            Assertions.assertTrue(BuiltinAggregateFunctions.INSTANCE.notSupportAggStateDdlFuncNames.contains(name));
 
             for (String suffix : ImmutableList.of(
                     AggCombinerFunctionBuilder.STATE_SUFFIX,
@@ -218,5 +223,67 @@ class DataSketchesHllUnionTest {
                         () -> registry.findFunctionBuilder(combinerName, ImmutableList.of(SKETCH)));
             }
         }
+
+        for (String typeStr : ImmutableList.of(
+                "AGG_STATE<datasketches_hll_union(STRING)>",
+                "AGG_STATE<ds_hll_union(STRING)>",
+                "AGG_STATE<Ds_Hll_Union(STRING, INT, VARCHAR)>")) {
+            ParseException ex = Assertions.assertThrows(ParseException.class,
+                    () -> DataType.convertFromString(typeStr));
+            Assertions.assertTrue(ex.getMessage().contains("does not support AGG_STATE"), ex.getMessage());
+        }
+
+        // Legacy NotSupportAggState functions keep their existing AGG_STATE DDL parser behavior.
+        Assertions.assertFalse(BuiltinAggregateFunctions.INSTANCE.notSupportAggStateDdlFuncNames
+                .contains("orthogonal_bitmap_union_count"));
+        Assertions.assertFalse(BuiltinAggregateFunctions.INSTANCE.notSupportAggStateDdlFuncNames
+                .contains("ai_agg"));
+        Assertions.assertDoesNotThrow(
+                () -> DataType.convertFromString("AGG_STATE<orthogonal_bitmap_union_count(BITMAP)>"));
+        Assertions.assertDoesNotThrow(
+                () -> DataType.convertFromString("AGG_STATE<ai_agg(STRING, STRING, STRING)>"));
+    }
+
+    @Test
+    void testWindowRejected() {
+        for (DataSketchesHllUnion fn : ImmutableList.of(
+                new DataSketchesHllUnion(SKETCH),
+                new DataSketchesHllUnion(SKETCH, new IntegerLiteral(12), new VarcharLiteral("HLL_8")))) {
+            WindowExpression window = new WindowExpression(fn, ImmutableList.of(), ImmutableList.of());
+            AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                    () -> new WindowFunctionChecker(window).checkWindowFunction());
+            Assertions.assertEquals(
+                    "Window function does not support aggregate function: datasketches_hll_union",
+                    ex.getMessage());
+        }
+    }
+
+    @Test
+    void testRewriteWhenAnalyzeBindsOptionLiterals() {
+        DataSketchesHllUnion oneArg = new DataSketchesHllUnion(SKETCH);
+        Assertions.assertSame(oneArg, oneArg.rewriteWhenAnalyze());
+
+        DataSketchesHllUnion alreadyBound = new DataSketchesHllUnion(
+                SKETCH, new IntegerLiteral(12), new VarcharLiteral("HLL_8"));
+        Assertions.assertSame(alreadyBound, alreadyBound.rewriteWhenAnalyze());
+
+        DataSketchesHllUnion twoArgs = new DataSketchesHllUnion(
+                SKETCH, new Add(new IntegerLiteral(10), new IntegerLiteral(2)));
+        Expression rewrittenTwoArgs = twoArgs.rewriteWhenAnalyze();
+        Assertions.assertInstanceOf(DataSketchesHllUnion.class, rewrittenTwoArgs);
+        Assertions.assertEquals(new IntegerLiteral(12), rewrittenTwoArgs.child(1));
+        Assertions.assertSame(rewrittenTwoArgs, ((DataSketchesHllUnion) rewrittenTwoArgs).rewriteWhenAnalyze());
+
+        Expression conditionalK = new If(
+                new LessThan(new IntegerLiteral(1), new IntegerLiteral(2)),
+                new Add(new IntegerLiteral(4), new IntegerLiteral(4)),
+                new IntegerLiteral(12));
+        Expression computedTgtType = new Concat(new StringLiteral("hll_"), new StringLiteral("8"));
+        DataSketchesHllUnion threeArgs = new DataSketchesHllUnion(SKETCH, conditionalK, computedTgtType);
+        Expression rewrittenThreeArgs = threeArgs.rewriteWhenAnalyze();
+        Assertions.assertInstanceOf(DataSketchesHllUnion.class, rewrittenThreeArgs);
+        Assertions.assertEquals(new IntegerLiteral(8), rewrittenThreeArgs.child(1));
+        Assertions.assertEquals(new VarcharLiteral("HLL_8"), rewrittenThreeArgs.child(2));
+        Assertions.assertSame(rewrittenThreeArgs, ((DataSketchesHllUnion) rewrittenThreeArgs).rewriteWhenAnalyze());
     }
 }

@@ -234,4 +234,92 @@ suite("datasketches_hll_union_roll_up") {
     mv_rewrite_success(varcharAggQuery, "mv_ds_hll_varchar_min")
     order_qt_varchar_agg_after "${varcharAggQuery}"
     sql "DROP MATERIALIZED VIEW IF EXISTS mv_ds_hll_varchar_min"
+
+    // 6) Dense lgK=16 HLL_8 sketch (> 65533 bytes) in a non-first STRING MTMV column
+    // Header layout (40B little-endian): preInts=10, serVer=1, family=7, lgK=16, lgArr=0,
+    // flags=COMPACT|OUT_OF_ORDER (24), curMin=0, mode=(HLL_8<<2)|HLL (10), hip=0.0,
+    // kxq0=32768.0 (all registers=1) or 16384.0 (all registers=2), kxq1=0.0, numAtCurMin=0, auxCount=0.
+    def denseK16Reg1 = "concat(from_base64('CgEHEAAYAAoAAAAAAAAAAAAAAAAAAOBAAAAAAAAAAAAAAAAAAAAAAA=='), repeat(unhex('01'), 65536))"
+    def denseK16Reg2 = "concat(from_base64('CgEHEAAYAAoAAAAAAAAAAAAAAAAAANBAAAAAAAAAAAAAAAAAAAAAAA=='), repeat(unhex('02'), 65536))"
+
+    sql "DROP TABLE IF EXISTS ds_hll_mv_dense_events"
+    sql """
+        CREATE TABLE ds_hll_mv_dense_events (
+            event_ts DATETIME NOT NULL,
+            k INT NOT NULL,
+            sk STRING
+        )
+        DUPLICATE KEY(event_ts, k)
+        DISTRIBUTED BY HASH(k) BUCKETS 2
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO ds_hll_mv_dense_events VALUES
+            ('2026-11-26 10:01:00', 1, ${denseK16Reg1}),
+            ('2026-11-26 10:02:00', 1, ${denseK16Reg2}),
+            ('2026-11-26 10:03:00', 2, ${denseK16Reg1})
+    """
+    sql """
+        INSERT INTO ds_hll_mv_dense_events
+        SELECT event_ts, k, sk FROM ds_hll_mv_dense_events CROSS JOIN numbers("number" = "20")
+    """
+    sql "analyze table ds_hll_mv_dense_events with sync"
+
+    def mvDenseSql = """
+        SELECT
+            date_trunc(event_ts, 'hour') AS hour_ts,
+            date_trunc(event_ts, 'minute') AS min_ts,
+            k,
+            datasketches_hll_union(sk, 16, 'HLL_8') AS sk_union
+        FROM ds_hll_mv_dense_events
+        GROUP BY date_trunc(event_ts, 'hour'), date_trunc(event_ts, 'minute'), k
+    """
+    def denseAggQuery = """
+        SELECT
+            date_trunc(event_ts, 'hour') AS hour_ts,
+            k,
+            CAST(ROUND(datasketches_hll_union_agg(sk, 12)) AS BIGINT) AS uv
+        FROM ds_hll_mv_dense_events
+        GROUP BY date_trunc(event_ts, 'hour'), k
+        ORDER BY hour_ts, k
+    """
+    def denseCascadeQuery = """
+        SELECT
+            hour_ts,
+            k,
+            OCTET_LENGTH(u) AS u_bytes,
+            datasketches_hll_downsample(u, 12, 'HLL_4') = u AS is_k12_hll4,
+            CAST(ROUND(datasketches_hll_union_agg(u, 12)) AS BIGINT) AS uv
+        FROM (
+            SELECT
+                date_trunc(event_ts, 'hour') AS hour_ts,
+                k,
+                datasketches_hll_union(sk, 6 + 6, concat('hll_', '4')) AS u
+            FROM ds_hll_mv_dense_events
+            GROUP BY date_trunc(event_ts, 'hour'), k
+        ) t
+        GROUP BY hour_ts, k, u
+        ORDER BY hour_ts, k
+    """
+    def denseTooHighKQuery = """
+        SELECT
+            date_trunc(event_ts, 'hour') AS hour_ts,
+            k,
+            CAST(ROUND(datasketches_hll_union_agg(sk, 18)) AS BIGINT) AS uv
+        FROM ds_hll_mv_dense_events
+        GROUP BY date_trunc(event_ts, 'hour'), k
+    """
+    sql "SET enable_materialized_view_rewrite = false"
+    order_qt_dense_agg_before "${denseAggQuery}"
+    order_qt_dense_cascade_before "${denseCascadeQuery}"
+    sql "SET enable_materialized_view_rewrite = true"
+
+    createMvAndAnalyze("mv_ds_hll_dense_k16", mvDenseSql)
+    order_qt_dense_mv_octet_len "SELECT k, MAX(OCTET_LENGTH(sk_union)) AS mv_bytes FROM mv_ds_hll_dense_k16 GROUP BY k ORDER BY k"
+    mv_rewrite_success(denseAggQuery, "mv_ds_hll_dense_k16")
+    order_qt_dense_agg_after "${denseAggQuery}"
+    mv_rewrite_success(denseCascadeQuery, "mv_ds_hll_dense_k16")
+    order_qt_dense_cascade_after "${denseCascadeQuery}"
+    mv_rewrite_fail(denseTooHighKQuery, "mv_ds_hll_dense_k16")
+    sql "DROP MATERIALIZED VIEW IF EXISTS mv_ds_hll_dense_k16"
 }

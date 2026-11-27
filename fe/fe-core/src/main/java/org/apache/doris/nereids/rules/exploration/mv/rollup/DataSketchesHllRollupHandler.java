@@ -40,6 +40,10 @@ import javax.annotation.Nullable;
  * guarantee bit-for-bit identical estimates or compact sketch bytes compared with single-stage
  * execution over raw sparse sketches; it preserves the {@code lg_max_k} precision cap and logical
  * sketch equivalence for subsequent union/estimation.
+ *
+ * <p>MTMV schema note: async MTMVs reject {@code VARBINARY} columns and narrow a column-0
+ * {@code STRING} to {@code VARCHAR(65533)}, so MTMVs should use {@code STRING} sketch columns
+ * ordered after {@code GROUP BY} key columns (required for dense {@code lg_max_k >= 16} sketches).
  */
 public class DataSketchesHllRollupHandler extends AggFunctionRollUpHandler {
 

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
@@ -95,6 +96,10 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         if (windowExpression.getFunction() instanceof CombineCombinator) {
             throw new AnalysisException("Window function does not support aggregate combine function: "
                     + ((CombineCombinator) windowExpression.getFunction()).getName());
+        }
+        if (windowExpression.getFunction() instanceof DataSketchesHllUnion) {
+            throw new AnalysisException("Window function does not support aggregate function: "
+                    + ((DataSketchesHllUnion) windowExpression.getFunction()).getName());
         }
         windowExpression.accept(this, null);
     }

@@ -22,9 +22,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -55,10 +57,15 @@ import java.util.stream.Collectors;
  * {@code lg_max_k} precision bounds and logical sketch equivalence, matching distributed two-phase
  * aggregation (dense merges use the composite estimator rather than HIP and therefore do not
  * guarantee bit-identical compact bytes compared with single-stage execution).
+ *
+ * <p>MTMV schema note: async MTMVs reject {@code VARBINARY} columns and narrow a column-0
+ * {@code STRING} to {@code VARCHAR(65533)}, so MTMV definitions should use {@code STRING} inputs
+ * and place {@code GROUP BY} key columns before {@code datasketches_hll_union(...)} when dense
+ * {@code lg_max_k >= 16} sketches may exceed 65,533 bytes.
  */
 public class DataSketchesHllUnion extends NullableAggregateFunction
         implements ExplicitlyCastableSignature, RollUpTrait, NullIgnoringAggregateFunction,
-        NotSupportAggState {
+        NotSupportAggState, RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
@@ -142,10 +149,10 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
                     + " function's argument should be of STRING/VARCHAR/VARBINARY type, but was " + inputType);
         }
         if (arity() >= 2) {
-            checkLgMaxK(ExpressionUtils.foldConstantArgument(getArgument(1)));
+            checkLgMaxK(getArgument(1));
         }
         if (arity() == 3) {
-            checkTgtType(ExpressionUtils.foldConstantArgument(getArgument(2)));
+            checkTgtType(getArgument(2));
         }
     }
 
@@ -155,19 +162,35 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
             throw new AnalysisException(getName() + " does not support DISTINCT: " + toSql());
         }
         if (arity() >= 2) {
-            checkLgMaxK(ExpressionUtils.foldConstantArgument(getArgument(1)));
+            checkLgMaxK(getArgument(1));
         }
         if (arity() == 3) {
-            checkTgtType(ExpressionUtils.foldConstantArgument(getArgument(2)));
+            checkTgtType(getArgument(2));
         }
     }
 
-    private void checkLgMaxK(Expression lgMaxK) {
-        if (!lgMaxK.isConstant() || !lgMaxK.getDataType().isIntegralType()
-                || !(lgMaxK instanceof Literal)) {
-            throw new AnalysisException(getName() + " requires lg_max_k to be a constant integer: " + toSql());
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        if (arity() == 1) {
+            return this;
         }
-        if (!(lgMaxK instanceof IntegerLikeLiteral)) {
+        // Bind the FE-validated constant literals so BE never re-evaluates an unfolded constant
+        // expression differently (e.g. FLOAT-to-DOUBLE casts under debug_skip_fold_constant).
+        IntegerLiteral lgMaxK = checkLgMaxK(getArgument(1));
+        if (arity() == 2) {
+            return lgMaxK.equals(getArgument(1)) ? this : withChildren(ImmutableList.of(getArgument(0), lgMaxK));
+        }
+        VarcharLiteral tgtType = checkTgtType(getArgument(2));
+        if (lgMaxK.equals(getArgument(1)) && tgtType.equals(getArgument(2))) {
+            return this;
+        }
+        return withChildren(ImmutableList.of(getArgument(0), lgMaxK, tgtType));
+    }
+
+    private IntegerLiteral checkLgMaxK(Expression rawLgMaxK) {
+        Expression lgMaxK = ExpressionUtils.foldConstantArgument(rawLgMaxK);
+        if (!lgMaxK.isConstant() || !lgMaxK.getDataType().isIntegralType()
+                || !(lgMaxK instanceof IntegerLikeLiteral)) {
             throw new AnalysisException(getName() + " requires lg_max_k to be a constant integer: " + toSql());
         }
         BigDecimal value = ((IntegerLikeLiteral) lgMaxK).getBigDecimalValue();
@@ -176,21 +199,22 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
             throw new AnalysisException(getName() + " requires lg_max_k to be between "
                     + MIN_LG_MAX_K + " and " + MAX_LG_MAX_K + ", but was " + value);
         }
+        return new IntegerLiteral(value.intValueExact());
     }
 
-    private void checkTgtType(Expression tgtType) {
+    private VarcharLiteral checkTgtType(Expression rawTgtType) {
+        Expression tgtType = ExpressionUtils.foldConstantArgument(rawTgtType);
         if (!tgtType.isConstant() || !tgtType.getDataType().isStringLikeType()
-                || !(tgtType instanceof Literal)) {
-            throw new AnalysisException(getName() + " requires tgt_type to be a constant string: " + toSql());
-        }
-        if (!(tgtType instanceof StringLikeLiteral)) {
+                || !(tgtType instanceof StringLikeLiteral)) {
             throw new AnalysisException(getName() + " requires tgt_type to be a constant string: " + toSql());
         }
         String value = ((StringLikeLiteral) tgtType).getStringValue();
-        if (!TGT_TYPES.contains(value.toUpperCase(Locale.ROOT))) {
+        String normalized = value.toUpperCase(Locale.ROOT);
+        if (!TGT_TYPES.contains(normalized)) {
             throw new AnalysisException(getName() + " requires tgt_type to be one of HLL_4, HLL_6, HLL_8, but was '"
                     + value + "'");
         }
+        return new VarcharLiteral(normalized);
     }
 
     @Override

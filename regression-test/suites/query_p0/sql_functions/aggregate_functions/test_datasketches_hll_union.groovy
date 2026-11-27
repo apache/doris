@@ -282,4 +282,29 @@ suite("test_datasketches_hll_union") {
         sql """SELECT ds_hll_union_state(sk) FROM test_datasketches_hll_union_tbl"""
         exception "Can not found function"
     }
+
+    // 7) Window OVER clauses are rejected
+    test {
+        sql """SELECT datasketches_hll_union(sk) OVER () FROM test_datasketches_hll_union_tbl"""
+        exception "Window function does not support aggregate function: datasketches_hll_union"
+    }
+    test {
+        sql """SELECT ds_hll_union(sk, 12, 'HLL_8') OVER (PARTITION BY grp) FROM test_datasketches_hll_union_tbl"""
+        exception "Window function does not support aggregate function: datasketches_hll_union"
+    }
+
+    // 8) FE-validated option literals are bound into the call even when constant folding is skipped
+    sql "SET debug_skip_fold_constant = true"
+    order_qt_debug_skip_fold_constant """
+        SELECT CAST(ROUND(datasketches_hll_union_agg(u)) AS BIGINT)
+        FROM (
+            SELECT datasketches_hll_union(
+                sk,
+                IF(CAST(CAST('0.1' AS FLOAT) AS DOUBLE) > CAST('0.1' AS DOUBLE), 6, 7),
+                concat('hll_', '8')
+            ) AS u
+            FROM test_datasketches_hll_union_tbl
+        ) t
+    """
+    sql "SET debug_skip_fold_constant = false"
 }

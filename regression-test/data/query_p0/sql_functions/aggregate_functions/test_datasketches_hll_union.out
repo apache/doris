@@ -33,3 +33,6 @@ true
 -- !varbinary_union --
 17
 
+-- !debug_skip_fold_constant --
+18
+

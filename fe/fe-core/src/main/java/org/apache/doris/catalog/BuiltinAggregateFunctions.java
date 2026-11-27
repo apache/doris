@@ -74,7 +74,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -132,7 +131,7 @@ import java.util.Set;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions;
     public final Map<String, Boolean> aggFuncNameNullableMap;
-    public final Set<String> notSupportAggStateFuncNames;
+    public final Set<String> notSupportAggStateDdlFuncNames;
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
@@ -237,20 +236,23 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
 
         ImmutableMap.Builder<String, Boolean> aggFuncNameNullableMapBuilder
                 = ImmutableSortedMap.<String, Boolean>orderedBy(String.CASE_INSENSITIVE_ORDER);
-        ImmutableSortedSet.Builder<String> notSupportAggStateBuilder
+        // Only reject DataSketchesHllUnion in AGG_STATE DDL parsing so legacy NotSupportAggState
+        // functions keep their existing DDL parser behavior.
+        ImmutableSortedSet.Builder<String> notSupportAggStateDdlBuilder
                 = ImmutableSortedSet.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (AggregateFunc aggregateFunc : aggregateFunctions) {
-            boolean notSupportAggState = NotSupportAggState.class.isAssignableFrom(aggregateFunc.functionClass);
+            boolean notSupportAggStateDdl = DataSketchesHllUnion.class
+                    .isAssignableFrom(aggregateFunc.functionClass);
             for (String name : aggregateFunc.names) {
                 boolean resultNullable = !(NotNullableAggregateFunction.class
                         .isAssignableFrom(aggregateFunc.functionClass));
                 aggFuncNameNullableMapBuilder.put(name, resultNullable);
-                if (notSupportAggState) {
-                    notSupportAggStateBuilder.add(name);
+                if (notSupportAggStateDdl) {
+                    notSupportAggStateDdlBuilder.add(name);
                 }
             }
         }
         aggFuncNameNullableMap = aggFuncNameNullableMapBuilder.build();
-        notSupportAggStateFuncNames = notSupportAggStateBuilder.build();
+        notSupportAggStateDdlFuncNames = notSupportAggStateDdlBuilder.build();
     }
 }
