@@ -42,13 +42,13 @@ public:
         if (should_init) {
             Field field;
             field = _data_type->get_field(node);
-            _column_ptr = _data_type->create_column_const(1, field);
+            init_column(field);
         }
     }
 
     VLiteral(const DataTypePtr& type, const Field& field) : VExpr(type, false) {
         _data_type = type;
-        _column_ptr = _data_type->create_column_const(1, field);
+        init_column(field);
         _node_type = TExprNodeType::LITERAL;
         _expr_name = _data_type->get_name();
     }
@@ -87,8 +87,13 @@ public:
 
 protected:
     VLiteral(const DataTypePtr& type) : VExpr(type, false) {}
-    ColumnPtr _column_ptr;
+    void init_column(const Field& field);
+    void set_column(MutableColumnPtr column);
     std::string _expr_name;
+
+private:
+    ColumnPtr _column_ptr;
+    bool _supports_digest = false;
 };
 
 } // namespace doris

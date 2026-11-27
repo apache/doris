@@ -48,7 +48,7 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
         child_literal->get_column_ptr()->get(0, item);
         array.get<TYPE_ARRAY>().push_back(item);
     }
-    _column_ptr = _data_type->create_column_const(1, array);
+    init_column(array);
     return Status::OK();
 }
 

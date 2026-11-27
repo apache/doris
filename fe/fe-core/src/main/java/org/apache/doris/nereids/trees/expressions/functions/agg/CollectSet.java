@@ -42,9 +42,9 @@ public class CollectSet extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0)),
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(AnyDataType.groupEquality(0)),
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
-                    .args(new AnyDataType(0), IntegerType.INSTANCE)
+                    .args(AnyDataType.groupEquality(0), IntegerType.INSTANCE)
     );
 
     /**

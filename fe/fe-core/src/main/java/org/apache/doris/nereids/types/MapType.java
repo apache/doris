@@ -127,4 +127,9 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return keyType.allowsKeyUse(keyUse) && valueType.allowsKeyUse(keyUse);
+    }
 }

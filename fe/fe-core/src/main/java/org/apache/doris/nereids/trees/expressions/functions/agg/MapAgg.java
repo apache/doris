@@ -40,7 +40,7 @@ public class MapAgg extends NotNullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)))
-                .args(new AnyDataType(0), new AnyDataType(1))
+                .args(AnyDataType.groupEquality(0), new AnyDataType(1))
     );
 
     /**FunctionSignature

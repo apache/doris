@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.Locale;
+import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * Represent any datatype in type coercion.
@@ -36,18 +38,43 @@ public class AnyDataType extends DataType {
 
     public static final int INDEX_OF_INSTANCE_WITHOUT_INDEX = -1;
     public static final AnyDataType INSTANCE_WITHOUT_INDEX = new AnyDataType(INDEX_OF_INSTANCE_WITHOUT_INDEX);
+    public static final AnyDataType ORDERING_WITHOUT_INDEX
+            = new AnyDataType(INDEX_OF_INSTANCE_WITHOUT_INDEX, KeyUse.ORDERING);
+    public static final AnyDataType GROUP_EQUALITY_WITHOUT_INDEX
+            = new AnyDataType(INDEX_OF_INSTANCE_WITHOUT_INDEX, KeyUse.GROUP_EQUALITY);
 
     private final int index;
+    @Nullable
+    private final KeyUse requiredKeyUse;
 
     public AnyDataType(int index) {
+        this(index, null);
+    }
+
+    /** Construct an ANY placeholder optionally constrained to types allowing {@code requiredKeyUse}. */
+    public AnyDataType(int index, @Nullable KeyUse requiredKeyUse) {
         if (index < 0) {
             index = -1;
         }
         this.index = index;
+        this.requiredKeyUse = requiredKeyUse;
+    }
+
+    public static AnyDataType ordering(int index) {
+        return index < 0 ? ORDERING_WITHOUT_INDEX : new AnyDataType(index, KeyUse.ORDERING);
+    }
+
+    public static AnyDataType groupEquality(int index) {
+        return index < 0 ? GROUP_EQUALITY_WITHOUT_INDEX : new AnyDataType(index, KeyUse.GROUP_EQUALITY);
     }
 
     public int getIndex() {
         return index;
+    }
+
+    @Nullable
+    public KeyUse getRequiredKeyUse() {
+        return requiredKeyUse;
     }
 
     @Override
@@ -67,7 +94,7 @@ public class AnyDataType extends DataType {
 
     @Override
     public boolean acceptsType(DataType other) {
-        return true;
+        return requiredKeyUse == null || other.allowsKeyUse(requiredKeyUse);
     }
 
     @Override
@@ -77,11 +104,33 @@ public class AnyDataType extends DataType {
 
     @Override
     public String simpleString() {
+        if (requiredKeyUse == KeyUse.ORDERING) {
+            return "orderableAny";
+        } else if (requiredKeyUse == KeyUse.GROUP_EQUALITY) {
+            return "equatableAny";
+        }
         return "any";
     }
 
     @Override
     public int width() {
         return -1;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AnyDataType that = (AnyDataType) o;
+        return index == that.index && requiredKeyUse == that.requiredKeyUse;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(index, requiredKeyUse);
     }
 }

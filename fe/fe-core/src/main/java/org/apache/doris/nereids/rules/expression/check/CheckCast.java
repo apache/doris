@@ -391,6 +391,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType.typeContainsFile() || targetType.typeContainsFile()) {
+            return false;
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;

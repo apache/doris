@@ -108,4 +108,9 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
     public String toSql() {
         return "ARRAY<" + itemType.toSql() + ">";
     }
+
+    @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return itemType.allowsKeyUse(keyUse);
+    }
 }

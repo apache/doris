@@ -40,7 +40,7 @@ class MockLiteral final : public VLiteral {
 public:
     MockLiteral(ColumnWithTypeAndName data) {
         _data_type = data.type;
-        _column_ptr = data.column;
+        set_column(IColumn::mutate(data.column));
         _expr_name = data.name;
         if (!check_and_get_column<ColumnConst>(data.column.get())) {
             _mock_const_expr_col =

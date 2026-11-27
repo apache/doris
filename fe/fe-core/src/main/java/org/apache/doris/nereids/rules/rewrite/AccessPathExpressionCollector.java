@@ -76,6 +76,7 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -433,6 +434,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isFileType()) {
+            // Analysis restricts FILE selectors to constant public field names. Physical FILE
+            // children stay in their canonical positions even when only one path is requested.
+            context.accessPathBuilder.addPrefix(
+                    ((Literal) arguments.get(1)).getStringValue().toLowerCase(Locale.ROOT));
+            return continueCollectAccessPath(first, context);
         } else {
             return visit(elementAt, context);
         }
