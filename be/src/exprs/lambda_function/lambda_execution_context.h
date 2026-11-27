@@ -26,6 +26,10 @@
 
 namespace doris {
 
+// Pad name for unmaterialized slots in a lambda block. Must not collide with any
+// user-facing lambda argument name (plain "temp" can).
+inline constexpr const char* LAMBDA_BLOCK_PAD_COLUMN_NAME = "__DORIS_LAMBDA_BLOCK_PAD__";
+
 class LambdaExecutionContext {
 public:
     struct Binding {
