@@ -496,14 +496,65 @@ protected:
     }
     void append_stream(const std::vector<std::optional<std::string>>& values,
                        const std::string& name = "raw_value") {
-        arrow::StringBuilder builder;
-        for (const auto& value : values) {
-            ASSERT_TRUE((value ? builder.Append(*value) : builder.AppendNull()).ok());
+        append_string_columns({{name, values}});
+    }
+    // Appends one IPC stream whose schema holds the given utf8 columns, in order.
+    void append_string_columns(
+            const std::vector<std::pair<std::string, std::vector<std::optional<std::string>>>>&
+                    columns) {
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        std::vector<std::shared_ptr<arrow::Array>> arrays;
+        for (const auto& [name, values] : columns) {
+            arrow::StringBuilder builder;
+            for (const auto& value : values) {
+                ASSERT_TRUE((value ? builder.Append(*value) : builder.AppendNull()).ok());
+            }
+            auto array = builder.Finish();
+            ASSERT_TRUE(array.ok());
+            fields.push_back(arrow::field(name, arrow::utf8()));
+            arrays.push_back(*array);
         }
-        auto array = builder.Finish();
-        ASSERT_TRUE(array.ok());
-        auto schema = arrow::schema({arrow::field(name, arrow::utf8())});
-        append_batch(arrow::RecordBatch::Make(schema, values.size(), {*array}));
+        append_batch(
+                arrow::RecordBatch::Make(arrow::schema(fields), arrays.front()->length(), arrays));
+    }
+    // Sets the FE default of source slot raw_value: a literal, or the empty expression the FE
+    // sends for an explicit NULL default and for a NOT NULL column without a default.
+    void set_raw_value_default(const std::optional<std::string>& value) {
+        TExpr expression;
+        if (value) {
+            TExprNode literal;
+            literal.__set_node_type(TExprNodeType::STRING_LITERAL);
+            literal.__set_type(scalar_type(source_slot->type()));
+            literal.__set_num_children(0);
+            literal.__set_is_nullable(true);
+            TStringLiteral string_literal;
+            string_literal.__set_value(*value);
+            literal.__set_string_literal(string_literal);
+            expression.__set_nodes({literal});
+        } else {
+            expression.__set_nodes({});
+        }
+        params.__set_default_value_of_src_slot({{10, expression}});
+    }
+    // Reads the whole load and returns the destination column `value`.
+    std::vector<std::optional<std::string>> read_values(LoadTableReader& reader) {
+        std::vector<std::optional<std::string>> values;
+        bool eos = false;
+        while (!eos) {
+            Block output(destination->slots(), 0);
+            const auto status = reader.get_block(&output, &eos);
+            EXPECT_TRUE(status.ok()) << status;
+            if (!status.ok()) {
+                break;
+            }
+            const auto& column = *output.get_by_position(0).column;
+            for (size_t row = 0; row < output.rows(); ++row) {
+                values.push_back(column.is_null_at(row)
+                                         ? std::nullopt
+                                         : std::optional(column.get_data_at(row).to_string()));
+            }
+        }
+        return values;
     }
     void check_hidden_container_values(int container) {
         const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -1472,15 +1523,80 @@ TEST_F(LoadArrowPipeTest, EmptyFinishedPipeReturnsEof) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST_F(LoadArrowPipeTest, RejectsMissingRequestedColumn) {
-    append_stream({"value"}, "other");
+TEST_F(LoadArrowPipeTest, MissingColumnLoadsItsDefault) {
+    add_anchor_source_column();
+    set_raw_value_default("fallback");
+    append_stream({"a", "b"}, "anchor");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    const std::vector<std::optional<std::string>> expected {"fallback", "fallback"};
+    EXPECT_EQ(read_values(reader), expected);
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, MissingNullableColumnLoadsNull) {
+    add_anchor_source_column();
+    set_raw_value_default(std::nullopt);
+    append_stream({"a", "b"}, "anchor");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    const std::vector<std::optional<std::string>> expected {std::nullopt, std::nullopt};
+    EXPECT_EQ(read_values(reader), expected);
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, MissingNotNullColumnWithoutDefaultRejectsRows) {
+    add_anchor_source_column();
+    set_destination_type(std::make_shared<DataTypeString>());
+    set_raw_value_default(std::nullopt);
+    append_stream({"a", "b"}, "anchor");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(read_values(reader).empty());
+    EXPECT_EQ(io->load_filtered_rows, 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, ConcatenatedStreamsResolveMissingColumnsPerStream) {
+    add_anchor_source_column();
+    set_raw_value_default("fallback");
+    // An explicit NULL in a stream that carries the column stays NULL; only rows of the stream
+    // without the column take the default.
+    append_string_columns({{"anchor", {"a", "b"}}, {"raw_value", {"first", std::nullopt}}});
+    append_stream({"c"}, "anchor");
+    append_string_columns({{"raw_value", {"last"}}, {"anchor", {"d"}}});
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader, FileFormat::ARROW);
+    ASSERT_TRUE(status.ok()) << status;
+    const std::vector<std::optional<std::string>> expected {"first", std::nullopt, "fallback",
+                                                            "last"};
+    EXPECT_EQ(read_values(reader), expected);
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadArrowPipeTest, RejectsDuplicateColumnName) {
+    append_string_columns({{"raw_value", {"a"}}, {"raw_value", {"b"}}});
     ASSERT_TRUE(_pipe->finish().ok());
     LoadTableReader reader(source.get(), destination.get());
     const auto status = prepare(reader, FileFormat::ARROW);
     ASSERT_TRUE(status.ok()) << status;
     Block output(destination->slots(), 0);
     bool eos = false;
-    EXPECT_FALSE(reader.get_block(&output, &eos).ok());
+    const auto read_status = reader.get_block(&output, &eos);
+    EXPECT_TRUE(read_status.is<ErrorCode::INVALID_ARGUMENT>()) << read_status;
+    EXPECT_NE(read_status.to_string().find("Arrow stream has 2 columns named 'raw_value'"),
+              std::string::npos)
+            << read_status;
     ASSERT_TRUE(reader.close().ok());
 }
 
