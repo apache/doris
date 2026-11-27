@@ -24,12 +24,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -111,10 +111,17 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             left = innerProductApproximate.left();
         }
 
-        while (left instanceof Cast) {
-            left = ((Cast) left).child();
+        Expression annOrderKeyExpr = orderKeyExpr;
+        if (left instanceof Nullable) {
+            // MV rewriting preserves nullable query outputs with a value-preserving wrapper.
+            // The ANN runtime needs the underlying indexed slot in its virtual expression.
+            while (left instanceof Nullable) {
+                left = left.child(0);
+            }
+            annOrderKeyExpr = orderKeyExpr.withChildren(left, orderKeyExpr.child(1));
         }
 
+        // ANN evaluates the indexed slot directly; surviving casts must stay on the scalar path.
         if (l2Dist) {
             if (!(left instanceof SlotReference && ((L2DistanceApproximate) orderKeyExpr).right().isConstant())) {
                 return null;
@@ -155,7 +162,7 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
 
         // Keep the score that BindScoreToOlapScan bound to the scan.
         Plan plan = scan.appendVirtualColumnsAndTopN(
-                ImmutableList.of(orderKeyAlias),
+                ImmutableList.of((Alias) orderKeyAlias.withChildren(annOrderKeyExpr)),
                 topN.getOrderKeys(), Optional.of(topN.getLimit() + topN.getOffset()),
                 scan.getScoreOrderKeys(), scan.getScoreLimit(), scan.getScoreRangeInfo());
 

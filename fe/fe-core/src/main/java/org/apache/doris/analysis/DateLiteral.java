@@ -694,18 +694,24 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForQuery(FormatOptions options) {
-        if (!type.isTimeStampTz()) {
+        // Legacy scalar callers omit dialect options; null still requests session-local query output.
+        if (!type.isTimeStampTz() || (options != null && options.isForStreamLoad())) {
+            // Storage input stays in UTC even when the session-local display year is out of range.
             return getStringValue();
         }
-        try {
-            String offset = DateUtils.getTimeZone().getRules().getOffset(java.time.Instant.now()).toString();
-            DateLiteral dateLiteral = new DateLiteral(getStringValue(),
-                    ScalarType.createDatetimeV2Type(((ScalarType) type).getScalarScale()));
-            return dateLiteral.getStringValue() + offset;
-        } catch (Exception e) {
-            LOG.warn("generate timestamptz({})'s string value for query failed. ", getStringValue(), e);
-            return getStringValue();
+        ZonedDateTime localTime = LocalDateTime.of((int) year, (int) month, (int) day,
+                (int) hour, (int) minute, (int) second, (int) microsecond * 1000)
+                .atZone(java.time.ZoneOffset.UTC).withZoneSameInstant(DateUtils.getTimeZone());
+        int localYear = localTime.getYear();
+        // Match BE output before the fixed-width formatter can corrupt an out-of-range year.
+        if (localYear < 0 || localYear > 9999) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "TIMESTAMPTZ local year is outside [0, 9999]: year=" + localYear
+                            + ", timezone=" + localTime.getZone());
         }
+        DateLiteral localLiteral = new DateLiteral(localTime.toLocalDateTime(),
+                ScalarType.createDatetimeV2Type(((ScalarType) type).getScalarScale()));
+        return localLiteral.getStringValue() + localTime.getOffset();
     }
 
     @Override
@@ -1542,7 +1548,9 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private boolean checkRange() {
-        return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
+        // A time zone conversion can cross year zero even when parsed fields are nonnegative.
+        return year < MIN_DATETIME.year || year > MAX_DATETIME.year
+            || month > MAX_DATETIME.month || day > MAX_DATETIME.day
             || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
             || microsecond > MAX_MICROSECOND;
     }

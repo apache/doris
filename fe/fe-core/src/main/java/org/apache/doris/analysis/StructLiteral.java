@@ -132,6 +132,7 @@ public class StructLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForStreamLoad(FormatOptions options) {
+        options = options.forStreamLoad();
         List<String> list = new ArrayList<>(children.size());
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {

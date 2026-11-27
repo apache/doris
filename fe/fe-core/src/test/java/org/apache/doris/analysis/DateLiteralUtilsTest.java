@@ -41,6 +41,25 @@ public class DateLiteralUtilsTest {
     }
 
     @Test
+    public void testTimezoneConversionRejectsNegativeYear() throws AnalysisException {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("-08:00");
+            Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                    "0000-01-01 00:00:00+00:00", ScalarType.createDatetimeV2Type(6)));
+            Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                    "0000-01-01 00:00:00+08:00", ScalarType.createTimeStampTzType(6)));
+            Assertions.assertEquals("0000-01-01 00:00:00.000000", DateLiteralUtils.createDateLiteral(
+                    "0000-01-01 08:00:00+00:00", ScalarType.createDatetimeV2Type(6)).getStringValue());
+            Assertions.assertEquals("0000-01-01 00:00:00.000000+00:00", DateLiteralUtils.createDateLiteral(
+                    "0000-01-01 08:00:00+08:00", ScalarType.createTimeStampTzType(6)).getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testTimestampTzInit() throws AnalysisException {
         String value;
         DateLiteral dateLiteral;
