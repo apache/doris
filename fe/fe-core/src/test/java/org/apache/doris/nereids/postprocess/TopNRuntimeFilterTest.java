@@ -33,7 +33,9 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -46,6 +48,8 @@ import org.apache.doris.thrift.TExplainLevel;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.util.List;
@@ -380,6 +384,121 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         for (PhysicalTopN<? extends Plan> localTopN : localTopNs) {
             Assertions.assertFalse(
                     checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+        }
+    }
+
+    @Test
+    public void testTopNFilterRejectsNullToNonNullThroughOuterJoin() {
+        checkTopNFilterThroughJoin(List.of(
+                "coalesce(l.k, -1)",
+                "ifnull(l.k, -1)",
+                "if(l.k is null, -1, l.k)",
+                "case when l.k is null then -1 else l.k end",
+                "coalesce(l.k, -1) - 1",
+                "cast(l.k is null as int)",
+                "cast(l.k <=> 0 as int)",
+                "cast(to_json(array(l.k)) as string)",
+                "to_uuid_or_default(cast(l.k as string))",
+                "to_uuid_or_default(cast(l.k as string), cast('00000000000000000000000000000001' as uuid))"),
+                List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "array_position([0, 1], l.k)",
+        "make_set(1, cast(l.k as string))",
+        "array_contains([1], l.k)",
+        "countequal([1], l.k)",
+        "cardinality(array_remove([1], l.k))",
+        "cardinality(array_pushback([1], l.k))",
+        "cardinality(array_pushfront([1], l.k))",
+        "cardinality(array_sortby([1], split_by_string(cast(l.k as string), ',')))",
+        "map_contains_key(map(1, 1), l.k)",
+        "map_contains_value(map(1, 1), l.k)",
+        "map_contains_entry(map(1, 1), 1, l.k)",
+        "element_at(map(cast(null as int), 0, 1, 1), l.k)",
+        "char(l.k)",
+        "elt(1, 'a', cast(l.k as string))",
+        "nullif(1, l.k)",
+        "cast(json_insert('{}', '$.a', l.k) as string)",
+        "cast(json_replace('{\"a\":0}', '$.a', l.k) as string)",
+        "cast(json_set('{}', '$.a', l.k) as string)",
+        "cast(json_parse_error_to_value('{}', to_json(l.k)) as string)",
+        "bitmap_to_string(bitmap_or(to_bitmap(1), bitmap_from_string(cast(l.k as string))))"
+    })
+    public void testTopNFilterRejectsBuiltinsThatConsumeNullThroughOuterJoin(String expression) {
+        checkTopNFilterThroughJoin(List.of(expression), List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+    }
+
+    @Test
+    public void testTopNFilterRejectsScalarUdfThroughNullGeneratingSide() throws Exception {
+        createFunction("CREATE FUNCTION topn_nonnullable_udf(INT) RETURNS INT PROPERTIES ("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='immutable', 'always_nullable'='false')");
+        createFunction("CREATE FUNCTION topn_nullable_udf(INT) RETURNS INT PROPERTIES ("
+                + "'type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='immutable', 'always_nullable'='true')");
+        List<String> expressions = List.of("topn_nonnullable_udf(l.k)", "topn_nullable_udf(l.k)");
+        checkTopNFilterThroughJoin(expressions, List.of("RIGHT OUTER", "FULL OUTER"), false, false);
+        checkTopNFilterThroughJoin(expressions, List.of("INNER", "LEFT OUTER"), false, true);
+    }
+
+    @Test
+    public void testTopNFilterPreservesNullPropagatingOuterJoinExpressions() {
+        checkTopNFilterThroughJoin(List.of("l.k", "cast(l.k as bigint)", "abs(l.k)",
+                "element_at([1, 2], l.k + 1)", "to_uuid_or_zero(cast(l.k as string))"),
+                List.of("RIGHT OUTER", "FULL OUTER"), false, true);
+        checkTopNFilterThroughJoin(List.of("l.k"), List.of("RIGHT OUTER", "FULL OUTER"), true, false);
+    }
+
+    @Test
+    public void testTopNFilterPreservesNonNullGeneratingJoinSide() {
+        checkTopNFilterThroughJoin(List.of("coalesce(l.k, -1)", "to_uuid_or_default(cast(l.k as string))",
+                "array_position([0, 1], l.k)", "make_set(1, cast(l.k as string))",
+                "map_contains_value(map(1, 1), l.k)"), List.of("INNER", "LEFT OUTER"), false, true);
+    }
+
+    private void checkTopNFilterThroughJoin(List<String> expressions, List<String> joinTypes,
+            boolean nullsFirst, boolean expectedFilter) {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            for (String joinType : joinTypes) {
+                for (boolean hashJoin : List.of(true, false)) {
+                    String condition = hashJoin ? "l.id = r.id" : "l.id < r.id";
+                    for (String expression : expressions) {
+                        String sql = "SELECT " + expression + " AS sort_key FROM topn_safety l "
+                                + joinType + " JOIN topn_safety r ON " + condition
+                                + " ORDER BY sort_key NULLS " + (nullsFirst ? "FIRST" : "LAST") + " LIMIT 1";
+                        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                        PhysicalPlan plan = checker.getPhysicalPlan();
+                        Assertions.assertTrue(plan.anyMatch(node -> hashJoin
+                                ? node instanceof PhysicalHashJoin : node instanceof PhysicalNestedLoopJoin),
+                                sql + "\n" + plan.treeString());
+                        // Exercise the visitor even when the planner chooses a single-stage sort.
+                        List<PhysicalTopN<? extends Plan>> topns = plan.collectToList(
+                                node -> node instanceof PhysicalTopN);
+                        Assertions.assertFalse(topns.isEmpty(), plan.treeString());
+                        TopnFilterContext filters = new TopnFilterContext();
+                        TopnFilterPushDownVisitor visitor = new TopnFilterPushDownVisitor(filters);
+                        for (PhysicalTopN<? extends Plan> topn : topns) {
+                            topn.accept(visitor, new PushDownContext(topn, topn.getOrderKeys().get(0).getExpr(),
+                                    topn.getOrderKeys().get(0).isNullFirst()));
+                        }
+                        Assertions.assertEquals(expectedFilter, !filters.getTopnFilters().isEmpty(),
+                                sql + "\n" + plan.treeString());
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
         }
     }
 

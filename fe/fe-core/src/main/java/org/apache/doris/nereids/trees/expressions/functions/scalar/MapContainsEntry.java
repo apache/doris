@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -37,7 +38,7 @@ import java.util.List;
  * ScalarFunction 'map_contains_entry'.
  */
 public class MapContainsEntry extends ScalarFunction
-        implements TernaryExpression, ExplicitlyCastableSignature, PreferPushDownProject {
+        implements TernaryExpression, ExplicitlyCastableSignature, PreferPushDownProject, NullToNonNullFunction {
 
     /**
      * Basic signature, forcing search key/value type to convert to the same type as map's key/value type.

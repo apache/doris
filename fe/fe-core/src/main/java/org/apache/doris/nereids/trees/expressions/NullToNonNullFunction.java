@@ -18,40 +18,41 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 
 /**
  * Marker interface for expressions that can convert NULL input into a non-NULL output.
  *
- * For example: Coalesce(NULL, 2) → 2, Nvl(NULL, 0) → 0, NullOrEmpty(NULL) → true.
+ * For example: Coalesce(NULL, 2) → 2, ArrayPosition([1], NULL) → 0, NullOrEmpty(NULL) → true.
+ * A function can have this behavior for specific arguments even if it propagates NULL in others.
  *
- * This is significant for outer-join push-down safety: when an aggregate function contains
- * a NullToNonNull expression wrapping a column from the nullable side of an outer join,
- * the aggregation must NOT be pushed down. Null-extended rows (produced by the join for
- * unmatched rows) have NULL for all nullable-side columns. The NullToNonNull expression
- * would convert those NULLs to non-NULL values, and the pre-aggregation would miss those
- * contributions because null-extended rows do not exist in the base table.
+ * An outer join supplies NULL for columns on the unmatched side. These expressions can turn
+ * those NULLs into values that a pushed-down aggregation would miss. A pushed-down TopN filter
+ * can also remove a match and cause the join to generate a row with a better sort key.
  *
- * <p>Note: {@link AlwaysNotNullable} expressions with input slots (e.g. Array, JsonArray,
- * JsonObject, CreateStruct, CreateMap) are also blocked from being pushed to the nullable
- * side of outer joins via a separate check in {@link #canConvertNullToNonNull(Expression)}.
+ * <p>See {@link #canConvertNullToNonNull(Expression)} for the full push-down safety check.
  */
 public interface NullToNonNullFunction {
 
+    /** Whether this expression's resolved overload can return a non-NULL value for a NULL input. */
+    default boolean canConvertNullToNonNull() {
+        return true;
+    }
+
     /**
      * Check whether an expression can convert NULL input to non-NULL output.
-     * This covers both {@link NullToNonNullFunction} (e.g. Coalesce, Nvl, If, CaseWhen,
-     * NullOrEmpty, IsNull, IsTrue, IsFalse, NonNullable)
-     * and {@link AlwaysNotNullable} expressions with input slots (e.g. Array, JsonArray,
-     * CreateStruct, CreateMap), which always produce non-NULL output regardless of NULL inputs.
+     * This covers {@link NullToNonNullFunction} markers and input-dependent
+     * {@link AlwaysNotNullable} expressions. A scalar {@link Udf} may also return a value
+     * for NULL input because its declared return nullability does not guarantee NULL propagation.
      *
      * <p>In outer-join push-down safety checks, any expression matching this predicate
-     * must NOT be pushed to the nullable side, because null-extended rows (produced by the
-     * join for unmatched rows) would produce non-NULL values that get aggregated, but the
-     * pre-aggregation on the base table cannot see those rows — resulting in wrong results.
+     * must NOT be pushed to the nullable side. Evaluate it after the join has supplied the
+     * NULLs for unmatched rows.
      */
     static boolean canConvertNullToNonNull(Expression e) {
-        return e instanceof NullToNonNullFunction
-                || (e instanceof AlwaysNotNullable
+        return (e instanceof NullToNonNullFunction function && function.canConvertNullToNonNull())
+                || ((e instanceof AlwaysNotNullable || (e instanceof ScalarFunction && e instanceof Udf))
                         && !e.getInputSlots().isEmpty());
     }
 }

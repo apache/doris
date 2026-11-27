@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -36,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'array_pushfront'.
  */
 public class ArrayPushFront extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, NullToNonNullFunction {
 
     public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.retArgType(0)
