@@ -48,6 +48,7 @@ public final class HiveTableFormatDetector {
         Set<String> hiveFormats = new HashSet<>();
         hiveFormats.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         hiveFormats.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
+        hiveFormats.add("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat");
         hiveFormats.add("org.apache.hadoop.mapred.TextInputFormat");
         // Some Hudi tables use HoodieParquetInputFormatBase as input format
         // but cannot be treated as Hudi — read parquet files directly as Hive.

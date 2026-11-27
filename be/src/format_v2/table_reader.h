@@ -446,6 +446,8 @@ protected:
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
     virtual bool preserve_binary_uuid() const { return false; }
+    virtual bool use_hive_avro_semantics() const { return false; }
+    virtual bool use_iceberg_avro_semantics() const { return false; }
 
     // The descriptor belongs to the current split. File readers copy it before initialization.
     virtual const TFileEncryptionInfo* file_encryption_info() const { return nullptr; }

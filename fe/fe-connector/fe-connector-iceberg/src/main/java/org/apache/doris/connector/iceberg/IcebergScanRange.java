@@ -102,18 +102,18 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final long selfSplitWeight;
     private final long targetSplitSize;
     // ===== $position_deletes native sys-table range (the THIRD range shape) =====
-    // When true this range is a native (parquet/orc) $position_deletes metadata-table split and
+    // When true this range is a native (parquet/orc/avro) $position_deletes metadata-table split and
     // populateRangeParams emits the position-delete shape instead of the data-file or JNI ones. Unlike every
     // other system table (which rides the JNI serializedSplit path), BE reads this one with its native
     // iceberg_position_delete_sys_table_reader. Mirrors legacy IcebergSplit.positionDeleteSystemTableSplit /
     // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135).
     private final boolean positionDeleteSystemTableSplit;
-    // FORMAT_PARQUET or FORMAT_ORC. NOTE: a PUFFIN deletion vector also travels as FORMAT_PARQUET (legacy
-    // getNativePositionDeleteFileFormat) — BE distinguishes DV purely by content==3, never by file format.
+    // FORMAT_PARQUET, FORMAT_ORC, or FORMAT_AVRO. NOTE: a PUFFIN deletion vector also travels as
+    // FORMAT_PARQUET (getNativePositionDeleteFileFormat) — BE distinguishes DV by content==3, not file format.
     // This must be set: populateRangeParams' data-path default would leave FORMAT_JNI and misroute the range
     // to IcebergSysTableJniReader.
     private final TFileFormatType positionDeleteFileFormat;
-    // 1 = POSITION_DELETES (parquet/orc delete file), 3 = DELETION_VECTOR (puffin blob). Emitted BOTH as the
+    // 1 = POSITION_DELETES (parquet/orc/avro delete file), 3 = DELETION_VECTOR (puffin blob). Emitted BOTH as the
     // TOP-LEVEL TIcebergFileDesc.content (BE's sole routing key into the native reader) and on the single
     // delete-file descriptor (which reader kind to run). Both must be set and agree.
     private final int positionDeleteContent;
@@ -368,7 +368,7 @@ public class IcebergScanRange implements ConnectorScanRange {
             // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135) field for field.
             //
             // BE routes into iceberg_position_delete_sys_table_reader iff table_format_type=="iceberg" AND the
-            // TOP-LEVEL iceberg_params.content is set to 1 or 3 AND the range format_type is PARQUET/ORC
+            // TOP-LEVEL iceberg_params.content is set to 1 or 3; the range retains its physical file format
             // (file_scanner.cpp:103-113, file_scanner_v2.cpp:75-125). The top-level content field is otherwise
             // deprecated and unset on ordinary data ranges — which is exactly what keeps them out of this
             // reader. Consequently the data path MUST NEVER set content to 1 or 3.
@@ -461,14 +461,16 @@ public class IcebergScanRange implements ConnectorScanRange {
             fileDesc.setDeleteFiles(deleteDescs);
         }
 
-        // native reader format (JNI = system tables, P6.5). Leaves the parent's default (FORMAT_JNI) otherwise.
+        // Publish each file's decoder for mixed snapshots, while preserving PME's distinct
+        // wire value so readers that ignore optional key fields cannot read encrypted payloads.
         if (nativeEncryption) {
-            // Older readers may ignore optional key fields; a distinct physical wire value must stop them.
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
         } else if ("orc".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
         } else if ("parquet".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        } else if ("avro".equals(fileFormat)) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_AVRO);
         }
 
         // table_level_row_count: the single collapsed COUNT(*)-pushdown range carries the snapshot-summary
@@ -509,7 +511,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private long length = -1;
         private long fileSize = -1;
         // Default empty (NOT "jni", which is not a real iceberg file format). Production callers set the real
-        // orc/parquet from the data file's format; mirrors PaimonScanRange.Builder.
+        // orc/parquet/avro from the data file's format; mirrors PaimonScanRange.Builder.
         private String fileFormat = "";
         private IcebergFileEncryption encryption;
         // Default 2 (the iceberg metadata default); production callers set the real table format version.
@@ -545,8 +547,9 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         /**
          * Marks this range as a native {@code $position_deletes} sys-table split and sets the two fields BE
-         * routes on. {@code content} is 1 (parquet/orc position-delete file) or 3 (puffin deletion vector);
-         * {@code fileFormat} is FORMAT_PARQUET or FORMAT_ORC (a DV also travels as FORMAT_PARQUET).
+         * routes on. {@code content} is 1 (parquet/orc/avro position-delete file) or 3 (puffin deletion vector);
+         * {@code fileFormat} is FORMAT_PARQUET, FORMAT_ORC, or FORMAT_AVRO
+         * (a DV also travels as FORMAT_PARQUET).
          * {@code originalPath} is the raw delete-file path, surfaced as the delete_file_path output column.
          */
         public Builder positionDeleteSysTableSplit(int content, TFileFormatType fileFormat,
@@ -683,7 +686,7 @@ public class IcebergScanRange implements ConnectorScanRange {
      * enclosing range is serialized into the split). The {@code content} ids are the legacy literals
      * (1 = position delete, 2 = equality delete, 3 = deletion vector); only the fields relevant to a
      * given kind are non-null, and {@link #toThrift()} sets only the non-null ones (legacy sets bounds
-     * only when present and {@code file_format} only for parquet/orc).
+     * only when present and {@code file_format} only for parquet/orc/avro).
      */
     public static final class DeleteFile implements Serializable {
 
@@ -699,7 +702,7 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         private final String path;
         private final int content;
-        // null for a deletion vector (PUFFIN); legacy setDeleteFileFormat only emits parquet/orc.
+        // null for a deletion vector (PUFFIN); setDeleteFileFormat only emits parquet/orc/avro.
         private final TFileFormatType fileFormat;
         // null = unset (legacy: bound absent, or the -1 sentinel which is treated as absent).
         private final Long positionLowerBound;

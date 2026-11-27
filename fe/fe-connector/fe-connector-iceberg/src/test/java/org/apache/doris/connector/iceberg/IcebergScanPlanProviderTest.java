@@ -224,6 +224,48 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void avroSplitCountIsBoundedWithAndWithoutSdkOffsets() throws Exception {
+        long mb = 1024L * 1024L;
+        for (List<Long> offsets : Arrays.asList(Collections.<Long>emptyList(), List.of(64L, 256 * mb, 768 * mb))) {
+            Table table = createTable("bounded_avro_" + offsets.size(), SCHEMA, PartitionSpec.unpartitioned());
+            DataFiles.Builder file = DataFiles.builder(table.spec()).withPath("s3://b/db/bounded.avro")
+                    .withFormat(FileFormat.AVRO).withFileSizeInBytes(1024 * mb).withRecordCount(100);
+            if (!offsets.isEmpty()) {
+                file.withSplitOffsets(offsets);
+            }
+            table.newAppend().appendFile(file.build()).commit();
+            for (IcebergScanPlanProvider provider : Arrays.asList(
+                    new IcebergScanPlanProvider(IcebergCatalogProperties.of(Map.of()), opsReturning(table)),
+                    manifestProvider(manifestCacheProps(), table, new IcebergManifestCache()))) {
+                for (long target : new long[] {64 * mb, 768 * mb, 2048 * mb}) {
+                    ConnectorSession session = new FakeScanSession("UTC", Map.of("file_split_size", "" + target));
+                    ConnectorScanRequest request = ConnectorScanRequest.builder(
+                            new IcebergTableHandle("db1", "bounded_avro_" + offsets.size()), List.of()).build();
+                    List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+                    List<ConnectorScanRange> streaming = drain(provider.streamSplits(session, request));
+                    for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+                        Assertions.assertTrue(ranges.size() >= 1 && ranges.size() <= 2,
+                                "Avro prefix traversal must be bounded independently of SDK offsets");
+                        if (!offsets.isEmpty()) {
+                            Assertions.assertEquals(1, ranges.size());
+                        } else if (target < 1024 * mb) {
+                            Assertions.assertEquals(2, ranges.size());
+                        }
+                        // Manifest planning uses its table-size heuristic instead of the explicit
+                        // file_split_size; both it and streaming must obey the same per-file cap.
+                        long end = 0;
+                        for (ConnectorScanRange range : ranges) {
+                            Assertions.assertEquals(end, range.getStart());
+                            end += range.getLength();
+                        }
+                        Assertions.assertEquals(1024 * mb, end);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void coarseSizeRetainsMaxFileSplitNumInSdkAndManifestPlans() {
         long mb = 1024L * 1024L;
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
@@ -1104,7 +1146,7 @@ public class IcebergScanPlanProviderTest {
                 () -> provider.planScan(session, ConnectorScanRequest.builder(handle,
                         Collections.singletonList(new IcebergColumnHandle("_file", -1))).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
@@ -2008,7 +2050,7 @@ public class IcebergScanPlanProviderTest {
                 () -> provider.planScan(session, ConnectorScanRequest.builder(
                         new IcebergTableHandle("db1", "t1"), columns).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
@@ -2053,7 +2095,7 @@ public class IcebergScanPlanProviderTest {
                         ConnectorScanRequest.builder(new IcebergTableHandle("db1", "stream_metadata"), columns)
                                 .filter(Optional.empty()).limit(-1L).build()));
         Assertions.assertEquals(
-                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
     }
@@ -3773,17 +3815,75 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanPositionDeletesRejectsAvroDeleteFile() {
-        // WHY: there is no native AVRO position-delete reader. Failing loud beats mis-routing the range to
-        // the parquet reader, which would fault or return garbage. Message text is pinned by upstream's own
-        // unit test (assertEquals, not contains). MUTATION: defaulting an unknown format to FORMAT_PARQUET
-        // -> no throw -> red.
+    public void positionDeleteAvroSplitCountIsBoundedIncludingStoredOffsets() {
+        long mb = 1024L * 1024L;
+        List<Long> storedOffsets = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            storedOffsets.add(64L + i * 64 * mb);
+        }
+        for (List<Long> offsets : Arrays.asList(Collections.<Long>emptyList(), storedOffsets)) {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                    .ofPositionDeletes().withPath("s3://b/db/t1/bounded-pos.avro").withFormat(FileFormat.AVRO)
+                    .withFileSizeInBytes(1024 * mb).withRecordCount(100);
+            if (!offsets.isEmpty()) {
+                builder.withSplitOffsets(offsets);
+            }
+            Table table = tableWithPositionDelete(builder.build());
+            for (long target : new long[] {64 * mb, 2048 * mb}) {
+                IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                        IcebergCatalogProperties.of(Map.of()), opsReturning(table));
+                ConnectorSession session = new FakeScanSession("UTC", Map.of("file_split_size", "" + target));
+                ConnectorScanRequest request = ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        Collections.emptyList()).build();
+                Assertions.assertEquals(-1, provider.streamingSplitEstimate(
+                        session, request.getTableHandle(), Optional.empty(), false));
+                List<ConnectorScanRange> ranges = provider.planScan(session, request);
+                Assertions.assertTrue(ranges.size() >= 1 && ranges.size() <= 2,
+                        "Avro metadata delete scans must share the data-file prefix traversal limit");
+                long end = 0;
+                for (ConnectorScanRange range : ranges) {
+                    Assertions.assertEquals(end, range.getStart());
+                    end += range.getLength();
+                    TFileRangeDesc descriptor = new TFileRangeDesc();
+                    TTableFormatFileDesc format = new TTableFormatFileDesc();
+                    ((IcebergScanRange) range).populateRangeParams(format, descriptor);
+                    Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, descriptor.getFormatType());
+                }
+                Assertions.assertEquals(1024 * mb, end);
+                Assertions.assertEquals(offsets.isEmpty() && target < 1024 * mb ? 2 : 1, ranges.size());
+            }
+        }
+    }
+
+    @Test
+    public void positionDeleteParquetRetainsOffsetBasedSplits() {
+        long mb = 1024L * 1024L;
+        List<Long> offsets = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            offsets.add(64L + i * 64 * mb);
+        }
+        Table table = tableWithPositionDelete(FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes().withPath("s3://b/db/t1/offset-pos.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(1024 * mb).withRecordCount(100).withSplitOffsets(offsets).build());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Map.of()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Map.of("file_split_size", "" + 2048 * mb)),
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        Collections.emptyList()).build());
+        Assertions.assertEquals(16, ranges.size());
+    }
+
+    @Test
+    public void planScanPositionDeletesPreservesAvroFileFormat() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.avro", FileFormat.AVRO, null, null));
-
-        UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> planPositionDeletes(table, Collections.emptyList()));
-        Assertions.assertEquals("Unsupported Iceberg position delete file format: AVRO", e.getMessage());
+        TFileRangeDesc range = positionDeleteRangeDesc(planPositionDeletes(table, Collections.emptyList()));
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, range.getFormatType());
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO,
+                range.getTableFormatParams().getIcebergParams().getDeleteFiles().get(0).getFileFormat());
     }
 
     @Test
@@ -4706,22 +4806,28 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanRejectsUnsupportedFileFormatFailLoud() {
-        // Legacy IcebergScanNode.getFileFormatType() throws DdlException("Unsupported format name: <fmt> ...") at plan
-        // start for a non-orc/parquet table; the connector must keep that fail-loud guard instead of silently
-        // shipping the file to BE's iceberg JNI reader (which expects a serialized system-table split).
-        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+    public void planScanPreservesAvroAndMixedDataFileFormats() {
+        Table table = createTable("avro_data", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f.avro", 512, null, null, FileFormat.AVRO))
+                .appendFile(dataFile(table.spec(), "s3://b/db/avro_data/f.avro", 512, null, null, FileFormat.AVRO))
+                .appendFile(dataFile(table.spec(), "s3://b/db/avro_data/f.parquet", 512, null, null, FileFormat.PARQUET))
                 .commit();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
-
-        // MUTATION: leaving the else-branch silent (FORMAT_JNI default) -> no throw -> red.
-        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> provider.planScan(null,
-                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
-                .build()));
-        Assertions.assertTrue(ex.getMessage().contains("Unsupported format name: avro"),
-                "message should mirror legacy: " + ex.getMessage());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "avro_data"), Collections.emptyList())
+                        .build());
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertEquals("avro", byPath(ranges, ".avro").getFileFormat());
+        Assertions.assertEquals("parquet", byPath(ranges, ".parquet").getFileFormat());
+        for (ConnectorScanRange range : ranges) {
+            TFileRangeDesc descriptor = new TFileRangeDesc();
+            descriptor.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            range.populateRangeParams(new TTableFormatFileDesc(), descriptor);
+            Assertions.assertEquals("avro".equals(range.getFileFormat())
+                    ? TFileFormatType.FORMAT_AVRO : TFileFormatType.FORMAT_PARQUET,
+                    descriptor.getFormatType());
+        }
     }
 
     // --- FIX-M3 streaming (file-count) split generation ---------------------------------------------------

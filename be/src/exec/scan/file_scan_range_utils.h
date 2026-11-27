@@ -85,12 +85,11 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
     if (range != nullptr && range->__isset.table_format_params) {
         RETURN_IF_ERROR(validate_table(range->table_format_params));
     }
+    // Avro admission must retain the independent PME capability barrier; encrypted data or
+    // deletes cannot fall through to a plain reader when native decryption is unavailable.
     if (format == TFileFormatType::FORMAT_PARQUET_PME &&
         !rpc_tls::supports_native_file_encryption()) {
         return Status::NotSupported("File encryption [READ_UNAVAILABLE]");
-    }
-    if (format == TFileFormatType::FORMAT_AVRO) {
-        return Status::NotSupported("Avro file reads are no longer supported");
     }
     return Status::OK();
 }

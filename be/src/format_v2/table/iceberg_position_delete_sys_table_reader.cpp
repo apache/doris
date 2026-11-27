@@ -141,6 +141,7 @@ public:
             : _encryption(encryption) {}
 
 protected:
+    bool use_iceberg_avro_semantics() const override { return true; }
     const TFileEncryptionInfo* file_encryption_info() const override { return _encryption; }
 
     format::TableColumnMappingMode mapping_mode() const override {
@@ -321,9 +322,12 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
         file_format = format::FileFormat::PARQUET;
     } else if (_delete_file_desc->file_format == TFileFormatType::FORMAT_ORC) {
         file_format = format::FileFormat::ORC;
+    } else if (_delete_file_desc->file_format == TFileFormatType::FORMAT_AVRO) {
+        file_format = format::FileFormat::AVRO;
     } else {
         return Status::NotSupported(
-                "Iceberg position delete system table v2 reader only supports Parquet and ORC "
+                "Iceberg position delete system table v2 reader only supports Parquet, ORC and "
+                "Avro "
                 "delete files, file_format={}",
                 _delete_file_desc->file_format);
     }

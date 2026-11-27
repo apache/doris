@@ -26,15 +26,16 @@ import java.util.Locale;
  * {@code HMSExternalTable.getFileFormatType} (+ {@code HiveMetaStoreClientHelper.HiveFileFormat.getFormat}).
  *
  * <p>The algorithm is TWO-STAGE and <b>serde-authoritative for the text family</b>: the {@code inputFormat}
- * class name picks the coarse family (parquet / orc / text) by substring, and for the text family the
+ * class name picks the coarse family (parquet / orc / avro / text) by substring, and for the text family the
  * <b>SerDe</b> picks the fine format. This is why detection must NOT be input-format-first: a standard Hive
  * JSON table has {@code inputFormat=org.apache.hadoop.mapred.TextInputFormat} — its JSON-ness lives ONLY in
  * the JsonSerDe, so an input-format-first classifier would mis-read it as text/CSV.</p>
  *
- * <p>The five values map 1:1 to the BE {@code TFileFormatType} the generic
+ * <p>The values map 1:1 to the BE {@code TFileFormatType} the generic
  * {@code PluginDrivenScanNode.mapFileFormatType} resolves the emitted {@link #getFormatName() token} to:
  * {@code parquet}->FORMAT_PARQUET, {@code orc}->FORMAT_ORC, {@code text}->FORMAT_TEXT, {@code csv}->
- * FORMAT_CSV_PLAIN, {@code json}->FORMAT_JSON. {@code FORMAT_TEXT} (hive {@code LazySimpleSerDe} /
+ * FORMAT_CSV_PLAIN, {@code json}->FORMAT_JSON, {@code avro}->FORMAT_AVRO.
+ * {@code FORMAT_TEXT} (hive {@code LazySimpleSerDe} /
  * {@code MultiDelimitSerDe}) is a DISTINCT BE reader from {@code FORMAT_CSV_PLAIN} (hive {@code OpenCSVSerde}):
  * the text reader honors hive collection/map delimiters, {@code \\N} nulls and hive escaping, so the two must
  * not be collapsed.</p>
@@ -43,6 +44,7 @@ public enum HiveFileFormat {
 
     PARQUET("parquet"),
     ORC("orc"),
+    AVRO("avro"),
     // Hive text family (LazySimpleSerDe / MultiDelimitSerDe) -> BE FORMAT_TEXT.
     TEXT("text"),
     // Hive OpenCSVSerde (and OpenX-JSON read in one column) -> BE FORMAT_CSV_PLAIN.
@@ -56,6 +58,7 @@ public enum HiveFileFormat {
     private static final String FAMILY_TEXT = "text";
     private static final String FAMILY_PARQUET = "parquet";
     private static final String FAMILY_ORC = "orc";
+    private static final String FAMILY_AVRO = "avro";
 
     // SerDe class names, mirroring the legacy constants in HiveMetaStoreClientHelper (the connector cannot
     // import fe-core). MultiDelimitSerDe is matched under BOTH its modern (serde2, the legacy Doris constant)
@@ -83,8 +86,8 @@ public enum HiveFileFormat {
     }
 
     /**
-     * Resolves the read format of a hive table, reproducing legacy {@code HMSExternalTable.getFileFormatType}.
-     * The {@code inputFormat} chooses parquet / orc / text-file; for the text-file family the {@code serDeLib}
+     * Resolves the read format of a hive table using legacy family/SerDe rules and native Avro support.
+     * The {@code inputFormat} chooses parquet / orc / avro / text; for text files, the {@code serDeLib}
      * chooses json / csv / hive-text. The two extra flags reproduce the legacy OpenX-JSON special case: with
      * {@code readHiveJsonInOneColumn} an OpenX-JSON table is read as a single CSV column (only when its first
      * column is a string). Fails loud on an unrecognized inputFormat or serde, matching legacy (which threw
@@ -104,6 +107,8 @@ public enum HiveFileFormat {
                 return PARQUET;
             case FAMILY_ORC:
                 return ORC;
+            case FAMILY_AVRO:
+                return AVRO;
             default:
                 // text family: the serde decides json / csv / hive-text.
                 return detectTextFamily(serDeLib, readHiveJsonInOneColumn, firstColumnIsString);
@@ -112,9 +117,9 @@ public enum HiveFileFormat {
 
     /**
      * Maps an inputFormat class name to its coarse family token ({@link #FAMILY_TEXT}/{@link #FAMILY_PARQUET}/
-     * {@link #FAMILY_ORC}) by lowercase substring, first match wins in text->parquet->orc order (legacy
-     * {@code HiveMetaStoreClientHelper.HiveFileFormat.getFormat}). Throws on an unrecognized inputFormat,
-     * matching legacy's {@code "Not supported Hive file format"}.
+     * {@link #FAMILY_ORC}/{@link #FAMILY_AVRO}) by lowercase substring, first match wins:
+     * text->parquet->orc->avro (legacy {@code HiveMetaStoreClientHelper.HiveFileFormat.getFormat} plus Avro).
+     * Throws on an unrecognized inputFormat, matching legacy's {@code "Not supported Hive file format"}.
      */
     private static String detectFamily(String inputFormat) {
         if (inputFormat == null) {
@@ -129,6 +134,9 @@ public enum HiveFileFormat {
         }
         if (lower.contains(FAMILY_ORC)) {
             return FAMILY_ORC;
+        }
+        if (lower.contains(FAMILY_AVRO)) {
+            return FAMILY_AVRO;
         }
         throw new DorisConnectorException("Not supported Hive file format: " + inputFormat);
     }
@@ -168,6 +176,7 @@ public enum HiveFileFormat {
      * structure; text/csv are line-splittable. JSON is read whole (not split), matching the legacy behavior.
      */
     public boolean isSplittable() {
-        return this == PARQUET || this == ORC || this == TEXT || this == CSV;
+        // The native Avro reader proves OCF block boundaries, so large files can use parallel ranges.
+        return this == PARQUET || this == ORC || this == AVRO || this == TEXT || this == CSV;
     }
 }

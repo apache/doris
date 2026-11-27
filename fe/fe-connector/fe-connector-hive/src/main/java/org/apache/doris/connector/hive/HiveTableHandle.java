@@ -60,6 +60,8 @@ public class HiveTableHandle implements ConnectorTableHandle {
     // already loaded there). Reproduces legacy HMSExternalTable.firstColumnIsString, consulted ONLY for the
     // OpenX-JSON read_hive_json_in_one_column read-format branch (see HiveFileFormat.detect).
     private final boolean firstColumnIsString;
+    // Preserve source CHAR/VARCHAR semantics before generic string types erase their length.
+    private final boolean avroStringCoercionRequired;
 
     // Set after applyFilter for partition pruning
     private final List<HmsPartitionInfo> prunedPartitions;
@@ -90,6 +92,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
                 ? Collections.unmodifiableMap(builder.tableParameters)
                 : Collections.emptyMap();
         this.firstColumnIsString = builder.firstColumnIsString;
+        this.avroStringCoercionRequired = builder.avroStringCoercionRequired;
         this.prunedPartitions = builder.prunedPartitions;
         this.prunedPartitionsByName = builder.prunedPartitionsByName != null
                 ? Collections.unmodifiableMap(new HashMap<>(builder.prunedPartitionsByName))
@@ -144,6 +147,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
     public Map<String, String> getTableParameters() {
         return tableParameters;
+    }
+
+    public boolean requiresAvroStringCoercion() {
+        return avroStringCoercionRequired;
     }
 
     /**
@@ -213,6 +220,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         b.sdParameters = this.sdParameters;
         b.tableParameters = this.tableParameters;
         b.firstColumnIsString = this.firstColumnIsString;
+        b.avroStringCoercionRequired = this.avroStringCoercionRequired;
         b.prunedPartitions = this.prunedPartitions;
         b.prunedPartitionsByName = this.prunedPartitionsByName;
         b.pruningBatchStats = this.pruningBatchStats;
@@ -240,6 +248,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         private Map<String, String> sdParameters;
         private Map<String, String> tableParameters;
         private boolean firstColumnIsString;
+        private boolean avroStringCoercionRequired;
         private List<HmsPartitionInfo> prunedPartitions;
         private Map<String, HmsPartitionInfo> prunedPartitionsByName;
         private HmsPartitionBatchStats pruningBatchStats;
@@ -287,6 +296,11 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
         public Builder tableParameters(Map<String, String> val) {
             this.tableParameters = val;
+            return this;
+        }
+
+        public Builder avroStringCoercionRequired(boolean val) {
+            this.avroStringCoercionRequired = val;
             return this;
         }
 

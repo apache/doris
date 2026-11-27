@@ -457,6 +457,8 @@ public class NereidsDataDescription {
                         return "orc";
                     case FORMAT_PARQUET:
                         return "parquet";
+                    case FORMAT_AVRO:
+                        return "avro";
                     case FORMAT_JSON:
                         return "json";
                     case FORMAT_TEXT:

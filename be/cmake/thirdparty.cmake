@@ -222,3 +222,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif(OS_MACOSX)
     target_link_libraries(mongoc2 INTERFACE resolv)
 endif()
+
+# The native Avro reader shares the same statically linked codecs as other file readers.
+add_thirdparty(avrocpp_s NOTADD)
+set_target_properties(avrocpp_s PROPERTIES
+    INTERFACE_COMPILE_DEFINITIONS "SNAPPY_CODEC_AVAILABLE;ZSTD_CODEC_AVAILABLE")
+target_link_libraries(avrocpp_s INTERFACE snappy zstd libz)

@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.foundation.format.AvroFileSplitSize;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -420,7 +421,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public boolean supportsFileCache() {
-        // iceberg data files are read by BE's native parquet/orc readers, so the BE file cache applies.
+        // iceberg data files are read by BE's native parquet/orc/avro readers, so the BE file cache applies.
         return true;
     }
 
@@ -1259,7 +1260,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code IcebergScanNode.doGetPositionDeletesSystemTableSplits} (upstream #65135).
      *
      * <p>This is the ONE system table that does not ride the JNI serialized-split path: BE reads it with a
-     * native parquet/orc/puffin reader, so FE must emit real file ranges (see
+     * native parquet/orc/avro/puffin reader, so FE must emit real file ranges (see
      * {@link IcebergScanRange#populateRangeParams} for the wire shape).
      *
      * <p>Deviations from the JNI sys path above, each forced:
@@ -1343,6 +1344,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @SuppressWarnings("unchecked")
     private static Iterable<PositionDeletesScanTask> splitPositionDeleteScanTask(PositionDeletesScanTask task,
             long targetSplitSize) {
+        // Metadata delete scans use the same prefix-walking Avro reader as ordinary data scans.
+        if (task.file().format() == FileFormat.AVRO) {
+            if (hasExcessAvroOffsets(task.file())) {
+                return Collections.singletonList(task);
+            }
+            targetSplitSize = AvroFileSplitSize.bounded(task.length(), targetSplitSize);
+        }
         return ((SplittableScanTask<PositionDeletesScanTask>) task).split(targetSplitSize);
     }
 
@@ -1405,12 +1413,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * PARQUET and PUFFIN both read through BE's parquet path; ORC through the orc one. AVRO position-delete
-     * files have no native reader — fail loud rather than mis-route. Message text mirrors legacy exactly.
+     * PUFFIN deletion vectors travel through the Parquet path; ordinary delete files retain their format.
      */
     private static TFileFormatType getNativePositionDeleteFileFormat(FileFormat fileFormat) {
         if (fileFormat == FileFormat.PARQUET || fileFormat == FileFormat.PUFFIN) {
             return TFileFormatType.FORMAT_PARQUET;
+        } else if (fileFormat == FileFormat.AVRO) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (fileFormat == FileFormat.ORC) {
             return TFileFormatType.FORMAT_ORC;
         }
@@ -1971,7 +1980,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Build the BE-ready {@link IcebergScanRange} for one {@link FileScanTask}, mirroring legacy
      * {@code IcebergScanNode.createIcebergSplit} + {@code setIcebergParams}: the file path/offset/size, the
-     * per-file format (native parquet/orc), the table format version, the v3 row-lineage fields, and — for a
+     * per-file format (native parquet/orc/avro), the table format version, the v3 row-lineage fields, and — for a
      * partitioned table — the partition spec-id, the all-fields {@code partition_data_json}, and the ordered
      * identity {@code partitionValues} that become columns-from-path.
      *
@@ -2029,7 +2038,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Compute {@link #buildRange}'s per-file invariants and, when {@code scratch} is non-null, store them into
      * it so the file's remaining byte-slices reuse them. Uses {@code task.deletes()} (identical across a
      * file's slices) for the delete carriers. Mirrors the former inline per-slice computation exactly — same
-     * partition-JSON / identity-map ordering, same fail-loud on a non-parquet/orc file, same v3 row-lineage —
+     * partition-JSON / identity-map ordering, same fail-loud on a non-parquet/orc/avro file, same v3 row-lineage —
      * so the memoized range is byte-identical to the per-slice recompute. The scratch fields are assigned only
      * after the fail-loud check, so a rejected file never leaves a half-populated scratch.
      */
@@ -2092,9 +2101,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Validate the physical format before publishing a native range. An unsupported data file must
         // fail here, rather than inherit the scan-level Parquet default and reach the wrong reader.
         // Metadata tables legitimately use JNI and take a separate path; normal data ranges always
-        // carry their own explicit Parquet/ORC format, including mixed-format snapshots.
+        // carry their own explicit Parquet/ORC/Avro format, including mixed-format snapshots.
         String fileFormat = dataFile.format().name().toLowerCase(Locale.ROOT);
-        if (!"parquet".equals(fileFormat) && !"orc".equals(fileFormat)) {
+        if (!"parquet".equals(fileFormat) && !"orc".equals(fileFormat) && !"avro".equals(fileFormat)) {
             throw new IllegalStateException(
                     String.format("Unsupported format name: %s for iceberg table.", fileFormat));
         }
@@ -2225,12 +2234,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Map an iceberg delete-file format to BE's file-format type, mirroring legacy {@code setDeleteFileFormat}:
-     * only parquet/orc are emitted; any other format (notably {@code PUFFIN} deletion vectors) leaves the
+     * parquet/orc/avro are emitted; any other format (notably {@code PUFFIN} deletion vectors) leaves the
      * thrift {@code file_format} unset ({@code null} here).
      */
     private static TFileFormatType deleteFileFormat(FileFormat format) {
         if (format == FileFormat.PARQUET) {
             return TFileFormatType.FORMAT_PARQUET;
+        } else if (format == FileFormat.AVRO) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (format == FileFormat.ORC) {
             return TFileFormatType.FORMAT_ORC;
         }
@@ -2316,7 +2327,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Scan-node-level (not per-range) properties consumed by the generic {@code PluginDrivenScanNode}:
      * <ul>
      *   <li>{@code file_format_type=jni} — makes the parent default the per-range format to {@code FORMAT_JNI},
-     *       which each native range overrides to parquet/orc in {@code populateRangeParams} (mirrors paimon).</li>
+     *       which each native range overrides to parquet/orc/avro in {@code populateRangeParams} (mirrors paimon).</li>
      *   <li>{@code path_partition_keys} — the case-preserved, comma-joined identity partition columns, so FE marks
      *       those slots as partition columns and excludes them from the file-decode set; without it BE
      *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
@@ -2364,7 +2375,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         // This is only the scan-level native-reader default, not the format of the table's files.
-        // Every normal Iceberg range carries its own validated Parquet/ORC format, which BE prefers
+        // Every normal Iceberg range carries its own validated Parquet/ORC/Avro format, which BE prefers
         // over this default (including mixed-format snapshots and row-id fetches). Do not enumerate
         // data manifests here just to infer a format: scanning starts in planScan/streamSplits.
         // Keep JNI for metadata tables, whose serialized splits use the Java system-table reader.
@@ -3223,6 +3234,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (legacy {@code IcebergScanNode.targetSplitSize}, the same value used to slice — legacy reuses it for both).
      */
     static long selectFeSplitSize(FileScanTask task, long fallbackSize, long coarseSize) {
+        // Avro walks prefix blocks at every range start, including scans with row deletes.
+        if (task.file().format() == FileFormat.AVRO) {
+            return AvroFileSplitSize.bounded(task.length(), fallbackSize);
+        }
         if (coarseSize <= 0 || !task.deletes().isEmpty()) {
             return fallbackSize;
         }
@@ -3235,8 +3250,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Preconditions.checkArgument(fallbackSize > 0, "Split size must be positive: %s", fallbackSize);
         // Preserve the SDK iterable's lazy enumeration and close ownership while selecting per file.
         Iterable<FileScanTask> splits = FluentIterable.from(tasks)
-                .transformAndConcat(task -> task.split(selectFeSplitSize(task, fallbackSize, coarseSize)));
+                .transformAndConcat(task -> {
+                    // Iceberg's offset-aware splitter ignores targetSize and emits every stored
+                    // offset. Keep such Avro files whole rather than rewalking their prefix per block.
+                    if (hasExcessAvroOffsets(task.file())) {
+                        return Collections.singletonList(task);
+                    }
+                    return task.split(selectFeSplitSize(task, fallbackSize, coarseSize));
+                });
         return CloseableIterable.combine(splits, tasks);
+    }
+
+    private static boolean hasExcessAvroOffsets(ContentFile<?> file) {
+        // Both SDK splitters ignore target size when stored offsets are present.
+        return file.format() == FileFormat.AVRO && file.splitOffsets() != null
+                && file.splitOffsets().size() > AvroFileSplitSize.MAX_SPLITS;
     }
 
     private SplitPlan splitFiles(TableScan scan, ConnectorSession session, long coarseSplitSize) {
@@ -3877,7 +3905,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (sessionBool(session, FORCE_JNI_SCANNER, false)) {
             throw new DorisConnectorException(
-                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                    "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC/Avro reader; "
                             + "actual reader is JNI");
         }
     }

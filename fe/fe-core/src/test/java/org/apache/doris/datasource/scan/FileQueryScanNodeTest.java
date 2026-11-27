@@ -32,7 +32,10 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
@@ -43,8 +46,12 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,6 +129,102 @@ public class FileQueryScanNodeTest {
         }
     }
 
+    @Test
+    public void formatPropertiesSurviveRepeatedStoragePopulation() throws Exception {
+        Method method = FileQueryScanNode.class.getDeclaredMethod("setLocationPropertiesIfNecessary",
+                Backend.class, TFileType.class, Map.class);
+        method.setAccessible(true);
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        Map<String, String> storageProperties = Map.of("fs.defaultFS", "hdfs://namenode");
+        for (TFileType storage : Arrays.asList(TFileType.FILE_HDFS, TFileType.FILE_S3,
+                TFileType.FILE_LOCAL, TFileType.FILE_BROKER)) {
+            TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+            node.params = new TFileScanRangeParams();
+            node.params.setBrokerAddresses(List.of(new TNetworkAddress("broker", 8000)));
+            method.invoke(node, null, storage, storageProperties);
+            node.params.setProperties(new HashMap<>(node.params.isSetProperties()
+                    ? node.params.getProperties() : Map.of()));
+            node.params.putToProperties("avro.schema.literal", literal);
+            method.invoke(node, null, storage, storageProperties);
+            TFileScanRangeParams decoded = new TFileScanRangeParams();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(node.params));
+            Assertions.assertEquals(literal, decoded.getProperties().get("avro.schema.literal"));
+            if (storage == TFileType.FILE_HDFS || storage == TFileType.FILE_BROKER) {
+                Assertions.assertTrue(decoded.getHdfsParams().getHdfsConf().stream()
+                        .noneMatch(conf -> "avro.schema.literal".equals(conf.getKey())));
+            } else {
+                Assertions.assertEquals("hdfs://namenode", decoded.getProperties().get("fs.defaultFS"));
+            }
+        }
+    }
+
+    @Test
+    public void avroStoragePropertiesAreReadyBeforeSplitProduction() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setEnableFileCache(false);
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(sv);
+        Mockito.when(context.getExecTimeoutS()).thenReturn(60);
+        Mockito.doCallRealMethod().when(context).setThreadLocalInfo();
+        context.setThreadLocalInfo();
+        try {
+            for (boolean batch : List.of(false, true)) {
+                Map<String, String> storage = new HashMap<>(Map.of("storage.setting", "value"));
+                boolean[] entered = {false};
+                TestFileQueryScanNode node = new TestFileQueryScanNode(sv) {
+                    @Override
+                    protected TFileFormatType getFileFormatType() {
+                        return TFileFormatType.FORMAT_AVRO;
+                    }
+
+                    @Override
+                    protected Map<String, String> getLocationProperties() {
+                        return storage;
+                    }
+
+                    @Override
+                    public boolean isBatchMode() {
+                        return batch;
+                    }
+
+                    private void inspectBeforeProduction() {
+                        entered[0] = true;
+                        Assertions.assertNotNull(params.getProperties());
+                        Assertions.assertEquals("value", params.getProperties().get("storage.setting"));
+                        Assertions.assertNotSame(storage, params.getProperties());
+                    }
+
+                    @Override
+                    public List<Split> getSplits(int numBackends) {
+                        inspectBeforeProduction();
+                        return List.of();
+                    }
+
+                    @Override
+                    public void startSplit(int numBackends) throws UserException {
+                        inspectBeforeProduction();
+                        throw new UserException("stop after checking producer initialization");
+                    }
+                };
+                node.params = new TFileScanRangeParams();
+                if (batch) {
+                    UserException stopped = Assertions.assertThrows(UserException.class, node::createScanRangeLocations);
+                    Assertions.assertTrue(stopped.getMessage().contains("stop after checking producer initialization"));
+                } else {
+                    node.createScanRangeLocations();
+                }
+                Assertions.assertTrue(entered[0]);
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @BeforeEach
     public void setUp() {
         table = Mockito.mock(TableIf.class);
@@ -172,6 +275,39 @@ public class FileQueryScanNodeTest {
 
         Assertions.assertEquals(512 * MB,
                 node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_ORC, true));
+    }
+
+    @Test
+    public void avroUsesFineFeByteRangesWithoutAdvertisingBeRefinement() {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSizeOnFe(512 * MB);
+        sv.setFileSplitSizeOnBe(96 * MB);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+        Assertions.assertEquals(96 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+        TFileRangeDesc range = new TFileRangeDesc();
+        range.setFormatType(TFileFormatType.FORMAT_AVRO);
+        FileQueryScanNode.setTargetSplitSize(range, sv);
+        Assertions.assertFalse(range.isSetTargetSplitSize());
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, false));
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+        sv.maxFileScannersConcurrency = 16;
+        for (long value : new long[] {0, -1}) {
+            sv.setFileSplitSizeOnBe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+            sv.setFileSplitSizeOnBe(96 * MB);
+            sv.setFileSplitSizeOnFe(value);
+            Assertions.assertEquals(16 * MB,
+                    node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
+            sv.setFileSplitSizeOnFe(512 * MB);
+        }
+        node.setLimit(100);
+        Assertions.assertEquals(16 * MB,
+                node.selectFeSplitSizeForBe(16 * MB, TFileFormatType.FORMAT_AVRO, true));
     }
 
     @Test

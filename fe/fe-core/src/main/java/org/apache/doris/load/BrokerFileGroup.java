@@ -38,8 +38,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
@@ -250,7 +248,11 @@ public class BrokerFileGroup {
     public void initDeferredFileFormatPropertiesIfNecessary(List<TBrokerFileStatus> fileStatuses) {
         if (fileFormatProperties instanceof DeferredFileFormatProperties) {
             Preconditions.checkState(fileStatuses != null && !fileStatuses.isEmpty());
-            TBrokerFileStatus fileStatus = fileStatuses.get(0);
+            // Empty markers such as _SUCCESS are discarded later and must not choose the
+            // reader for the non-empty data files. Preserve the original all-empty behavior.
+            TBrokerFileStatus fileStatus = fileStatuses.stream()
+                    .filter(status -> !status.isIsDir() && status.getSize() > 0)
+                    .findFirst().orElse(fileStatuses.get(0));
             TFileFormatType formatType = Util.getFileFormatTypeFromPath(fileStatus.path);
             ((DeferredFileFormatProperties) fileFormatProperties).deferInit(formatType);
         }
@@ -258,8 +260,11 @@ public class BrokerFileGroup {
 
     public boolean isBinaryFileFormat() {
         // Must call initDeferredFileFormatPropertiesIfNecessary before
-        return fileFormatProperties instanceof ParquetFileFormatProperties
-                || fileFormatProperties instanceof OrcFileFormatProperties;
+        // Deferred properties retain their wrapper class after inferring the actual file format.
+        TFileFormatType formatType = fileFormatProperties.getFileFormatType();
+        return formatType == TFileFormatType.FORMAT_PARQUET
+                || formatType == TFileFormatType.FORMAT_ORC
+                || formatType == TFileFormatType.FORMAT_AVRO;
     }
 
     public FileFormatProperties getFileFormatProperties() {

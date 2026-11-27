@@ -33,6 +33,7 @@ import org.apache.doris.datasource.scan.TableFormatType;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.split.FileSplitter;
+import org.apache.doris.foundation.format.AvroFileSplitSize;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -151,12 +152,14 @@ public class TVFScanNode extends FileQueryScanNode {
         }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
+        boolean avro = getFileFormatType() == TFileFormatType.FORMAT_AVRO;
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
                 splits.addAll(fileSplitter.splitFile(
                         LocationPath.of(fileStatus.getPath()),
-                        targetFileSplitSize,
+                        avro ? AvroFileSplitSize.bounded(fileStatus.getSize(), targetFileSplitSize)
+                                : targetFileSplitSize,
                         null,
                         fileStatus.getSize(),
                         fileStatus.getModificationTime(),
@@ -188,8 +191,12 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
-        if (sessionVariable.getFileSplitSize() > 0) {
-            return selectFeSplitSizeForBe(sessionVariable.getFileSplitSize(), getFileFormatType(),
+        TFileFormatType format = getFileFormatType();
+        long explicitSize = sessionVariable.getFileSplitSize();
+        // Avro's final target creates FE descriptors and can be smaller than the explicit fallback.
+        // Keep it behind the FE split-count cap even when a legacy file_split_size was supplied.
+        if (explicitSize > 0 && format != TFileFormatType.FORMAT_AVRO) {
+            return selectFeSplitSizeForBe(explicitSize, format,
                     !isTableLevelCountStarPushdown());
         }
         long result = sessionVariable.getMaxInitialSplitSize();
@@ -202,8 +209,12 @@ public class TVFScanNode extends FileQueryScanNode {
                 exceedInitialThreshold = true;
             }
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = selectFeSplitSizeForBe(result, getFileFormatType(), !isTableLevelCountStarPushdown());
+        if (explicitSize > 0) {
+            result = explicitSize;
+        } else if (exceedInitialThreshold) {
+            result = sessionVariable.getMaxSplitSize();
+        }
+        result = selectFeSplitSizeForBe(result, format, !isTableLevelCountStarPushdown());
         // Coarse sizing must not replace the independent non-batch FE memory bound. For example,
         // max_file_split_num=1 still keeps a 2 GiB file whole with the 512 MiB coarse target.
         return applyMaxFileSplitNumLimit(result, totalFileSize);

@@ -24,6 +24,7 @@ import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionBatchStats;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
@@ -39,11 +40,16 @@ import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
+import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -101,6 +107,200 @@ public class HiveScanBatchModeTest {
     private static final String LZO_TEXT_INPUT_FORMAT = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
     private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+
+    @Test
+    public void avroFileProducesAdjacentSplitRanges() throws Exception {
+        HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/data.avro", 25, 1)));
+        HiveTableHandle handle = parquetHandle(Collections.emptyList()).toBuilder()
+                .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                .build();
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "10"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        for (List<ConnectorScanRange> ranges : Arrays.asList(provider.planScan(session, request), streaming)) {
+            Assertions.assertEquals(2, ranges.size());
+            for (int i = 0; i < ranges.size(); ++i) {
+                HiveScanRange range = (HiveScanRange) ranges.get(i);
+                Assertions.assertEquals(i * 13L, range.getStart());
+                Assertions.assertEquals(Math.min(13L, 25L - i * 13L), range.getLength());
+                Assertions.assertEquals("avro", range.getFileFormat());
+            }
+        }
+    }
+
+    @Test
+    public void avroReaderSchemaUsesEffectiveTableProperty() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        HiveTableHandle handle = parquetHandle(Collections.emptyList()).toBuilder()
+                .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                .sdParameters(Map.of("avro.schema.literal", "invalid"))
+                .tableParameters(Map.of("avro.schema.literal", literal))
+                .build();
+        String key = "hive.avro.schema.literal";
+        Assertions.assertEquals(literal, provider.getScanNodeProperties(new FakeSession(), handle,
+                Collections.emptyList(), Optional.empty()).get(key));
+        HiveTableHandle disabled = handle.toBuilder()
+                .tableParameters(Map.of("avro.schema.literal", "none")).build();
+        Assertions.assertFalse(provider.getScanNodeProperties(new FakeSession(), disabled,
+                Collections.emptyList(), Optional.empty()).containsKey(key));
+        HiveTableHandle serdeOnly = handle.toBuilder().tableParameters(Collections.emptyMap())
+                .sdParameters(Map.of("avro.schema.literal", literal)).build();
+        Assertions.assertEquals(literal, provider.getScanNodeProperties(new FakeSession(), serdeOnly,
+                Collections.emptyList(), Optional.empty()).get(key));
+    }
+
+    @Test
+    public void avroReaderSchemaDoesNotEnterFilesystemProperties() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        HiveTableHandle handle = parquetHandle(Collections.emptyList()).toBuilder()
+                .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                .tableParameters(Map.of("avro.schema.literal", literal)).build();
+        Map<String, String> properties = provider.getScanNodeProperties(new FakeSession(), handle,
+                Collections.emptyList(), Optional.empty());
+        Assertions.assertFalse(properties.containsKey(ScanNodePropertyKeys.LOCATION_PREFIX + "avro.schema.literal"));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        params.setProperties(Map.of("storage.setting", "value"));
+        provider.populateScanLevelParams(params, properties);
+        Assertions.assertEquals(literal, params.getProperties().get("avro.schema.literal"));
+        Assertions.assertEquals("value", params.getProperties().get("storage.setting"));
+    }
+
+    @Test
+    public void avroPartitionFormatMismatchIsRejectedBeforeEveryListingPath() throws Exception {
+        Map<String, String> formats = Map.of(PARQUET_INPUT_FORMAT, PARQUET_SERDE,
+                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat", "org.apache.hadoop.hive.ql.io.orc.OrcSerde");
+        for (Map.Entry<String, String> format : formats.entrySet()) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    format.getKey(), null, format.getValue(), Map.of());
+            CountingLister lister = new CountingLister();
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+            HiveTableHandle handle = parquetHandle(List.of("p")).toBuilder()
+                    .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                    .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                    .prunedPartitions(List.of(partition)).prunedPartitionsByName(Map.of("p=one", partition)).build();
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(List.of("p=one")).build();
+            FakeSession session = new FakeSession();
+            DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScan(session, request));
+            Assertions.assertTrue(failure.getMessage().contains("partition storage format"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> provider.planScanForPartitionBatch(session, request, List.of("p=one")));
+            try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+            }
+            for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+                try (ConnectorSplitSource current = source) {
+                    Assertions.assertThrows(DorisConnectorException.class, current::hasNext);
+                }
+            }
+            Assertions.assertEquals(0, lister.totalCalls);
+        }
+    }
+
+    @Test
+    public void formattedPartitionReaderLiteralWorksThroughEveryPlanningPath() throws Exception {
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        String pretty = "{ \"fields\": [ ],\n \"name\": \"r\", \"type\": \"record\" }";
+        for (boolean serde : List.of(false, true)) {
+            HmsPartitionInfo partition = new HmsPartitionInfo(List.of("one"), "s3://bucket/p=one",
+                    "org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat",
+                    null, "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
+                    serde ? Map.of() : Map.of("avro.schema.literal", pretty),
+                    serde ? Map.of("avro.schema.literal", pretty) : Map.of());
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+            HiveTableHandle handle = parquetHandle(List.of("p")).toBuilder()
+                    .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                    .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                    .tableParameters(Map.of("avro.schema.literal", literal))
+                    .prunedPartitions(List.of(partition)).prunedPartitionsByName(Map.of("p=one", partition)).build();
+            FakeSession session = new FakeSession();
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(List.of("p=one")).build();
+            List<List<ConnectorScanRange>> plans = new ArrayList<>();
+            plans.add(provider.planScan(session, request));
+            plans.add(provider.planScanForPartitionBatch(session, request, List.of("p=one")));
+            try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                List<ConnectorScanRange> ranges = new ArrayList<>();
+                while (source.hasNext()) {
+                    ranges.add(source.next());
+                }
+                plans.add(ranges);
+            }
+            List<ConnectorScanRange> cooperative = new ArrayList<>();
+            for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+                try (ConnectorSplitSource current = source) {
+                    while (current.hasNext()) {
+                        cooperative.add(current.next());
+                    }
+                }
+            }
+            plans.add(cooperative);
+            for (List<ConnectorScanRange> plan : plans) {
+                Assertions.assertEquals(1, plan.size());
+                Assertions.assertEquals("avro", ((HiveScanRange) plan.get(0)).getFileFormat());
+            }
+            Assertions.assertEquals(literal, provider.getScanNodeProperties(session, handle,
+                    Collections.emptyList(), Optional.empty()).get("hive.avro.schema.literal"));
+        }
+    }
+
+    @Test
+    public void partitionSchemaOverrideIsRejectedByEveryPlanningPath() throws Exception {
+        String literal = "{\"type\":\"record\",\"name\":\"r\",\"fields\":["
+                + "{\"name\":\"added\",\"type\":\"int\",\"default\":7}]}";
+        String tableLiteral = "{\"type\":\"record\",\"name\":\"r\",\"fields\":[]}";
+        for (Map<String, String> override : List.of(Map.of("avro.schema.literal", literal),
+                Map.of("avro.schema.url", "https://example.org/reader.avsc"), Map.of("avro.schema.url", "none"))) {
+            for (boolean serdeOverride : List.of(false, true)) {
+                Partition raw = new Partition();
+                raw.setValues(List.of("one"));
+                StorageDescriptor sd = new StorageDescriptor();
+                sd.setLocation("s3://bucket/p=one");
+                sd.setInputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat");
+                sd.setSerdeInfo(new SerDeInfo("avro", "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
+                        serdeOverride ? override : Map.of()));
+                raw.setParameters(serdeOverride ? Map.of() : override);
+                raw.setSd(sd);
+                Method conversion = ThriftHmsClient.class.getDeclaredMethod("convertPartition", Partition.class);
+                conversion.setAccessible(true);
+                HmsPartitionInfo partition = (HmsPartitionInfo) conversion.invoke(null, raw);
+                CountingLister lister = new CountingLister();
+                HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+                HiveTableHandle handle = parquetHandle(List.of("p")).toBuilder()
+                        .inputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                        .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                        .tableParameters(Map.of("avro.schema.literal", tableLiteral))
+                        .prunedPartitions(List.of(partition)).prunedPartitionsByName(Map.of("p=one", partition)).build();
+                ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .requiredPartitions(List.of("p=one")).build();
+                FakeSession session = new FakeSession();
+                Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(session, request));
+                Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScanForPartitionBatch(
+                        session, request, List.of("p=one")));
+                try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                    Assertions.assertThrows(DorisConnectorException.class, source::hasNext);
+                }
+                for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+                    try (ConnectorSplitSource current = source) {
+                        Assertions.assertThrows(DorisConnectorException.class, current::hasNext);
+                    }
+                }
+                Assertions.assertEquals(0, lister.totalCalls);
+            }
+        }
+    }
 
     @Test
     public void statementReuseSeparatesScanLocalCoarseSizes() {

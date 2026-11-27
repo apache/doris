@@ -290,7 +290,13 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
         if [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
             echo "${TP_SOURCE_DIR}/${!NAME}"
             echo "${TP_SOURCE_DIR}/${!SOURCE}"
-            if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
+            tar_members=()
+            if [[ "${TP_ARCH}" == 'AVRO' ]]; then
+                # BSD tar mistakes Hadoop CRC sidecars in Avro's Java fixtures for macOS metadata.
+                # Only the C++ source and release notices are needed for the native dependency.
+                tar_members=("${!SOURCE}/lang/c++" "${!SOURCE}/LICENSE.txt" "${!SOURCE}/NOTICE.txt")
+            fi
+            if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/" "${tar_members[@]}"; then
                 echo "Failed to untar ${!NAME}"
                 exit 1
             fi

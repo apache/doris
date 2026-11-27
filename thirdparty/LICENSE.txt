@@ -79,3 +79,10 @@ You can also enable the MySQL support by adding env variable:
 
 Disable MySQL support with disable the feature of visiting a MySQL table as an external table in Doris.
 But you can visit MySQL external table via ODBC.
+
+============================================================================================
+Apache Avro C++ 1.12.1
+source: https://avro.apache.org/
+
+Apache Avro C++ is licensed under the Apache License, Version 2.0.
+Doris builds the C++ reader with its existing codec libraries and adapts its build and fmt headers.

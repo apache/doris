@@ -618,6 +618,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             columnLowerNames.add(colLowerName);
             columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
+        if (columns.isEmpty() && fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_AVRO) {
+            // Zero-field records still have rows; a nullable missing column carries COUNT(*) batches.
+            columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+        }
     }
 
     private PFetchTableSchemaRequest getFetchTableStructureRequest(Iterator<TBrokerFileStatus> files)

@@ -17,17 +17,172 @@
 
 #include "format_v2/table/hive_reader.h"
 
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <algorithm>
 #include <cctype>
 #include <string_view>
 
 #include "common/consts.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 
 namespace doris::format::hive {
 namespace {
+
+constexpr size_t MAX_HIVE_AVRO_SCHEMA_BYTES = 1024 * 1024;
+
+struct SchemaSizeStream {
+    using Ch = char;
+    size_t size = 0;
+    void Put(char) {
+        if (size <= MAX_HIVE_AVRO_SCHEMA_BYTES) {
+            ++size;
+        }
+    }
+    void Flush() {}
+};
+
+const char* hive_avro_primitive(PrimitiveType type) {
+    switch (type) {
+    case TYPE_BOOLEAN:
+        return "boolean";
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+        return "int";
+    case TYPE_BIGINT:
+        return "long";
+    case TYPE_FLOAT:
+        return "float";
+    case TYPE_DOUBLE:
+        return "double";
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+        return "string";
+    case TYPE_VARBINARY:
+        return "bytes";
+    default:
+        return nullptr;
+    }
+}
+
+template <typename Writer>
+Status hive_avro_type(const DataTypePtr& input, Writer* output, size_t* record_id,
+                      size_t depth = 0);
+
+template <typename Writer>
+Status hive_avro_record_type(const DataTypeStruct& structure, Writer* output, size_t* record_id,
+                             size_t depth) {
+    output->StartObject();
+    output->Key("type");
+    output->String("record");
+    output->Key("name");
+    output->String(("hive_record_" + std::to_string((*record_id)++)).c_str());
+    output->Key("fields");
+    output->StartArray();
+    for (size_t i = 0; i < structure.get_elements().size(); ++i) {
+        output->StartObject();
+        output->Key("name");
+        output->String(structure.get_element_names()[i].c_str());
+        output->Key("type");
+        RETURN_IF_ERROR(hive_avro_type(structure.get_elements()[i], output, record_id, depth + 1));
+        output->Key("default");
+        output->Null();
+        output->EndObject();
+    }
+    output->EndArray();
+    output->EndObject();
+    return Status::OK();
+}
+
+template <typename Writer>
+Status hive_avro_type(const DataTypePtr& input, Writer* output, size_t* record_id, size_t depth) {
+    if (depth >= 64) {
+        return Status::NotSupported("Hive Avro table type nesting is unsupported");
+    }
+    const auto type = remove_nullable(input);
+    output->StartArray();
+    output->String("null");
+    const auto primitive = type->get_primitive_type();
+    auto logical = [&](const char* physical, const char* name) {
+        output->StartObject();
+        output->Key("type");
+        output->String(physical);
+        output->Key("logicalType");
+        output->String(name);
+    };
+    if (const auto* name = hive_avro_primitive(primitive)) {
+        output->String(name);
+        output->EndArray();
+        return Status::OK();
+    }
+    switch (primitive) {
+    case TYPE_DATE:
+    case TYPE_DATEV2:
+        logical("int", "date");
+        output->EndObject();
+        break;
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+        // Hive's implicit Avro schema and deserializer interpret timestamp longs as millis.
+        logical("long", "timestamp-millis");
+        output->EndObject();
+        break;
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
+        logical("bytes", "decimal");
+        output->Key("precision");
+        output->Uint(type->get_precision());
+        output->Key("scale");
+        output->Uint(type->get_scale());
+        output->EndObject();
+        break;
+    case TYPE_ARRAY:
+        output->StartObject();
+        output->Key("type");
+        output->String("array");
+        output->Key("items");
+        RETURN_IF_ERROR(hive_avro_type(assert_cast<const DataTypeArray&>(*type).get_nested_type(),
+                                       output, record_id, depth + 1));
+        output->EndObject();
+        break;
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        const auto key = remove_nullable(map.get_key_type())->get_primitive_type();
+        if (key != TYPE_STRING && key != TYPE_VARCHAR && key != TYPE_CHAR) {
+            return Status::NotSupported("Hive Avro maps require string keys");
+        }
+        output->StartObject();
+        output->Key("type");
+        output->String("map");
+        output->Key("values");
+        RETURN_IF_ERROR(hive_avro_type(map.get_value_type(), output, record_id, depth + 1));
+        output->EndObject();
+        break;
+    }
+    case TYPE_STRUCT:
+        RETURN_IF_ERROR(hive_avro_record_type(assert_cast<const DataTypeStruct&>(*type), output,
+                                              record_id, depth));
+        break;
+    default:
+        return Status::NotSupported("Unsupported Hive Avro table type {}", type->get_name());
+    }
+    output->EndArray();
+    return Status::OK();
+}
 
 TFileFormatType::type format_type_from_context(const format::ProjectedColumnBuildContext& context) {
     DORIS_CHECK(context.scan_params != nullptr);
@@ -84,12 +239,50 @@ bool is_hive1_orc_file_schema(const std::vector<format::ColumnDefinition>& file_
     return has_data_column;
 }
 
-bool is_file_column_for_hive1_position_mapping(const format::ColumnDefinition& column) {
+bool is_hive_data_column(const format::ColumnDefinition& column) {
     if (column.column_type != format::ColumnType::DATA_COLUMN || column.is_partition_key) {
         return false;
     }
     return !column.name.starts_with(BeConsts::GLOBAL_ROWID_COL) &&
            column.name != BeConsts::ICEBERG_ROWID_COL;
+}
+
+template <typename Stream>
+Status write_hive_avro_schema(const std::vector<ColumnDefinition>& columns, Stream* stream) {
+    rapidjson::Writer<Stream> output(*stream);
+    output.StartObject();
+    output.Key("type");
+    output.String("record");
+    output.Key("name");
+    output.String("hive_table");
+    output.Key("fields");
+    output.StartArray();
+    size_t record_id = 0;
+    for (const auto& column : columns) {
+        if (!is_hive_data_column(column)) {
+            continue;
+        }
+        output.StartObject();
+        output.Key("name");
+        output.String(column.name.c_str());
+        output.Key("type");
+        RETURN_IF_ERROR(hive_avro_type(column.type, &output, &record_id));
+        output.Key("default");
+        output.Null();
+        output.EndObject();
+    }
+    output.EndArray();
+    output.EndObject();
+    return Status::OK();
+}
+
+Status reserve_hive_schema_memory(size_t bytes, ReservedMemoryToken* token) {
+    auto* manager = thread_context()->thread_mem_tracker_mgr.get();
+    auto previous = manager->take_reserved_memory();
+    Defer restore([&] { manager->adopt_reserved_memory(std::move(previous)); });
+    RETURN_IF_ERROR(manager->try_reserve(static_cast<int64_t>(bytes)));
+    *token = manager->take_reserved_memory();
+    return Status::OK();
 }
 
 void add_name_mapping(std::vector<std::string>* name_mapping, const std::string& alias) {
@@ -132,6 +325,9 @@ format::TableColumnMappingMode HiveReader::mapping_mode() const {
         use_column_names = query_options.hive_orc_use_column_names;
     } else if (_format == format::FileFormat::PARQUET) {
         use_column_names = query_options.hive_parquet_use_column_names;
+    } else if (_format == format::FileFormat::AVRO) {
+        // Avro carries field names even when Hive's ORC/Parquet positional switches are disabled.
+        use_column_names = true;
     } else if (_format == format::FileFormat::CSV || _format == format::FileFormat::TEXT ||
                _format == format::FileFormat::JSON) {
         // Hive CSV/TEXT/JSON readers synthesize a file-local schema from FE-provided file slots
@@ -196,6 +392,39 @@ Status HiveReader::validate_projected_columns(
 
 Status HiveReader::annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
     DORIS_CHECK(file_schema != nullptr);
+    if (_format == format::FileFormat::AVRO) {
+        // HMS defines an implicit Avro reader even without a literal. Validate before the
+        // mapper localizes filters or performs SQL casts that differ from Avro resolution.
+        // A missing table field can make this declaration much larger than the writer schema.
+        // Count escaped JSON without allocating its buffer, then admit buffer growth and copies.
+        SchemaSizeStream size;
+        RETURN_IF_ERROR(write_hive_avro_schema(_projected_columns, &size));
+        if (size.size > MAX_HIVE_AVRO_SCHEMA_BYTES) {
+            return Status::NotSupported("Hive Avro projected schema exceeds supported size");
+        }
+        ReservedMemoryToken schema_memory;
+        RETURN_IF_ERROR(reserve_hive_schema_memory(size.size * 4 + 64 * 1024, &schema_memory));
+        rapidjson::StringBuffer buffer;
+        RETURN_IF_ERROR(write_hive_avro_schema(_projected_columns, &buffer));
+        const std::string implicit_schema(buffer.GetString(), buffer.GetSize());
+        // HDFS transports location properties in hdfs_conf; object stores use properties.
+        if (_scan_params->__isset.properties) {
+            const auto literal = _scan_params->properties.find("avro.schema.literal");
+            if (literal != _scan_params->properties.end()) {
+                return _data_reader.reader->validate_read_schema(literal->second, true,
+                                                                 implicit_schema);
+            }
+        }
+        if (_scan_params->__isset.hdfs_params) {
+            for (const auto& conf : _scan_params->hdfs_params.hdfs_conf) {
+                if (conf.key == "avro.schema.literal") {
+                    return _data_reader.reader->validate_read_schema(conf.value, true,
+                                                                     implicit_schema);
+                }
+            }
+        }
+        return _data_reader.reader->validate_read_schema(implicit_schema, false);
+    }
     if (_format != format::FileFormat::ORC || _runtime_state == nullptr ||
         !_runtime_state->query_options().hive_orc_use_column_names ||
         !is_hive1_orc_file_schema(*file_schema)) {
@@ -210,7 +439,7 @@ Status HiveReader::annotate_file_schema(std::vector<format::ColumnDefinition>* f
 
     size_t next_file_column_idx = 0;
     for (const auto& table_column : _projected_columns) {
-        if (!is_file_column_for_hive1_position_mapping(table_column)) {
+        if (!is_hive_data_column(table_column)) {
             continue;
         }
         if (next_file_column_idx >= _scan_params->column_idxs.size()) {

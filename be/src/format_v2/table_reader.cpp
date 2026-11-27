@@ -47,6 +47,7 @@
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format/table/paimon_deletion_vector.h"
+#include "format_v2/avro/avro_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
@@ -183,6 +184,8 @@ std::string join_table_reader_debug_strings(const std::vector<T>& values, Format
 
 std::string file_format_to_string(FileFormat format) {
     switch (format) {
+    case FileFormat::AVRO:
+        return "AVRO";
     case FileFormat::PARQUET:
         return "PARQUET";
     case FileFormat::ORC:
@@ -1563,6 +1566,13 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
                 _current_task->format_split_id_end);
+        return Status::OK();
+    }
+    if (_format == FileFormat::AVRO) {
+        *reader = std::make_unique<format::avro::AvroReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, _global_rowid_context,
+                use_hive_avro_semantics(), use_iceberg_avro_semantics());
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {

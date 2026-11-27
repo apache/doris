@@ -124,7 +124,7 @@ enum TFileFormatType {
     FORMAT_JSON = 9,
     FORMAT_PROTO = 10,
     FORMAT_JNI = 11,
-    FORMAT_AVRO = 12, // Deprecated: reading this format is no longer supported.
+    FORMAT_AVRO = 12,
     FORMAT_CSV_LZ4BLOCK = 13,
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,

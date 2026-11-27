@@ -642,6 +642,12 @@ PAIMON_RUST_NAME="paimon-rust-v0.5.0.tar.gz"
 PAIMON_RUST_SOURCE="paimon-rust-0.5.0"
 PAIMON_RUST_MD5SUM="b9288421921d2e018d6c7b1b67285da0"
 
+# Apache Avro C++ (OCF and binary decoder for native Avro reads)
+AVRO_DOWNLOAD="https://archive.apache.org/dist/avro/avro-1.12.1/avro-src-1.12.1.tar.gz"
+AVRO_NAME="avro-src-1.12.1.tar.gz"
+AVRO_SOURCE="avro-src-1.12.1"
+AVRO_MD5SUM="00f8dd5324cdf512f5d262925bd0520b"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'MECAB_IPADIC'
@@ -654,6 +660,7 @@ export TP_ARCHIVES=(
     'GTEST'
     'RAPIDJSON'
     'SNAPPY'
+    'AVRO'
     'GPERFTOOLS'
     'ZLIB'
     'CRC32C'

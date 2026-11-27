@@ -105,6 +105,16 @@ protected:
     RuntimeProfile profile;
 };
 
+TEST_F(HiveV2ReaderTest, AvroUsesEmbeddedFieldNamesIndependentlyOfPositionalOptions) {
+    query_options.hive_orc_use_column_names = false;
+    query_options.hive_parquet_use_column_names = false;
+    state.set_query_options(query_options);
+    TFileScanRangeParams params;
+    HiveReader reader;
+    ASSERT_TRUE(init_hive_reader(FileFormat::AVRO, &params, &state, &profile, &reader).ok());
+    EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_NAME);
+}
+
 // Scenario: Hive tables using OpenCSVSerde are planned as table_format=hive with CSV file format.
 // HiveReader must allow that file format so TableReader can create the v2 CsvReader.
 TEST_F(HiveV2ReaderTest, InitSupportsCsvFileFormat) {

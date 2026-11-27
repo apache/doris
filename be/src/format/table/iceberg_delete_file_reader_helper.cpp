@@ -53,21 +53,37 @@ constexpr const char* ICEBERG_FILE_PATH = "file_path";
 constexpr const char* ICEBERG_ROW_POS = "pos";
 constexpr size_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
 
-Status validate_position_delete_file_format(const TIcebergDeleteFileDesc& delete_file,
-                                            TFileFormatType::type* file_format) {
+// The unprojected deleted row still belongs to Iceberg's writer schema. Civil nanos must
+// survive schema admission even when the visitor reads only file_path and pos.
+class IcebergPositionDeleteTableReader final : public format::TableReader {
+protected:
+    bool use_iceberg_avro_semantics() const override { return true; }
+};
+
+Status get_position_delete_file_format(const TIcebergDeleteFileDesc& delete_file,
+                                       format::FileFormat* file_format) {
     if (file_format == nullptr) {
         return Status::InvalidArgument("position delete file format output is null");
     }
     if (!delete_file.__isset.file_format) {
         return Status::InternalError("Iceberg position delete file is missing file format");
     }
-    if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET &&
-        delete_file.file_format != TFileFormatType::FORMAT_ORC) {
+    // A v3 DELETE/MERGE may rewrite old Avro position deletes into Puffin. The input format
+    // remains Avro even when the new deletion vector uses a different output format.
+    switch (delete_file.file_format) {
+    case TFileFormatType::FORMAT_PARQUET:
+        *file_format = format::FileFormat::PARQUET;
+        return Status::OK();
+    case TFileFormatType::FORMAT_ORC:
+        *file_format = format::FileFormat::ORC;
+        return Status::OK();
+    case TFileFormatType::FORMAT_AVRO:
+        *file_format = format::FileFormat::AVRO;
+        return Status::OK();
+    default:
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
-    *file_format = delete_file.file_format;
-    return Status::OK();
 }
 
 Status visit_position_delete_block(const Block& block, size_t read_rows,
@@ -237,14 +253,10 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
         delete_range.__set_fs_name(*options.fs_name);
     }
 
-    TFileFormatType::type file_format;
-    RETURN_IF_ERROR(validate_position_delete_file_format(delete_file, &file_format));
-
-    const auto physical_format = file_format == TFileFormatType::FORMAT_PARQUET
-                                         ? format::FileFormat::PARQUET
-                                         : format::FileFormat::ORC;
+    format::FileFormat physical_format;
+    RETURN_IF_ERROR(get_position_delete_file_format(delete_file, &physical_format));
     auto params = *options.scan_params;
-    params.__set_format_type(file_format);
+    params.__set_format_type(delete_file.file_format);
     // Delete files have their own schema and row numbering; data-file predicates and table
     // wrappers must not filter delete records before the visitor resolves their target files.
     std::vector<format::ColumnDefinition> columns(2);
@@ -255,7 +267,7 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
     columns[1].name = ICEBERG_ROW_POS;
     columns[1].type = make_nullable(std::make_shared<DataTypeInt64>());
     auto io_ctx = std::shared_ptr<io::IOContext>(options.io_ctx, [](io::IOContext*) {});
-    format::TableReader reader;
+    IcebergPositionDeleteTableReader reader;
     RETURN_IF_ERROR(reader.init({.projected_columns = columns,
                                  .conjuncts = {},
                                  .format = physical_format,

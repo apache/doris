@@ -27,6 +27,9 @@
 
 #include <algorithm>
 #include <array>
+#include <avro/Compiler.hh>
+#include <avro/DataFile.hh>
+#include <avro/Generic.hh>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -9378,4 +9381,394 @@ TEST(IcebergEncryptionTest, EncryptedAggregatesCannotUseTableLevelRowCounts) {
 #endif
 
 } // namespace
+TEST(IcebergV2ReaderTest, AvroEqualityDeletesPreserveInstantsAcrossDstFold) {
+    test::ScopedTempDirectory temp("iceberg_avro_dst");
+    const auto path = (temp.path() / "data.avro").string();
+    const auto delete_path = (temp.path() / "delete.avro").string();
+    const auto schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"data","fields":[
+      {"name":"event_time","type":{"type":"long","logicalType":"timestamp-micros"},"field-id":1},
+      {"name":"id","type":"int","field-id":2}]})");
+    constexpr int64_t first = 1'730'611'800'000'000L;
+    constexpr int64_t second = 1'730'615'400'000'000L;
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        auto& record = datum.value<::avro::GenericRecord>();
+        record.fieldAt(0).value<int64_t>() = first;
+        record.fieldAt(1).value<int32_t>() = 1;
+        writer.write(datum);
+        record.fieldAt(0).value<int64_t>() = second;
+        record.fieldAt(1).value<int32_t>() = 2;
+        writer.write(datum);
+        writer.close();
+    }
+    const auto delete_schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"del","fields":[
+      {"name":"event_time","type":{"type":"long","logicalType":"timestamp-micros"},"field-id":1}]})");
+    for (const auto tombstone : {first, second}) {
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(delete_path.c_str(), delete_schema);
+            ::avro::GenericDatum datum(delete_schema);
+            datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = tombstone;
+            writer.write(datum);
+            writer.close();
+        }
+        auto event =
+                external_schema_field("event_time", 1, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6));
+        event.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+        auto params = make_local_parquet_scan_params();
+        params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+        params.__set_enable_mapping_timestamp_tz(false);
+        params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+        params.__set_current_schema_id(100);
+        params.__set_history_schema_info(
+                {external_schema(100, {event, external_schema_field("id", 2)})});
+        const std::vector<ColumnDefinition> projected {
+                make_table_column(2, "id", std::make_shared<DataTypeInt32>())};
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("America/New_York");
+        RuntimeProfile profile("iceberg_avro_dst");
+        ShardedKVCache cache(1);
+        auto io_ctx = std::make_shared<io::IOContext>();
+        doris::format::iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, projected, &params, io_ctx, &state, &profile,
+                            FileFormat::AVRO);
+        auto split = build_split_options(path);
+        split.current_split_format = FileFormat::AVRO;
+        split.cache = &cache;
+        split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                path, {make_iceberg_equality_delete_file(delete_path, {1},
+                                                         TFileFormatType::FORMAT_AVRO)}));
+        const auto status = reader.prepare_split(split);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(read_iceberg_ids(&reader, projected),
+                  std::vector<int32_t>({tombstone == first ? 2 : 1}));
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(IcebergV2ReaderTest, AvroDataAndDeletesPreserveHiddenKeysAndAbsoluteRows) {
+    test::ScopedTempDirectory temp("iceberg_avro");
+    const auto path = (temp.path() / "data.avro").string();
+    const auto equality_path = (temp.path() / "eq.avro").string();
+    const auto position_path = (temp.path() / "pos.avro").string();
+    const auto data_schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"data","fields":[
+      {"name":"old_key","type":"long","field-id":2},
+      {"name":"old_id","type":"int","field-id":1}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), data_schema, 32,
+                                                            ::avro::DEFLATE_CODEC);
+        ::avro::GenericDatum datum(data_schema);
+        for (int32_t id = 1; id <= 5; ++id) {
+            auto& record = datum.value<::avro::GenericRecord>();
+            record.fieldAt(0).value<int64_t>() = id * 10;
+            record.fieldAt(1).value<int32_t>() = id;
+            writer.write(datum);
+            writer.flush();
+        }
+        writer.close();
+    }
+    {
+        const auto schema =
+                ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"eq","fields":[
+          {"name":"deleted_key","type":"long","field-id":2}]})");
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(equality_path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = 20;
+        writer.write(datum);
+        writer.close();
+    }
+    {
+        const auto schema =
+                ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"pos","fields":[
+          {"name":"file_path","type":"string","field-id":2147483546},
+          {"name":"pos","type":"long","field-id":2147483545}]})");
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(position_path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        auto& record = datum.value<::avro::GenericRecord>();
+        record.fieldAt(0).value<std::string>() = "another-data-file.avro";
+        record.fieldAt(1).value<int64_t>() = 0;
+        writer.write(datum);
+        record.fieldAt(0).value<std::string>() = path;
+        record.fieldAt(1).value<int64_t>() = 3;
+        writer.write(datum);
+        writer.close();
+    }
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("renamed_id", 1, {}, std::nullopt,
+                                        external_primitive_type(TPrimitiveType::INT)),
+                  external_schema_field("renamed_key", 2, {}, std::nullopt,
+                                        external_primitive_type(TPrimitiveType::BIGINT))})});
+    const std::vector<ColumnDefinition> projected = {
+            make_table_column(1, "renamed_id", std::make_shared<DataTypeInt32>())};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("iceberg_avro");
+    ShardedKVCache cache(1);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected, &scan_params, io_ctx, &state, &profile,
+                        FileFormat::AVRO);
+    auto split = build_split_options(path);
+    split.current_split_format = FileFormat::AVRO;
+    split.cache = &cache;
+    auto position_delete = make_iceberg_position_delete_file(position_path);
+    position_delete.__set_file_format(TFileFormatType::FORMAT_AVRO);
+    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            path,
+            {make_iceberg_equality_delete_file(equality_path, {2}, TFileFormatType::FORMAT_AVRO),
+             position_delete}));
+    const auto prepared = reader.prepare_split(split);
+    ASSERT_TRUE(prepared.ok()) << prepared;
+    EXPECT_EQ(read_iceberg_ids(&reader, projected), (std::vector<int32_t> {1, 3, 5}));
+    EXPECT_TRUE(reader.close().ok());
+    const std::vector<ColumnDefinition> count_columns {
+            make_table_column(2, "renamed_key", std::make_shared<DataTypeInt64>())};
+    doris::format::iceberg::IcebergTableReader count_reader;
+    ASSERT_TRUE(count_reader
+                        .init({.projected_columns = count_columns,
+                               .conjuncts = {},
+                               .format = FileFormat::AVRO,
+                               .scan_params = &scan_params,
+                               .io_ctx = io_ctx,
+                               .runtime_state = &state,
+                               .scanner_profile = &profile,
+                               .push_down_agg_type = TPushAggOp::type::COUNT,
+                               .push_down_count_columns = std::vector<GlobalIndex> {}})
+                        .ok());
+    ASSERT_TRUE(count_reader.prepare_split(split).ok());
+    Block count_block = build_table_block(count_columns);
+    bool eos = false;
+    size_t survivors = 0;
+    while (!eos) {
+        count_block.clear_column_data();
+        const auto status = count_reader.get_block(&count_block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        survivors += count_block.rows();
+    }
+    EXPECT_EQ(survivors, 3);
+    EXPECT_TRUE(count_reader.close().ok());
+}
+
+TEST(IcebergV2ReaderTest, AvroSchemaEvolutionPromotesRenamedFieldsAndFillsInitialDefaults) {
+    test::ScopedTempDirectory temp("iceberg_avro_evolution");
+    const auto path = (temp.path() / "old.avro").string();
+    const auto schema =
+            ::avro::compileJsonSchemaFromString(R"({"type":"record","name":"old","fields":[
+      {"name":"original","type":"int","field-id":1}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), schema);
+        ::avro::GenericDatum datum(schema);
+        datum.value<::avro::GenericRecord>().fieldAt(0).value<int32_t>() = 7;
+        writer.write(datum);
+        writer.close();
+    }
+    auto added = make_table_column(2, "added", std::make_shared<DataTypeString>());
+    added.initial_default_value = "initial";
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&added).ok());
+    const std::vector<ColumnDefinition> projected = {
+            added, make_table_column(1, "renamed", std::make_shared<DataTypeInt64>()),
+            make_synthesized_table_column(BeConsts::ICEBERG_ROW_POSITION_COL,
+                                          std::make_shared<DataTypeInt64>())};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("iceberg_avro_evolution");
+    auto params = make_local_parquet_scan_params();
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected, &params, std::make_shared<io::IOContext>(), &state,
+                        &profile, FileFormat::AVRO);
+    auto split = build_split_options(path);
+    split.current_split_format = FileFormat::AVRO;
+    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(path, {}));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(block.rows(), 1);
+    expect_string_column_values(*block.get_by_position(0).column, {"initial"});
+    expect_int64_column_values(*block.get_by_position(1).column, {7});
+    expect_int64_column_values(*block.get_by_position(2).column, {0});
+    EXPECT_TRUE(reader.close().ok());
+}
+
+namespace {
+
+std::string iceberg_timestamp_fixture(const std::string& name) {
+    return "./be/test/format_v2/avro/test_data/iceberg_timestamps/iceberg_" + name + ".avro";
+}
+
+void check_iceberg_civil_avro_timestamps(bool nanos) {
+    const std::vector<std::string> expected =
+            nanos ? std::vector<std::string> {"1970-01-01 00:00:00.000000000",
+                                              "1970-01-01 00:00:00.000000001",
+                                              "1969-12-31 23:59:59.999999999",
+                                              "1970-01-01 00:00:00.123456789",
+                                              "1969-12-31 23:59:59.876543211",
+                                              "2024-11-03 05:30:00.123456789",
+                                              "2024-11-03 06:30:00.654321987",
+                                              "NULL"}
+                  : std::vector<std::string> {
+                            "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000001",
+                            "1969-12-31 23:59:59.999999", "1970-01-01 00:00:00.123456",
+                            "1969-12-31 23:59:59.876544", "2024-11-03 05:30:00.123456",
+                            "2024-11-03 06:30:00.654321", "NULL"};
+    const DataTypePtr clock_type = nanos ? DataTypePtr(std::make_shared<DataTypeTimeStampNs>())
+                                         : std::make_shared<DataTypeDateTimeV2>(6);
+    auto clock = make_table_column(2, "clock", clock_type);
+    auto payload =
+            make_table_column(3, "payload",
+                              std::make_shared<DataTypeStruct>(
+                                      DataTypes {make_nullable(clock_type)}, Strings {"clock"}));
+    payload.children = {make_table_column(4, "clock", clock_type)};
+    const std::vector<ColumnDefinition> projected {
+            make_table_column(1, "id", std::make_shared<DataTypeInt32>()), clock, payload};
+    const auto path = iceberg_timestamp_fixture(nanos ? "civil_nanos" : "civil_micros");
+    ASSERT_TRUE(std::filesystem::exists(path));
+    for (const char* zone : {"Asia/Shanghai", "America/New_York"}) {
+        for (const bool mapping : {false, true}) {
+            SCOPED_TRACE(std::string(zone) + " mapping=" + std::to_string(mapping));
+            auto params = make_local_parquet_scan_params();
+            params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+            params.__set_enable_mapping_timestamp_tz(mapping);
+            params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            params.__set_current_schema_id(100);
+            const auto thrift_type = external_primitive_type(
+                    nanos ? TPrimitiveType::TIMESTAMP_NS : TPrimitiveType::DATETIMEV2, -1,
+                    nanos ? 9 : 6);
+            // FE deliberately leaves civil timestamp markers absent. Exercise that real contract.
+            params.__set_history_schema_info({external_schema(
+                    100, {external_schema_field("id", 1),
+                          external_schema_field("clock", 2, {}, std::nullopt, thrift_type),
+                          external_struct_schema_field(
+                                  "payload", 3,
+                                  {external_schema_field("clock", 4, {}, std::nullopt,
+                                                         thrift_type)})})});
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone(zone);
+            RuntimeProfile profile("iceberg_civil_avro");
+            ShardedKVCache cache(1);
+            auto io_ctx = std::make_shared<io::IOContext>();
+            doris::format::iceberg::IcebergTableReader reader;
+            init_iceberg_reader(&reader, projected, &params, io_ctx, &state, &profile,
+                                FileFormat::AVRO);
+            reader.set_batch_size(2);
+            auto split = build_split_options(path);
+            split.current_split_format = FileFormat::AVRO;
+            split.cache = &cache;
+            split.current_range.__set_table_format_params(
+                    make_iceberg_table_format_desc(path, {}, nanos ? 3 : 2));
+            const auto prepared = reader.prepare_split(split);
+            ASSERT_TRUE(prepared.ok()) << prepared;
+            std::vector<std::string> clocks, children;
+            std::vector<int32_t> ids;
+            bool eos = false;
+            while (!eos) {
+                Block block = build_table_block(projected);
+                const auto status = reader.get_block(&block, &eos);
+                ASSERT_TRUE(status.ok()) << status;
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    ids.push_back(
+                            assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0))
+                                    .get_element(row));
+                    clocks.push_back(clock.type->to_string(*block.get_by_position(1).column, row));
+                    const auto& parent =
+                            assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+                    if (parent.is_null_at(row)) {
+                        children.push_back("PARENT_NULL");
+                    } else {
+                        const auto& fields =
+                                assert_cast<const ColumnStruct&>(parent.get_nested_column());
+                        children.push_back(
+                                payload.children[0].type->to_string(fields.get_column(0), row));
+                    }
+                }
+            }
+            EXPECT_EQ(ids, (std::vector<int32_t> {1, 2, 3, 4, 5, 6, 7, 8}));
+            EXPECT_EQ(clocks, expected);
+            EXPECT_EQ(children, (std::vector<std::string> {expected[0], "PARENT_NULL", "NULL",
+                                                           expected[4], expected[3], expected[6],
+                                                           expected[5], "PARENT_NULL"}));
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+} // namespace
+
+TEST(IcebergV2ReaderTest, IcebergProducedAvroCivilMicrosPreserveWallClocks) {
+    check_iceberg_civil_avro_timestamps(false);
+}
+
+TEST(IcebergV2ReaderTest, IcebergProducedAvroCivilNanosPreserveWallClocks) {
+    check_iceberg_civil_avro_timestamps(true);
+}
+
+TEST(IcebergV2ReaderTest, IcebergProducedCivilAvroKeysMatchParquetEqualityDeletes) {
+    test::ScopedTempDirectory temp("iceberg_civil_delete");
+    const auto avro_path = iceberg_timestamp_fixture("civil_micros");
+    const auto parquet_path = (temp.path() / "clock.parquet").string();
+    write_iceberg_timestamp_equality_delete_parquet_file(parquet_path, 2, 0, "clock");
+    for (const bool mapping : {false, true}) {
+        for (const bool avro_data : {true, false}) {
+            SCOPED_TRACE("mapping=" + std::to_string(mapping) +
+                         " avro_data=" + std::to_string(avro_data));
+            auto params = make_local_parquet_scan_params();
+            params.__set_enable_mapping_timestamp_tz(mapping);
+            params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+            params.__set_current_schema_id(100);
+            params.__set_history_schema_info({external_schema(
+                    100, {external_schema_field("id", 1),
+                          external_schema_field(
+                                  "clock", 2, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::DATETIMEV2, -1, 6))})});
+            const std::vector<ColumnDefinition> projected {
+                    avro_data ? make_table_column(1, "id", std::make_shared<DataTypeInt32>())
+                              : make_table_column(2, "clock",
+                                                  std::make_shared<DataTypeDateTimeV2>(6))};
+            const auto& data = avro_data ? avro_path : parquet_path;
+            const auto& tombstone = avro_data ? parquet_path : avro_path;
+            const auto format = avro_data ? FileFormat::AVRO : FileFormat::PARQUET;
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone("Asia/Shanghai");
+            RuntimeProfile profile("iceberg_civil_delete");
+            ShardedKVCache cache(1);
+            auto io_ctx = std::make_shared<io::IOContext>();
+            doris::format::iceberg::IcebergTableReader reader;
+            init_iceberg_reader(&reader, projected, &params, io_ctx, &state, &profile, format);
+            auto split = build_split_options(data);
+            split.current_split_format = format;
+            split.cache = &cache;
+            split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                    data,
+                    {make_iceberg_equality_delete_file(tombstone, {2},
+                                                       avro_data ? TFileFormatType::FORMAT_PARQUET
+                                                                 : TFileFormatType::FORMAT_AVRO)}));
+            const auto prepared = reader.prepare_split(split);
+            ASSERT_TRUE(prepared.ok()) << prepared;
+            if (avro_data) {
+                EXPECT_EQ(read_iceberg_ids(&reader, projected),
+                          (std::vector<int32_t> {2, 3, 4, 5, 6, 7, 8}));
+            } else {
+                bool eos = false;
+                size_t rows = 0;
+                while (!eos) {
+                    Block block = build_table_block(projected);
+                    const auto status = reader.get_block(&block, &eos);
+                    ASSERT_TRUE(status.ok()) << status;
+                    rows += block.rows();
+                }
+                EXPECT_EQ(rows, 0);
+            }
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
 } // namespace doris::format

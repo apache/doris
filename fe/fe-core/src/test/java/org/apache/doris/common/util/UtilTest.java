@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TFileFormatType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,31 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class UtilTest {
+
+    @Test
+    public void avroLoadFormatIsRecognizedByNameAndSuffix() {
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromName("AvRo"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromPath("data.AVRO"));
+    }
+
+    @Test
+    public void avroPrefixDoesNotOverrideTheFileExtension() {
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON,
+                Util.getFileFormatTypeFromPath("s3://bucket/archive.avro/rows.json"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON,
+                Util.getFileFormatTypeFromPath("s3://bucket/rows.avro.json"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_CSV_PLAIN,
+                Util.getFileFormatTypeFromPath("s3://bucket/archive.avro/rows.csv"));
+    }
+
+    @Test
+    public void finalAvroSuffixTakesPrecedenceOverDirectoryAndEarlierSuffixes() {
+        for (String path : new String[] {"s3://bucket/archive.orc/data.avro",
+                "s3://bucket/archive.parquet/data.AVRO", "s3://bucket/data.orc.avro",
+                "s3://bucket/data.parquet.avro"}) {
+            Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromPath(path), path);
+        }
+    }
 
     @Test
     public void getRootCauseWithSuppressedMessageRootCauseWithMessageNoSuppressed() {

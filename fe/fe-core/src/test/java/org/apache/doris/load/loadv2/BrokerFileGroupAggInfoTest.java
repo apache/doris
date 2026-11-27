@@ -19,18 +19,53 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class BrokerFileGroupAggInfoTest {
+
+
+    @Test
+    public void deferredFormatIgnoresLeadingEmptyMarkers() {
+        TBrokerFileStatus marker = new TBrokerFileStatus("s3://bucket/_SUCCESS", false, 0, false);
+        for (String extension : List.of("avro", "parquet", "orc", "csv")) {
+            TBrokerFileStatus data = new TBrokerFileStatus("s3://bucket/part-0." + extension, false, 10, true);
+            TBrokerFileStatus directory = new TBrokerFileStatus("s3://bucket/subdir", true, 10, false);
+            for (List<TBrokerFileStatus> files : List.of(List.of(marker, data), List.of(data, marker),
+                    List.of(directory, marker, data))) {
+                BrokerFileGroup group = Deencapsulation.newInstance(BrokerFileGroup.class);
+                DeferredFileFormatProperties format = new DeferredFileFormatProperties();
+                format.analyzeFileFormatProperties(new HashMap<>(), false);
+                Deencapsulation.setField(group, "fileFormatProperties", format);
+                group.initDeferredFileFormatPropertiesIfNecessary(files);
+                Assertions.assertEquals(extension, format.getFormatName());
+                Assertions.assertEquals(!"csv".equals(extension), group.isBinaryFileFormat());
+            }
+        }
+    }
+
+    @Test
+    public void allEmptyFilesKeepOriginalInference() {
+        BrokerFileGroup group = Deencapsulation.newInstance(BrokerFileGroup.class);
+        DeferredFileFormatProperties format = new DeferredFileFormatProperties();
+        format.analyzeFileFormatProperties(new HashMap<>(), false);
+        Deencapsulation.setField(group, "fileFormatProperties", format);
+        group.initDeferredFileFormatPropertiesIfNecessary(List.of(
+                new TBrokerFileStatus("s3://bucket/empty.avro", false, 0, true)));
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, format.getFileFormatType());
+    }
 
     @Test
     public void test1() throws DdlException {

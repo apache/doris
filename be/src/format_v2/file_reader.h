@@ -64,6 +64,7 @@ enum class FileFormat {
     ES_HTTP,
     MONGODB,
     LANCE,
+    AVRO,
 };
 
 // Format-local description of one independently readable part of a file. Scanner scheduling
@@ -426,6 +427,17 @@ public:
     // lazy materialization/pruning or must materialize one flat list of required columns.
     virtual std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const;
+
+    // Validate an optional reader schema in this file format's dialect after init(), before
+    // mapping or filter localization. This checks physical compatibility only; the mapper remains
+    // authoritative for projection, defaults and materialization. Synthetic record names may be
+    // ignored when the table layer generated the declaration from its own type contract.
+    // An optional projected schema, also in the file dialect, requires direct materialization
+    // to preserve the intermediate reader's value types for every projected field.
+    virtual Status validate_read_schema(const std::string& schema, bool match_record_names,
+                                        const std::string& projected_schema = {}) const {
+        return Status::NotSupported("File reader schema validation is unsupported");
+    }
 
     virtual bool supports_rowid_fetch() const { return false; }
 

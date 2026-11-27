@@ -23,6 +23,9 @@
 #include <parquet/arrow/reader.h>
 #include <rapidjson/document.h>
 
+#include <avro/Compiler.hh>
+#include <avro/DataFile.hh>
+#include <avro/Generic.hh>
 #include <filesystem>
 #include <fstream>
 
@@ -37,6 +40,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
 #include "format/table/deletion_vector.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
@@ -640,6 +644,79 @@ TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeletesCommitsTableLocation) {
     }
 
     std::filesystem::remove_all(temp_dir);
+}
+
+TEST_F(VIcebergDeleteSinkTest, RewriteAvroPositionDeletesIntoDeletionVector) {
+    doris::test::ScopedTempDirectory temp("iceberg_avro_delete_rewrite");
+    const std::string data_file = "s3://bucket/table/data/target.parquet";
+    const auto schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"position_delete","fields":[
+                {"name":"file_path","type":"string","field-id":2147483546},
+                {"name":"pos","type":"long","field-id":2147483545}]})");
+    for (auto codec : {::avro::NULL_CODEC, ::avro::DEFLATE_CODEC, ::avro::SNAPPY_CODEC}) {
+        const auto delete_path = (temp.path() / "old-deletes.avro").string();
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(delete_path.c_str(), schema, 32,
+                                                                codec);
+            ::avro::GenericDatum datum(schema);
+            auto& record = datum.value<::avro::GenericRecord>();
+            for (const auto& [path, pos] : std::vector<std::pair<std::string, int64_t>> {
+                         {data_file, 2},
+                         {data_file, 7},
+                         {"s3://bucket/table/data/other.parquet", 99}}) {
+                record.fieldAt(0).value<std::string>() = path;
+                record.fieldAt(1).value<int64_t>() = pos;
+                writer.write(datum);
+            }
+            writer.close();
+        }
+        TIcebergDeleteFileDesc previous_delete;
+        previous_delete.__set_path(delete_path);
+        previous_delete.__set_file_format(TFileFormatType::FORMAT_AVRO);
+        previous_delete.__set_file_size(std::filesystem::file_size(delete_path));
+        TIcebergRewritableDeleteFileSet previous_set;
+        previous_set.__set_referenced_data_file_path(data_file);
+        previous_set.__set_delete_files({previous_delete});
+        auto t_sink = build_local_delete_sink(temp.path().string(), 3);
+        t_sink.iceberg_delete_sink.__set_rewritable_delete_file_sets({previous_set});
+        VExprContextSPtrs output_exprs;
+        auto sink = std::make_shared<VIcebergDeleteSink>(t_sink, output_exprs, nullptr, nullptr);
+        ObjectPool pool;
+        ASSERT_TRUE(sink->init_properties(&pool).ok());
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        sink->_state = &state;
+        std::map<std::string, IcebergFileDeletion> deletions;
+        auto& deletion = deletions.try_emplace(data_file, 0, "").first->second;
+        deletion.rows_to_delete.add(uint64_t(7));
+        deletion.rows_to_delete.add(uint64_t(11));
+
+        // A v3 rewrite must carry old positions forward and filter shared delete files by data path.
+        const auto status = sink->_write_deletion_vector_files(deletions);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(sink->_commit_data_list.size(), 1);
+        ASSERT_EQ(sink->_created_files.size(), 1);
+        const auto& commit = sink->_commit_data_list.front();
+        EXPECT_EQ(commit.file_content, TFileContent::DELETION_VECTOR);
+        EXPECT_EQ(commit.referenced_data_file_path, data_file);
+        EXPECT_EQ(commit.row_count, 3);
+        EXPECT_EQ(commit.affected_rows, 2);
+        std::ifstream input(sink->_created_files.front().second, std::ios::binary);
+        ASSERT_TRUE(input.good());
+        const std::string bytes((std::istreambuf_iterator<char>(input)),
+                                std::istreambuf_iterator<char>());
+        ASSERT_GE(commit.content_offset, 0);
+        ASSERT_GT(commit.content_size_in_bytes, 0);
+        ASSERT_LE(commit.content_offset + commit.content_size_in_bytes, bytes.size());
+        DeletionVector actual;
+        ASSERT_TRUE(decode_iceberg_deletion_vector_buffer(bytes.data() + commit.content_offset,
+                                                          commit.content_size_in_bytes, &actual)
+                            .ok());
+        EXPECT_EQ(actual.cardinality(), 3);
+        EXPECT_TRUE(actual.contains(uint64_t(2)));
+        EXPECT_TRUE(actual.contains(uint64_t(7)));
+        EXPECT_TRUE(actual.contains(uint64_t(11)));
+        EXPECT_FALSE(actual.contains(uint64_t(99)));
+    }
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {

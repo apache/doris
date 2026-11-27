@@ -52,6 +52,7 @@
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_default_value.h"
+#include "format_v2/avro/avro_reader.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/expr/evolution_cast.h"
 #include "format_v2/orc/orc_reader.h"
@@ -166,6 +167,8 @@ const char* file_format_name(FileFormat format) {
         return "WAL";
     case FileFormat::LANCE:
         return "LANCE";
+    case FileFormat::AVRO:
+        return "AVRO";
     }
     return "UNKNOWN";
 }
@@ -281,15 +284,13 @@ Status IcebergTableReader::annotate_file_schema(
     if (file_schema == nullptr || file_schema->empty()) {
         return Status::OK();
     }
-    // Iceberg's positional fallback is a Parquet-reader-only compatibility path. Its ORC/Avro
-    // readers instead derive a name mapping from the expected schema for id-less files, which is
-    // exactly the current-name resurrection that v2 scan semantics deliberately rejects (#65784),
-    // so ORC keeps its existing behavior and stays out of scope here. ORC needs no timestamp
-    // marker either: its file type already separates TIMESTAMP from TIMESTAMP_INSTANT.
-    if (_format != FileFormat::PARQUET) {
+    // Positional fallback remains Parquet-only. Avro carries field IDs, but also needs the
+    // table's timestamp markers so equality deletes compare instants across DST transitions.
+    if (_format == FileFormat::PARQUET) {
+        _apply_positional_id_fallback(file_schema);
+    } else if (_format != FileFormat::AVRO) {
         return Status::OK();
     }
-    _apply_positional_id_fallback(file_schema);
     return _apply_table_timestamp_semantics(file_schema, _mapping_mode(*file_schema));
 }
 
@@ -343,9 +344,9 @@ Status IcebergTableReader::_apply_table_timestamp_semantics(
     if (schema == nullptr || !schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return Status::OK();
     }
-    // As in configure_mapper_options(); only Parquet files get here.
+    // Only Parquet supports the legacy ID-less complex-wrapper compatibility path.
     const bool allow_idless_complex_wrapper_projection =
-            supports_iceberg_scan_semantics_v1(_scan_params);
+            _format == FileFormat::PARQUET && supports_iceberg_scan_semantics_v1(_scan_params);
     for (const auto& field_ptr : schema->root_field.fields) {
         const auto* field = format::get_field_ptr(field_ptr);
         if (field == nullptr) {
@@ -2268,7 +2269,8 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
     }
     if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET &&
-        delete_file.file_format != TFileFormatType::FORMAT_ORC) {
+        delete_file.file_format != TFileFormatType::FORMAT_ORC &&
+        delete_file.file_format != TFileFormatType::FORMAT_AVRO) {
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
@@ -2293,6 +2295,10 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
                 _parquet_profile_cache,
                 delete_file.__isset.encryption_info ? std::optional(delete_file.encryption_info)
                                                     : std::nullopt);
+    } else if (delete_file.file_format == TFileFormatType::FORMAT_AVRO) {
+        *reader = std::make_unique<format::avro::AvroReader>(
+                system_properties, file_description, io_ctx, _scanner_profile,
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, std::nullopt, false, true);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
@@ -2487,7 +2493,8 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
 
     std::vector<format::ColumnDefinition> schema;
     RETURN_IF_ERROR(reader->get_schema(&schema));
-    if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+    if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET ||
+        delete_file.file_format == TFileFormatType::FORMAT_AVRO) {
         // Decode tombstones of a timestamptz key as instants, like the data keys they are
         // compared with. Otherwise a catalog with enable_mapping_timestamp_tz=false reads them as
         // session-local wall clocks, which cannot tell the two instants of a DST fall-back apart:

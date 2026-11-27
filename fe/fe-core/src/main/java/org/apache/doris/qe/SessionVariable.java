@@ -2635,6 +2635,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE_ON_BE, needForward = true,
             description = "Target bytes for coalescing BE physical splits. Default: 64 MiB. "
+                    + "Eligible Avro TVFs use this target for FE byte ranges, capped at two ranges per file. "
                     + "A nonpositive value does not disable BE refinement.")
     public long fileSplitSizeOnBe = 64L * 1024L * 1024L;
 

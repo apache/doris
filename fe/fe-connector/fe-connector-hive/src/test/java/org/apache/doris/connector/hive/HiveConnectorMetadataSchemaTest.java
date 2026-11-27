@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -40,6 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -84,6 +86,27 @@ public class HiveConnectorMetadataSchemaTest {
 
     private static ConnectorColumn col(String name, String typeName) {
         return new ConnectorColumn(name, ConnectorType.of(typeName), null, true, null);
+    }
+
+    @Test
+    public void avroRejectsHmsStringCoercionsBeforeTheyBecomeGenericStringTypes() {
+        HiveScanPlanProvider provider =
+                new HiveScanPlanProvider(null, HiveTestProperties.minimal(), null, null);
+        for (ConnectorType type : Arrays.asList(ConnectorType.of("CHAR", 3, -1),
+                ConnectorType.of("VARCHAR", 3, -1),
+                ConnectorType.arrayOf(ConnectorType.of("VARCHAR", 3, -1)),
+                ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("CHAR", 3, -1)),
+                ConnectorType.structOf(Collections.singletonList("child"),
+                        Collections.singletonList(ConnectorType.of("VARCHAR", 3, -1))))) {
+            HmsTableInfo table = unpartitionedTable(
+                    "org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat")
+                    .serializationLib("org.apache.hadoop.hive.serde2.avro.AvroSerDe")
+                    .columns(List.of(new ConnectorColumn("v", type, null, true, null))).build();
+            HiveTableHandle handle = tableHandleOf(table);
+            Assertions.assertThrows(DorisConnectorException.class, () -> provider.getScanNodeProperties(
+                    new ScopeSession(1, "avro-hms-types", new TestStatementScope()),
+                    handle.toBuilder().build(), Collections.emptyList(), Optional.empty()));
+        }
     }
 
     @Test

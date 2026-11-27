@@ -21,6 +21,7 @@
 
 #include <fstream>
 
+#include "core/data_type/data_type_nullable.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
@@ -212,6 +213,33 @@ TEST(SchemaReaderV2Test, InfersTextAndJsonWithoutPlannedSlots) {
             EXPECT_EQ(schema[i].type->get_name(), "Nullable(String)");
         }
     }
+}
+
+// A header-only container is a valid empty file; inference must not depend on a first record.
+TEST_F(SchemaInferenceV2Test, AvroInfersNullableSchemaFromAnEmptyContainer) {
+    params.__set_format_type(TFileFormatType::FORMAT_AVRO);
+    const std::string json =
+            R"({"type":"record","name":"row","fields":[{"name":"id","type":"long","field-id":7},{"name":"value","type":["null","string"]}]})";
+    auto long_bytes = [](int64_t value) {
+        std::string bytes;
+        uint64_t encoded = static_cast<uint64_t>(value) << 1;
+        do {
+            bytes.push_back(static_cast<char>((encoded & 127) | (encoded > 127 ? 128 : 0)));
+            encoded >>= 7;
+        } while (encoded != 0);
+        return bytes;
+    };
+    std::string data("Obj\1", 4);
+    data += long_bytes(1) + long_bytes(11) + "avro.schema" + long_bytes(json.size()) + json;
+    data += long_bytes(0) + std::string(16, 's');
+    const auto status = infer(data);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(schema.size(), 2);
+    EXPECT_EQ(schema[0].name, "id");
+    EXPECT_TRUE(schema[0].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_BIGINT);
+    EXPECT_EQ(schema[0].get_identifier_field_id(), 7);
+    EXPECT_EQ(schema[1].type->get_name(), "Nullable(String)");
 }
 
 } // namespace doris::format

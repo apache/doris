@@ -685,11 +685,13 @@ Status FileScannerV2::_read_by_rows_wrapped(const TFileRangeDesc& range,
     _current_range = range;
     RETURN_IF_ERROR(validate_file_scan_support(*_params, &range));
     const auto format_type = get_range_format_type(*_params, range);
+    // Row locations retain the physical marker accepted by normal scans. Dropping Avro or
+    // PME here would make those scans fail only when they reopen selected rows by row ID.
     if (format_type != TFileFormatType::FORMAT_PARQUET &&
         format_type != TFileFormatType::FORMAT_PARQUET_PME &&
-        format_type != TFileFormatType::FORMAT_ORC) {
+        format_type != TFileFormatType::FORMAT_ORC && format_type != TFileFormatType::FORMAT_AVRO) {
         return Status::NotSupported(
-                "FileScannerV2 row-id fetch supports only Parquet and ORC, file format={}",
+                "FileScannerV2 row-id fetch supports only Parquet, ORC and Avro, file format={}",
                 to_string(format_type));
     }
 
@@ -1118,6 +1120,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
     case TFileFormatType::FORMAT_ORC:
         *file_format = format::FileFormat::ORC;
         return Status::OK();
+    case TFileFormatType::FORMAT_AVRO:
+        *file_format = format::FileFormat::AVRO;
+        return Status::OK();
     case TFileFormatType::FORMAT_JNI:
         *file_format = format::FileFormat::JNI;
         return Status::OK();
@@ -1200,6 +1205,8 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
     case TFileFormatType::FORMAT_PARQUET:
     case TFileFormatType::FORMAT_PARQUET_PME:
     case TFileFormatType::FORMAT_ORC:
+    // Avro produces materialized blocks and needs the same probe/EWMA byte budget.
+    case TFileFormatType::FORMAT_AVRO:
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_GZ:
     case TFileFormatType::FORMAT_CSV_BZ2:
