@@ -197,6 +197,14 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
     }
 
     @Override
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        // ALL_TAB_COMMENTS covers tables and views the connecting user can access. Oracle's
+        // DatabaseMetaData.getTables() leaves REMARKS null unless remarksReporting is enabled.
+        return queryTableComment("SELECT COMMENTS FROM ALL_TAB_COMMENTS WHERE OWNER = ? AND TABLE_NAME = ?",
+                remoteDbName, remoteTableName, remoteDbName, remoteTableName);
+    }
+
+    @Override
     public long getRowCount(String dbName, String tableName) {
         String sql = "SELECT NUM_ROWS FROM ALL_TABLES WHERE "
                 + "OWNER = '" + dbName + "' AND TABLE_NAME = '" + tableName + "'";

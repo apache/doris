@@ -52,6 +52,15 @@ public class JdbcSapHanaConnectorClient extends JdbcConnectorClient {
     }
 
     @Override
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        // Tables and views keep their comments in different system views.
+        return queryTableComment("SELECT COMMENTS FROM SYS.TABLES WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?"
+                        + " UNION ALL SELECT COMMENTS FROM SYS.VIEWS WHERE SCHEMA_NAME = ? AND VIEW_NAME = ?",
+                remoteDbName, remoteTableName,
+                remoteDbName, remoteTableName, remoteDbName, remoteTableName);
+    }
+
+    @Override
     public ConnectorType jdbcTypeToConnectorType(JdbcFieldInfo fieldInfo) {
         String hanaType = fieldInfo.getDataTypeName().orElse("unknown").toUpperCase();
         switch (hanaType) {

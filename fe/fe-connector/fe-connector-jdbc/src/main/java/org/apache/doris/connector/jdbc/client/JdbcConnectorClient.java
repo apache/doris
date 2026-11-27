@@ -491,6 +491,35 @@ public abstract class JdbcConnectorClient implements Closeable {
     }
 
     /**
+     * Runs a query whose first column is the comment of the table, binding {@code params} in order.
+     * Returns the comment of the first row, or "" when there is no row or the comment is null.
+     */
+    protected String queryTableComment(String sql, String remoteDbName, String remoteTableName,
+            String... params) {
+        Connection conn = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        try {
+            conn = getConnection();
+            ps = conn.prepareStatement(sql);
+            for (int i = 0; i < params.length; i++) {
+                ps.setString(i + 1, params[i]);
+            }
+            rs = ps.executeQuery();
+            if (rs.next()) {
+                String comment = rs.getString(1);
+                return comment != null ? comment : "";
+            }
+            return "";
+        } catch (SQLException e) {
+            throw jdbcException(
+                    "Failed to get table comment for " + remoteDbName + "." + remoteTableName, e);
+        } finally {
+            closeResources(rs, ps, conn);
+        }
+    }
+
+    /**
      * Returns the estimated row count for a table from database system catalogs.
      * Returns -1 if unavailable.
      */
