@@ -57,6 +57,7 @@ class ColumnPredicate;
 class DeleteBitmap;
 class HybridSetBase;
 class RuntimeProfile;
+struct RowVisibilityFilter;
 
 class VCollectIterator;
 class Block;
@@ -296,6 +297,10 @@ protected:
 
     Status _init_delete_condition(const ReaderParams& read_params);
 
+    // Refine the post-merge visibility mask without reviving rows filtered by another rule.
+    void _apply_sequence_delete_sign_retention(const Block& block,
+                                               RowVisibilityFilter* filter) const;
+
     const BaseTabletSPtr& tablet() { return _tablet; }
 
     // The read schema shared by the caller, TabletReader, VCollect and each rowset reader.
@@ -319,6 +324,10 @@ protected:
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _delete_sign_available = false;
+    // Snapshot the retention decision once per reader; publishing new versions while scanning
+    // must not make otherwise identical rows expire in different blocks.
+    bool _retain_sequence_delete_sign = false;
+    int64_t _delete_sign_version_cutoff = 0;
     bool _filter_delete = false;
     bool _direct_mode = false;
 
