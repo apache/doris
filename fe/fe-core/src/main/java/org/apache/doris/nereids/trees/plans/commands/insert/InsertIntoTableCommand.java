@@ -342,10 +342,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 throw new IllegalStateException(e.getMessage(), e);
             }
             stmtExecutor.setProfileType(ProfileType.LOAD);
-            // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
-            // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            stmtExecutor.setCoord(insertExecutor.getCoordinator());
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));

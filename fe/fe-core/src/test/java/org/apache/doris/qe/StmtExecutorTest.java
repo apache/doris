@@ -23,6 +23,7 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -34,6 +35,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -42,6 +44,8 @@ import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
@@ -55,6 +59,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
@@ -99,6 +109,68 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(assignment.getTerminationFuture().isDone());
             Assertions.assertEquals(1, unregistered.get());
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TStatusCode.class, names = {"CANCELLED", "TIMEOUT"})
+    public void testTerminateBeforeCoordinatorIsPublished(TStatusCode statusCode) {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status cancelReason = new Status(statusCode, "terminate before coordinator publication");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+
+        stmtExecutor.cancel(cancelReason, false);
+        stmtExecutor.setCoord(coordinator);
+
+        Mockito.verify(coordinator).cancel(cancelReason);
+    }
+
+    @Test
+    public void testCancelAfterCoordinatorIsPublished() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status cancelReason = new Status(TStatusCode.CANCELLED, "cancel after coordinator publication");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+
+        stmtExecutor.setCoord(coordinator);
+        stmtExecutor.cancel(cancelReason, false);
+
+        Mockito.verify(coordinator).cancel(cancelReason);
+    }
+
+    @Test
+    public void testFirstTerminalReasonWinsAcrossCoordinatorPublication() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status timeout = new Status(TStatusCode.TIMEOUT, "first timeout");
+        Status cancelled = new Status(TStatusCode.CANCELLED, "later cancellation");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        CountDownLatch publicationReachedCoordinator = new CountDownLatch(1);
+        CountDownLatch finishPublication = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        List<Status> delivered = new CopyOnWriteArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            delivered.add(invocation.getArgument(0));
+            if (calls.getAndIncrement() == 0) {
+                publicationReachedCoordinator.countDown();
+                Assertions.assertTrue(finishPublication.await(10, TimeUnit.SECONDS));
+            }
+            return null;
+        }).when(coordinator).cancel(Mockito.any(Status.class));
+
+        stmtExecutor.cancel(timeout, false);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> publication = executorService.submit(() -> stmtExecutor.setCoord(coordinator));
+            Assertions.assertTrue(publicationReachedCoordinator.await(10, TimeUnit.SECONDS));
+            stmtExecutor.cancel(cancelled, false);
+            finishPublication.countDown();
+            publication.get(10, TimeUnit.SECONDS);
+        } finally {
+            finishPublication.countDown();
+            executorService.shutdownNow();
+        }
+
+        Assertions.assertEquals(2, delivered.size());
+        Assertions.assertTrue(delivered.stream().allMatch(status -> status.getErrorCode() == TStatusCode.TIMEOUT));
+        Assertions.assertTrue(delivered.stream().allMatch(status -> "first timeout".equals(status.getErrorMsg())));
     }
 
     // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
