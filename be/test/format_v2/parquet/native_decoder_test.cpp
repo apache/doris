@@ -2887,6 +2887,31 @@ TEST(ParquetV2NativeDecoderTest, NestedReadersRejectRleAndBitPackedLevelsAboveMa
     }
 }
 
+TEST(ParquetV2NativeDecoderTest, PlainBooleanDenseBatchesKeepUnreadBits) {
+    std::vector<uint8_t> packed(33);
+    for (size_t i = 0; i < packed.size(); ++i) {
+        packed[i] = static_cast<uint8_t>(37 * i + 21);
+    }
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::BOOLEAN, tparquet::Encoding::PLAIN, decoder).ok());
+    Slice data(reinterpret_cast<char*>(packed.data()), packed.size());
+    ASSERT_TRUE(decoder->set_data(&data).ok());
+
+    CaptureFixedConsumer consumer;
+    for (size_t batch : {137, 5, 115}) {
+        ASSERT_TRUE(decoder->decode_fixed_values(batch, consumer).ok());
+    }
+    const auto values = consumer.values<uint8_t>();
+    ASSERT_EQ(values.size(), 257);
+    for (size_t i = 0; i < values.size(); ++i) {
+        EXPECT_EQ(values[i], (packed[i / 8] >> (i % 8)) & 1) << "index " << i;
+    }
+    CaptureFixedConsumer truncated;
+    EXPECT_FALSE(decoder->decode_fixed_values(8, truncated).ok());
+    EXPECT_TRUE(truncated.bytes.empty());
+}
+
 TEST(ParquetV2NativeDecoderTest, TruncatedBooleanStreamsFailWhileSkipping) {
     std::unique_ptr<Decoder> decoder;
     ASSERT_TRUE(

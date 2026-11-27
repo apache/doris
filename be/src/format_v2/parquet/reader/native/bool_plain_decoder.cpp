@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <array>
 
 #include "core/column/column_vector.h"
 #include "core/types.h"
@@ -29,19 +28,23 @@
 namespace doris::format::parquet::native {
 Status BoolPlainDecoder::decode_fixed_values(size_t num_values,
                                              ParquetFixedValueConsumer& consumer) {
-    std::array<uint8_t, UNPACKED_BUFFER_LEN> values;
-    size_t decoded = 0;
-    while (decoded < num_values) {
-        const size_t batch_size = std::min(values.size(), num_values - decoded);
-        for (size_t row = 0; row < batch_size; ++row) {
-            bool value = false;
-            if (UNLIKELY(!_decode_value(&value))) {
-                return Status::IOError("Can't read enough booleans in plain decoder");
-            }
-            values[row] = static_cast<uint8_t>(value);
+    const size_t available = num_unpacked_values_ - unpacked_value_idx_ +
+                             static_cast<size_t>(bool_values_.bytes_left()) * 8;
+    if (UNLIKELY(num_values > available)) {
+        return Status::IOError("Can't read enough booleans in plain decoder");
+    }
+    while (num_values != 0) {
+        if (unpacked_value_idx_ == num_unpacked_values_) {
+            num_unpacked_values_ =
+                    bool_values_.UnpackBatch(1, UNPACKED_BUFFER_LEN, unpacked_values_);
+            unpacked_value_idx_ = 0;
         }
-        RETURN_IF_ERROR(consumer.consume(values.data(), batch_size, sizeof(uint8_t)));
-        decoded += batch_size;
+        const auto* values = unpacked_values_ + unpacked_value_idx_;
+        const size_t batch_size = std::min(
+                num_values, static_cast<size_t>(num_unpacked_values_ - unpacked_value_idx_));
+        unpacked_value_idx_ += batch_size;
+        RETURN_IF_ERROR(consumer.consume(values, batch_size, sizeof(uint8_t)));
+        num_values -= batch_size;
     }
     return Status::OK();
 }
