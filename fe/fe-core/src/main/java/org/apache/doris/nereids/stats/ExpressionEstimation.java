@@ -522,28 +522,37 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitOr(Or or, Statistics inputStats) {
+        // OR(A, B) is null only when all operands are null.
+        // P(null) = prod_i P(null_i), so numNulls shrinks as more operands are added.
         List<Expression> children = or.children();
-        // TODO: this algorithm is not right, fix it latter
+        double rowCount = inputStats.getRowCount();
         ColumnStatistic firstChild = children.get(0).accept(this, inputStats);
-        double maxNull = StatsMathUtil.maxNonNaN(firstChild.numNulls, 1);
+        double nullProb = Double.isNaN(firstChild.numNulls) ? 0 : firstChild.numNulls / rowCount;
         for (int i = 1; i < children.size(); i++) {
-            ColumnStatistic columnStatistic = children.get(i).accept(this, inputStats);
-            maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
+            ColumnStatistic cs = children.get(i).accept(this, inputStats);
+            double p = Double.isNaN(cs.numNulls) ? 0 : cs.numNulls / rowCount;
+            nullProb *= p;
         }
-        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
+        double numNulls = StatsMathUtil.minNonNaN(rowCount, nullProb * rowCount);
+        return new ColumnStatisticBuilder(firstChild).setNumNulls(numNulls).setNdv(2).build();
     }
 
     @Override
     public ColumnStatistic visitAnd(And and, Statistics inputStats) {
+        // AND(A, B) is null when at least one operand is null (and the other is not false).
+        // We conservatively estimate using inclusion-exclusion on null probabilities:
+        // P(null) = 1 - prod_i (1 - P(null_i))
         List<Expression> children = and.children();
-        // TODO: this algorithm is not right, fix it latter
+        double rowCount = inputStats.getRowCount();
         ColumnStatistic firstChild = children.get(0).accept(this, inputStats);
-        double maxNull = StatsMathUtil.maxNonNaN(firstChild.numNulls, 1);
+        double notNullProb = 1.0 - (Double.isNaN(firstChild.numNulls) ? 0 : firstChild.numNulls / rowCount);
         for (int i = 1; i < children.size(); i++) {
-            ColumnStatistic columnStatistic = children.get(i).accept(this, inputStats);
-            maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
+            ColumnStatistic cs = children.get(i).accept(this, inputStats);
+            double p = Double.isNaN(cs.numNulls) ? 0 : cs.numNulls / rowCount;
+            notNullProb *= (1.0 - p);
         }
-        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
+        double numNulls = StatsMathUtil.minNonNaN(rowCount, (1.0 - notNullProb) * rowCount);
+        return new ColumnStatisticBuilder(firstChild).setNumNulls(numNulls).setNdv(2).build();
     }
 
     @Override

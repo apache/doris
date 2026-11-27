@@ -20,11 +20,15 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -499,5 +503,93 @@ class ExpressionEstimationTest {
         // do not throw any exception
         ColumnStatistic est = ExpressionEstimation.estimate(cast, null);
         Assertions.assertTrue(est.isUnKnown());
+    }
+
+    // OR(a > 1, b < 2)
+    // a: 100 rows, 10 nulls; b: 100 rows, 20 nulls
+    // OR is null only when BOTH operands are null: P(null_a) * P(null_b) * rowCount
+    // = (10/100) * (20/100) * 100 = 2.0
+    @Test
+    public void testOrNullPropagation() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotStats = new HashMap<>();
+        slotStats.put(a, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(10).setMinValue(0).setMaxValue(100).build());
+        slotStats.put(b, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(20).setMinValue(0).setMaxValue(100).build());
+        Statistics stats = new Statistics(100, slotStats);
+
+        Or or = new Or(new GreaterThan(a, new DoubleLiteral(1.0)),
+                new LessThan(b, new DoubleLiteral(2.0)));
+        ColumnStatistic est = ExpressionEstimation.estimate(or, stats);
+
+        Assertions.assertEquals(2, est.ndv);
+        // (10/100) * (20/100) * 100 = 2.0
+        Assertions.assertEquals(2.0, est.numNulls, 1e-6);
+    }
+
+    // AND(a > 1, b < 2)
+    // a: 100 rows, 10 nulls; b: 100 rows, 20 nulls
+    // AND is null when at least one operand is null:
+    // P(null) = 1 - (1 - 10/100) * (1 - 20/100) = 1 - 0.9 * 0.8 = 0.28 -> numNulls = 28.0
+    @Test
+    public void testAndNullPropagation() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotStats = new HashMap<>();
+        slotStats.put(a, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(10).setMinValue(0).setMaxValue(100).build());
+        slotStats.put(b, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(20).setMinValue(0).setMaxValue(100).build());
+        Statistics stats = new Statistics(100, slotStats);
+
+        And and = new And(new GreaterThan(a, new DoubleLiteral(1.0)),
+                new LessThan(b, new DoubleLiteral(2.0)));
+        ColumnStatistic est = ExpressionEstimation.estimate(and, stats);
+
+        Assertions.assertEquals(2, est.ndv);
+        // 1 - (1 - 0.1) * (1 - 0.2) = 0.28 -> 28.0
+        Assertions.assertEquals(28.0, est.numNulls, 1e-6);
+    }
+
+    // OR with no nulls: result should have 0 numNulls
+    @Test
+    public void testOrNoNulls() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotStats = new HashMap<>();
+        slotStats.put(a, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(0).setMinValue(0).setMaxValue(100).build());
+        slotStats.put(b, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(0).setMinValue(0).setMaxValue(100).build());
+        Statistics stats = new Statistics(100, slotStats);
+
+        Or or = new Or(new GreaterThan(a, new DoubleLiteral(1.0)),
+                new LessThan(b, new DoubleLiteral(2.0)));
+        ColumnStatistic est = ExpressionEstimation.estimate(or, stats);
+
+        Assertions.assertEquals(2, est.ndv);
+        Assertions.assertEquals(0.0, est.numNulls, 1e-6);
+    }
+
+    // AND with no nulls: result should have 0 numNulls
+    @Test
+    public void testAndNoNulls() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotStats = new HashMap<>();
+        slotStats.put(a, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(0).setMinValue(0).setMaxValue(100).build());
+        slotStats.put(b, new ColumnStatisticBuilder().setNdv(50).setAvgSizeByte(4)
+                .setNumNulls(0).setMinValue(0).setMaxValue(100).build());
+        Statistics stats = new Statistics(100, slotStats);
+
+        And and = new And(new GreaterThan(a, new DoubleLiteral(1.0)),
+                new LessThan(b, new DoubleLiteral(2.0)));
+        ColumnStatistic est = ExpressionEstimation.estimate(and, stats);
+
+        Assertions.assertEquals(2, est.ndv);
+        Assertions.assertEquals(0.0, est.numNulls, 1e-6);
     }
 }
