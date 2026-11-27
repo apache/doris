@@ -33,8 +33,6 @@ import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
@@ -337,9 +335,7 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     private void assertStructMemberCommentRoundTrip(boolean noBackslashEscapes) {
-        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
-            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
-
+        SqlModeHelper.withSqlMode(noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L, () -> {
             String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
             String expectedComment = "owner's \"field\" C:\\tmp\\";
             ModifyColumnOp modify = assertSingleClausePath(
@@ -353,7 +349,8 @@ public class IcebergNestedSchemaEvolutionParserTest {
                     "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.payload");
             StructType reparsedType = (StructType) reparsedModify.getColumnDef().getType();
             Assertions.assertEquals(expectedComment, reparsedType.getFields().get(0).getComment());
-        }
+            return null;
+        });
     }
 
     private void assertStructMemberNames(StructType structType) {
@@ -362,9 +359,7 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     private void assertRegularColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {
-        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
-            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
-
+        SqlModeHelper.withSqlMode(noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L, () -> {
             String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
             String expectedComment = "owner's \"field\" C:\\tmp\\";
             AddColumnsOp addColumns = assertSingleClause(
@@ -377,13 +372,12 @@ public class IcebergNestedSchemaEvolutionParserTest {
                     "ALTER TABLE t " + addColumns.toSql(), AddColumnsOp.class);
             Assertions.assertEquals(expectedComment,
                     reparsedAddColumns.getColumnDefinitions().get(0).getComment());
-        }
+            return null;
+        });
     }
 
     private void assertColumnDefinitionCommentRoundTrip(boolean noBackslashEscapes) {
-        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
-            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
-
+        SqlModeHelper.withSqlMode(noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L, () -> {
             String sqlPath = noBackslashEscapes ? "C:\\tmp\\" : "C:\\\\tmp\\\\";
             String expectedComment = "owner's \"field\" C:\\tmp\\";
             AddColumnOp add = assertSingleClausePath(
@@ -403,13 +397,12 @@ public class IcebergNestedSchemaEvolutionParserTest {
             ModifyColumnOp reparsedModify = assertSingleClausePath(
                     "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.owner");
             Assertions.assertEquals(expectedComment, reparsedModify.getColumnDef().getComment());
-        }
+            return null;
+        });
     }
 
     private void assertCommentRoundTrip(boolean noBackslashEscapes) {
-        try (MockedStatic<SqlModeHelper> mockedSqlMode = Mockito.mockStatic(SqlModeHelper.class)) {
-            mockedSqlMode.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(noBackslashEscapes);
-
+        SqlModeHelper.withSqlMode(noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0L, () -> {
             String expectedComment = "owner's \"field\" C:\\tmp\\";
             ModifyColumnCommentOp comment = new ModifyColumnCommentOp(
                     ColumnPath.fromDotName("info.metric"), expectedComment);
@@ -430,7 +423,8 @@ public class IcebergNestedSchemaEvolutionParserTest {
                     "ALTER TABLE t MODIFY COLUMN info.metric COMMENT \"a\"\"b\"",
                     ModifyColumnCommentOp.class, "info.metric");
             Assertions.assertEquals("a\"b", doubledDoubleQuote.getComment());
-        }
+            return null;
+        });
     }
 
     private <T extends AlterTableOp> T assertSingleClausePath(String sql, Class<T> clauseClass,

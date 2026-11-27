@@ -44,6 +44,6 @@ public interface NeedAuditEncryption {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         NereidsParser parser = new NereidsParser();
         parser.parseForEncryption(sql, indexInSqlToString, preserveFormatting);
-        return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
+        return BaseViewInfo.rewriteSqlWithUtf16Offsets(indexInSqlToString, sql);
     }
 }

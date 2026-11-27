@@ -52,7 +52,7 @@ public class AuditEncryptionSessionVariableTest {
                 Assertions.assertEquals(14400, session.getInsertTimeoutS());
                 Assertions.assertFalse(session.getIsSingleSetVar());
                 Assertions.assertTrue(session.getSessionOriginValue().isEmpty());
-                String masked = BaseViewInfo.rewriteSql(replacements, sql);
+                String masked = BaseViewInfo.rewriteSqlWithUtf16Offsets(replacements, sql);
                 Assertions.assertTrue(masked.contains(hint));
                 Assertions.assertFalse(masked.contains("test-secret"));
             }

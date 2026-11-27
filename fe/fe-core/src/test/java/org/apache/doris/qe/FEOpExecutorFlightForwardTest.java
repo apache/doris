@@ -17,21 +17,37 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GenericPool;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.BaselinePlan;
+import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.nereids.spm.SPMForwardedSession;
+import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.thrift.transport.TTransportException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.List;
 
 /**
  * Building the forward request for the master FE must not reach for a MysqlChannel unconditionally:
@@ -98,6 +114,96 @@ public class FEOpExecutorFlightForwardTest {
         }
     }
 
+    @Test
+    public void testForwardedQueryExplainRetriesTransportFailure() throws Exception {
+        try (MockedStatic<Env> mockedEnv = mockSelfNode()) {
+            Env env = Env.getCurrentEnv();
+            Mockito.when(env.getMasterHost()).thenReturn("127.0.0.1");
+            Mockito.when(env.getMasterRpcPort()).thenReturn(9020);
+            Mockito.when(env.getJournalObservable()).thenReturn(Mockito.mock(JournalObservable.class));
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            ConnectContext context = new ConnectContext();
+            prepare(context);
+            context.setEnv(env);
+
+            String sql = "EXPLAIN SELECT 1";
+            StatementBase statement = new NereidsParser().parseSQL(sql).get(0);
+            statement.setOrigStmt(new OriginStatement(sql, 0));
+            StmtExecutor executor = new StmtExecutor(context, statement);
+            Deencapsulation.setField(executor, "redirectStatus", RedirectStatus.NO_FORWARD);
+
+            FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+            TMasterOpResult result = new TMasterOpResult();
+            result.setStatus(QueryState.MysqlStateType.EOF.name());
+            Mockito.when(client.forward(Mockito.any()))
+                    .thenThrow(new TTransportException(TTransportException.END_OF_FILE))
+                    .thenReturn(result);
+            GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
+            GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
+            Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
+            Mockito.when(pool.reopenOrClear(Mockito.any(), Mockito.eq(client), Mockito.anyInt())).thenReturn(true);
+            ClientPool.frontendPool = pool;
+            try {
+                Deencapsulation.invoke(executor, "forwardToMaster");
+                Mockito.verify(client, Mockito.times(2)).forward(Mockito.any());
+                Mockito.verify(pool).returnObject(Mockito.any(), Mockito.eq(client));
+                Assertions.assertEquals(QueryState.MysqlStateType.EOF.name(), executor.getProxyStatus());
+            } finally {
+                ClientPool.frontendPool = originalPool;
+            }
+        }
+    }
+
+    @Test
+    public void testForwardedBaselineManagementRestoresDisabledRowsWithRewriteOff() throws Exception {
+        try (MockedStatic<Env> mockedEnv = mockSelfNode()) {
+            ConnectContext owner = new ConnectContext();
+            prepare(owner);
+            owner.getSessionVariable().setEnableSpmRewrite(false);
+            long enabled = addBaseline(owner, "SELECT 1 AS enabled_row", BaselineStatus.ENABLED);
+            long disabled = addBaseline(owner, "SELECT 2 AS disabled_row", BaselineStatus.DISABLED);
+
+            for (String sql : List.of("SHOW BASELINE PLANS WHERE scope = 'SESSION'",
+                    "ALTER BASELINE PLAN " + disabled + " ENABLE",
+                    "DROP BASELINE PLAN " + disabled,
+                    "CREATE SESSION BASELINE PLAN 'SELECT 3' WITH 'SELECT 3'")) {
+                String payload = buildSpmPayload(owner, sql);
+                ConnectContext receiver = new ConnectContext();
+                receiver.getSessionVariable().setEnableSpmRewrite(false);
+                SPMForwardedSession.importInto(receiver, payload);
+
+                Assertions.assertEquals(2, receiver.getSessionBaselineStore().getAllBaselines().size(), sql);
+                Assertions.assertEquals(BaselineStatus.ENABLED,
+                        receiver.getSessionBaselineStore().getBaseline(enabled).getStatus(), sql);
+                Assertions.assertEquals(BaselineStatus.DISABLED,
+                        receiver.getSessionBaselineStore().getBaseline(disabled).getStatus(), sql);
+            }
+            Assertions.assertEquals("", buildSpmPayload(owner, "SELECT 1 AS enabled_row"));
+            Assertions.assertEquals("", buildSpmPayload(owner, "CREATE DATABASE unrelated_database"));
+        }
+    }
+
+    private static String buildSpmPayload(ConnectContext owner, String sql) throws AnalysisException {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getParsedStmt()).thenReturn(new NereidsParser().parseSQL(sql).get(0));
+        owner.setExecutor(executor);
+        return new TestFEOpExecutor(owner, sql).build().getSessionVariables()
+                .get(SessionVariable.SPM_FORWARDED_SESSION_BASELINES);
+    }
+
+    private static long addBaseline(ConnectContext owner, String sql, BaselineStatus status) {
+        BaselinePlan plan = new BaselinePlan();
+        plan.setBindSql(sql);
+        plan.setPlanSql(sql);
+        plan.setPlanFrozen(false);
+        plan.setBindSqlDigest(sql);
+        plan.setBindSqlHash(SPMUtils.hashOf(sql));
+        plan.setStatus(status);
+        return owner.getSessionBaselineStore().createBaseline(plan);
+    }
+
     private static MockedStatic<Env> mockSelfNode() {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getSelfNode()).thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9010));
@@ -113,7 +219,11 @@ public class FEOpExecutorFlightForwardTest {
 
     private static class TestFEOpExecutor extends FEOpExecutor {
         private TestFEOpExecutor(ConnectContext context) {
-            super(new TNetworkAddress("127.0.0.1", 9010), new OriginStatement("select 1", 0), context, true);
+            this(context, "select 1");
+        }
+
+        private TestFEOpExecutor(ConnectContext context, String sql) {
+            super(new TNetworkAddress("127.0.0.1", 9010), new OriginStatement(sql, 0), context, true);
         }
 
         private TMasterOpRequest build() throws AnalysisException {

@@ -105,6 +105,11 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     }
 
     @Override
+    public String getDbName() {
+        return dbName;
+    }
+
+    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }
@@ -146,11 +151,6 @@ public class PythonUdtf extends TableGeneratingFunction implements ExplicitlyCas
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(signature);
-    }
-
-    @Override
-    public String getDbName() {
-        return dbName;
     }
 
     @Override

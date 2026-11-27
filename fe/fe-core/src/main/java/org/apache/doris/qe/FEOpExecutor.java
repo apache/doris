@@ -29,6 +29,13 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.spm.SPMForwardedSession;
+import org.apache.doris.nereids.trees.plans.commands.spm.AlterBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.CreateBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.DropBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.ShowBaselinePlansCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -209,8 +216,18 @@ public class FEOpExecutor {
             }
         }
 
-        // session variables
-        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+        // Overwrite the internal variable from the connection's actual store on every request.
+        ctx.getSessionVariable().setSpmForwardedSessionBaselines(forwardedSpmBaselines());
+        Map<String, String> forwardVariables = ctx.getSessionVariable().getForwardVariables();
+        // The master re-parses this text under the mode captured by the originating parser. SET_VAR in this
+        // statement or an earlier statement of the same parsed batch may already have changed the live mode;
+        // forwarding that value could turn an originally parsed OR into CONCAT.
+        long originSqlMode = ctx.getStatementContext() == null
+                ? -1 : ctx.getStatementContext().getSpmOriginSqlMode();
+        if (originSqlMode >= 0) {
+            forwardVariables.put(SessionVariable.SQL_MODE, Long.toString(originSqlMode));
+        }
+        params.setSessionVariables(forwardVariables);
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
@@ -239,6 +256,21 @@ public class FEOpExecutor {
         ctx.getProtocolAdapter().fillForwardRequest(ctx, params);
 
         return params;
+    }
+
+    private String forwardedSpmBaselines() {
+        StmtExecutor executor = ctx.getExecutor();
+        if (executor != null && executor.getParsedStmt() instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter statement = (LogicalPlanAdapter) executor.getParsedStmt();
+            LogicalPlan plan = statement.getLogicalPlan();
+            if (plan instanceof CreateBaselinePlanCommand || plan instanceof AlterBaselinePlanCommand
+                    || plan instanceof DropBaselinePlanCommand || plan instanceof ShowBaselinePlansCommand) {
+                return SPMForwardedSession.serializeForManagement(ctx.getSessionBaselineStore());
+            }
+        }
+        return ctx.getSessionVariable().isEnableSpmRewrite()
+                ? SPMForwardedSession.serializeForStatement(ctx.getSessionBaselineStore(), ctx, originStmt.originStmt)
+                : "";
     }
 
     public int getStatusCode() {

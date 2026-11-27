@@ -46,6 +46,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
+    /**
+     * Maximum queue wait in milliseconds. An enqueue wakes the worker, and a pending
+     * batch can shorten the wait to its flush deadline.
+     */
+    public static final long QUEUE_POLL_INTERVAL_MILLIS = 5_000L;
+
     // the "0x1F" and "0x1E" are used to separate columns and lines in audit log data
     public static final char AUDIT_TABLE_COL_SEPARATOR = 0x1F;
     public static final char AUDIT_TABLE_LINE_DELIMITER = 0x1E;
@@ -54,9 +60,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
     public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
 
+
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
     private long lastLoadTimeAuditLog = 0;
+
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
 
@@ -127,6 +135,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             return;
         }
         try {
+            // The queue wakes the worker without taking the stream-load monitor.
             auditEventQueue.add(event);
         } catch (Exception e) {
             // In order to ensure that the system can run normally, here we directly
@@ -145,12 +154,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         ++auditLogNum;
     }
 
+    /**
+     * Appends one event's row to the batch buffer.
+     */
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
 
         // uuid and time
         appendField(logBuffer, event.queryId);
-        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp))
+                .append(AUDIT_TABLE_COL_SEPARATOR);
 
         // cs info
         appendField(logBuffer, event.clientIp);
@@ -233,7 +246,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * column separator. The value is sanitized first so that user-controlled text (SQL statement,
      * identifiers, session-variable values, error messages, ...) cannot embed the column separator
      * (0x1F) or row delimiter (0x1E) and thereby forge, truncate, or misattribute audit rows in the
-     * internal {@code audit_log} table (O07 / CWE-117 log injection). Numeric and boolean columns
+     * internal audit_log table (O07 / CWE-117 log injection). Numeric and boolean columns
      * are appended directly since they can never contain these bytes.
      */
     private static void appendField(StringBuilder logBuffer, String value) {
@@ -241,9 +254,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * Append the final string column of a row: sanitize the value (same reason as {@link
-     * #appendField}) and terminate the row with the line delimiter. Every string column is written
-     * through {@code appendField}/{@code appendLastField} so none can bypass the sanitizer.
+     * Append the final string column of a row: sanitize the value (same reason as
+     * appendField) and terminate the row with the line delimiter. Every string column is written
+     * through appendField/appendLastField so none can bypass the sanitizer.
      */
     private static void appendLastField(StringBuilder logBuffer, String value) {
         logBuffer.append(sanitizeField(value)).append(AUDIT_TABLE_LINE_DELIMITER);
@@ -302,9 +315,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void resetBatch(long currentTime) {
-        this.auditLogBuffer = new StringBuilder();
-        this.lastLoadTimeAuditLog = currentTime;
-        this.auditLogNum = 0;
+        synchronized (this) {
+            this.auditLogBuffer = new StringBuilder();
+            this.lastLoadTimeAuditLog = currentTime;
+            this.auditLogNum = 0;
+        }
     }
 
     private class LoadWorker implements Runnable {
@@ -315,10 +330,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
-                    if (event != null) {
-                        assembleAudit(event);
-                    }
+                    transferNextEvent();
                     // process all audit logs
                     loadIfNecessary(false);
                 } catch (InterruptedException ie) {
@@ -330,5 +342,31 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 }
             }
         }
+    }
+
+    /** Waits for one event until the next flush check and appends it under the batch lock. */
+    private AuditEvent transferNextEvent() throws InterruptedException {
+        AuditEvent event = auditEventQueue.poll(idleWaitMillis(), TimeUnit.MILLISECONDS);
+        if (event != null) {
+            assembleAudit(event);
+        }
+        return event;
+    }
+
+    /**
+     * How long an idle worker may wait for the next event: the poll interval, bounded by the
+     * remaining time until the current NON-EMPTY batch must be flushed
+     * (audit_plugin_max_batch_interval_sec), so a short interval is not stretched to the
+     * poll interval.
+     *
+     * @return the wait in milliseconds, always positive
+     */
+    private synchronized long idleWaitMillis() {
+        if (auditLogNum == 0) {
+            return QUEUE_POLL_INTERVAL_MILLIS;
+        }
+        long flushAt = lastLoadTimeAuditLog + GlobalVariable.auditPluginMaxBatchInternalSec * 1000L;
+        long remaining = flushAt - System.currentTimeMillis();
+        return Math.max(1L, Math.min(QUEUE_POLL_INTERVAL_MILLIS, remaining));
     }
 }

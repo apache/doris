@@ -31,6 +31,14 @@ import java.util.List;
  * interface for udf
  */
 public interface Udf extends ComputeNullable, VolatileExpression {
+
+    /**
+     * The database the user-defined function was created in (null / empty for built-ins).
+     * A frozen reference to a UDF keeps this qualifier: db1.f(k) must not resolve to
+     * db2.f(k) when the replayed SQL runs under another default database.
+     */
+    String getDbName();
+
     @Override
     default boolean nullable() {
         NullableMode mode = getNullableMode();
@@ -50,9 +58,6 @@ public interface Udf extends ComputeNullable, VolatileExpression {
 
     /** The name the udf is called by, without its arguments. */
     String getName();
-
-    /** The database which holds the udf; the name alone is not the identity of a catalog function. */
-    String getDbName();
 
     /** The catalog id of this udf overload: two overloads of one name differ by it. */
     long getFunctionId();

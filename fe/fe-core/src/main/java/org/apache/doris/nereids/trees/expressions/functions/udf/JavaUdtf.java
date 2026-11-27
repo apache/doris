@@ -100,6 +100,11 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     }
 
     @Override
+    public String getDbName() {
+        return dbName;
+    }
+
+    @Override
     public VolatileIdentity getVolatileIdentity() {
         return volatileIdentity;
     }
@@ -141,11 +146,6 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(signature);
-    }
-
-    @Override
-    public String getDbName() {
-        return dbName;
     }
 
     @Override

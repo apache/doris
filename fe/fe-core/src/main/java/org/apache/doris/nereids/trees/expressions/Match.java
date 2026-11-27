@@ -116,6 +116,15 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
     }
 
     @Override
+    public String toDigest() {
+        // BinaryOperator.toDigest() omits the analyzer, but the analyzer decides how the
+        // pattern is tokenized: two matches with different analyzers are different
+        // expressions and must not share a digest (SPM''s value-free match key) either.
+        return left().toDigest() + " " + symbol + " " + right().toDigest()
+                + analyzerSqlFragment();
+    }
+
+    @Override
     public String shapeInfo() {
         return "(" + left().shapeInfo() + " " + symbol + " " + right().shapeInfo()
                 + analyzerSqlFragment() + ")";

@@ -487,7 +487,11 @@ public class CascadesContext implements ScheduleContext {
                 () -> variableSupplier.apply(connectContext.getSessionVariable()));
     }
 
-    /** getAndCacheDisableRules */
+    /**
+     * The rules forbidden in this statement: disable_nereids_rules plus - when the
+     * session carries a non-empty enable_nereids_rules whitelist - every rule outside
+     * that whitelist (see StatementContext#getOrCacheDisableRules).
+     */
     public final BitSet getAndCacheDisableRules() {
         ConnectContext connectContext = getConnectContext();
         StatementContext statementContext = getStatementContext();

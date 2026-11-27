@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.spm.SPMContextFunctions;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -383,7 +384,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitDatabase(Database database, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(database)) {
             return database;
         }
         String res = context.cascadesContext.getConnectContext().getDatabase();
@@ -392,7 +394,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(currentUser)) {
             return currentUser;
         }
         String res = context.cascadesContext.getConnectContext().getCurrentUserIdentity().toString();
@@ -401,7 +404,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCurrentCatalog(CurrentCatalog currentCatalog, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(currentCatalog)) {
             return currentCatalog;
         }
         String res = context.cascadesContext.getConnectContext().getDefaultCatalog();
@@ -410,7 +414,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitUser(User user, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(user)) {
             return user;
         }
         String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
@@ -419,7 +424,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitSessionUser(SessionUser user, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(user)) {
             return user;
         }
         String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
@@ -428,7 +434,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitLastQueryId(LastQueryId queryId, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(queryId)) {
             return queryId;
         }
         String res = "Not Available";
@@ -441,7 +448,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
-        if (!foldContextDependentExpressions) {
+        if (!foldContextDependentExpressions
+                || SPMContextFunctions.shouldPreserve(connectionId)) {
             return connectionId;
         }
         return new BigIntLiteral(context.cascadesContext.getConnectContext().getConnectionId());
@@ -811,6 +819,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitVersion(Version version, ExpressionRewriteContext context) {
+        if (SPMContextFunctions.shouldPreserve(version)) {
+            return version;
+        }
         return new StringLiteral(GlobalVariable.version);
     }
 

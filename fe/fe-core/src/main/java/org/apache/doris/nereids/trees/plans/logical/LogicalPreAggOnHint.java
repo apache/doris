@@ -56,6 +56,11 @@ public class LogicalPreAggOnHint<CHILD_TYPE extends Plan> extends LogicalUnary<C
     }
 
     @Override
+    public String toDigest() {
+        return Plan.spmDigestMode() ? "(" + child().toDigest() + ") /*+PREAGGOPEN*/" : super.toDigest();
+    }
+
+    @Override
     public LogicalPreAggOnHint<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
