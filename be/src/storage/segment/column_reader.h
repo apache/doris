@@ -634,6 +634,7 @@ private:
     Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
+    Status _read_parsed_page(const OrdinalPageIndexIterator& iter, ParsedPage* page);
     Status _read_dict_data();
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 

@@ -256,6 +256,8 @@ public:
 
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
+    virtual bool supports_dictionary_pruning() const { return false; }
+
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_count) const {
         return true;
     }

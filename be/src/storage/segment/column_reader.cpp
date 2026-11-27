@@ -2881,8 +2881,14 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::DictEncodingType::UNKNOWN_DICT_ENCODING &&
             opts.is_predicate_column) {
-            RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
-            _is_all_dict_encoding = _page.is_dict_encoding;
+            // A column can only switch from dictionary to plain encoding. Probe the last
+            // page without loading the dictionary or making the probe page the scan's current page.
+            OrdinalPageIndexIterator last_page_iter;
+            RETURN_IF_ERROR(
+                    _reader->seek_at_or_before(_reader->num_rows() - 1, &last_page_iter, _opts));
+            ParsedPage last_page;
+            RETURN_IF_ERROR(_read_parsed_page(last_page_iter, &last_page));
+            _is_all_dict_encoding = last_page.is_dict_encoding;
             _reader->set_dict_encoding_type(
                     _is_all_dict_encoding ? ColumnReader::DictEncodingType::ALL_DICT_ENCODING
                                           : ColumnReader::DictEncodingType::PARTIAL_DICT_ENCODING);
@@ -3290,6 +3296,21 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    RETURN_IF_ERROR(_read_parsed_page(iter, &_page));
+    if (_page.is_dict_encoding) {
+        if (_dict_decoder == nullptr) {
+            RETURN_IF_ERROR(_read_dict_data());
+            CHECK_NOTNULL(_dict_decoder);
+        }
+        auto* dict_page_decoder = static_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
+        dict_page_decoder->set_dict_decoder(cast_set<uint32_t>(_dict_decoder->count()),
+                                            _dict_word_info.get());
+    }
+    return Status::OK();
+}
+
+Status FileColumnIterator::_read_parsed_page(const OrdinalPageIndexIterator& iter,
+                                             ParsedPage* page) {
     const auto context = _before_page_read(iter.page_index());
     Defer finish_page_read {[&] { _after_page_read(iter.page_index(), iter.page()); }};
     PageHandle handle;
@@ -3330,14 +3351,14 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     RETURN_IF_ERROR(st);
 
     st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                            _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                            _reader->encoding_info(), iter.page(), iter.page_index(), page,
                             decoder_opts);
     if (!st.ok() && context.retry_on_error) {
         st = retry_original(st);
         if (st.ok()) {
             st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                    _reader->encoding_info(), iter.page(), iter.page_index(),
-                                    &_page, decoder_opts);
+                                    _reader->encoding_info(), iter.page(), iter.page_index(), page,
+                                    decoder_opts);
         }
     }
     if (!st.ok()) {
@@ -3347,23 +3368,6 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
         return st;
     }
 
-    // dictionary page is read when the first data page that uses it is read,
-    // this is to optimize the memory usage: when there is no query on one column, we could
-    // release the memory of dictionary page.
-    // note that concurrent iterators for the same column won't repeatedly read dictionary page
-    // because of page cache.
-    if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
-        if (dict_page_decoder->is_dict_encoding()) {
-            if (_dict_decoder == nullptr) {
-                RETURN_IF_ERROR(_read_dict_data());
-                CHECK_NOTNULL(_dict_decoder);
-            }
-
-            dict_page_decoder->set_dict_decoder(cast_set<uint32_t>(_dict_decoder->count()),
-                                                _dict_word_info.get());
-        }
-    }
     return Status::OK();
 }
 
@@ -3412,7 +3416,8 @@ Status FileColumnIterator::get_row_ranges_by_bloom_filter(
 
 Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
                                                   RowRanges* row_ranges) {
-    if (!_is_all_dict_encoding) {
+    // A LIKE-only filter cannot prune with the dictionary. Load it on demand during data reads.
+    if (!_is_all_dict_encoding || !col_predicates->supports_dictionary_pruning()) {
         return Status::OK();
     }
 
