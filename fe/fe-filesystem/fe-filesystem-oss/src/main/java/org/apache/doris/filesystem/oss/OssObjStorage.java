@@ -256,7 +256,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
                     lastModifiedMs(metadata.getLastModified()));
         } catch (OSSException e) {
-            if (isNotFound(e)) {
+            if ("NoSuchKey".equals(e.getErrorCode())) {
                 throw new FileNotFoundException("Object not found: " + remotePath);
             }
             throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);

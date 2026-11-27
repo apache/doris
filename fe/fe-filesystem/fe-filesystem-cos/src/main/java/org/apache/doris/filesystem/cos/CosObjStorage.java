@@ -207,7 +207,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
                     lastModifiedMs(metadata.getLastModified()));
         } catch (CosServiceException e) {
-            if (isNotFound(e)) {
+            if (isNotFound(e) && !"NoSuchBucket".equals(e.getErrorCode())) {
                 throw new FileNotFoundException("Object not found: " + remotePath);
             }
             throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
