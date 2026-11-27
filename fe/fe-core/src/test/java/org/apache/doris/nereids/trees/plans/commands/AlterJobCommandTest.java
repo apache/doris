@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -301,6 +303,34 @@ public class AlterJobCommandTest extends TestWithFeService {
             }
         } finally {
             connectContext.getSessionVariable().setSqlMode(callerMode);
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES})
+    public void testJobMetadataUsesSavedSqlMode(long jobMode) {
+        long defaultMode = VariableMgr.getDefaultSessionVariable().getSqlMode();
+        try {
+            VariableMgr.getDefaultSessionVariable().setSqlMode(jobMode ^ SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+            job.setCurrentDbName("alter_job_priv");
+            job.setCreateUser(connectContext.getCurrentUserIdentity());
+            String secret = jobMode == 0 ? "metadata-mode-secret\\\\" : "metadata-mode-secret\\";
+            job.setExecuteSql(ORIGINAL.replace("'s3.secret_key'='test'", "'s3.secret_key'='" + secret + "'"));
+            Deencapsulation.setField(job, "properties",
+                    Collections.singletonMap("session.sql_mode", Long.toString(jobMode)));
+
+            Assertions.assertAll(
+                    () -> Assertions.assertTrue(job.hasPrivilege(connectContext.getCurrentUserIdentity())),
+                    () -> {
+                        String shownSql = Deencapsulation.invoke(job, "getShowSQL");
+                        Assertions.assertFalse(shownSql.contains("metadata-mode-secret"));
+                        Assertions.assertTrue(shownSql.contains(DatasourcePrintableMap.PASSWORD_MASK));
+                    });
+            Assertions.assertEquals(jobMode == 0, SqlModeHelper.hasNoBackSlashEscapes());
+        } finally {
+            VariableMgr.getDefaultSessionVariable().setSqlMode(defaultMode);
             connectContext.setThreadLocalInfo();
         }
     }

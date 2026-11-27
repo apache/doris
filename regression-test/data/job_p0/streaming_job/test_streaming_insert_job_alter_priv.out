@@ -3,10 +3,10 @@
 PAUSED	{"s3.max_batch_files":"1"}	true	true
 
 -- !owner_altered --
-PAUSED	true
+PAUSED	false
 
 -- !editor_altered --
-PAUSED	true
+PAUSED	false
 
 -- !restored --
 PAUSED	{"s3.max_batch_files":"3"}	false

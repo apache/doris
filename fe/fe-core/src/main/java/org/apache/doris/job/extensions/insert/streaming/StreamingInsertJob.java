@@ -1419,7 +1419,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
         try {
             if (StringUtils.isNotEmpty(getExecuteSql())) {
-                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                LogicalPlan logicalPlan = SqlModeHelper.withSqlMode(getSqlMode(),
+                        () -> new NereidsParser().parseSingle(getExecuteSql()));
                 LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
                 List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
                 Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
@@ -1437,6 +1438,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 log.info("insert sql and target db are both empty");
                 return false;
             }
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("Invalid streaming job session variables", e);
         } finally {
             ctx.cleanup();
         }
@@ -1457,7 +1460,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String generateEncryptedSql() {
         makeConnectContext();
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
-        new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
+        try {
+            SqlModeHelper.withSqlMode(getSqlMode(),
+                    () -> new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString));
+        } catch (AnalysisException e) {
+            throw new IllegalStateException("Invalid streaming job session variables", e);
+        }
         BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
         String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
         setEncryptedSql(encryptSql);
