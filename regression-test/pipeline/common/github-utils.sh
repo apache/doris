@@ -20,12 +20,29 @@ function create_an_issue_comment() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY="$2"
     if [[ -z "${COMMENT_BODY}" ]]; then return 1; fi
-    if [[ -z "${GITHUB_TOKEN}" ]]; then return 1; fi
+    case "${DORIS_CI_REPORT_BACKEND:-github}" in
+        artifact)
+            # Explicit reporting destination, never a fallback for missing credentials.
+            if [[ "${DORIS_CI_REPORT_DIR:-}" != /* || ! -d "${DORIS_CI_REPORT_DIR}" ]]; then
+                echo "ERROR: artifact reporting requires an existing absolute DORIS_CI_REPORT_DIR." >&2
+                return 1
+            fi
+            local report
+            report=$(mktemp "${DORIS_CI_REPORT_DIR}/performance-comment.XXXXXX") || return 1
+            printf '%s\n' "${COMMENT_BODY}" > "${report}" || return 1
+            echo "INFO: saved performance report artifact: ${report}"
+            return 0
+            ;;
+        github) ;;
+        *) echo "ERROR: unknown DORIS_CI_REPORT_BACKEND." >&2; return 1 ;;
+    esac
+    # A GitHub token is only for GitHub comments; business-data STS is unrelated.
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then return 1; fi
 
     local OWNER='apache'
     local REPO='doris'
     COMMENT_BODY=$(echo "${COMMENT_BODY}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    if ret=$(curl -s \
+    if ret=$(curl --fail -s \
         -X POST \
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
