@@ -153,6 +153,8 @@ public final class IcebergRestEncryptionFileIO implements FileIO {
             encrypted = null;
             encryptionMetadata = null;
             kms = null;
+            // The SDK tracker may retain this closed IO after its operation becomes weakly reachable.
+            metadata.set(null);
         }
     }
 }

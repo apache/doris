@@ -113,10 +113,7 @@ final class IcebergEncryptionRead {
             throw failure("BACKEND_CAPABILITY_UNAVAILABLE", "Encrypted Iceberg read capability is not verified "
                     + "by the engine; native encrypted scan execution is not available");
         }
-        // REST metadata support does not establish the native execution acceptance required by this switch.
-        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())) {
-            throw failure("UNSUPPORTED_CATALOG", "Native encrypted Iceberg execution currently requires HMS");
-        }
+        // REST supplies the same standard file-key descriptors; native transport proof applies to both catalogs.
         if (manager == null) {
             manager = table.encryption();
         }

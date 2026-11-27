@@ -58,7 +58,7 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
     def variables = ["enable_file_scanner_v2", "enable_external_table_batch_mode", "num_files_in_batch_mode",
                      "enable_count_push_down_for_external_table", "enable_parquet_file_page_cache",
                      "enable_parquet_filter_by_min_max", "enable_parquet_filter_by_bloom_filter", "enable_profile",
-                     "ignore_iceberg_dangling_delete"]
+                     "ignore_iceberg_dangling_delete", "enable_sql_cache", "enable_hive_sql_cache"]
     def previous = sql "SELECT ${variables.collect { '@@' + it }.join(', ')}"
     def catalogs = []
     try {
@@ -67,13 +67,19 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
         sql "SET enable_profile=true"
         // Batch estimation must not inspect encrypted delete keys before v3 selects a physical scan.
         sql "SET ignore_iceberg_dangling_delete=true"
-        for (String cached : ["false", "true"]) {
-            String catalog = "encryption_native_cache_${cached}"
+        for (def catalogMode : [["hms", "false"], ["hms", "true"], ["rest", "false"], ["rest", "true"]]) {
+            String flavor = catalogMode[0]
+            String cached = catalogMode[1]
+            String catalog = "${flavor}_encryption_native_cache_${cached}"
+            String connection = flavor == "hms" ? "'hive.metastore.uris' = 'thrift://${host}:${hms}',"
+                    : "'iceberg.rest.uri' = 'http://${host}:${fixturePort}/rest', 'rest.auth.type' = 'none',"
             catalogs.add(catalog)
+            sql "SET enable_sql_cache=${cached}"
+            sql "SET enable_hive_sql_cache=${cached}"
             sql "DROP CATALOG IF EXISTS ${catalog}"
             sql """CREATE CATALOG ${catalog} PROPERTIES (
-                'type' = 'iceberg', 'iceberg.catalog.type' = 'hms',
-                'hive.metastore.uris' = 'thrift://${host}:${hms}',
+                'type' = 'iceberg', 'iceberg.catalog.type' = '${flavor}',
+                ${connection}
                 'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
                 'encryption.kms-type' = 'aws', 'kms.endpoint' = 'http://${host}:${fixturePort}/kms/runtime',
                 'client.region' = 'us-east-1',
@@ -127,10 +133,46 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
                 sql "SELECT COUNT(*) FROM ${encrypted}\$files"
                 exception "Iceberg encryption [UNSUPPORTED_METADATA_TABLE]"
             }
+            for (String statement : ["INSERT INTO ${encrypted} VALUES (5)",
+                                     "INSERT OVERWRITE TABLE ${encrypted} SELECT 5"]) {
+                test {
+                    sql statement
+                    exception "Iceberg encryption [WRITE_UNAVAILABLE]"
+                }
+            }
+            if (flavor == "rest") {
+                String reader = "${catalog}_reader"
+                String password = "pme-fixture-password"
+                try {
+                    sql "DROP USER IF EXISTS '${reader}'@'%'"
+                    sql "CREATE USER '${reader}'@'%' IDENTIFIED BY '${password}'"
+                    sql "GRANT SELECT_PRIV ON ${base}.* TO '${reader}'@'%'"
+                    if (isCloudMode()) {
+                        def groups = sql "SHOW CLUSTERS"
+                        assertTrue(!groups.isEmpty())
+                        sql "GRANT USAGE_PRIV ON COMPUTE GROUP `${groups[0][0]}` TO '${reader}'@'%'"
+                    }
+                    // Keep the harness's default internal database outside this reader's required grants.
+                    def jdbc = new java.net.URI(context.config.jdbcUrl.substring("jdbc:".length()))
+                    String readerUrl = "jdbc:${jdbc.scheme}://${jdbc.rawAuthority}/" +
+                            (jdbc.rawQuery == null ? "" : "?${jdbc.rawQuery}")
+                    connect(reader, password, readerUrl) {
+                        quickTest("rest_reader_cache_${cached}", "SELECT id FROM ${encrypted} ORDER BY id")
+                        // Successful catalog/KMS access cannot substitute for the querying user's table grant.
+                        test {
+                            sql "SELECT id FROM ${catalog}.iceberg_encryption_delete_db.native_deletes_7_v3"
+                            exception "denied"
+                        }
+                    }
+                } finally {
+                    sql "DROP USER IF EXISTS '${reader}'@'%'"
+                }
+            }
             // Keep the catalog, endpoint and warmed cache unchanged: revoke only KMS decrypt permission.
             long before = fixture("/kms/access", "GET").decryptRequests as Long
             assertEquals([1, 2, 3, 4], (sql "SELECT id FROM ${encrypted} ORDER BY id").collect { it[0] as Integer })
             assertTrue((fixture("/kms/access", "GET").decryptRequests as Long) > before)
+            long beforeDeniedNotModified = fixture("/rest/access", "GET").encryptedNotModifiedResponses as Long
             try {
                 fixture("/kms/access/deny", "POST")
                 // SQL exposes the KMS service message/status rather than its Java exception type.
@@ -143,6 +185,11 @@ suite("test_iceberg_encryption_native_read_integration", "p0,external,nonConcurr
                         sql "SELECT COUNT(*) FROM ${encrypted}"
                         exception "Fixture decrypt permission revoked (Service: Kms, Status Code: 403"
                     }
+                }
+                if (flavor == "rest") {
+                    // Count only encrypted 304 responses during denial, rather than earlier plaintext cache hits.
+                    assertTrue((fixture("/rest/access", "GET").encryptedNotModifiedResponses as Long)
+                            > beforeDeniedNotModified)
                 }
             } finally {
                 fixture("/kms/access/allow", "POST")

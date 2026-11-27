@@ -27,6 +27,8 @@ under the License.
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]encryption[\\/]DorisKeyMetadata\.java" checks="ImportControl"/>
     <!-- The protected REST factory returns a package-private SDK operations type; all other checks apply. -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]rest[\\/]DorisRESTSessionCatalog\.java" checks="ImportControl"/>
+    <!-- The SDK constructor preserves lazy snapshots; the public builder eagerly loads them. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]DorisReadTableMetadata\.java" checks="ImportControl"/>
     <!-- Excludes test files from having Javadocs for classes and methods -->
     <suppress files="[\\/]jmockit[\\/]" checks=".*" />
     <suppress files="[\\/]test[\\/]" checks="MissingJavadocMethod" />

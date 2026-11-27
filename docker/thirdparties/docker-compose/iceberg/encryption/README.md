@@ -36,7 +36,8 @@ metadata remains readable independently of encrypted data/equality files.
 `test_iceberg_encryption_native_read_integration` additionally requires
 `enableIcebergEncryptionNativeRead=true`, the plugin's deployment-level
 `enable_encryption_read=true`, and authenticated private RPC on capable FE/BE
-nodes. It compares SQL against SDK/Spark history and the eight delete-key modes,
+nodes. It runs both HMS and REST catalogs over the same physical fixtures and
+compares SQL against SDK/Spark history and the eight delete-key modes,
 with cache, COUNT pushdown, batch planning and pruning toggles. Encrypted JNI
 metadata tables remain explicitly unsupported; native position-deletes use the
 protected reader path.
@@ -62,3 +63,15 @@ V3 planning currently remains synchronous, including with the external batch
 setting enabled. The integration matrix checks both setting values without
 claiming encrypted V3 lazy execution; protocol and transport tests cover lazy
 caller rejection and binary payload round trips separately.
+
+The read-only `/rest` fixture exposes its dedicated REST metadata namespace and
+the existing metadata/delete namespaces. Native REST tests therefore consume
+the exact same encrypted data, manifests, position deletes and equality deletes
+as HMS, including independent file keys. They also exercise physical COUNT,
+encrypted-write refusal, enabled SQL-cache settings and warm KMS denial/recovery.
+The fixture does not implement REST mutations or a production authentication service.
+
+Load-table responses include content-based ETags and return HTTP 304 for matching
+`If-None-Match` requests. `GET /rest/access` reports total and encrypted
+conditional-response counts. The native suite requires encrypted HTTP 304
+responses during KMS denial, followed by successful reads after access is restored.
