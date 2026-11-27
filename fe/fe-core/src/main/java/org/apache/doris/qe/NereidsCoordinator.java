@@ -170,11 +170,7 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
-    public void cancel(Status cancelReason) {
-        if (cancelReason.ok()) {
-            throw new RuntimeException("Should use correct cancel reason, but it is " + cancelReason);
-        }
-
+    protected void cancelExecution(Status cancelReason) {
         TUniqueId queryId = coordinatorContext.queryId;
         try {
             Status originQueryStatus = coordinatorContext.updateStatusIfOk(cancelReason);
@@ -607,11 +603,7 @@ public class NereidsCoordinator extends Coordinator {
                     QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
-                    try {
-                        queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
-                    } catch (UserException e) {
-                        throw preferTerminalReason(e);
-                    }
+                    waitForQueueToken(queueToken, coordinatorContext.queryId, queryTimeout);
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {

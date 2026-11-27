@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TStatusCode;
@@ -198,5 +199,24 @@ public class OldCoordinatorTest extends TestWithFeService {
         // A TIMEOUT/KILL that unblocked the queue wait must win over the token's generic message.
         Assertions.assertTrue(coordinator.preferTerminalReason(new UserException("query is cancelled"))
                 .getMessage().contains("retained queue timeout"));
+
+        QueueToken lateToken = Mockito.mock(QueueToken.class);
+        Assertions.assertThrows(UserException.class,
+                () -> coordinator.waitForQueueToken(lateToken, new TUniqueId(1, 1), 1000));
+        Mockito.verify(lateToken).cancel();
+        Mockito.verifyNoMoreInteractions(lateToken);
+        UserException cancelled = Assertions.assertThrows(UserException.class, coordinator::beginInsertCommit);
+        Assertions.assertEquals("retained queue timeout", cancelled.getDetailMessage());
     }
+
+    @Test
+    public void testLateCancellationDoesNotAbortClaimedInsertCommit() throws Exception {
+        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1, 1),
+                new DescriptorTable(), Collections.emptyList(), Collections.emptyList(),
+                "UTC", false, false);
+        coordinator.beginInsertCommit();
+        coordinator.cancel(new Status(TStatusCode.TIMEOUT, "cancel after commit handoff"));
+        Assertions.assertTrue(coordinator.getExecStatus().ok());
+    }
+
 }

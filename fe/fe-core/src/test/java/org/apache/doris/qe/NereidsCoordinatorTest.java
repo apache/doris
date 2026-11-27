@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -154,6 +155,14 @@ public class NereidsCoordinatorTest extends TestWithFeService {
         coordinator.cancel(new Status(TStatusCode.TIMEOUT, "retained queue timeout"));
         Assertions.assertTrue(coordinator.preferTerminalReason(new UserException("query is cancelled"))
                 .getMessage().contains("retained queue timeout"));
+
+        QueueToken lateToken = Mockito.mock(QueueToken.class);
+        Assertions.assertThrows(UserException.class,
+                () -> coordinator.waitForQueueToken(lateToken, new TUniqueId(1, 1), 1000));
+        Mockito.verify(lateToken).cancel();
+        Mockito.verifyNoMoreInteractions(lateToken);
+        UserException cancelled = Assertions.assertThrows(UserException.class, coordinator::beginInsertCommit);
+        Assertions.assertEquals("retained queue timeout", cancelled.getDetailMessage());
     }
 
     @Test
