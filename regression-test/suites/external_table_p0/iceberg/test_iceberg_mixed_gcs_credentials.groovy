@@ -49,7 +49,8 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
             invalidConfigs.put("invalid_${alias}_${value}".toString(), [(key): token])
         }
     }
-    def tableNames = ["forward", "reverse", "same_prefix", "legacy"] + invalidConfigs.keySet()
+    def validTables = ["forward", "reverse", "same_prefix", "legacy", "unrelated_expiry", "overridden_expiry"]
+    def tableNames = validTables + invalidConfigs.keySet()
     def requests = new ConcurrentLinkedQueue<String>()
     def executor = Executors.newFixedThreadPool(4)
     HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
@@ -95,10 +96,18 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
                     credentials = [broad, [prefix: narrow.prefix, config: sdkConfig("wrong-token")],
                             unrelated, narrow]
                 }
+                if (table == "unrelated_expiry" || table == "overridden_expiry") {
+                    broad.config["gcs.oauth2.token-expires-at"] = "4102444800000"
+                    narrow.config["gcs.oauth2.token-expires-at"] = "4102444800000"
+                    unrelated.config["gcs.oauth2.token-expires-at"] = "invalid-expiry"
+                }
                 boolean invalid = invalidConfigs.containsKey(table)
                 Map invalidConfig = invalid ? invalidConfigs.get(table) : [:]
                 if (invalidConfig.containsKey("gcs.oauth2.token")) {
                     invalidConfig = ["gcs.project-id": "fixture-project", "gcs.service.host": endpoint] + invalidConfig
+                }
+                if (table == "overridden_expiry") {
+                    invalidConfig = ["gcs.oauth2.token-expires-at": "invalid-expiry"]
                 }
                 jsonResponse(exchange, 200, ["metadata-location": "gs://fixture-bucket/v1.metadata.json",
                         metadata: metadata, "storage-credentials": invalid ? [] : credentials,
@@ -168,17 +177,21 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
     } as HttpHandler)
     server.start()
     try {
-        sql "DROP CATALOG IF EXISTS test_iceberg_mixed_gcs_credentials"
-        // The catalog starts with Hadoop/HMAC settings; scoped-only gcs.* options arrive on table load.
-        sql """CREATE CATALOG test_iceberg_mixed_gcs_credentials PROPERTIES (
-            'type' = 'iceberg', 'iceberg.catalog.type' = 'rest', 'uri' = '${endpoint}',
-            'warehouse' = 'gs://fixture-bucket/warehouse', 'rest.auth.type' = 'none',
-            'provider' = 'GCP', 'gs.endpoint' = '${endpoint}', 'use_path_style' = 'true',
-            'gs.access_key' = 'fixture-storage-key', 'gs.secret_key' = 'fixture-storage-secret',
-            'iceberg.rest.vended-credentials-enabled' = 'false',
-            'fs.s3a.endpoint.region' = 'us-east-1', 'fs.s3a.connection.ssl.enabled' = 'false',
-            'fs.s3a.retry.limit' = '0', 'fs.s3a.attempts.maximum' = '1', 'fs.s3a.bucket.probe' = '0'
-        )"""
+        def createCatalog = { String catalog, String resolver ->
+            sql "DROP CATALOG IF EXISTS ${catalog}"
+            // The catalog starts with Hadoop/HMAC settings; scoped-only gcs.* options arrive on table load.
+            sql """CREATE CATALOG ${catalog} PROPERTIES (
+                'type' = 'iceberg', 'iceberg.catalog.type' = 'rest', 'uri' = '${endpoint}',
+                'warehouse' = 'gs://fixture-bucket/warehouse', 'rest.auth.type' = 'none',
+                ${resolver}
+                'gcs.project-id' = 'fixture-project', 'provider' = 'GCP', 'gs.endpoint' = '${endpoint}', 'use_path_style' = 'true',
+                'gs.access_key' = 'fixture-storage-key', 'gs.secret_key' = 'fixture-storage-secret',
+                'iceberg.rest.vended-credentials-enabled' = 'false',
+                'fs.s3a.endpoint.region' = 'us-east-1', 'fs.s3a.connection.ssl.enabled' = 'false',
+                'fs.s3a.retry.limit' = '0', 'fs.s3a.attempts.maximum' = '1', 'fs.s3a.bucket.probe' = '0'
+            )"""
+        }
+        createCatalog("test_iceberg_mixed_gcs_credentials", "")
         order_qt_forward "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.forward"
         mode.set("reverse")
         order_qt_reverse "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.reverse"
@@ -186,18 +199,27 @@ suite("test_iceberg_mixed_gcs_credentials", "p0,external") {
         order_qt_duplicate "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.same_prefix"
         mode.set("legacy")
         order_qt_legacy "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.legacy"
-        ["forward", "reverse", "same_prefix", "legacy"].each { String table ->
+        mode.set("unrelated_expiry")
+        order_qt_unrelated_expiry "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.unrelated_expiry"
+        mode.set("overridden_expiry")
+        order_qt_overridden_expiry "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.overridden_expiry"
+        validTables.each { String table ->
             objects.keySet().each { String object ->
                 assertTrue((accepted.get(table + ":" + object)?.get() ?: 0) > 0,
                         "No authenticated read for ${table}:${object}")
             }
         }
         assertEquals(0, rejected.get())
-        invalidConfigs.each { String table, Map<String, String> invalid ->
-            mode.set(table)
-            test {
-                sql "SHOW PARTITIONS FROM test_iceberg_mixed_gcs_credentials.fixture_db.${table}"
-                exception "Invalid vended GCS credential: ${invalid.keySet().first()}"
+        ["", "io-impl", "iceberg.rest.io-impl"].eachWithIndex { String ioKey, int index ->
+            String catalog = "test_iceberg_mixed_gcs_credentials_${index}"
+            createCatalog(catalog, ioKey.isEmpty() ? "" :
+                    "'${ioKey}' = 'org.apache.iceberg.io.ResolvingFileIO',")
+            invalidConfigs.each { String table, Map<String, String> invalid ->
+                mode.set(table)
+                test {
+                    sql "SHOW PARTITIONS FROM ${catalog}.fixture_db.${table}"
+                    exception "Invalid vended GCS credential: ${invalid.keySet().first()}"
+                }
             }
         }
         assertEquals(0, fallbackReads.get(), "Invalid tokens must not read with catalog HMAC credentials")

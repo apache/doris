@@ -523,10 +523,9 @@ public final class IcebergCatalogFactory {
         if (!ResolvingFileIO.class.getName().equals(ioImpl) && !(rest && ioImpl == null)) {
             return;
         }
-        if (rest && IcebergRestMetaStoreProperties.of(catalogProps.getRaw()).isVendedCredentialsEnabled()) {
-            return;
-        }
-        if (NativeGcsResolvingFileIO.hasSdkGcsProperties(options)) {
+        if (rest) {
+            // Generic resolvers must validate table-load credentials, which arrive after catalog initialization.
+            options.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
             return;
         }
         // Effective configuration includes XML resources absent from the raw catalog map. An explicit

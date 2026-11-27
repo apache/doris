@@ -52,9 +52,23 @@ final class IcebergGoogleCredentialValidator {
         // Keep credential type, file and endpoint selection with the SDK, as existing catalogs require.
         for (String field : new String[] {"client_id", "client_email", "private_key", "private_key_id", "project_id",
                 "token_uri", "quota_project_id", "universe_domain"}) {
-            if (credential.containsKey(field) && !(credential.get(field) instanceof String)) {
-                throw new IllegalArgumentException("gcp.auth.credentials-json fields must contain strings");
+            validateStringField(credential, field);
+        }
+        // UserCredentials casts these fields too; accepting a JSON number postpones failure until catalog use.
+        String type = (String) credential.get("type");
+        if ("authorized_user".equals(type) || "external_account_authorized_user".equals(type)) {
+            for (String field : new String[] {"refresh_token", "client_secret"}) {
+                validateStringField(credential, field);
             }
+        }
+        if ("authorized_user".equals(type)) {
+            validateStringField(credential, "account");
+        }
+    }
+
+    private static void validateStringField(GenericJson credential, String field) {
+        if (credential.containsKey(field) && !(credential.get(field) instanceof String)) {
+            throw new IllegalArgumentException("gcp.auth.credentials-json " + field + " must contain a string");
         }
     }
 }

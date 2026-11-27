@@ -64,6 +64,28 @@ class IcebergGoogleCredentialValidationTest {
         Assertions.assertEquals(json, runtimeOptions(raw).get(JSON));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"refresh_token", "client_secret", "account"})
+    void rejectsMalformedAuthorizedUserFieldsAtCreateAlterAndRuntime(String field) {
+        String valid = "{\"type\":\"authorized_user\",\"client_id\":\"fixture-client\","
+                + "\"client_secret\":\"fixture-secret\",\"refresh_token\":\"fixture-refresh\"}";
+        Assertions.assertDoesNotThrow(() -> new IcebergConnectorProvider().validateProperties(properties(valid)));
+        for (String value : List.of("null", "1", "true", "[]", "{}")) {
+            String invalid = valid.substring(0, valid.length() - 1) + ",\"" + field + "\":" + value + "}";
+            for (Runnable action : List.<Runnable>of(
+                    () -> new IcebergConnectorProvider().validateProperties(properties(invalid)),
+                    () -> new IcebergConnectorProvider().validatePropertiesForUpdate(
+                            properties(valid), Map.of(JSON, invalid)),
+                    () -> runtimeOptions(properties(invalid)))) {
+                IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class, action::run);
+                Assertions.assertTrue(failure.getMessage().contains(field), failure.getMessage());
+                Assertions.assertFalse(failure.getMessage().contains("fixture-secret"));
+                Assertions.assertFalse(failure.getMessage().contains("fixture-refresh"));
+                Assertions.assertNull(failure.getCause());
+            }
+        }
+    }
+
     @Test
     void retainsOperatorPathAndAdcConfigurationWithoutOpeningFiles() {
         Map<String, String> raw = properties(null);

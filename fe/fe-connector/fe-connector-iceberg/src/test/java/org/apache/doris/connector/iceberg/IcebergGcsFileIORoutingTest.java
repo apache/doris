@@ -121,6 +121,104 @@ class IcebergGcsFileIORoutingTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void readsOnlyTheSelectedScopeWithInvalidOtherExpiry(boolean invalidGlobal) throws Exception {
+        AtomicInteger reads = new AtomicInteger();
+        AtomicReference<String> expectedToken = new AtomicReference<>("selected-token");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            try (exchange) {
+                if (!("Bearer " + expectedToken.get()).equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                    exchange.sendResponseHeaders(403, -1);
+                    return;
+                }
+                reads.incrementAndGet();
+                exchange.sendResponseHeaders(200, 1);
+                exchange.getResponseBody().write(42);
+            }
+        });
+        server.start();
+        try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
+            original.setConf(new Configuration(false));
+            Map<String, String> globals = new HashMap<>(Map.of("gcs.project-id", "fixture-project",
+                    "gcs.service.host", "http://127.0.0.1:" + server.getAddress().getPort()));
+            if (invalidGlobal) {
+                globals.put("gcs.oauth2.token-expires-at", "invalid-expiry");
+            }
+            original.initialize(globals);
+            original.setCredentials(List.of(StorageCredential.create("gs://another-bucket/",
+                    Map.of("gcs.oauth2.token-expires-at", "invalid-expiry")),
+                    StorageCredential.create("gs://fixture-bucket/", Map.of("gcs.oauth2.token", "selected-token",
+                            "gcs.oauth2.token-expires-at", "4102444800000"))));
+            try (ResolvingFileIO io = SerializationUtil.deserializeFromBytes(
+                    SerializationUtil.serializeToBytes(original))) {
+                Assertions.assertEquals(GCS, io.ioClass(LOCATION).getName());
+                try (SeekableInputStream input = io.newInputFile(LOCATION, 1).newStream()) {
+                    Assertions.assertEquals(42, input.read());
+                }
+                expectedToken.set("replacement-token");
+                io.setCredentials(List.of(StorageCredential.create("gs://fixture-bucket/",
+                        Map.of("gcs.oauth2.token", "replacement-token",
+                                "gcs.oauth2.token-expires-at", "4102444800000"))));
+                try (SeekableInputStream input = io.newInputFile(LOCATION, 1).newStream()) {
+                    Assertions.assertEquals(42, input.read());
+                }
+                try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
+                        SerializationUtil.serializeToBytes(io))) {
+                    try (SeekableInputStream input = restored.newInputFile(LOCATION, 1).newStream()) {
+                        Assertions.assertEquals(42, input.read());
+                    }
+                }
+                io.initialize(Map.of("gcs.project-id", "fixture-project",
+                        "gcs.service.host", "http://127.0.0.1:" + server.getAddress().getPort()));
+                try (SeekableInputStream input = io.newInputFile(LOCATION, 1).newStream()) {
+                    Assertions.assertEquals(42, input.read());
+                }
+                Assertions.assertEquals(4, reads.get());
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "io-impl", "iceberg.rest.io-impl"})
+    void genericResolversRejectTableTokensEvenWithSdkOptions(String alias) {
+        Map<String, String> raw = hmacProperties();
+        raw.put("gcs.project-id", "fixture-project");
+        if (!alias.isEmpty()) {
+            raw.put(alias, ResolvingFileIO.class.getName());
+        }
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = options(raw, storage);
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        IcebergCatalogFactory.preserveHadoopGcsFileIO(IcebergCatalogProperties.of(raw), options, conf);
+        options.put("gcs.oauth2.token", " ");
+        try (ResolvingFileIO io = (ResolvingFileIO) CatalogUtil.loadFileIO(
+                options.get("io-impl"), options, conf)) {
+            IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> io.newInputFile(LOCATION));
+            Assertions.assertEquals("Invalid vended GCS credential: gcs.oauth2.token", failure.getMessage());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gcs.decryption-key", "gcs.encryption-key", "gcs.user-project", "gcs.service.host"})
+    void hmacCannotSilentlyDiscardSdkOnlyOptionsOrSwitchToAdc(String key) {
+        Configuration conf = new Configuration(false);
+        conf.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+            io.setConf(conf);
+            io.initialize(Map.of(key, "fixture-option", "gcs.project-id", "fixture-project"));
+            IllegalArgumentException failure = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> io.newInputFile(LOCATION));
+            Assertions.assertEquals("GCS option requires an explicit SDK storage identity: " + key,
+                    failure.getMessage());
+        }
+    }
+
     @Test
     void gcsEncryptionKeysAreDeclaredSensitive() {
         List<String> secrets = new IcebergConnectorProvider().securitySurface().sensitiveKeys();
@@ -147,16 +245,15 @@ class IcebergGcsFileIORoutingTest {
         Map<String, String> sdk = new HashMap<>(Map.of("io-impl", ResolvingFileIO.class.getName(),
                 "gcs.decryption-key", KEY));
         IcebergCatalogFactory.preserveHadoopGcsFileIO(IcebergCatalogProperties.of(raw), sdk, conf);
-        Assertions.assertEquals(ResolvingFileIO.class.getName(), sdk.get("io-impl"));
+        Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), sdk.get("io-impl"));
         sdk.remove("gcs.decryption-key");
         IcebergCatalogFactory.preserveHadoopGcsFileIO(IcebergCatalogProperties.of(raw), sdk,
                 new Configuration(false));
-        Assertions.assertEquals(ResolvingFileIO.class.getName(), sdk.get("io-impl"));
+        Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), sdk.get("io-impl"));
 
         raw.put("iceberg.rest.vended-credentials-enabled", " true ");
         IcebergCatalogFactory.preserveHadoopGcsFileIO(IcebergCatalogProperties.of(raw), sdk, conf);
-        Assertions.assertEquals("rest".equals(flavor) ? ResolvingFileIO.class.getName()
-                : NativeGcsResolvingFileIO.class.getName(), sdk.get("io-impl"));
+        Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), sdk.get("io-impl"));
     }
 
     @ParameterizedTest
@@ -183,6 +280,7 @@ class IcebergGcsFileIORoutingTest {
         try {
             Map<String, String> raw = hmacProperties();
             raw.put("gs.endpoint", "http://127.0.0.1:" + server.getAddress().getPort());
+            raw.put("gcs.project-id", "fixture-project");
             raw.put("iceberg.rest.security.type", "google");
             raw.put("gcp.auth.credentials-json", "{\"type\":\"service_account\"}");
             if (!alias.isEmpty()) {
@@ -222,6 +320,7 @@ class IcebergGcsFileIORoutingTest {
     void preservesSdkOptionsAtInitialAndSerializedRuntimeSelection(String key) throws Exception {
         Map<String, String> raw = hmacProperties();
         raw.put(key, "fixture");
+        raw.put("gcs.oauth2.token", "fixture-token");
         Map<String, String> properties = options(raw, GcsFileSystemProperties.of(raw));
         try (ResolvingFileIO io = (ResolvingFileIO) CatalogUtil.loadFileIO(
                 properties.get(CatalogProperties.FILE_IO_IMPL), properties, new Configuration(false))) {
@@ -241,13 +340,27 @@ class IcebergGcsFileIORoutingTest {
         }
     }
 
+    @Test
+    void keepsSdkDefaultWhenNoHadoopIdentityIsConfigured() {
+        try (NativeGcsResolvingFileIO io = new NativeGcsResolvingFileIO()) {
+            io.setConf(new Configuration(false));
+            io.initialize(Collections.emptyMap());
+            Assertions.assertEquals(GCS, io.ioClass(LOCATION).getName());
+            Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO",
+                    io.ioClass("s3://fixture-bucket/object").getName());
+            Assertions.assertEquals(HADOOP, io.ioClass("file:///fixture").getName());
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"gs://fixture-bucket/", "gs://another-bucket/", "s3://fixture-bucket/"})
     void honorsOnlyMatchingStorageCredentialOptions(String prefix) throws Exception {
         try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
-            original.setConf(new Configuration(false));
+            Configuration conf = new Configuration(false);
+            conf.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+            original.setConf(conf);
             original.initialize(Map.of());
-            original.setCredentials(List.of(StorageCredential.create(prefix, Map.of("gcs.decryption-key", KEY))));
+            original.setCredentials(List.of(StorageCredential.create(prefix, Map.of("gcs.oauth2.token", "fixture-token"))));
             try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
                     SerializationUtil.serializeToBytes(original))) {
                 Assertions.assertEquals(LOCATION.startsWith(prefix) ? GCS : HADOOP,
@@ -269,12 +382,14 @@ class IcebergGcsFileIORoutingTest {
                     List.of(StorageCredential.create(narrow.prefix(), broad.config()), narrow))) {
                 for (boolean globalSdk : List.of(false, true)) {
                     try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
-                        original.setConf(new Configuration(false));
+                        Configuration conf = new Configuration(false);
+                        conf.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+                        original.setConf(conf);
                         original.initialize(globalSdk ? Map.of("gcs.project-id", "fixture-project") : Map.of());
                         original.setCredentials(credentials);
                         try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
                                 SerializationUtil.serializeToBytes(original))) {
-                            Assertions.assertEquals(globalSdk || narrowSdk ? GCS : HADOOP,
+                            Assertions.assertEquals(narrowSdk ? GCS : HADOOP,
                                     restored.ioClass(location).getName());
                         }
                     }
