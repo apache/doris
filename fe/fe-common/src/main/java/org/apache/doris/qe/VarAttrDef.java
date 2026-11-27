@@ -47,10 +47,10 @@ public class VarAttrDef {
 
         int flag() default 0;
 
-        // TODO(zhaochun): min and max is not used.
-        String minValue() default "0";
+        // Empty bounds preserve variables with documented negative sentinels.
+        String minValue() default "";
 
-        String maxValue() default "0";
+        String maxValue() default "";
 
         // the function name that check the VarAttr before setting it to sessionVariable
         // only support check function: 0 argument and 0 return value, if an error occurs, throw an exception.

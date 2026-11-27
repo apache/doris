@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_timeout_fallback") {
+    // Seed the constant-query cache to reproduce a query left by an earlier suite.
+    sql "set enable_sql_cache=true"
+    sql "select 1"
+    // A cache hit skips planning and cannot test the planner's timeout check.
+    sql "set enable_sql_cache=false"
     sql "set enable_nereids_timeout=true"
     sql "set nereids_timeout_second=-1"
 

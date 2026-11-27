@@ -42,6 +42,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -137,6 +139,40 @@ public class VariableMgrTest extends TestWithFeService {
         // Set global variable
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(null, setVar));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {9223372036854776L, Long.MAX_VALUE})
+    public void testAuditIntervalRejectsMillisecondOverflow(long seconds) throws Exception {
+        // The first value is one second above the largest exact millisecond conversion.
+        // Long.MAX_VALUE seconds wraps to -1000 ms and would flush every pending record.
+        long original = GlobalVariable.auditPluginMaxBatchInternalSec;
+        try {
+            DdlException error = Assertions.assertThrows(DdlException.class, () -> setAuditInterval(seconds));
+            Assertions.assertTrue(error.getMessage().contains(GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC));
+            Assertions.assertEquals(original, GlobalVariable.auditPluginMaxBatchInternalSec);
+        } finally {
+            setAuditInterval(original);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 9223372036854775L})
+    public void testAuditIntervalAcceptsValidBoundaries(long seconds) throws Exception {
+        // Preserve zero's immediate-flush meaning and accept the last nonoverflowing second.
+        // Only SET GLOBAL is needed; no audit table or loaded rows are required.
+        long original = GlobalVariable.auditPluginMaxBatchInternalSec;
+        try {
+            setAuditInterval(seconds);
+            Assertions.assertEquals(seconds, GlobalVariable.auditPluginMaxBatchInternalSec);
+        } finally {
+            setAuditInterval(original);
+        }
+    }
+
+    private void setAuditInterval(long seconds) throws DdlException {
+        VariableMgr.setVar(connectContext.getSessionVariable(), new SetVar(SetType.GLOBAL,
+                GlobalVariable.AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, new StringLiteral(Long.toString(seconds))));
     }
 
     @Test

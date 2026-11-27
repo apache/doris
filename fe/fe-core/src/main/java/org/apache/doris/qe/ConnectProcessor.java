@@ -43,6 +43,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
@@ -567,14 +568,6 @@ public abstract class ConnectProcessor {
             ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
         }
 
-        if (request.isSetSessionVariables()) {
-            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
-        }
-
-        if (request.isSetUserVariables()) {
-            ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
-        }
-
         if (request.isSetConnectAttributes()) {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
@@ -586,6 +579,18 @@ public abstract class ConnectProcessor {
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
+            // Validate forwarded values inside the error boundary, before creating the executor.
+            if (request.isSetSessionVariables()) {
+                try {
+                    ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
+                } catch (IllegalArgumentException e) {
+                    throw new DdlException(e.getMessage(), ErrorCode.ERR_WRONG_VALUE_FOR_VAR);
+                }
+            }
+            // Decode user values after restoring session types such as DECIMAL256.
+            if (request.isSetUserVariables()) {
+                ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
+            }
             MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
@@ -654,6 +659,8 @@ public abstract class ConnectProcessor {
             } else {
                 executor.queryRetry(queryId);
             }
+        } catch (DdlException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
