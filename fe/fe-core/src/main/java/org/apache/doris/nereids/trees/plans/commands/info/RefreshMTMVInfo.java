@@ -89,8 +89,8 @@ public class RefreshMTMVInfo {
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
-                mvName.getTbl(), PrivPredicate.CREATE)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
+                mvName.getTbl(), PrivPredicate.ALTER_CREATE)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("ALTER",
                     ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
