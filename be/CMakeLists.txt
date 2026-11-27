@@ -120,6 +120,13 @@ message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 message(STATUS "ENABLE_UNITY_BUILD is ${ENABLE_UNITY_BUILD}")
 message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
+# Enable the AVX512 instruction set on x86_64.
+# Defaults to OFF so that the produced binary still runs on AVX2-only machines;
+# enabling it makes AVX-512 a hard requirement at run time.
+# Enable with -DUSE_AVX512=ON.
+set(USE_AVX512 OFF CACHE BOOL "Enable AVX512 instruction set for x86_64")
+message(STATUS "USE_AVX512 is ${USE_AVX512}")
+
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
@@ -517,6 +524,19 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
         add_compile_options(-mavx2)
         add_definitions(-DUSE_AVX2)
         add_definitions(-DLIBDIVIDE_AVX2)
+    endif()
+    if (USE_AVX512)
+        # -mavx512f also defines __AVX2__, so USE_AVX2=0 cannot be honored
+        # together with USE_AVX512=ON.
+        if (NOT USE_AVX2)
+            message(FATAL_ERROR "USE_AVX512 requires USE_AVX2=ON: -mavx512f implies AVX2.")
+        endif()
+        # Doris code only needs F (512-bit integer), BW (byte/word ops) and
+        # VL (EVEX-encoded 256-bit ops). DQ is required as well because these
+        # flags are also inherited by contrib/faiss, whose __AVX512F__ code
+        # paths use DQ intrinsics such as _mm512_inserti32x8.
+        add_compile_options(-mavx512f -mavx512bw -mavx512vl -mavx512dq)
+        add_definitions(-DUSE_AVX512)
     endif()
 endif()
 

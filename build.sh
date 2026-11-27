@@ -82,6 +82,8 @@ Usage: $0 <options>
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    USE_AVX512                  Build Backend with the AVX512 instruction set (F/BW/VL/DQ). Implies AVX2.
+                                The produced binary requires an AVX512 capable CPU. Default is OFF.
     ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
@@ -117,6 +119,7 @@ Usage: $0 <options>
     COMPILE_BENCH_TRACE=ON $0 --compile-bench   benchmark and also collect clang -ftime-trace data
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
+    USE_AVX512=ON $0 --be                   build Backend with AVX512 instructions (requires an AVX512 CPU).
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
     ARM_MARCH=armv8-a+crc+simd $0 --be      build Backend with specified ARM architecture instruction set
     $0 --be --disable-dynamic-arch          build Backend with DYNAMIC_ARCH disabled in OpenBLAS
@@ -574,6 +577,9 @@ fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
+if [[ -z "${USE_AVX512}" ]]; then
+    USE_AVX512='OFF'
+fi
 if [[ -z "${ARM_MARCH}" ]]; then
     ARM_MARCH='armv8-a+crc'
 fi
@@ -763,6 +769,7 @@ echo "Get params:
     CLEAN                               -- ${CLEAN}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
+    USE_AVX512                          -- ${USE_AVX512}
     USE_LIBCPP                          -- ${USE_LIBCPP}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     DORIS_DEV_DEBUG_INFO                -- ${DORIS_DEV_DEBUG_INFO}
@@ -1028,6 +1035,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_AVX512="${USE_AVX512}" \
         -DARM_MARCH="${ARM_MARCH}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
