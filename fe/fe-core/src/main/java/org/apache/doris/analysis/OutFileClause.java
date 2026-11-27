@@ -34,6 +34,7 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -53,6 +54,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
@@ -127,6 +129,8 @@ public class OutFileClause {
     // Upper bound on the zero-padding width for the per-file index in output file
     // names. _file_idx on the BE is a 32-bit int, so 10 digits covers its full range.
     private static final int MAX_FILE_NAME_PADDING = 10;
+
+    private static final Pattern FILE_SUFFIX = Pattern.compile("[\\p{L}\\p{N}._+-]*");
 
     private String filePath;
     private Map<String, String> properties;
@@ -484,11 +488,7 @@ public class OutFileClause {
         }
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
-            if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed."
-                        + " To enable this feature, you need to add `enable_outfile_to_local=true`"
-                        + " in fe.conf and restart FE");
-            }
+            BrokerDesc.checkLocalExport(ConnectContext.get());
             isLocalOutput = true;
             filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
         } else {
@@ -553,6 +553,10 @@ public class OutFileClause {
 
         if (copiedProps.containsKey(PROP_FILE_SUFFIX)) {
             fileSuffix = copiedProps.get(PROP_FILE_SUFFIX);
+            if (!FILE_SUFFIX.matcher(fileSuffix).matches()) {
+                throw new AnalysisException("file_suffix may only contain letters, digits, dots, underscores,"
+                        + " plus signs and hyphens");
+            }
             copiedProps.remove(PROP_FILE_SUFFIX);
         }
 
@@ -588,6 +592,9 @@ public class OutFileClause {
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
             getOrcProperties(copiedProps);
         }
+        if (isLocalOutput && !copiedProps.isEmpty()) {
+            throw new AnalysisException("Unsupported local OUTFILE properties: " + copiedProps.keySet());
+        }
     }
 
     /**
@@ -607,7 +614,7 @@ public class OutFileClause {
         String brokerName = copiedProps.get(PROP_BROKER_NAME);
         brokerDesc = new BrokerDesc(brokerName, copiedProps);
         try {
-            filePath = brokerDesc.getFileLocationForExport(filePath);
+            filePath = brokerDesc.getFileLocationForExport(filePath, ConnectContext.get());
         } catch (RuntimeException e) {
             throw new AnalysisException("Invalid outfile path: " + filePath + ", " + e.getMessage(), e);
         }
