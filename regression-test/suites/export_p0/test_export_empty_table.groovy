@@ -15,54 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_export_empty_table", "p0") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
+    def helper = new ExportTestHelper(delegate)
 
     def table_export_name = "test_export_empty_table"
-    def outfile_path_prefix = """/tmp/test_export_empty_table"""
-    def local_tvf_prefix = "tmp/test_export_empty_table"
+    def outfile_path_prefix = "regression/test_export_empty_table"
 
     // create table
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -89,15 +52,6 @@ suite("test_export_empty_table", "p0") {
    
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
-    def machine_user_name = "root"
-    def check_path_exists = { dir_path ->
-        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
-    def delete_files = { dir_path ->
-        deleteRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
     def waiting_export = { export_label ->
         while (true) {
             def res = sql """ show export where label = "${export_label}" """
@@ -117,81 +71,40 @@ suite("test_export_empty_table", "p0") {
     def outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     def label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=","
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label)
         
-        // use local() tvf to check
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            test {
-                sql """
-                    select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ",");
-                """
-
-                // LOCAL is rejected before checking exported files.
-                exception "LOCAL TVF is disabled"
-            }
-        }
+        assertTrue(helper.keys("${outFilePath}/").isEmpty())
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
-
 
     // 2. test parquet
     uuid = UUID.randomUUID().toString()
     outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "parquet"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label)
         
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            test {
-                sql """
-                    select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ",");
-                """
-
-                // LOCAL is rejected before checking exported files.
-                exception "LOCAL TVF is disabled"
-            }
-         }
+        assertTrue(helper.keys("${outFilePath}/").isEmpty())
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 3. test orc
@@ -199,39 +112,19 @@ suite("test_export_empty_table", "p0") {
     outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "orc"
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label)
         
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            test {
-                sql """
-                    select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ",");
-                """
-
-                // LOCAL is rejected before checking exported files.
-                exception "LOCAL TVF is disabled"
-            }
-        }
+        assertTrue(helper.keys("${outFilePath}/").isEmpty())
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     // 4. test csv_with_names
@@ -239,82 +132,41 @@ suite("test_export_empty_table", "p0") {
     outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv_with_names",
                 "column_separator"=","
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label)
         
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            test {
-                sql """
-                    select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ",");
-                """
-
-                // LOCAL is rejected before checking exported files.
-                exception "LOCAL TVF is disabled"
-            }
-        }
+        assertTrue(helper.keys("${outFilePath}/").isEmpty())
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
-
 
     // 5. test csv_with_names_and_types
     uuid = UUID.randomUUID().toString()
     outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv_with_names_and_types",
                 "column_separator"=","
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export.call(label)
         
-        // use local() tvf to reload the data
-        def ipList = [:]
-        def portList = [:]
-        getBackendIpHeartbeatPort(ipList, portList)
-        ipList.each { beid, ip ->
-            test {
-                sql """
-                    select * from local(
-                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
-                    "backend_id" = "${beid}",
-                    "format" = "csv",
-                    "column_separator" = ",");
-                """
-
-                // LOCAL is rejected before checking exported files.
-                exception "LOCAL TVF is disabled"
-            }
-        }
+        assertTrue(helper.keys("${outFilePath}/").isEmpty())
     } finally {
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
 
     try_sql("DROP TABLE IF EXISTS ${table_export_name}")

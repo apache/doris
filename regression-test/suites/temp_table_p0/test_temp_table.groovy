@@ -386,11 +386,11 @@ suite('test_temp_table', 'p0') {
 
     try {
         sql """
-            EXPORT TABLE t_test_temp_table2 TO "file://${outFilePath}"
+            EXPORT TABLE t_test_temp_table2 TO "hdfs://nn${outFilePath}"
             PROPERTIES (
                     "columns" = "id,name,add_date",
                     "format" = "parquet"
-            )
+            ) WITH HDFS ("hadoop.username"="doris")
         """
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {

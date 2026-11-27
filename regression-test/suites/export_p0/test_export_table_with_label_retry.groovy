@@ -15,55 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_export_table_with_label_retry", "p0") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
+    def helper = new ExportTestHelper(delegate)
 
     def table_export_name = "test_export_table_with_label_retry"
-    def table_load_name = "test_load_table_with_label_retry"
-    def wrong_outfile_path_prefix = """mnt/disk2/ftw/projects/doris/output/be"""
-    def outfile_path_prefix = """/tmp/test_export_table_with_label_retry"""
-    def local_tvf_prefix = "tmp/test_export_table_with_label_retry"
+    def outfile_path_prefix = "regression/test_export_table_with_label_retry"
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -105,15 +67,6 @@ suite("test_export_table_with_label_retry", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
-    def machine_user_name = "root"
-    def check_path_exists = { dir_path ->
-        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
-    def delete_files = { dir_path ->
-        deleteRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
     def waiting_export_expect_failed = { export_label ->
         while (true) {
             def res = sql """ show export where label = "${export_label}" """
@@ -130,7 +83,7 @@ suite("test_export_table_with_label_retry", "p0") {
 
     def waiting_export_expect_success = { export_label ->
         while (true) {
-            def res = sql """ show export where label = "${export_label}" """
+            def res = sql """ show export where label = "${export_label}" order by JobId """
             assert res.size() == 2
             logger.info("export state: " + res[1][2])
             if (res[1][2] == "FINISHED") {
@@ -144,45 +97,37 @@ suite("test_export_table_with_label_retry", "p0") {
     }
 
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
-    def wrongFilePath = "${wrong_outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+    def outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
     def label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
-        // exec wrong export
+        // The first job is cancelled when its column list is analyzed.
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${wrongFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
+                "columns" = "unknown_export_column",
                 "format" = "csv",
                 "column_separator"=","
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
         waiting_export_expect_failed.call(label)
 
         def res = sql_return_maparray(""" show export where label = "${label}" """)
-        assertTrue(res[0].get("ErrorMsg").toString().contains("Unknown broker name(null)"))
+        assertTrue(res[0].get("ErrorMsg").toString().contains("Unknown column"))
 
         // exec right export with same label again
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "${helper.uri(outFilePath)}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=","
-            );
+            ) WITH S3 (${helper.storageProperties()});
         """
 
         waiting_export_expect_success.call(label)
-
-        // LOCAL TVF readback is disabled; export completion is checked above.
-
-
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles("${outFilePath}/")
     }
     try_sql("DROP TABLE IF EXISTS ${table_export_name}")
 }

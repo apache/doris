@@ -15,56 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_outfile_parquet") {
 
-    def outFile = "/tmp"
-    def urlHost = ""
-    def parquetFiles = ""
-
-    def dbName = "test_outfile_parquet"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE $dbName"
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
+    def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "outfile_parquet_test"
     def tableName2 = "outfile_parquet_test2"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_parquet_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile_parquet/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -106,24 +66,13 @@ suite("test_outfile_parquet") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        def result = sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/" FORMAT AS PARQUET;
+        sql """
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "${helper.uri(prefix)}" FORMAT AS PARQUET
+            PROPERTIES (${helper.storageProperties()});
         """
 
-        def url = result[0][3]
-        urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        parquetFiles = "${outFile}${filePrifix}*.parquet"
-        scpFiles ("root", urlHost, parquetFiles, outFilePath)
-
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
 
         sql """ DROP TABLE IF EXISTS ${tableName2} """
         sql """
@@ -150,34 +99,17 @@ suite("test_outfile_parquet") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        StringBuilder commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl -v --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
-        commandBuilder.append(""" -H format:parquet -T """ + files[0].getAbsolutePath() + """ http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName2 + "/_stream_load")
-        command = commandBuilder.toString()
-        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        streamLoad {
+            db dbName
+            table tableName2
+            set "format", "parquet"
+            file files[0].absolutePath
         }
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
-        logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
         qt_select_default """ SELECT * FROM ${tableName2} t ORDER BY user_id; """
-    } catch (Exception e) {
-        logger.info("export exception: ${e}")
-    }finally {
+    } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS ${tableName2}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-
-        def cmd = "rm -rf ${parquetFiles}"
-        sshExec ("root", urlHost, cmd)
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 }

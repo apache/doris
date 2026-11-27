@@ -15,57 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 suite("test_export_external_table", "p0,external") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-    // check whether the FE config 'enable_outfile_to_local' is true
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
-
-    def machine_user_name = "root"
-    def check_path_exists = { dir_path ->
-        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-    def delete_files = { dir_path ->
-        deleteRemotePathOnAllBE(machine_user_name, dir_path)
-    }
     def waiting_export = { ctlName, dbName, export_label ->
         while (true) {
             def res = sql """ show export from ${ctlName}.${dbName} where label = "${export_label}" """
@@ -82,9 +38,7 @@ suite("test_export_external_table", "p0,external") {
 
     // this table name must be `test1`, because this is an external table.
     def table_export_name = "test1"
-    def table_load_name = "test_load_external__basic"
-    def outfile_path_prefix = """/tmp/test_export_external_table"""
-    def local_tvf_prefix = "tmp/test_export_external_table"
+    def outfile_path_prefix = "regression/test_export_external_table"
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -93,32 +47,11 @@ suite("test_export_external_table", "p0,external") {
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def helper = new ExportTestHelper(delegate)
         String catalog_name = "test_export_external_table";
         String internal_db_name = "regression_test_external_table_p0_export";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-
-        def create_load_table = {table_name ->
-            sql """ DROP TABLE IF EXISTS internal.${internal_db_name}.${table_name} """
-            sql """
-            CREATE TABLE IF NOT EXISTS internal.${internal_db_name}.${table_name} (
-                    k1 boolean,
-                    k2 char(100),
-                    k3 varchar(128),
-                    k4 date,
-                    k5 float,
-                    k6 tinyint,
-                    k7 smallint,
-                    k8 int,
-                    k9 bigint,
-                    k10 double,
-                    k11 datetime,
-                    k12 decimal(10, 3)
-                )
-                DISTRIBUTED BY HASH(k8)
-                PROPERTIES("replication_num" = "1");
-            """
-        }
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -143,21 +76,18 @@ suite("test_export_external_table", "p0,external") {
 
         // 1. basic test
         def uuid = UUID.randomUUID().toString()
-        def outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}" 
+        def outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         def label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 100
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv",
                     "column_separator"=","
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -165,31 +95,25 @@ suite("test_export_external_table", "p0,external") {
             logger.info("get export res ${export_res}")
             def outfileinfo = export_res[0][11];
             logger.info("get export outfile info ${outfileinfo}")
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
 
         // 2. export external table under internal catalog
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}" 
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-            
             sql """ switch internal """
             // exec export
             sql """
                 EXPORT TABLE ${catalog_name}.${ex_db_name}.${table_export_name} where k8 < 100
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv",
                     "column_separator"=","
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
 
             waiting_export.call(catalog_name, ex_db_name, label)
@@ -199,31 +123,25 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get external export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
 
         sql """ switch ${catalog_name} """
         // 3. csv_with_names
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 30
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv_with_names",
                     "column_separator"=","
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -232,31 +150,24 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get csv_with_names export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
-
 
         // 4. csv_with_names_and_types
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 30
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv_with_names_and_types",
                     "column_separator"=","
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -265,30 +176,23 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get csv_with_names_and_types export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
-
 
         // 5. orc
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 30
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "orc"
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -297,29 +201,23 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get orc export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
 
         // 6. parquet
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 30
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "parquet"
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -328,31 +226,25 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get parquet export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
 
         // 7. test columns property
         uuid = UUID.randomUUID().toString()
-        outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+        outFilePath = "${outfile_path_prefix}/${table_export_name}_${uuid}"
         label = "label_${uuid}"
         try {
-            // check export path
-            check_path_exists.call("${outFilePath}")
-
             // exec export
             sql """
                 EXPORT TABLE ${table_export_name} where k8 < 30
-                TO "file://${outFilePath}/"
+                TO "${helper.uri(outFilePath)}/"
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "csv_with_names",
                     "columns" = "k8, k1, k5, k3, k7",
                     "column_separator"=","
-                );
+                ) WITH S3 (${helper.storageProperties()});
             """
             waiting_export.call(catalog_name, ex_db_name, label)
 
@@ -361,11 +253,8 @@ suite("test_export_external_table", "p0,external") {
             def outfileinfo = export_res[0][11];
             logger.info("get columns property export outfile info ${outfileinfo}")
 
-            // LOCAL TVF readback is disabled; export completion is checked above.
-
-        
         } finally {
-            delete_files.call("${outFilePath}")
+            helper.deleteFiles("${outFilePath}/")
         }
     }
 }

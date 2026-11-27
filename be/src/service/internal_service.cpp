@@ -774,31 +774,7 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         std::stringstream ss;
         ss << file_options.file_path << file_options.success_file_name;
         std::string file_name = ss.str();
-        if (result_file_sink.storage_backend_type == TStorageBackendType::LOCAL) {
-            // For local file writer, the file_path is a local dir.
-            // Here we do a simple security verification by checking whether the file exists.
-            // Because the file path is currently arbitrarily specified by the user,
-            // Doris is not responsible for ensuring the correctness of the path.
-            // This is just to prevent overwriting the existing file.
-            bool exists = true;
-            st = io::global_local_filesystem()->exists(file_name, &exists);
-            if (!st.ok()) {
-                LOG(WARNING) << "outfile write success filefailed, errmsg = " << st;
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-            if (exists) {
-                st = Status::InternalError("File already exists: {}", file_name);
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "outfile write success file failed, errmsg = " << st;
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-        }
-
-        auto file_type_res =
-                FileFactory::convert_storage_type(result_file_sink.storage_backend_type);
+        auto file_type_res = FileFactory::outfile_file_type(result_file_sink.storage_backend_type);
         if (!file_type_res.has_value()) [[unlikely]] {
             st = std::move(file_type_res).error();
             st.to_protobuf(result->mutable_status());

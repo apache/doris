@@ -3741,7 +3741,7 @@ class PaloClient(object):
         broker is BrokerInfo class
         property: dict, for csv, eg.{"column_separator": ",", "line_delimiter": "\n", "max_file_size": "100MB"}
         query_stmt
-        INTO OUTFILE "file:///path/to/file_prefix"
+        INTO OUTFILE "hdfs://namenode/path/to/file_prefix"
         FORMAT AS CSV|PARQUET
         PROPERTIES
         (broker_propterties & other_properties);

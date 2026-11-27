@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.ExportJob;
@@ -118,9 +120,38 @@ public class ExportCommandTest extends TestWithFeService {
         String brokerPath = "oss://export-bucket/nested/result_";
         Assertions.assertEquals(brokerPath, generateExportJob(brokerPath,
                 new BrokerDesc("broker", StorageType.BROKER, ImmutableMap.of())).getExportPath());
-        String localPath = "file:///tmp/export_test_";
-        Assertions.assertEquals(localPath, generateExportJob(localPath,
-                new BrokerDesc("local", StorageType.LOCAL, null)).getExportPath());
+    }
+
+    @Test
+    public void rejectsLocalExportWithLegacyOptionEnabled() {
+        boolean previous = Config.enable_outfile_to_local;
+        try {
+            Config.enable_outfile_to_local = true;
+            ExportCommand command = new ExportCommand(ImmutableList.of("T1"), ImmutableList.of(), Optional.empty(),
+                    "file:///tmp/export_", ImmutableMap.of(), Optional.empty());
+            Exception error = Assertions.assertThrows(Exception.class, () -> command.run(connectContext, null));
+            Assertions.assertTrue(error.getMessage().contains("requires a remote storage destination"),
+                    error.getMessage());
+            BrokerDesc local = new BrokerDesc("local", StorageType.LOCAL, null);
+            AnalysisException explicit = Assertions.assertThrows(AnalysisException.class,
+                    () -> local.getFileLocationForExport("results"));
+            Assertions.assertTrue(explicit.getMessage().contains("local disk"), explicit.getMessage());
+        } finally {
+            Config.enable_outfile_to_local = previous;
+        }
+    }
+
+    @Test
+    public void rejectsMismatchedStorageBeforeExport() {
+        BrokerDesc hdfs = new BrokerDesc(null, ImmutableMap.of("hadoop.username", "doris"));
+        AnalysisException missingScheme = Assertions.assertThrows(AnalysisException.class,
+                () -> hdfs.getFileLocationForExport("/results/output_"));
+        Assertions.assertTrue(missingScheme.getMessage().contains("remote Hadoop filesystem URI"));
+
+        BrokerDesc broker = new BrokerDesc("S3", StorageType.S3, ImmutableMap.of("hadoop.username", "doris"));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> broker.getFileLocationForExport("https://bucket.example/export/"));
+        Assertions.assertTrue(error.getMessage().contains("Export storage properties must match"));
     }
 
     private Map<String, String> s3Properties(String endpoint, String region) {
