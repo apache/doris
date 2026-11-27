@@ -216,6 +216,7 @@ protected:
                                                                TAggregationType::REPLACE});
             delete_sign.__set_visible(false);
             delete_sign.__set_default_value("0");
+            delete_sign.__set_col_unique_id(context->base_request.tablet_schema.columns.size());
             context->base_request.tablet_schema.columns.push_back(std::move(delete_sign));
         }
         Status status = engine_ref->create_tablet(context->base_request, &create_tablet_profile);
@@ -235,9 +236,10 @@ protected:
             auto before_column = testutil::create_tablet_column(
                     {changelog::build_before_column_name("v1"), TPrimitiveType::INT, false, true,
                      TAggregationType::NONE, true});
-            context->changelog_request.tablet_schema.columns.insert(
-                    context->changelog_request.tablet_schema.columns.begin() + 2,
-                    std::move(before_column));
+            auto& columns = context->changelog_request.tablet_schema.columns;
+            // The system columns already have UIDs; inserting BEFORE must preserve them.
+            before_column.__set_col_unique_id(columns.size());
+            columns.insert(columns.begin() + 2, std::move(before_column));
         }
         context->changelog_request.__set_base_tablet_id(base_tablet_id);
         context->changelog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_CHANGELOG);
@@ -409,11 +411,32 @@ TEST_F(TestEngineStorageMigrationTask, changelog_publish_reports_final_mow_rows)
     ASSERT_EQ(second_changelog->num_rows(), 1);
     const auto initial_segments = second_changelog->num_segments();
 
+    // Publish the same index and column identities that were prepared for both writes.
+    const auto& source_index = *first.schema_param->indexes().at(0);
+    ASSERT_NE(source_index.changelog_column_mappings, nullptr);
+    const auto& prepared = *source_index.changelog_column_mappings;
+    TChangelogWriteColumnMappings mappings;
+    mappings.__set_need_historical_value(prepared.need_historical_value());
+    mappings.__set_entries({});
+    for (const auto& entry : prepared.entries()) {
+        TChangelogWriteColumnMapping column;
+        column.__set_source_column_unique_id(entry.source_column_unique_id());
+        column.__set_current_column_unique_id(entry.current_column_unique_id());
+        if (entry.has_before_column_unique_id()) {
+            column.__set_before_column_unique_id(entry.before_column_unique_id());
+        }
+        mappings.entries.push_back(std::move(column));
+    }
+    TChangelogIndexWriteSnapshot snapshot;
+    snapshot.__set_source_index_id(source_index.index_id);
+    snapshot.__set_mappings(mappings);
+
     auto publish = [&](int64_t txn_id, int64_t version,
                        std::map<TTableId, std::map<TTabletId, int64_t>>* delta_rows) {
         TPublishVersionRequest request;
         request.__set_transaction_id(txn_id);
         request.__set_base_tablet_ids({first.base_tablet->tablet_id()});
+        request.__set_changelog_column_mappings({snapshot});
         TPartitionVersionInfo partition;
         partition.__set_partition_id(first.data_request.partition_id);
         partition.__set_version(version);

@@ -227,18 +227,21 @@ public class DatabaseTransactionMgr {
     }
 
     private TransactionState unprotectedGetTransactionState(Long transactionId) {
+        TransactionState state = getDirectTransactionState(transactionId);
+        if (state != null) {
+            return state;
+        }
+        // A child points directly to its parent. During eviction the parent can already be gone.
+        Long parentId = subTxnIdToTxnId.get(transactionId);
+        return parentId == null ? null : getDirectTransactionState(parentId);
+    }
+
+    private TransactionState getDirectTransactionState(long transactionId) {
         TransactionState transactionState = idToRunningTransactionState.get(transactionId);
         if (transactionState != null) {
             return transactionState;
         }
-        transactionState = idToFinalStatusTransactionState.get(transactionId);
-        if (transactionState != null) {
-            return transactionState;
-        }
-        if (subTxnIdToTxnId.containsKey(transactionId)) {
-            return unprotectedGetTransactionState(subTxnIdToTxnId.get(transactionId));
-        }
-        return null;
+        return idToFinalStatusTransactionState.get(transactionId);
     }
 
     @VisibleForTesting
@@ -341,6 +344,16 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
 
+        return beginTransaction(tableIdList, label, requestId, coordinator, sourceType, listenerId,
+                timeoutSecond, null);
+    }
+
+    public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
+            TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType,
+            long listenerId, long timeoutSecond, TxnWriteSchemaSnapshot preparedWriteSchema)
+            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
+            AnalysisException, QuotaExceedException, MetaNotFoundException {
+
         if (!Env.getCurrentEnv().isMaster() && !FeConstants.runningUnitTest) {
             throw new BeginTransactionException("FE is not master");
         }
@@ -384,6 +397,11 @@ public class DatabaseTransactionMgr {
                     if (requestId != null && (notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
                             || notAbortedTxn.getTransactionStatus() == TransactionStatus.PRECOMMITTED)
                             && notAbortedTxn.getRequestId() != null && notAbortedTxn.getRequestId().equals(requestId)) {
+                        if (preparedWriteSchema != null && !preparedWriteSchema.equals(
+                                notAbortedTxn.getWriteSchema(notAbortedTxn.getTransactionId(),
+                                        preparedWriteSchema.getTableId()))) {
+                            throw new BeginTransactionException("Write schema changed for repeated begin request");
+                        }
                         // this may be a retry request for same job, just return existing txn id.
                         throw new DuplicatedRequestException(DebugUtil.printId(requestId),
                                 notAbortedTxn.getTransactionId(), "");
@@ -397,6 +415,9 @@ public class DatabaseTransactionMgr {
             tid = idGenerator.getNextTransactionId();
             transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
+            if (preparedWriteSchema != null) {
+                transactionState.registerWriteSchema(tid, preparedWriteSchema);
+            }
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpdateInMemoryState(transactionState, false);
             updateTxnLabels(transactionState);
@@ -1942,9 +1963,16 @@ public class DatabaseTransactionMgr {
                 finalStatusTransactionStateDequeLong.add(transactionState);
             }
             if (transactionState.getSubTxnIds() != null) {
-                LOG.info("clean sub transactions for txn_id={}, sub_txn_ids={}", transactionState.getTransactionId(),
-                        transactionState.getSubTxnIds());
-                cleanSubTransactions(transactionState.getTransactionId());
+                if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE
+                        && transactionState.hasChangelogWriteMappings()) {
+                    // Lagging replicas report the actual child id after visibility, including after FE replay.
+                    // Keep these aliases until the retained parent transaction is removed.
+                    for (Long subTxnId : transactionState.getSubTxnIds()) {
+                        addSubTransaction(transactionState.getTransactionId(), subTxnId);
+                    }
+                } else {
+                    cleanSubTransactions(transactionState.getTransactionId());
+                }
             }
         }
         if (isReplay) {
@@ -2585,7 +2613,7 @@ public class DatabaseTransactionMgr {
                         tableId, transactionState.getTransactionId(), db.getId());
                 continue;
             }
-            transactionState.addTableIndexes(table);
+            transactionState.refreshLoadedTableIndexesAfterVisible(table);
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();
@@ -3246,7 +3274,10 @@ public class DatabaseTransactionMgr {
     }
 
     protected void addSubTransaction(long transactionId, long subTransactionId) {
-        subTxnIdToTxnId.put(subTransactionId, transactionId);
+        // The first write of an explicit transaction already has the parent ID.
+        if (subTransactionId != transactionId) {
+            subTxnIdToTxnId.put(subTransactionId, transactionId);
+        }
     }
 
     protected void removeSubTransaction(long subTransactionId) {

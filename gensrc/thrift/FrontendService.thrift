@@ -523,6 +523,8 @@ struct TLoadTxnBeginRequest {
     16: optional TCertBasedAuth cert_based_auth
     // If set to true: use table group_commit_mode property
     17: optional bool use_table_group_commit_mode
+    // Explicit transactional VALUES: validate this schema before preparing the writer snapshot.
+    18: optional map<i64, i32> txn_insert_schema_versions
 }
 
 struct TLoadTxnBeginResult {

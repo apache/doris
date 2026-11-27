@@ -307,6 +307,16 @@ suite("test_changelog_changes_syntax", "nonConcurrent") {
             ORDER BY id, __DORIS_CHANGELOG_OP__, v1
         """
 
+        // MATCH on a single-token value must see the same emitted row image as scalar equality.
+        // For key 1 the last UPDATE changes the value from 'a2' to 'a3'.
+        for (String mode : ["DETAIL", "MIN_DELTA"]) {
+            def window = """FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
+                'endTimestamp' = '${mowT1}', 'incrementType' = '${mode}')
+                ORDER BY id, __DORIS_CHANGELOG_OP__, v1"""
+            check_sqls_result_equal("SELECT id, v1, v2 MATCH_ANY 'a3' ${window}",
+                    "SELECT id, v1, v2 = 'a3' ${window}")
+        }
+
         // Read only a value column. Key, TSO, OP and the matching before-image
         // column are storage dependencies and must not appear in the result.
         order_qt_mow_min_delta_value_only """

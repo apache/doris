@@ -96,6 +96,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.ha.FrontendNodeType;
@@ -1580,10 +1581,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
-        long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                txnCoord,
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        long txnId;
+        if (request.isSetTxnInsertSchemaVersions()) {
+            if (!request.isSetTableId() || request.getTableId() != table.getId()) {
+                throw new AnalysisException("Target table changed before transaction begin");
+            }
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransactionForValues(
+                    db.getId(), table.getId(), request.getLabel(), request.getRequestId(), txnCoord,
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, timeoutSecond,
+                    request.getTxnInsertSchemaVersions());
+        } else {
+            txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
+                    txnCoord, TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -2406,20 +2417,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private OlapTable getRemoteWriteTarget(Database db, String name) throws UserException {
+        if (StringUtils.isEmpty(name)) {
+            throw new AnalysisException("table name is empty");
+        }
+        OlapTable target = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
+        if (target.hasChangelog()) {
+            throw new AnalysisException(RemoteOlapTable.CHANGELOG_WRITE_ERROR);
+        }
+        return target;
+    }
+
     private long beginRemoteTxnImpl(TBeginRemoteTxnRequest request)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
+            throws UserException {
 
         String fullDbName = request.getDb();
         Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + fullDbName);
         }
-        if (StringUtils.isEmpty(request.getTbl())) {
-            throw new AnalysisException("table name is empty");
-        }
-        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        OlapTable table = (OlapTable) tableIf;
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl());
 
         long timeoutMs = request.getTimeoutMs();
         long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
@@ -2476,11 +2493,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + dbName);
         }
-        if (StringUtils.isEmpty(request.getTbl())) {
-            throw new AnalysisException("table name is empty");
-        }
-        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        OlapTable table = (OlapTable) tableIf;
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl());
+        // The destination checks every local index. A sender's cached metadata can predate a completed rollup.
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

@@ -71,6 +71,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PublishVersionTask.RepublishInfo;
 import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.task.PushIndexPolicyTask;
 import org.apache.doris.task.PushStoragePolicyTask;
@@ -81,7 +82,6 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -621,7 +621,7 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        Map<Long, Map<Long, RepublishInfo>> transactionsToPublish = Maps.newHashMap();
         SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
@@ -1330,14 +1330,13 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, Map<Long, RepublishInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
-        for (Long dbId : transactionsToPublish.keySet()) {
-            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
-            for (long txnId : map.keySet()) {
-                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
+        for (Map.Entry<Long, Map<Long, RepublishInfo>> db : transactionsToPublish.entrySet()) {
+            for (Map.Entry<Long, RepublishInfo> txn : db.getValue().entrySet()) {
+                PublishVersionTask task = txn.getValue().createTask(backendId, txn.getKey(), db.getKey(),
+                        createPublishVersionTaskTime);
                 // A duplicate signature can carry new partitions; only terminally aborted tasks are skipped.
                 AgentTaskQueue.addTask(task);
                 if (task.getErrorCode() != TStatusCode.ABORTED) {

@@ -280,4 +280,38 @@ TEST_F(GroupRowsetBuilderTest, recoverMultipleChangelogPairsInOneTxn) {
     }
 }
 
+TEST_F(GroupRowsetBuilderTest, MappingRequiredOnlyForPositiveSourceRelationship) {
+    const auto descriptors = testutil::create_descriptor_table({});
+    TOlapTableSchemaParam wire;
+    wire.db_id = 1;
+    wire.table_id = 2;
+    wire.version = 1;
+    wire.tuple_desc = descriptors.tupleDescriptors[0];
+    wire.indexes.resize(1);
+    wire.indexes[0].id = 10;
+    wire.indexes[0].schema_hash = 0;
+    // FE sets this field on ordinary indexes too; explicit zero is ordinary.
+    wire.indexes[0].__set_changelog_index_id(0);
+    TOlapTableIndexSchema target;
+    target.id = 20;
+    target.schema_hash = 0;
+    target.__set_changelog_index_id(20);
+    wire.__set_changelog_index_schemas({target});
+    OlapTableSchemaParam ordinary;
+    ASSERT_TRUE(ordinary.init(wire).ok());
+    POlapTableSchemaParam encoded;
+    ordinary.to_protobuf(&encoded);
+    encoded.mutable_indexes(0)->set_changelog_index_id(0);
+    encoded.mutable_changelog_index_schemas(0)->set_changelog_index_id(20);
+    OlapTableSchemaParam recovered;
+    EXPECT_TRUE(recovered.init(encoded).ok());
+
+    wire.indexes[0].__set_changelog_index_id(20);
+    OlapTableSchemaParam missing_thrift;
+    EXPECT_FALSE(missing_thrift.init(wire).ok());
+    encoded.mutable_indexes(0)->set_changelog_index_id(20);
+    OlapTableSchemaParam missing_protobuf;
+    EXPECT_FALSE(missing_protobuf.init(encoded).ok());
+}
+
 } // namespace doris
