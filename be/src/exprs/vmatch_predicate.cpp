@@ -46,6 +46,8 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/schema.h"
+#include "util/json/path_in_data.h"
 
 namespace doris {
 class RowDescriptor;
@@ -174,7 +176,52 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
         context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
     }
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    auto status = _evaluate_inverted_index(context, _function, segment_num_rows);
+    if (status.ok() && context != nullptr && context->get_index_context() != nullptr &&
+        !context->get_index_context()->has_index_result_for_expr(this)) {
+        RETURN_IF_ERROR(
+                _evaluate_absent_variant_path(*context->get_index_context(), segment_num_rows));
+    }
+    return status;
+}
+
+// A MATCH on a VARIANT path that this segment does not store is NULL on every row, which the
+// index can answer exactly. Without that answer the MATCH falls back to row evaluation, and
+// score() then rejects an AND/OR whose other branches were scored. For example, in a segment
+// written from {"title":"apple archive"}, `v['content'] MATCH 'search'` is answered here, so
+// `v['title'] MATCH 'apple' OR v['content'] MATCH 'search'` can still score the title branch.
+Status VMatchPredicate::_evaluate_absent_variant_path(IndexExecContext& index_context,
+                                                      uint32_t segment_num_rows) {
+    // The planner reads `v['content']` as a path slot, usually under a cast to the MATCH type.
+    // Without a segment there is no VARIANT metadata to prove the path absent from.
+    const auto input = expr_without_cast(get_child(0));
+    if (!input->is_slot_ref() || index_context.segment() == nullptr) {
+        return Status::OK();
+    }
+    // A path with an index iterator has already been answered or declined by its index, and
+    // only an extracted VARIANT path can be absent from a segment.
+    const int column_id = assert_cast<const VSlotRef*>(input.get())->column_id();
+    const auto& read_schema = index_context.read_schema();
+    const auto& column = *read_schema->column(read_schema->column_id(column_id));
+    if (index_context.get_inverted_index_iterator_by_column_id(column_id) != nullptr ||
+        !column.is_extracted_column()) {
+        return Status::OK();
+    }
+    bool absent = false;
+    RETURN_IF_ERROR(index_context.is_variant_path_absent(
+            column_id, column.path_info_ptr()->copy_pop_front(), &absent));
+    // A path that is stored but has no index, such as one in the sparse column, still needs
+    // row evaluation.
+    if (!absent) {
+        return Status::OK();
+    }
+    auto null_rows = std::make_shared<roaring::Roaring>();
+    null_rows->addRange(0, segment_num_rows);
+    index_context.set_index_result_for_expr(
+            this,
+            InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(), std::move(null_rows)));
+    index_context.set_true_for_index_status(this, column_id);
+    return Status::OK();
 }
 
 const std::string& VMatchPredicate::get_analyzer_key() const {

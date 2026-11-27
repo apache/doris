@@ -33,8 +33,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/schema.h"
-#include "storage/segment/segment.h"
-#include "storage/segment/variant/variant_column_reader.h"
+#include "util/json/path_in_data.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -65,55 +64,15 @@ void add_search_binding_diagnostic(const IndexExecContext* index_context,
 // old rowsets may contain values without an executable SEARCH index.
 Status verify_missing_variant_path(const TSearchFieldBinding& binding, int column_index,
                                    IndexExecContext* index_context) {
-    auto* segment = index_context->segment();
-    if (segment == nullptr || !binding.__isset.parent_field_name ||
+    if (index_context->segment() == nullptr || !binding.__isset.parent_field_name ||
         !binding.__isset.subcolumn_path) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SEARCH cannot establish missing path '{}'", binding.field_name);
     }
-    const auto& read_schema = index_context->read_schema();
-    DORIS_CHECK_GE(column_index, 0);
-    DORIS_CHECK_LT(static_cast<size_t>(column_index), read_schema->num_column_ids());
-    const auto& column = *read_schema->column(read_schema->column_id(column_index));
-    const auto& opts = index_context->column_iter_opts();
-    DORIS_CHECK(opts.stats != nullptr);
-    const int32_t root_uid =
-            column.parent_unique_id() >= 0 ? column.parent_unique_id() : column.unique_id();
-    if (!segment->tablet_schema()->has_column_unique_id(root_uid)) {
-        return Status::OK();
-    }
-    std::shared_ptr<ColumnReader> column_reader;
-    Status st = segment->get_column_reader(root_uid, &column_reader, opts.stats, &opts.io_ctx);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
-        // After DROP v(uid=1), ADD v(uid=2), an old segment cannot contain this scan's root.
-        // Resolve by the current uid so historical values of the same name cannot match.
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(st);
-    auto* reader = dynamic_cast<VariantColumnReader*>(column_reader.get());
-    DORIS_CHECK(reader != nullptr);
-    RETURN_IF_ERROR(reader->load_external_meta_once(opts.stats, &opts.io_ctx));
-    const PathInData path(binding.subcolumn_path);
-    const auto* stats = reader->get_stats();
-    // Doc statistics enumerate stored paths without the sparse statistics limit. For example,
-    // a segment containing only `string4` can prove `string5` absent even in doc mode.
-    // An opaque root/ancestor value may contain the requested path, so it remains unavailable.
-    bool in_doc = stats->existed_in_doc_value_column("") ||
-                  stats->has_prefix_path_in_doc_value_column(path.get_path() + ".");
-    std::string ancestor = path.get_path();
-    while (!in_doc) {
-        in_doc = stats->existed_in_doc_value_column(ancestor);
-        const auto dot = ancestor.rfind('.');
-        if (dot == std::string::npos) {
-            break;
-        }
-        ancestor.resize(dot);
-    }
-    // Truncated sparse statistics cannot prove absence, nor can an existing unindexed path.
-    if (reader->get_subcolumn_meta_by_path(path) != nullptr ||
-        reader->has_prefix_path(path, opts.stats, &opts.io_ctx) ||
-        reader->exist_in_sparse_column(path) || reader->is_exceeded_sparse_column_limit() ||
-        in_doc || stats->has_nested_group) {
+    bool absent = false;
+    RETURN_IF_ERROR(index_context->is_variant_path_absent(
+            column_index, PathInData(binding.subcolumn_path), &absent));
+    if (!absent) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SEARCH index unavailable for Variant field '{}'", binding.field_name);
     }
