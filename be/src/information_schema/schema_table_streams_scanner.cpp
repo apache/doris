@@ -61,7 +61,7 @@ Status SchemaTableStreamsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaTableStreamsScanner::_get_table_streams_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
 
     TSchemaTableRequestParams schema_table_request_params;
     TFetchSchemaTableDataRequest request;

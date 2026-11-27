@@ -346,7 +346,7 @@ Result<std::vector<std::pair<std::string, int32_t>>> get_peer_replicas_addresses
         const int64_t tablet_id) {
     auto* cluster_info = ExecEnv::GetInstance()->cluster_info();
     DCHECK_NE(cluster_info, nullptr);
-    auto master_addr = cluster_info->master_fe_addr;
+    auto master_addr = cluster_info->master_fe_addr();
     TGetTabletReplicaInfosRequest req;
     req.tablet_ids.push_back(tablet_id);
     TGetTabletReplicaInfosResult resp;

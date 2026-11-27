@@ -170,10 +170,11 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
 
     ClusterInfo* cluster_info = _exec_env->cluster_info();
     // Small file download is the only BE→FE path that uses HTTP (not Thrift/RPC).
-    // master_fe_http_port is set to https_port when enable_https=true (see HeartbeatMgr).
+    // The endpoint's HTTP port is set to https_port when enable_https=true (see HeartbeatMgr).
     // The ~1ms fallback overhead is acceptable; small file downloads are infrequent.
-    const std::string host_port = cluster_info->master_fe_addr.hostname + ":" +
-                                  std::to_string(cluster_info->master_fe_http_port);
+    const auto master_endpoint = cluster_info->master_fe_endpoint();
+    const std::string host_port =
+            master_endpoint.rpc_addr.hostname + ":" + std::to_string(master_endpoint.http_port);
     const std::string query = "/api/get_small_file?file_id=" + std::to_string(file_id) +
                               "&token=" + cluster_info->token;
 

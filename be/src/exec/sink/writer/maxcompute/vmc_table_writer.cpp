@@ -101,7 +101,7 @@ Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
 std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     auto params = _mc_sink.properties;
-    const auto& master_fe_addr = _state->exec_env()->cluster_info()->master_fe_addr;
+    const auto master_fe_addr = _state->exec_env()->cluster_info()->master_fe_addr();
     if (_mc_sink.__isset.endpoint) params["endpoint"] = _mc_sink.endpoint;
     if (_mc_sink.__isset.project) params["project"] = _mc_sink.project;
     if (_mc_sink.__isset.table_name) params["table"] = _mc_sink.table_name;

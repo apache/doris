@@ -20,6 +20,8 @@
 #include <gen_cpp/Types_types.h>
 
 #include <atomic>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 
 namespace doris {
@@ -29,6 +31,26 @@ namespace doris {
 // These info are usually in heartbeat from Master FE.
 class ClusterInfo {
 public:
+    struct MasterFeEndpoint {
+        TNetworkAddress rpc_addr;
+        int32_t http_port = 0;
+    };
+
+    TNetworkAddress master_fe_addr() const {
+        std::shared_lock lock(_master_fe_mutex);
+        return _master_fe_endpoint.rpc_addr;
+    }
+
+    MasterFeEndpoint master_fe_endpoint() const {
+        std::shared_lock lock(_master_fe_mutex);
+        return _master_fe_endpoint;
+    }
+
+    void set_master_fe_endpoint(const MasterFeEndpoint& endpoint) {
+        std::unique_lock lock(_master_fe_mutex);
+        _master_fe_endpoint = endpoint;
+    }
+
     int64_t changelog_ttl_reference_tso() const {
         return _changelog_ttl_reference_tso.load(std::memory_order_acquire);
     }
@@ -44,10 +66,6 @@ public:
 
     // Unique cluster id
     int32_t cluster_id = 0;
-    // Master FE addr: ip:rpc_port
-    TNetworkAddress master_fe_addr;
-    // Master FE http_port
-    int32_t master_fe_http_port = 0;
     // Unique cluster token
     std::string token = "";
     // Backend ID
@@ -59,6 +77,8 @@ public:
     std::string last_auth_token = "";
 
 private:
+    mutable std::shared_mutex _master_fe_mutex;
+    MasterFeEndpoint _master_fe_endpoint;
     std::atomic<int64_t> _changelog_ttl_reference_tso {0};
 };
 

@@ -73,7 +73,7 @@ Status SchemaPerDbScanner::start(RuntimeState* state) {
 }
 
 Status SchemaPerDbScanner::get_onedb_info_from_fe(int64_t db_id) {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
 
     TSchemaTableRequestParams schema_table_request_params;
     const std::vector<SchemaScanner::ColumnDesc>& columns = get_column_desc();

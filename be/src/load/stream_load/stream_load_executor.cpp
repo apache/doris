@@ -221,7 +221,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     TLoadTxnBeginResult result;
     Status status;
     int64_t duration_ns = 0;
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr(); };
     TNetworkAddress master_addr = master_addr_provider();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
@@ -272,7 +272,9 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
-        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+        auto master_addr_provider = [this]() {
+            return _exec_env->cluster_info()->master_fe_addr();
+        };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
@@ -316,7 +318,9 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+        auto master_addr_provider = [this]() {
+            return _exec_env->cluster_info()->master_fe_addr();
+        };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
@@ -367,7 +371,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr(); };
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr_provider,
             [&request, &result](FrontendServiceConnection& client) {
@@ -417,7 +421,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr(); };
     auto rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);

@@ -1568,7 +1568,7 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
         LOG(WARNING) << "Have not get FE Master heartbeat yet";
         return false;
     }
-    TNetworkAddress master_addr = cluster_info->master_fe_addr;
+    TNetworkAddress master_addr = cluster_info->master_fe_addr();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         LOG(WARNING) << "Have not get FE Master heartbeat yet";
         return false;

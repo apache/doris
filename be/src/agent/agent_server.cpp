@@ -284,7 +284,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
     Status ret_st;
 
     // TODO check cluster_info here if it is the same with that of heartbeat rpc
-    if (_cluster_info->master_fe_addr.hostname.empty() || _cluster_info->master_fe_addr.port == 0) {
+    const auto master_addr = _cluster_info->master_fe_addr();
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
         Status st = Status::Cancelled("Have not get FE Master heartbeat yet");
         st.to_thrift(&agent_result.status);
         return;

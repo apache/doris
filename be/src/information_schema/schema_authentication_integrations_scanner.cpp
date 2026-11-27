@@ -55,7 +55,7 @@ Status SchemaAuthenticationIntegrationsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
 
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {

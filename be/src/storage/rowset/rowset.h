@@ -189,32 +189,28 @@ public:
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads
     void close() {
-        RowsetState old_state = _rowset_state_machine.rowset_state();
-        if (old_state != RowsetState::ROWSET_LOADED) {
-            return;
-        }
+        RowsetState new_state;
         Status st = Status::OK();
         {
             std::lock_guard close_lock(_lock);
-            uint64_t current_refs = _refs_by_reader;
-            old_state = _rowset_state_machine.rowset_state();
-            if (old_state != RowsetState::ROWSET_LOADED) {
+            if (_rowset_state_machine.rowset_state() != RowsetState::ROWSET_LOADED) {
                 return;
             }
+            uint64_t current_refs = _refs_by_reader;
             if (current_refs == 0) {
                 do_close();
             }
             st = _rowset_state_machine.on_close(current_refs);
+            new_state = _rowset_state_machine.rowset_state();
         }
         if (!st.ok()) {
-            LOG(WARNING) << "state transition failed from:"
-                         << static_cast<int>(_rowset_state_machine.rowset_state());
+            LOG(WARNING) << "state transition failed from:" << static_cast<int>(new_state);
             return;
         }
-        VLOG_NOTICE << "rowset is close. rowset state from:" << static_cast<int>(old_state)
-                    << " to " << static_cast<int>(_rowset_state_machine.rowset_state())
-                    << ", version:" << start_version() << "-" << end_version()
-                    << ", tabletid:" << _rowset_meta->tablet_id();
+        VLOG_NOTICE << "rowset is close. rowset state from:"
+                    << static_cast<int>(RowsetState::ROWSET_LOADED) << " to "
+                    << static_cast<int>(new_state) << ", version:" << start_version() << "-"
+                    << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -249,27 +245,22 @@ public:
     void acquire() { ++_refs_by_reader; }
 
     void release() {
-        // if the refs by reader is 0 and the rowset is closed, should release the resouce
-        uint64_t current_refs = --_refs_by_reader;
-        if (current_refs == 0 &&
-            _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
-            {
-                std::lock_guard release_lock(_lock);
-                // rejudge _refs_by_reader because we do not add lock in create reader
-                if (_refs_by_reader == 0 &&
-                    _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
-                    // first do close, then change state
-                    do_close();
-                    static_cast<void>(_rowset_state_machine.on_release());
-                }
-            }
-            if (_rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADED) {
-                VLOG_NOTICE
-                        << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
-                        << ", version:" << start_version() << "-" << end_version()
-                        << ", tabletid:" << _rowset_meta->tablet_id();
-            }
+        if (--_refs_by_reader != 0) {
+            return;
         }
+        {
+            std::lock_guard release_lock(_lock);
+            // A reader may have acquired a reference while we waited for the lock.
+            if (_refs_by_reader != 0 ||
+                _rowset_state_machine.rowset_state() != RowsetState::ROWSET_UNLOADING) {
+                return;
+            }
+            do_close();
+            static_cast<void>(_rowset_state_machine.on_release());
+        }
+        VLOG_NOTICE << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                    << ", version:" << start_version() << "-" << end_version()
+                    << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
@@ -373,7 +364,7 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
-    // mutex lock for load/close api because it is costly
+    // Protects the rowset state machine and resource close operations.
     std::mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset

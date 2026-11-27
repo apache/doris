@@ -223,6 +223,9 @@ void QueryContext::init_query_task_controller() {
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
+}
+
+void QueryContext::register_runtime_query_statistics() {
 #ifndef BE_TEST
     _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
                                                                          _resource_ctx);

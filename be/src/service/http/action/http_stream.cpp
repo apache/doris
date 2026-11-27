@@ -380,7 +380,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     }
 
     // plan this load
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr();
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

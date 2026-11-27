@@ -83,8 +83,10 @@ void WalManagerTest::init() {
 
     _env = ExecEnv::GetInstance();
     _env->set_cluster_info(new ClusterInfo());
-    _env->_cluster_info->master_fe_addr.hostname = "host name";
-    _env->_cluster_info->master_fe_addr.port = _backend_id;
+    ClusterInfo::MasterFeEndpoint master_endpoint;
+    master_endpoint.rpc_addr.__set_hostname("host name");
+    master_endpoint.rpc_addr.__set_port(_backend_id);
+    _env->_cluster_info->set_master_fe_endpoint(master_endpoint);
     _env->_cluster_info->backend_id = 1001;
     _env->set_wal_mgr(WalManager::create_unique(_env, _wal_dir));
     std::string base_path;

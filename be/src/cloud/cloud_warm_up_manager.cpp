@@ -619,7 +619,7 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
                          << job_id;
             continue;
         }
-        TNetworkAddress master_addr = cluster_info->master_fe_addr;
+        TNetworkAddress master_addr = cluster_info->master_fe_addr();
         if (master_addr.hostname == "" || master_addr.port == 0) {
             LOG(WARNING) << "get_replica_info: have not get FE Master heartbeat yet, job_id="
                          << job_id;
@@ -1165,7 +1165,7 @@ void CloudWarmUpManager::fetch_candidates_from_fe(int64_t tablet_id) {
                      << ", tablet_id=" << tablet_id;
         return;
     }
-    TNetworkAddress master_addr = cluster_info->master_fe_addr;
+    TNetworkAddress master_addr = cluster_info->master_fe_addr();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         LOG(WARNING) << "fetch_candidates_from_fe: FE master address unknown"
                      << ", tablet_id=" << tablet_id;

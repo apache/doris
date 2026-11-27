@@ -282,7 +282,7 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr();
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

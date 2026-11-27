@@ -410,17 +410,19 @@ bool handle_report(const TReportRequest& request, const ClusterInfo* cluster_inf
     TMasterResult result;
     Status status = MasterServerClient::instance()->report(request, &result);
     if (!status.ok()) [[unlikely]] {
+        const auto master_addr = cluster_info->master_fe_addr();
         LOG_WARNING("failed to report {}", name)
-                .tag("host", cluster_info->master_fe_addr.hostname)
-                .tag("port", cluster_info->master_fe_addr.port)
+                .tag("host", master_addr.hostname)
+                .tag("port", master_addr.port)
                 .error(status);
         return false;
     }
 
     else if (result.status.status_code != TStatusCode::OK) [[unlikely]] {
+        const auto master_addr = cluster_info->master_fe_addr();
         LOG_WARNING("failed to report {}", name)
-                .tag("host", cluster_info->master_fe_addr.hostname)
-                .tag("port", cluster_info->master_fe_addr.port)
+                .tag("host", master_addr.hostname)
+                .tag("port", master_addr.port)
                 .error(result.status);
         return false;
     }
@@ -771,7 +773,7 @@ ReportWorker::ReportWorker(std::string name, const ClusterInfo* cluster_info, in
                 }
             }
 
-            if (cluster_info->master_fe_addr.port == 0) {
+            if (cluster_info->master_fe_addr().port == 0) {
                 // port == 0 means not received heartbeat yet
                 LOG(INFO) << "waiting to receive first heartbeat from frontend before doing report";
                 continue;
