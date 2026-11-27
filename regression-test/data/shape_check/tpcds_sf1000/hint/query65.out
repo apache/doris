@@ -19,7 +19,8 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->ss_sold_date_sk
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF5
+--------------------------------------filter(( not sc.ss_store_sk IS NULL) and ( not store_sales.ss_sold_date_sk IS NULL))
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF5
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_month_seq <= 1187) and (date_dim.d_month_seq >= 1176))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -33,7 +34,8 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ss_sold_date_sk
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF4
+--------------------------------------------filter(( not sb.ss_store_sk IS NULL) and ( not store_sales.ss_sold_date_sk IS NULL))
+----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF4
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_month_seq <= 1187) and (date_dim.d_month_seq >= 1176))
 ----------------------------------------------PhysicalOlapScan[date_dim]

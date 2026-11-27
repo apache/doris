@@ -11,7 +11,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->cr_returned_date_sk
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1
+----------------------filter(( not catalog_returns.cr_returning_addr_sk IS NULL))
+------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF0 RF1
 --------------------PhysicalProject
 ----------------------filter((date_dim.d_year = 2001))
 ------------------------PhysicalOlapScan[date_dim]

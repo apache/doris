@@ -98,6 +98,21 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testForwardKeepIsNotNullThreshold() {
+        for (long threshold : new long[] {1L, -1L}) {
+            SessionVariable follower = new SessionVariable();
+            follower.keepIsNotNullNumNullsThreshold = threshold;
+            Map<String, String> vars = follower.getForwardVariables();
+            Assertions.assertEquals(Long.toString(threshold),
+                    vars.get(SessionVariable.KEEP_IS_NOT_NULL_NUM_NULLS_THRESHOLD));
+
+            SessionVariable master = new SessionVariable();
+            master.setForwardedSessionVariables(vars);
+            Assertions.assertEquals(threshold, master.keepIsNotNullNumNullsThreshold);
+        }
+    }
+
+    @Test
     public void testForwardQueryCacheVariables() {
         // A forwarded statement is planned by the master in a fresh
         // ConnectContext that only sees what getForwardVariables() sends, so

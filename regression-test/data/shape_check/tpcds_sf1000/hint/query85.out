@@ -29,7 +29,8 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->wr_item_sk;RF2 ws_order_number->wr_order_number
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2 RF3 RF8
+------------------------------------------filter(( not web_returns.wr_reason_sk IS NULL) and ( not web_returns.wr_refunded_addr_sk IS NULL) and ( not web_returns.wr_refunded_cdemo_sk IS NULL) and ( not web_returns.wr_returning_cdemo_sk IS NULL))
+--------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2 RF3 RF8
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ws_sold_date_sk
 --------------------------------------------PhysicalProject

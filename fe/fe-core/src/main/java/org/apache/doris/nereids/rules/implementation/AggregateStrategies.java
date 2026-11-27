@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -238,6 +239,18 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     LogicalOlapScan olapScan = project.child();
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
+            ),
+            RuleType.STORAGE_LAYER_MINMAX_WITH_NOT_NULL_FILTER.build(
+                logicalAggregate(logicalFilter(logicalOlapScan()))
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> storageLayerMinMaxWithNotNullFilter(
+                            ctx.root, null, ctx.root.child(), ctx.cascadesContext))
+            ),
+            RuleType.STORAGE_LAYER_MINMAX_WITH_PROJECT_AND_NOT_NULL_FILTER.build(
+                logicalAggregate(logicalProject(logicalFilter(logicalOlapScan())))
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> storageLayerMinMaxWithNotNullFilter(
+                            ctx.root, ctx.root.child(), ctx.root.child().child(), ctx.cascadesContext))
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN.build(
                 logicalAggregate(
@@ -525,6 +538,29 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
         return true;
+    }
+
+    private LogicalAggregate<? extends Plan> storageLayerMinMaxWithNotNullFilter(
+            LogicalAggregate<? extends Plan> aggregate,
+            @Nullable LogicalProject<? extends Plan> project,
+            LogicalFilter<LogicalOlapScan> filter,
+            CascadesContext cascadesContext) {
+        if (filter.getConjuncts().size() != 1) {
+            return aggregate;
+        }
+        Optional<Slot> filteredSlot = TypeUtils.isNotNull(filter.getConjuncts().iterator().next());
+        Set<AggregateFunction> functions = aggregate.getAggregateFunctions();
+        if (!filteredSlot.isPresent() || functions.isEmpty()
+                || !functions.stream().allMatch(function -> function instanceof Min || function instanceof Max)) {
+            return aggregate;
+        }
+
+        // A global MIN/MAX ignores null rows of its own argument. Dropping this filter is
+        // valid only when every aggregate reads the same input slot after resolving aliases.
+        if (!normalizeArguments(functions, project).stream().allMatch(filteredSlot.get()::equals)) {
+            return aggregate;
+        }
+        return storageLayerAggregate(aggregate, project, filter.child(), cascadesContext);
     }
 
     /**

@@ -17,7 +17,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ss_sold_date_sk
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+----------------------------------filter(( not store_sales.ss_sold_date_sk IS NULL) and ( not store_sales.ss_store_sk IS NULL))
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 --------------------------------PhysicalProject
 ----------------------------------filter(OR[(date_dim.d_year = 2000),AND[(date_dim.d_year = 1999),(date_dim.d_moy = 12)],AND[(date_dim.d_year = 2001),(date_dim.d_moy = 1)]] and date_dim.d_year IN (1999, 2000, 2001))
 ------------------------------------PhysicalOlapScan[date_dim]

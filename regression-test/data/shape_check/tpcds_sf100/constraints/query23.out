@@ -13,7 +13,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ss_sold_date_sk
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+--------------------------filter(( not store_sales.ss_sold_date_sk IS NULL))
+----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ------------------------PhysicalProject
 --------------------------filter(date_dim.d_year IN (2000, 2001, 2002, 2003))
 ----------------------------PhysicalOlapScan[date_dim]
@@ -41,7 +42,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->ss_sold_date_sk
 ------------------------------PhysicalProject
---------------------------------filter(( not store_sales.ss_customer_sk IS NULL))
+--------------------------------filter(( not store_sales.ss_customer_sk IS NULL) and ( not store_sales.ss_sold_date_sk IS NULL))
 ----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ------------------------------PhysicalProject
 --------------------------------filter(date_dim.d_year IN (2000, 2001, 2002, 2003))
@@ -61,7 +62,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->cs_sold_date_sk
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3 RF4
+--------------------------------filter(( not catalog_sales.cs_bill_customer_sk IS NULL) and ( not catalog_sales.cs_sold_date_sk IS NULL))
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF3 RF4
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2000))
 ----------------------------------PhysicalOlapScan[date_dim]

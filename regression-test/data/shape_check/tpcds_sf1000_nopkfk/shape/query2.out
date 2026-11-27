@@ -19,7 +19,8 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_sales]
+------------------------filter(( not catalog_sales.cs_sold_date_sk IS NULL))
+--------------------------PhysicalOlapScan[catalog_sales]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
