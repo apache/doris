@@ -47,7 +47,6 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
-#include "util/string_util.h"
 
 namespace doris {
 
@@ -220,14 +219,7 @@ private:
                     "{}'s tgt_type must be one of HLL_4, HLL_6, HLL_8, but was NULL", name);
         }
         const std::string value = remove_nullable(column.get_ptr())->get_data_at(0).to_string();
-        const std::string lower = to_lower(value);
-        if (lower == "hll_4") {
-            tgt_type = datasketches::HLL_4;
-        } else if (lower == "hll_6") {
-            tgt_type = datasketches::HLL_6;
-        } else if (lower == "hll_8") {
-            tgt_type = datasketches::HLL_8;
-        } else {
+        if (!datasketches_hll::parse_tgt_type(value, tgt_type)) {
             return Status::InvalidArgument(
                     "{}'s tgt_type must be one of HLL_4, HLL_6, HLL_8, but was '{}'", name, value);
         }

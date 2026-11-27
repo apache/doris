@@ -29,6 +29,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/debug_points.h"
+#include "util/string_util.h"
 
 namespace doris::datasketches_hll {
 
@@ -412,6 +413,23 @@ Sketch deserialize(const StringRef& value, std::string_view action) {
         throw Exception(ErrorCode::CORRUPTION,
                         "HLL sketch data corrupted when {}: unknown exception.", action);
     }
+}
+
+bool parse_tgt_type(std::string_view value, datasketches::target_hll_type& tgt_type) {
+    const std::string lower = to_lower(std::string(value));
+    if (lower == "hll_4") {
+        tgt_type = datasketches::HLL_4;
+        return true;
+    }
+    if (lower == "hll_6") {
+        tgt_type = datasketches::HLL_6;
+        return true;
+    }
+    if (lower == "hll_8") {
+        tgt_type = datasketches::HLL_8;
+        return true;
+    }
+    return false;
 }
 
 } // namespace doris::datasketches_hll

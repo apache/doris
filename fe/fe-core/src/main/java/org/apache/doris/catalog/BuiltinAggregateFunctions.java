@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
@@ -115,9 +116,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Builtin aggregate functions.
@@ -128,6 +131,7 @@ import java.util.Map;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions;
     public final Map<String, Boolean> aggFuncNameNullableMap;
+    public final Set<String> notSupportAggStateDdlFuncNames;
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
@@ -169,6 +173,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Histogram.class, "hist", "histogram"),
                 agg(HllUnion.class, "hll_raw_agg", "hll_union"),
                 agg(HllUnionAgg.class, "hll_union_agg"),
+                agg(DataSketchesHllUnion.class, "datasketches_hll_union", "ds_hll_union"),
                 agg(DataSketchesHllUnionAgg.class, "datasketches_hll_union_agg",
                     "ds_hll_estimate", "datasketches_hll_estimate"),
                 agg(IntersectCount.class, "intersect_count"),
@@ -231,13 +236,23 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
 
         ImmutableMap.Builder<String, Boolean> aggFuncNameNullableMapBuilder
                 = ImmutableSortedMap.<String, Boolean>orderedBy(String.CASE_INSENSITIVE_ORDER);
+        // Only reject DataSketchesHllUnion in AGG_STATE DDL parsing so legacy NotSupportAggState
+        // functions keep their existing DDL parser behavior.
+        ImmutableSortedSet.Builder<String> notSupportAggStateDdlBuilder
+                = ImmutableSortedSet.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (AggregateFunc aggregateFunc : aggregateFunctions) {
+            boolean notSupportAggStateDdl = DataSketchesHllUnion.class
+                    .isAssignableFrom(aggregateFunc.functionClass);
             for (String name : aggregateFunc.names) {
                 boolean resultNullable = !(NotNullableAggregateFunction.class
                         .isAssignableFrom(aggregateFunc.functionClass));
                 aggFuncNameNullableMapBuilder.put(name, resultNullable);
+                if (notSupportAggStateDdl) {
+                    notSupportAggStateDdlBuilder.add(name);
+                }
             }
         }
         aggFuncNameNullableMap = aggFuncNameNullableMapBuilder.build();
+        notSupportAggStateDdlFuncNames = notSupportAggStateDdlBuilder.build();
     }
 }

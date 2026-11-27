@@ -137,8 +137,8 @@ public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
         return arity() == 1
-                ? new DataSketchesHllUnionAgg(getFunctionParams(ImmutableList.of(param)))
-                : new DataSketchesHllUnionAgg(getFunctionParams(ImmutableList.of(param, getArgument(1))));
+                ? new DataSketchesHllUnionAgg(param)
+                : new DataSketchesHllUnionAgg(param, getArgument(1));
     }
 
     @Override
