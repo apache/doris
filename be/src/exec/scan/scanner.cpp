@@ -260,7 +260,6 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         for (int i = 0; i < mutable_columns.size(); ++i) {
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-            column_ptr = column_ptr->convert_to_full_column_if_const();
             if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
             }
