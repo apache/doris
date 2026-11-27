@@ -21,7 +21,9 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exec/operator/olap_scan_operator.h"
+#include "exprs/vliteral.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -109,4 +111,108 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     // Without conjuncts, enable_adaptive_pipeline_task_serial_read_on_limit is false
     ASSERT_EQ(scan_operator->_should_run_serial, false);
 }
+
+namespace {
+
+VExprContextSPtr cacheable_conjunct() {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BOOL_LITERAL);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_is_nullable(false);
+    TBoolLiteral literal;
+    literal.__set_value(true);
+    node.__set_bool_literal(literal);
+    return VExprContext::create_shared(VLiteral::create_shared(node));
+}
+
+class UndigestibleLiteral : public VLiteral {
+public:
+    explicit UndigestibleLiteral(const TExprNode& node) : VLiteral(node, false) {}
+    uint64_t get_digest(uint64_t) const override { return 0; }
+};
+
+} // namespace
+
+TEST_F(ScanOperatorTest, topn_reuses_static_digest_without_writing) {
+    TPlanNode tnode;
+    tnode.__set_enable_condition_cache(true);
+    tnode.__set_row_tuples({0, 1});
+    auto parent = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                      TQueryCacheParam {});
+    auto local = OlapScanLocalState::create_shared(state.get(), parent.get());
+    auto conjunct = cacheable_conjunct();
+    local->_conjuncts = {conjunct};
+    TQueryOptions options;
+    options.__set_condition_cache_digest(12345);
+    state->set_query_options(options);
+
+    local->_init_condition_cache(state.get());
+    const auto static_digest = local->get_condition_cache_digest();
+    ASSERT_NE(static_digest, 0);
+    EXPECT_EQ(static_digest, conjunct->get_digest(12345));
+    EXPECT_TRUE(local->condition_cache_write_enabled());
+
+    // Source IDs are query-local and must not change the static predicate cache key.
+    parent->_topn_filter_source_node_ids = {7};
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), static_digest);
+    EXPECT_FALSE(local->condition_cache_write_enabled());
+
+    parent->_topn_filter_source_node_ids = {11, 13};
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), static_digest);
+    EXPECT_FALSE(local->condition_cache_write_enabled());
+}
+
+TEST_F(ScanOperatorTest, topn_preserves_digest_safety_gates) {
+    TPlanNode tnode;
+    tnode.__set_enable_condition_cache(true);
+    tnode.__set_row_tuples({0, 1});
+    auto parent = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1,
+                                                      TQueryCacheParam {});
+    parent->_topn_filter_source_node_ids = {7};
+    auto local = OlapScanLocalState::create_shared(state.get(), parent.get());
+    auto conjunct = cacheable_conjunct();
+    local->_conjuncts = {conjunct};
+
+    TQueryOptions options;
+    options.__set_condition_cache_digest(0);
+    state->set_query_options(options);
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), 0);
+
+    options.__set_condition_cache_digest(12345);
+    state->set_query_options(options);
+    parent->_enable_condition_cache = false;
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), 0);
+
+    parent->_enable_condition_cache = true;
+    local->_conjuncts = {VExprContext::create_shared(
+            std::make_shared<UndigestibleLiteral>(conjunct->root()->clone_texpr_node()))};
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), 0);
+}
+
+TEST_F(ScanOperatorTest, external_topn_condition_cache_remains_disabled) {
+    TPlanNode tnode;
+    tnode.__set_enable_condition_cache(true);
+    tnode.__set_row_tuples({0, 1});
+    auto parent = std::make_unique<FileScanOperatorX>(obj_pool.get(), tnode, 0, *descs, 1);
+    auto local = FileScanLocalState::create_shared(state.get(), parent.get());
+    local->_conjuncts = {cacheable_conjunct()};
+    TQueryOptions options;
+    options.__set_condition_cache_digest(12345);
+    state->set_query_options(options);
+
+    local->_init_condition_cache(state.get());
+    EXPECT_NE(local->get_condition_cache_digest(), 0);
+    EXPECT_TRUE(local->condition_cache_write_enabled());
+
+    parent->_topn_filter_source_node_ids = {7};
+    local->_init_condition_cache(state.get());
+    EXPECT_EQ(local->get_condition_cache_digest(), 0);
+    EXPECT_FALSE(local->condition_cache_write_enabled());
+}
+
 } // namespace doris
