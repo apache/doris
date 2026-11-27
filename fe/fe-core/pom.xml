@@ -198,7 +198,6 @@ under the License.
         <dependency>
             <groupId>com.aliyun.oss</groupId>
             <artifactId>aliyun-sdk-oss</artifactId>
-            <version>${aliyun-sdk-oss.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
         <dependency>
@@ -492,10 +491,6 @@ under the License.
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
         </dependency>
         <dependency>
@@ -691,6 +686,11 @@ under the License.
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+        <!-- Hudi 1.1 no longer supplies HFile support transitively. -->
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-server</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
@@ -732,10 +732,6 @@ under the License.
             <artifactId>qcloud-java-sdk</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>esdk-obs-java-bundle</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.baidubce</groupId>
             <artifactId>bce-java-sdk</artifactId>
             <version>0.10.212</version>
@@ -772,6 +768,7 @@ under the License.
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-memory-netty-buffer-patch</artifactId>
         </dependency>
+        <!-- Share BOM-managed Netty across gRPC callers, including Arrow Flight. -->
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty</artifactId>
