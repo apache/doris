@@ -151,13 +151,15 @@ public class LoadContext {
     }
 
     public synchronized void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
-        if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {
-            this.errorTabletInfos.addAll(errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load
-                    - this.errorTabletInfos.size()).collect(Collectors.toList()));
+        int maxErrorTablets = Config.max_error_tablet_of_broker_load;
+        int currentSize = this.errorTabletInfos.size();
+        if (currentSize < maxErrorTablets) {
+            this.errorTabletInfos.addAll(errorTabletInfos.stream()
+                    .limit(maxErrorTablets - currentSize).collect(Collectors.toList()));
         }
     }
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
-        return errorTabletInfos;
+        return Utils.fastToImmutableList(errorTabletInfos);
     }
 }
