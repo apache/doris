@@ -113,7 +113,7 @@ public class IcebergWriteTransactionCoverageTest {
         long previousSnapshot = table.currentSnapshot().snapshotId();
 
         Writer transaction = transaction(catalog.loadTable(IDENTIFIER));
-        transaction.beginWrite(context(Operation.OVERWRITE));
+        transaction.beginWrite(context(Operation.OVERWRITE), "dynamic");
         TIcebergCommitData westReplacement = data(ADDED, 1);
         westReplacement.setPartitionValues(Collections.singletonList("west"));
         TIcebergCommitData eastReplacement = data(SEED, 2);

@@ -56,6 +56,10 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         transaction.beginInsert((IcebergExternalTable) table, targetIcebergTable, insertCtx,
                 ctx.getSessionVariable().getIcebergPartitionOverwriteMode());
+        // Empty overwrites execute without a BE sink or newly written files.
+        if (!emptyInsert) {
+            transaction.addCommitLocations(dataSink.toThrift());
+        }
     }
 
     @Override

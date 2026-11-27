@@ -26,8 +26,11 @@ import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.foundation.util.SerializationUtils;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
+import org.apache.doris.thrift.TIcebergTableSink;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.hadoop.conf.Configuration;
@@ -211,18 +214,19 @@ public class IcebergTransactionTest {
 
     @Test
     public void testPartitionedTable() throws UserException {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
         List<String> partitionValues = createPartitionValues();
 
         List<TIcebergCommitData> ctdList = new ArrayList<>();
         TIcebergCommitData ctd1 = new TIcebergCommitData();
-        ctd1.setFilePath("f1.parquet");
+        ctd1.setFilePath(table.location() + "/data/f1.parquet");
         ctd1.setPartitionValues(partitionValues);
         ctd1.setFileContent(TFileContent.DATA);
         ctd1.setRowCount(2);
         ctd1.setFileSize(2);
 
         TIcebergCommitData ctd2 = new TIcebergCommitData();
-        ctd2.setFilePath("f2.parquet");
+        ctd2.setFilePath(table.location() + "/data/f2.parquet");
         ctd2.setPartitionValues(partitionValues);
         ctd2.setFileContent(TFileContent.DATA);
         ctd2.setRowCount(4);
@@ -230,8 +234,6 @@ public class IcebergTransactionTest {
 
         ctdList.add(ctd1);
         ctdList.add(ctd2);
-
-        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
 
         IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
@@ -244,7 +246,7 @@ public class IcebergTransactionTest {
             mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
                     ArgumentMatchers.any(), ArgumentMatchers.any()))
                     .thenCallRealMethod();
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             txn.updateIcebergCommitData(ctdList);
             txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
@@ -331,15 +333,16 @@ public class IcebergTransactionTest {
 
     @Test
     public void testUnPartitionedTable() throws UserException {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         ArrayList<TIcebergCommitData> ctdList = new ArrayList<>();
         TIcebergCommitData ctd1 = new TIcebergCommitData();
-        ctd1.setFilePath("f1.parquet");
+        ctd1.setFilePath(table.location() + "/data/f1.parquet");
         ctd1.setFileContent(TFileContent.DATA);
         ctd1.setRowCount(2);
         ctd1.setFileSize(2);
 
         TIcebergCommitData ctd2 = new TIcebergCommitData();
-        ctd2.setFilePath("f2.parquet");
+        ctd2.setFilePath(table.location() + "/data/f2.parquet");
         ctd2.setFileContent(TFileContent.DATA);
         ctd2.setRowCount(4);
         ctd2.setFileSize(4);
@@ -347,7 +350,6 @@ public class IcebergTransactionTest {
         ctdList.add(ctd1);
         ctdList.add(ctd2);
 
-        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
         Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
@@ -356,7 +358,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
             mockWritableTable(mockedStatic, table);
 
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             txn.updateIcebergCommitData(ctdList);
             txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
@@ -368,6 +370,14 @@ public class IcebergTransactionTest {
 
     private IcebergTransaction getTxn() {
         return new IcebergTransaction(ops);
+    }
+
+    private IcebergTransaction getTxn(String dataLocation) {
+        IcebergTransaction txn = getTxn();
+        TIcebergTableSink tableSink = new TIcebergTableSink();
+        tableSink.setOriginalOutputPath(dataLocation);
+        txn.addCommitLocations(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK).setIcebergTableSink(tableSink));
+        return txn;
     }
 
     private void mockWritableTable(MockedStatic<IcebergUtils> mockedUtils, Table table) {
@@ -567,7 +577,7 @@ public class IcebergTransactionTest {
         insertContext.setOverwrite(true);
         insertContext.setWriteSchemaContext(Optional.of(context));
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn(table.location() + "/data");
         if (hasOutputFile) {
             TIcebergCommitData commitData = new TIcebergCommitData();
             commitData.setFilePath(table.location() + "/data/output.parquet");
@@ -625,7 +635,7 @@ public class IcebergTransactionTest {
         commitData.setRowCount(1);
         commitData.setFileSize(1);
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn(table.location() + "/data");
         txn.updateIcebergCommitData(Collections.singletonList(commitData));
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
@@ -669,7 +679,7 @@ public class IcebergTransactionTest {
         commitData.setRowCount(1);
         commitData.setFileSize(1);
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn(table.location() + "/data");
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, table);
@@ -710,7 +720,7 @@ public class IcebergTransactionTest {
         commitData.setRowCount(1);
         commitData.setFileSize(1);
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn(table.location() + "/data");
         txn.updateIcebergCommitData(Collections.singletonList(commitData));
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
@@ -770,7 +780,7 @@ public class IcebergTransactionTest {
         IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
         insertContext.setWriteSchemaContext(Optional.of(context));
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("file:///tmp/pinned/data.parquet");
+        commitData.setFilePath(dataLocation + "/data.parquet");
         commitData.setRowCount(1);
         commitData.setFileSize(128);
         WriteResult writeResult = WriteResult.builder().addDataFiles(dataFile).build();
@@ -785,7 +795,7 @@ public class IcebergTransactionTest {
                             ArgumentMatchers.same(context), ArgumentMatchers.anyList()))
                     .thenReturn(writeResult);
 
-            IcebergTransaction txn = Mockito.spy(getTxn());
+            IcebergTransaction txn = Mockito.spy(getTxn(dataLocation));
             Mockito.doReturn(icebergTxn).when(txn).newWriteTransaction();
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, Optional.of(insertContext));
@@ -909,7 +919,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, table);
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location());
             if (mode == null) {
                 txn.beginInsert(dorisTable, table, Optional.of(context));
             } else {
@@ -980,24 +990,24 @@ public class IcebergTransactionTest {
 
     @Test
     public void testUnPartitionedTableOverwriteWithData() throws UserException {
-
         testUnPartitionedTable();
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
 
         ArrayList<TIcebergCommitData> ctdList = new ArrayList<>();
         TIcebergCommitData ctd1 = new TIcebergCommitData();
-        ctd1.setFilePath("f3.parquet");
+        ctd1.setFilePath(table.location() + "/data/f3.parquet");
         ctd1.setFileContent(TFileContent.DATA);
         ctd1.setRowCount(6);
         ctd1.setFileSize(6);
 
         TIcebergCommitData ctd2 = new TIcebergCommitData();
-        ctd2.setFilePath("f4.parquet");
+        ctd2.setFilePath(table.location() + "/data/f4.parquet");
         ctd2.setFileContent(TFileContent.DATA);
         ctd2.setRowCount(8);
         ctd2.setFileSize(8);
 
         TIcebergCommitData ctd3 = new TIcebergCommitData();
-        ctd3.setFilePath("f5.parquet");
+        ctd3.setFilePath(table.location() + "/data/f5.parquet");
         ctd3.setFileContent(TFileContent.DATA);
         ctd3.setRowCount(10);
         ctd3.setFileSize(10);
@@ -1006,7 +1016,6 @@ public class IcebergTransactionTest {
         ctdList.add(ctd2);
         ctdList.add(ctd3);
 
-        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
         Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
@@ -1014,7 +1023,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
             mockWritableTable(mockedStatic, table);
 
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             txn.updateIcebergCommitData(ctdList);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
             txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
@@ -1047,7 +1056,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
             mockWritableTable(mockedStatic, table);
 
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
             txn.beginInsert(icebergExternalTable, table, Optional.of(ctx), mode);
             ctx.setOverwrite(true);
@@ -1060,9 +1069,10 @@ public class IcebergTransactionTest {
 
     @Test
     public void testStaticPartitionOverwriteWithoutDataDeletesMatchingPartition() throws UserException {
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
         List<TIcebergCommitData> ctdList = new ArrayList<>();
         TIcebergCommitData ctd1 = new TIcebergCommitData();
-        ctd1.setFilePath("partition-a.parquet");
+        ctd1.setFilePath(table.location() + "/data/partition-a.parquet");
         ctd1.setPartitionValues(createPartitionValues(
                 Instant.parse("2024-12-11T12:34:56.123456Z"),
                 "partition-a", "truncate-a", 11));
@@ -1071,7 +1081,7 @@ public class IcebergTransactionTest {
         ctd1.setFileSize(2);
 
         TIcebergCommitData ctd2 = new TIcebergCommitData();
-        ctd2.setFilePath("partition-b.parquet");
+        ctd2.setFilePath(table.location() + "/data/partition-b.parquet");
         ctd2.setPartitionValues(createPartitionValues(
                 Instant.parse("2024-12-12T12:34:56.123456Z"),
                 "partition-b", "truncate-b", 25));
@@ -1082,7 +1092,6 @@ public class IcebergTransactionTest {
         ctdList.add(ctd1);
         ctdList.add(ctd2);
 
-        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithPartition));
         IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.forSchema(
                 table.schema(), IcebergUtils.getFormatVersion(table), table.spec(), table.sortOrder(),
                 IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
@@ -1098,7 +1107,7 @@ public class IcebergTransactionTest {
             mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
                     ArgumentMatchers.any(), ArgumentMatchers.any()))
                     .thenCallRealMethod();
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             txn.updateIcebergCommitData(ctdList);
             txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
@@ -1120,7 +1129,7 @@ public class IcebergTransactionTest {
                             ArgumentMatchers.any(Table.class)))
                     .thenReturn(writeSchemaContext.getDataLocation());
 
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(table.location() + "/data");
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
             ctx.setOverwrite(true);
             Map<String, String> staticPartitions = new LinkedHashMap<>();
@@ -1174,7 +1183,7 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("delete-dv-shared.puffin");
+        commitData.setFilePath("s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-dv-shared.puffin");
         commitData.setFileContent(TFileContent.POSITION_DELETES);
         commitData.setRowCount(3);
         commitData.setFileSize(44);
@@ -1182,7 +1191,7 @@ public class IcebergTransactionTest {
         commitData.setContentSizeInBytes(21);
         commitData.setReferencedDataFilePath(referencedDataFile);
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn("s3a://warehouse/wh/db3/tbWithoutPartition/data");
         txn.updateIcebergCommitData(Collections.singletonList(commitData));
 
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class);
@@ -1236,13 +1245,13 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("delete-dv.puffin");
+        commitData.setFilePath("s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-dv.puffin");
         commitData.setFileContent(TFileContent.POSITION_DELETES);
         commitData.setRowCount(3);
         commitData.setFileSize(33);
         commitData.setReferencedDataFilePath(referencedDataFile);
 
-        IcebergTransaction txn = getTxn();
+        IcebergTransaction txn = getTxn("s3a://warehouse/wh/db3/tbWithoutPartition/data");
         txn.updateIcebergCommitData(Collections.singletonList(commitData));
 
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class);
@@ -1579,7 +1588,7 @@ public class IcebergTransactionTest {
         Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("query-scoped-generation.parquet");
+        commitData.setFilePath(liveTable.location() + "/data/query-scoped-generation.parquet");
         commitData.setFileContent(TFileContent.DATA);
         commitData.setRowCount(1);
         commitData.setFileSize(1);
@@ -1587,7 +1596,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, liveTable);
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(liveTable.location() + "/data");
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, queryScopedTable, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
@@ -1609,7 +1618,7 @@ public class IcebergTransactionTest {
         Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("retained-generation.parquet");
+        commitData.setFilePath(liveTable.location() + "/data/retained-generation.parquet");
         commitData.setFileContent(TFileContent.DATA);
         commitData.setRowCount(1);
         commitData.setFileSize(1);
@@ -1617,7 +1626,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, liveTable);
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(liveTable.location() + "/data");
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, retainedTable, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
@@ -1659,7 +1668,7 @@ public class IcebergTransactionTest {
         Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("stale-retained-generation.parquet");
+        commitData.setFilePath(liveTable.location() + "/data/stale-retained-generation.parquet");
         commitData.setFileContent(TFileContent.DATA);
         commitData.setRowCount(1);
         commitData.setFileSize(1);
@@ -1667,7 +1676,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, liveTable);
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(liveTable.location() + "/data");
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, retainedTable, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
@@ -1688,7 +1697,7 @@ public class IcebergTransactionTest {
         Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
 
         TIcebergCommitData commitData = new TIcebergCommitData();
-        commitData.setFilePath("retry-after-concurrent-data-commit.parquet");
+        commitData.setFilePath(liveTable.location() + "/data/retry-after-concurrent-data-commit.parquet");
         commitData.setFileContent(TFileContent.DATA);
         commitData.setRowCount(1);
         commitData.setFileSize(1);
@@ -1696,7 +1705,7 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
                 IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, liveTable);
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = getTxn(liveTable.location() + "/data");
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, retainedTable, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
