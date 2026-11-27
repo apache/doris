@@ -46,7 +46,7 @@ class IcebergGoogleCredentialValidationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"null", "[]", "{", "not-json-fixture-private-key-marker",
+    @ValueSource(strings = {"null", "[]", "{", " ", "\t", "\n", "not-json-fixture-private-key-marker",
             "{\"type\":{}}", "{\"type\":null}", "{\"type\":1}"})
     void parserErrorsNeverEchoCredentialInputOrAttachParserCause(String json) {
         assertRejected(() -> new IcebergConnectorProvider().validateProperties(properties(json)));
@@ -72,6 +72,42 @@ class IcebergGoogleCredentialValidationTest {
         Assertions.assertEquals("/fixture/credential.json", runtimeOptions(raw).get("gcp.auth.credentials-path"));
         raw.remove("gcp.auth.credentials-path");
         Assertions.assertDoesNotThrow(() -> runtimeOptions(raw));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void acceptsEmptyInlineCredentialsAtCreate(boolean usePath) {
+        Map<String, String> raw = emptyInlineCredentials(usePath);
+        Assertions.assertDoesNotThrow(() -> new IcebergConnectorProvider().validateProperties(raw));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void allowsAlterToClearInlineCredentialsForAdcOrAPath(boolean usePath) {
+        Map<String, String> updates = new HashMap<>(Map.of(JSON, ""));
+        if (usePath) {
+            updates.put("gcp.auth.credentials-path", "/fixture/credential.json");
+        }
+        Map<String, String> existing = properties("{\"type\":\"service_account\"}");
+        Assertions.assertDoesNotThrow(() -> new IcebergConnectorProvider()
+                .validatePropertiesForUpdate(existing, updates));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesEmptyInlineCredentialFallbackAtRuntime(boolean usePath) {
+        Map<String, String> options = runtimeOptions(emptyInlineCredentials(usePath));
+        Assertions.assertEquals("", options.get(JSON));
+        Assertions.assertEquals(usePath ? "/fixture/credential.json" : null,
+                options.get("gcp.auth.credentials-path"));
+    }
+
+    private static Map<String, String> emptyInlineCredentials(boolean usePath) {
+        Map<String, String> raw = properties("");
+        if (usePath) {
+            raw.put("gcp.auth.credentials-path", "/fixture/credential.json");
+        }
+        return raw;
     }
 
     @Test

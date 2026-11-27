@@ -1,0 +1,84 @@
+{
+  "format-version": 2,
+  "table-uuid": "00000000-0000-0000-0000-000000000001",
+  "location": "gs://fixture-bucket/table",
+  "last-sequence-number": 1,
+  "last-updated-ms": 1700000000000,
+  "last-column-id": 2,
+  "current-schema-id": 0,
+  "schemas": [
+    {
+      "type": "struct",
+      "schema-id": 0,
+      "fields": [
+        {
+          "id": 1,
+          "name": "id",
+          "required": true,
+          "type": "int"
+        },
+        {
+          "id": 2,
+          "name": "category",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "default-spec-id": 0,
+  "partition-specs": [
+    {
+      "spec-id": 0,
+      "fields": [
+        {
+          "name": "category",
+          "transform": "identity",
+          "source-id": 2,
+          "field-id": 1000
+        }
+      ]
+    }
+  ],
+  "last-partition-id": 1000,
+  "default-sort-order-id": 0,
+  "sort-orders": [
+    {
+      "order-id": 0,
+      "fields": []
+    }
+  ],
+  "properties": {
+    "write.parquet.compression-codec": "zstd"
+  },
+  "current-snapshot-id": 1,
+  "refs": {
+    "main": {
+      "snapshot-id": 1,
+      "type": "branch"
+    }
+  },
+  "snapshots": [
+    {
+      "sequence-number": 1,
+      "snapshot-id": 1,
+      "timestamp-ms": 1700000000000,
+      "summary": {
+        "operation": "append",
+        "total-records": "7",
+        "total-data-files": "1"
+      },
+      "manifest-list": "gs://fixture-bucket/public/list.avro",
+      "schema-id": 0
+    }
+  ],
+  "statistics": [],
+  "partition-statistics": [],
+  "snapshot-log": [
+    {
+      "timestamp-ms": 1700000000000,
+      "snapshot-id": 1
+    }
+  ],
+  "metadata-log": []
+}

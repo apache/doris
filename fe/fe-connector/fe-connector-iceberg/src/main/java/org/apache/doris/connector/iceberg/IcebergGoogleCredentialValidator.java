@@ -32,7 +32,8 @@ final class IcebergGoogleCredentialValidator {
 
     static void validate(Map<String, String> properties) {
         String json = properties.get("gcp.auth.credentials-json");
-        if (json == null) {
+        // The SDK treats empty JSON as unset; ALTER uses it to fall back to a credential path or ADC.
+        if (json == null || json.isEmpty()) {
             return;
         }
         GenericJson credential;

@@ -40,13 +40,17 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -215,6 +219,139 @@ class IcebergGcsFileIORoutingTest {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    void readsWithScopedSdkCredentialsAfterSerialization() throws Exception {
+        Map<String, AtomicInteger> accepted = new ConcurrentHashMap<>();
+        AtomicInteger rejected = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            try (exchange) {
+                String path = URLDecoder.decode(exchange.getRequestURI().getRawPath(), StandardCharsets.UTF_8);
+                String object = path.substring(path.indexOf("/o/") + 3);
+                String expected = object.startsWith("private/") ? "narrow-token" : "broad-token";
+                if (!(path.startsWith("/storage/v1/b/fixture-bucket/o/")
+                        || path.startsWith("/download/storage/v1/b/fixture-bucket/o/"))
+                        || !("Bearer " + expected).equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                    rejected.incrementAndGet();
+                    exchange.sendResponseHeaders(403, -1);
+                    return;
+                }
+                accepted.computeIfAbsent(object, ignored -> new AtomicInteger()).incrementAndGet();
+                byte[] content = object.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, content.length);
+                exchange.getResponseBody().write(content);
+            }
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
+            StorageCredential broad = StorageCredential.create("gs://fixture-bucket/",
+                    Map.of("gcs.project-id", "fixture-project", "gcs.service.host", endpoint,
+                            "gcs.oauth2.token", "broad-token"));
+            StorageCredential narrow = StorageCredential.create("gs://fixture-bucket/private/",
+                    Map.of("gcs.project-id", "fixture-project", "gcs.service.host", endpoint,
+                            "gcs.oauth2.token", "narrow-token"));
+            StorageCredential unrelated = StorageCredential.create("gs://another-bucket/",
+                    Map.of("gcs.oauth2.token", "unrelated-token"));
+            StorageCredential overridden = StorageCredential.create(narrow.prefix(), broad.config());
+            for (List<StorageCredential> credentials : List.of(List.of(broad, narrow, unrelated),
+                    List.of(narrow, unrelated, broad), List.of(broad, overridden, unrelated, narrow))) {
+                try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
+                    original.setConf(new Configuration(false));
+                    // Scoped-only SDK options must select the native reader even with no global gcs.* key.
+                    original.initialize(Map.of());
+                    original.setCredentials(credentials);
+                    try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
+                            SerializationUtil.serializeToBytes(original))) {
+                        for (String object : List.of("public/object", "private/object")) {
+                            String location = "gs://fixture-bucket/" + object;
+                            Assertions.assertEquals(GCS, restored.ioClass(location).getName());
+                            try (SeekableInputStream input = restored.newInputFile(location, object.length())
+                                    .newStream()) {
+                                Assertions.assertEquals(object, new String(input.readAllBytes(),
+                                        StandardCharsets.UTF_8));
+                            }
+                        }
+                    }
+                }
+            }
+            Assertions.assertEquals(3, accepted.get("public/object").get());
+            Assertions.assertEquals(3, accepted.get("private/object").get());
+            Assertions.assertEquals(0, rejected.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void retainsCatalogHmacWhenTheSelectedScopeHasNoSdkOptions(boolean reverse) throws Exception {
+        byte[] content = "catalog-hmac-content".getBytes(StandardCharsets.UTF_8);
+        AtomicInteger accepted = new AtomicInteger();
+        AtomicInteger rejected = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            try (exchange) {
+                String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authorization == null || !authorization.startsWith("AWS4-HMAC-SHA256 ")
+                        || !authorization.contains("Credential=fixture-storage-key/")) {
+                    rejected.incrementAndGet();
+                    exchange.sendResponseHeaders(403, -1);
+                    return;
+                }
+                exchange.getResponseHeaders().set("ETag", "\"fixture-etag\"");
+                exchange.getResponseHeaders().set("Last-Modified", "Tue, 01 Jan 2019 00:00:00 GMT");
+                exchange.getResponseHeaders().set("Content-Length", String.valueOf(content.length));
+                if ("HEAD".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(200, -1);
+                } else {
+                    accepted.incrementAndGet();
+                    exchange.sendResponseHeaders(200, content.length);
+                    exchange.getResponseBody().write(content);
+                }
+            }
+        });
+        server.start();
+        try {
+            Map<String, String> raw = hmacProperties();
+            raw.put("gs.endpoint", "http://127.0.0.1:" + server.getAddress().getPort());
+            GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+            Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                    storage.toHadoopConfigurationMap());
+            conf.set("fs.s3a.endpoint.region", "us-east-1");
+            conf.setBoolean("fs.s3a.connection.ssl.enabled", false);
+            conf.setInt("fs.s3a.retry.limit", 0);
+            conf.setInt("fs.s3a.attempts.maximum", 1);
+            conf.set("fs.s3a.bucket.probe", "0");
+            // HadoopFileIO does not consume scoped configs; the selected scope preserves the catalog identity.
+            List<StorageCredential> credentials = new ArrayList<>(List.of(
+                    StorageCredential.create("gs://routing-mixed-" + reverse + "/",
+                            Map.of("gcs.oauth2.token", "broad-token")),
+                    StorageCredential.create("gs://routing-mixed-" + reverse + "/private/",
+                            Map.of("fs.gs.auth.type", "UNAUTHENTICATED"))));
+            if (reverse) {
+                Collections.reverse(credentials);
+            }
+            try (NativeGcsResolvingFileIO original = new NativeGcsResolvingFileIO()) {
+                original.setConf(conf);
+                original.initialize(options(raw, storage));
+                original.setCredentials(credentials);
+                try (ResolvingFileIO restored = SerializationUtil.deserializeFromBytes(
+                        SerializationUtil.serializeToBytes(original))) {
+                    String location = "gs://routing-mixed-" + reverse + "/private/object";
+                    Assertions.assertEquals(HADOOP, restored.ioClass(location).getName());
+                    try (SeekableInputStream input = restored.newInputFile(location, content.length).newStream()) {
+                        Assertions.assertArrayEquals(content, input.readAllBytes());
+                    }
+                }
+            }
+            Assertions.assertEquals(1, accepted.get());
+            Assertions.assertEquals(0, rejected.get());
+        } finally {
+            server.stop(0);
         }
     }
 
