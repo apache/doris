@@ -104,7 +104,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
             this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList());
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
-            throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
+            // The caller logs this exception chain; raw properties can contain private keys and tokens.
+            throw new RuntimeException("Invalid properties for Iceberg catalog", e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
         }

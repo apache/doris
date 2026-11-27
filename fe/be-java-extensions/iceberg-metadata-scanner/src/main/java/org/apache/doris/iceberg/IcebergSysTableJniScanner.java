@@ -25,9 +25,12 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import com.google.common.io.Closer;
+import org.apache.iceberg.DorisMetadataTaskFileIO;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.StructType;
 import org.apache.iceberg.util.SerializationUtil;
@@ -50,9 +53,11 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
+    private final FileIO fileIO;
     private final List<SelectedField> fields;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
+    private volatile boolean closed;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
@@ -60,20 +65,30 @@ public class IcebergSysTableJniScanner extends JniScanner {
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
         this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
-        String[] requiredFields = params.get("required_fields").split(",");
-        this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
-        this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        Map<String, String> hadoopOptionParams = params.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
-        ColumnType[] requiredTypes = parseRequiredTypes(params.get("required_types").split("#"), requiredFields);
-        initTableInfo(requiredTypes, requiredFields, batchSize);
+        // Deserialization gives this scanner its own FileIO; closing it must never retire FE's cached owner.
+        this.fileIO = DorisMetadataTaskFileIO.fileIO(scanTask);
+        try {
+            String[] requiredFields = params.get("required_fields").split(",");
+            this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
+            this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+            Map<String, String> hadoopOptionParams = params.entrySet().stream()
+                    .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                    .collect(Collectors.toMap(
+                            entry -> entry.getKey().substring(HADOOP_OPTION_PREFIX.length()), Map.Entry::getValue));
+            this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
+            ColumnType[] requiredTypes = parseRequiredTypes(params.get("required_types").split("#"), requiredFields);
+            initTableInfo(requiredTypes, requiredFields, batchSize);
+        } catch (RuntimeException | Error failure) {
+            closeOnFailure(failure);
+            throw failure;
+        }
     }
 
     @Override
-    public void open() throws IOException {
+    public synchronized void open() throws IOException {
+        if (closed) {
+            throw new IOException("Metadata scanner is closed");
+        }
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             openReader();
         }
@@ -89,23 +104,30 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 });
             }
         } catch (Exception e) {
-            this.close();
+            closeOnFailure(e);
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
+        } catch (Error e) {
+            closeOnFailure(e);
+            throw e;
         }
     }
 
     @Override
     protected int getNext() throws IOException {
+        CloseableIterator<StructLike> activeReader = reader;
+        if (closed || activeReader == null) {
+            throw new IOException("Metadata scanner is not open");
+        }
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             int rows = 0;
             long startAppendDataTime = System.nanoTime();
             while (rows < getBatchSize()) {
-                if (!reader.hasNext()) {
+                if (!activeReader.hasNext()) {
                     break;
                 }
-                StructLike row = reader.next();
+                StructLike row = activeReader.next();
                 for (int i = 0; i < fields.size(); i++) {
                     SelectedField field = fields.get(i);
                     Object value = row.get(field.sourceIndex, field.field.type().typeId().javaClass());
@@ -116,15 +138,39 @@ public class IcebergSysTableJniScanner extends JniScanner {
             }
             appendDataTime += System.nanoTime() - startAppendDataTime;
             return rows;
+        } catch (RuntimeException | Error failure) {
+            closeOnFailure(failure);
+            throw failure;
         }
     }
 
     @Override
     public void close() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            if (reader != null) {
-                // Close the iterator to release resources
-                reader.close();
+        closeResources();
+    }
+
+    private synchronized void closeResources() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader);
+                Closer closer = Closer.create()) {
+            // Close the iterator before its owner, even if either close fails. GCSFileIO.close also
+            // cancels credential-refresh futures which would otherwise retain completed split state.
+            closer.register(fileIO);
+            closer.register(reader);
+            reader = null;
+        }
+    }
+
+    private void closeOnFailure(Throwable failure) {
+        try {
+            // Constructor failures must not dispatch to a subclass before its fields are initialized.
+            closeResources();
+        } catch (IOException | RuntimeException | Error closeFailure) {
+            if (failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
             }
         }
     }
