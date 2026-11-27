@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -176,7 +177,8 @@ public class FloatLiteralTest {
         f1 = new FloatLiteral((float) 234.567);
         expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
         Assertions.assertInstanceOf(DoubleLiteral.class, expression);
-        Assertions.assertEquals(234.567, ((DoubleLiteral) expression).getValue());
+        // 234.567 is not representable as a float; widening keeps the float's real value
+        Assertions.assertEquals((double) (float) 234.567, ((DoubleLiteral) expression).getValue());
 
         f1 = new FloatLiteral(Float.NaN);
         expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
@@ -192,6 +194,14 @@ public class FloatLiteralTest {
         expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
         Assertions.assertInstanceOf(DoubleLiteral.class, expression);
         Assertions.assertEquals(Double.POSITIVE_INFINITY, ((DoubleLiteral) expression).getValue());
+
+        f1 = new FloatLiteral((float) 0.1);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertEquals(0.10000000149011612, ((DoubleLiteral) expression).getValue());
+
+        f1 = new FloatLiteral((float) 0.1);
+        expression = f1.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(20, 10));
+        Assertions.assertEquals("0.1000000015", ((DecimalV3Literal) expression).getValue().toString());
 
         // To decimal
         f1 = new FloatLiteral((float) 234.999);
