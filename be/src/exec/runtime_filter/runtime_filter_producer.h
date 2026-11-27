@@ -89,6 +89,10 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
+    // The size sync this producer waits for failed: disable the filter and release the waiting
+    // sink. Does nothing once the size is synced, and a later set_synced_size() does nothing.
+    void release_on_sync_size_error(const std::string& reason);
+
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
@@ -186,6 +190,7 @@ private:
     int64_t _synced_size = -1;
     std::shared_ptr<CountedFinishDependency> _dependency;
     std::shared_ptr<SyncSizeCallback> _sync_size_callback;
+    bool _released_on_sync_size_error = false;
 
     std::atomic<State> _rf_state;
 };

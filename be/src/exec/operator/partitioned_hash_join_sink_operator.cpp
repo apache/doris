@@ -78,6 +78,12 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
     VLOG_DEBUG << "Query:" << print_id(state->query_id())
                << ", hash join sink:" << _parent->node_id() << ", task:" << state->task_id()
                << ", close";
+    // Runs after the inner sink is closed below, also when that fails.
+    Defer release_probe {[&]() {
+        if (_release_probe_on_close) {
+            _dependency->set_ready_to_read();
+        }
+    }};
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     if (!_shared_state->_is_spilled && _shared_state->_inner_runtime_state) {
         RETURN_IF_ERROR(p._inner_sink_operator->close(_shared_state->_inner_runtime_state.get(),
@@ -93,6 +99,15 @@ Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec
     _build_writers.clear();
 
     return PipelineXSpillSinkLocalState::close(state, exec_status);
+}
+
+bool PartitionedHashJoinSinkLocalState::_inner_releases_probe_on_close() const {
+    if (_shared_state->_is_spilled || _shared_state->_inner_runtime_state == nullptr) {
+        return false;
+    }
+    auto* inner_sink_state = _shared_state->_inner_runtime_state->get_sink_local_state();
+    return inner_sink_state != nullptr &&
+           assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state)->_release_probe_on_close;
 }
 
 size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state) const {
@@ -555,7 +570,14 @@ Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* i
             RETURN_IF_ERROR(local_state._force_flush_partitions(state));
             RETURN_IF_ERROR(local_state._finish_spilling(state));
         }
-        local_state._dependency->set_ready_to_read();
+        // The inner sink publishes its runtime filters when it is closed in close().
+        if (local_state._inner_releases_probe_on_close()) {
+            local_state._release_probe_on_close = true;
+            local_state._release_probe_timer = start_probe_release_timer(
+                    state, local_state._shared_state->source_deps.front());
+        } else {
+            local_state._dependency->set_ready_to_read();
+        }
     }
     return Status::OK();
 }

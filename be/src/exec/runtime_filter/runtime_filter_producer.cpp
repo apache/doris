@@ -129,6 +129,8 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     }
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
+    // The local producers whose sizes are merged into the request sent below, this one included.
+    std::vector<std::weak_ptr<RuntimeFilterProducer>> merged_producers;
     if (_need_do_merge(state)) {
         std::shared_ptr<LocalMergeContext> context;
         RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_context(
@@ -142,6 +144,7 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
         if (!ready_to_sync) {
             return Status::OK();
         }
+        merged_producers.assign(context->producers.begin(), context->producers.end());
         received_sum_size = context->merger->get_received_sum_size();
         if (!_has_remote_target) {
             for (const auto& filter : context->producers) {
@@ -168,8 +171,8 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     auto request = std::make_shared<PSendFilterSizeRequest>();
     request->set_stage(_stage);
     // when failed, will check `ignore_runtime_filter_error` in callback to decide cancel or not
-    _sync_size_callback = SyncSizeCallback::create_shared(_dependency, _wrapper,
-                                                          state->get_query_ctx()->weak_from_this());
+    _sync_size_callback = SyncSizeCallback::create_shared(state->get_query_ctx()->weak_from_this(),
+                                                          std::move(merged_producers));
     // RuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
     auto closure = AutoReleaseClosure<PSendFilterSizeRequest, SyncSizeCallback>::create_unique(
@@ -204,6 +207,10 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
 
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
+    if (_released_on_sync_size_error) {
+        // The sink was released by a failed sync already; do not sub its dependency again.
+        return;
+    }
     if (!set_state(State::WAITING_FOR_DATA)) {
         _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED});
     }
@@ -213,6 +220,16 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "_dependency is nullptr in set_synced_size, filter: {}", debug_string());
     }
+    _dependency->sub();
+}
+
+void RuntimeFilterProducer::release_on_sync_size_error(const std::string& reason) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
+    if (_rf_state != State::WAITING_FOR_SYNCED_SIZE || _released_on_sync_size_error) {
+        return;
+    }
+    _released_on_sync_size_error = true;
+    _wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, reason);
     _dependency->sub();
 }
 
