@@ -40,11 +40,11 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
         String response = "{\"code\":0,\"msg\":\"Success\","
                 + "\"data\":[{\"splitId\":\"db.t:0\",\"tableId\":\"db.t\"}]}";
-        List<SnapshotSplit> splits =
-                provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
-        Assertions.assertEquals(1, splits.size());
-        Assertions.assertEquals("db.t:0", splits.get(0).getSplitId());
-        Assertions.assertEquals("db.t", splits.get(0).getTableId());
+        List<SnapshotSplit> result = provider.parseCdcResponseData(response,
+                new TypeReference<List<SnapshotSplit>>() {});
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("db.t:0", result.get(0).getSplitId());
+        Assertions.assertEquals("db.t", result.get(0).getTableId());
     }
 
     @Test
