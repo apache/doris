@@ -71,6 +71,8 @@ under the License.
 
     <!-- The scan adapter needs Iceberg package access to preserve the original scan context. -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]DorisDataTableScan\.java" checks="ImportControl"/>
+    <!-- Access package-private live manifest entries; all other style checks remain enabled. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]ManifestReaderAccess\.java" checks="ImportControl"/>
     <!-- ignore iceberg delete file index copied from iceberg/DeleteFileIndex.java -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]DeleteFileIndex\.java" checks="[a-zA-Z0-9]*"/>
 

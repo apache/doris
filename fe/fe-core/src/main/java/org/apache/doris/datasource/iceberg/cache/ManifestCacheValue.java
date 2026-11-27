@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Cached manifest payload containing parsed files.
+ * Immutable parsed files of one Iceberg manifest, optionally retained in the manifest cache.
  */
 public class ManifestCacheValue {
     private static final long AUXILIARY_LIST_ENTRY_BYTES =
@@ -77,7 +77,11 @@ public class ManifestCacheValue {
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
-        Builder builder = dataFilesBuilder();
+        return forDataFiles(dataFiles, true);
+    }
+
+    public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles, boolean accountRetainedSize) {
+        Builder builder = dataFilesBuilder(accountRetainedSize);
         if (dataFiles != null) {
             dataFiles.forEach(builder::addDataFile);
         }
@@ -85,7 +89,11 @@ public class ManifestCacheValue {
     }
 
     public static ManifestCacheValue forDeleteFiles(List<DeleteFile> deleteFiles) {
-        Builder builder = deleteFilesBuilder();
+        return forDeleteFiles(deleteFiles, true);
+    }
+
+    public static ManifestCacheValue forDeleteFiles(List<DeleteFile> deleteFiles, boolean accountRetainedSize) {
+        Builder builder = deleteFilesBuilder(accountRetainedSize);
         if (deleteFiles != null) {
             deleteFiles.forEach(builder::addDeleteFile);
         }

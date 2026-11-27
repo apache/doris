@@ -452,7 +452,7 @@ public class DeleteFileIndex {
       return this;
     }
 
-    Builder scanMetrics(ScanMetrics newScanMetrics) {
+    public Builder scanMetrics(ScanMetrics newScanMetrics) {
       this.scanMetrics = newScanMetrics;
       return this;
     }

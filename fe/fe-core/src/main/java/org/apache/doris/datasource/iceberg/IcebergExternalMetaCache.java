@@ -28,6 +28,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -47,6 +48,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -1362,7 +1364,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             org.apache.iceberg.ManifestFile manifest, Table table, boolean accountRetainedSize)
             throws IOException {
         ManifestCacheValue.Builder builder = ManifestCacheValue.dataFilesBuilder(accountRetainedSize);
-        try (ManifestReader<org.apache.iceberg.DataFile> reader = ManifestFiles.read(manifest, table.io())) {
+        Map<Integer, PartitionSpec> specs = IcebergManifestLoader.manifestReadSpecs(manifest, table, table.io());
+        try (ManifestReader<org.apache.iceberg.DataFile> reader = specs == null
+                ? ManifestFiles.read(manifest, table.io())
+                : ManifestFiles.read(manifest, table.io(), specs)) {
             for (org.apache.iceberg.DataFile dataFile : reader) {
                 builder.addDataFile(dataFile.copy());
             }
@@ -1376,8 +1381,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         ManifestCacheValue.Builder builder = ManifestCacheValue.deleteFilesBuilder(accountRetainedSize);
         // Cache the manifest's physical partition types, just as loadDataFiles does. Current table
         // specs may promote a DATE to nanos or erase a dropped field before query-local adaptation.
+        Map<Integer, PartitionSpec> specs = IcebergManifestLoader.manifestReadSpecs(manifest, table, table.io());
         try (ManifestReader<org.apache.iceberg.DeleteFile> reader = ManifestFiles.readDeleteManifest(manifest,
-                table.io(), null)) {
+                table.io(), specs)) {
             for (org.apache.iceberg.DeleteFile deleteFile : reader) {
                 builder.addDeleteFile(deleteFile.copy());
             }
