@@ -20,11 +20,13 @@
 #include <cctz/time_zone.h>
 #include <fmt/compile.h>
 #include <fmt/format.h>
+#include <simdjson.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -180,6 +182,273 @@ private:
 
     VariantBatchBuilder::Row& _builder;
     const JsonToVariantOptions& _options;
+};
+
+// The ondemand twin of JsonTreeCollector for a destination whose Schema Template rides with its
+// type (it declares a DECIMAL or LARGEINT path): it sees each number's text, so a number on a
+// DECIMAL path becomes an exact decimal and an integer beyond 64 bits on a LARGEINT path an exact
+// 128-bit integer. It reads every document of a template with a DECIMAL field, and of any other
+// only a document the DOM parser rejects (add_json_row). Any simdjson error makes the collect
+// return false and the caller gives the text the DOM parser's verdict, the documented one. A
+// builder exception (depth, key length, duplicate keys) ends the same way: the caller rolls the row
+// back and the DOM parser meets the same check, or the syntax error it reports before any check
+// (add_row_with_template_paths).
+class OndemandTreeCollector {
+public:
+    OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
+            : _builder(builder), _options(options), _paths(*options.template_paths) {}
+
+    bool collect(simdjson::ondemand::value& value, uint32_t depth) {
+        variant_json::require_json_depth(depth);
+        simdjson::ondemand::json_type type;
+        if (value.type().get(type) != simdjson::SUCCESS) {
+            return false;
+        }
+        switch (type) {
+        case simdjson::ondemand::json_type::null: {
+            bool is_null = false;
+            if (value.is_null().get(is_null) != simdjson::SUCCESS || !is_null) {
+                return false;
+            }
+            _builder.add_null();
+            return true;
+        }
+        case simdjson::ondemand::json_type::boolean: {
+            bool flag = false;
+            if (value.get_bool().get(flag) != simdjson::SUCCESS) {
+                return false;
+            }
+            _builder.add_bool(flag);
+            return true;
+        }
+        case simdjson::ondemand::json_type::string: {
+            std::string_view text;
+            if (value.get_string().get(text) != simdjson::SUCCESS) {
+                return false;
+            }
+            _builder.add_string(to_string_ref(text));
+            return true;
+        }
+        case simdjson::ondemand::json_type::number:
+            return collect_number(value);
+        case simdjson::ondemand::json_type::array:
+            return collect_array(value, depth);
+        case simdjson::ondemand::json_type::object:
+            return collect_object(value, depth);
+        }
+        return false;
+    }
+
+private:
+    static std::string_view trim_json_token(std::string_view token) {
+        while (!token.empty() && (token.back() == ' ' || token.back() == '\t' ||
+                                  token.back() == '\n' || token.back() == '\r')) {
+            token.remove_suffix(1);
+        }
+        while (!token.empty() && (token.front() == ' ' || token.front() == '\t' ||
+                                  token.front() == '\n' || token.front() == '\r')) {
+            token.remove_prefix(1);
+        }
+        return token;
+    }
+
+    // Only a number that may be read from its text pays for the match (a glob is an fnmatch per
+    // template field): an int64 / uint64 is stored as it is, and so is a double when no field is a
+    // DECIMAL. Under an object that is an array element nothing is on a declared path
+    // (collect_object), and neither is a value with no key above it: the root, or an element of
+    // an array at the root.
+    VariantNumberRead number_read() const {
+        return _unmatched == 0 && _keys != 0 ? _paths.number_read(_path)
+                                             : VariantNumberRead::NATIVE;
+    }
+
+    bool collect_number(simdjson::ondemand::value& value) {
+        simdjson::ondemand::number number;
+        const simdjson::error_code error = value.get_number().get(number);
+        VariantNumberRead mode = VariantNumberRead::NATIVE;
+        if (error == simdjson::SUCCESS) {
+            switch (number.get_number_type()) {
+            case simdjson::ondemand::number_type::signed_integer:
+                _builder.add_int(number.get_int64());
+                return true;
+            case simdjson::ondemand::number_type::unsigned_integer:
+                _builder.add_largeint(static_cast<__int128>(number.get_uint64()));
+                return true;
+            case simdjson::ondemand::number_type::floating_point_number:
+                mode = _paths.reads_decimal_text() ? number_read() : VariantNumberRead::NATIVE;
+                if (mode != VariantNumberRead::DECIMAL_TEXT &&
+                    mode != VariantNumberRead::DECIMAL256_TEXT) {
+                    // also on a LARGEINT path: a fraction or an exponent is not an integer as
+                    // written, so the double is kept and the template's cast decides
+                    _builder.add_double(number.get_double());
+                    return true;
+                }
+                break;
+            case simdjson::ondemand::number_type::big_integer:
+                mode = number_read();
+                break;
+            }
+        } else if (error != simdjson::NUMBER_ERROR && error != simdjson::BIGINT_ERROR) {
+            return false;
+        } else {
+            mode = number_read();
+        }
+        // What is left is a fraction or an exponent on a DECIMAL path, or a token simdjson holds
+        // in no 64-bit type. It reports two valid JSON numbers that way (the big_integer type, or
+        // NUMBER_ERROR / BIGINT_ERROR): an integer beyond 64 bits (18446744073709551616) and an
+        // exponent a double cannot hold (1e400). The same errors also cover tokens that are not
+        // JSON numbers at all, "01" or "-Infinity" among them, so each text reader enforces the
+        // grammar itself and whatever it declines takes the DOM parser's verdict.
+        switch (mode) {
+        case VariantNumberRead::NATIVE:
+            // The DOM parser fails the whole document on an integer beyond 64 bits, so off the
+            // DECIMAL and LARGEINT paths such a document is rejected, or kept as its text by the
+            // lenient serde, as it is today.
+            return false;
+        case VariantNumberRead::DECIMAL_TEXT:
+            return collect_decimal_text(trim_json_token(value.raw_json_token()),
+                                        kVariantDecimalFinestScale);
+        case VariantNumberRead::DECIMAL256_TEXT:
+            return collect_decimal_text(trim_json_token(value.raw_json_token()),
+                                        kVariantDecimal256FinestScale);
+        case VariantNumberRead::LARGEINT_TEXT:
+            return collect_largeint_text(trim_json_token(value.raw_json_token()));
+        }
+        return false;
+    }
+
+    // Beyond 38 significant digits, or at a scale beyond 38, the text is kept as it is and the
+    // template's cast decides (a correctly rounded value or NULL). Only a value below every scale
+    // the field's decimal type has is not kept: the reader answers the 0 it rounds to there. That
+    // is below 10^-39, and on a DECIMAL256 field, whose scale goes to 76, below 10^-77.
+    bool collect_decimal_text(std::string_view token, int finest_scale) {
+        VariantDecimalText decimal;
+        switch (parse_json_number_as_decimal(token, decimal, finest_scale)) {
+        case JsonNumberToDecimal::OK:
+            // the reader's width holds the scale too; the builder's own choice goes by magnitude
+            _builder.add_decimal(decimal.unscaled, decimal.scale, decimal.width);
+            return true;
+        case JsonNumberToDecimal::OUT_OF_RANGE:
+            _builder.add_string(to_string_ref(token));
+            return true;
+        case JsonNumberToDecimal::MALFORMED:
+            return false;
+        }
+        return false;
+    }
+
+    // An integer beyond 64 bits on a LARGEINT path, read exactly instead of failing the document.
+    // The builder stores a value up to 10^38 - 1 as a scale-0 decimal16 and a larger one as its
+    // digits (add_largeint), and the template's cast to LARGEINT takes either. An integer no
+    // LARGEINT holds keeps its text, as a decimal beyond 38 digits does, and that cast decides
+    // (NULL). A doc-mode document column is written before the cast and keeps either as read.
+    bool collect_largeint_text(std::string_view token) {
+        __int128 integer = 0;
+        switch (parse_json_integer_as_largeint(token, integer)) {
+        case JsonNumberToLargeInt::OK:
+            _builder.add_largeint(integer);
+            return true;
+        case JsonNumberToLargeInt::OUT_OF_RANGE:
+            _builder.add_string(to_string_ref(token));
+            return true;
+        case JsonNumberToLargeInt::NOT_AN_INTEGER:
+            return false;
+        }
+        return false;
+    }
+
+    // Elements keep their array's path, so an ARRAY<DECIMAL> or ARRAY<LARGEINT> template covers
+    // the scalars directly inside it. The template addresses an array as a leaf, so an array that
+    // is itself an array element is as far off every declared path as an object element:
+    // {"prices":[[1.50]]} with 'prices' declared keeps the double 1.5 the shredder stores.
+    bool collect_array(simdjson::ondemand::value& value, uint32_t depth) {
+        simdjson::ondemand::array array;
+        if (value.get_array().get(array) != simdjson::SUCCESS) {
+            return false;
+        }
+        auto scope = _builder.start_array();
+        const bool was_in_array = _in_array;
+        if (was_in_array) {
+            ++_unmatched;
+        }
+        _in_array = true;
+        for (auto entry : array) {
+            simdjson::ondemand::value element;
+            if (std::move(entry).get(element) != simdjson::SUCCESS ||
+                !collect(element, depth + 1)) {
+                return false;
+            }
+        }
+        _in_array = was_in_array;
+        if (was_in_array) {
+            --_unmatched;
+        }
+        scope.finish();
+        return true;
+    }
+
+    bool collect_object(simdjson::ondemand::value& value, uint32_t depth) {
+        simdjson::ondemand::object object;
+        if (value.get_object().get(object) != simdjson::SUCCESS) {
+            return false;
+        }
+        auto scope = _builder.start_object();
+        // The template addresses an array as a leaf (an ARRAY<DECIMAL> field covers the scalars
+        // directly inside it) and the shredder never types the members of an object element, so
+        // nothing under such an object is on a declared path: {"a":[{"b":1.50}]} with 'a.b'
+        // declared keeps the double 1.5 the shredder stores, instead of becoming the decimal 1.50.
+        const bool element_of_array = _in_array;
+        if (element_of_array) {
+            ++_unmatched;
+        }
+        _in_array = false;
+        for (auto entry : object) {
+            simdjson::ondemand::field field;
+            if (std::move(entry).get(field) != simdjson::SUCCESS) {
+                return false;
+            }
+            std::string_view key;
+            if (field.unescaped_key().get(key) != simdjson::SUCCESS) {
+                return false;
+            }
+            require_json_key_length(key, _options.max_json_key_length);
+            scope.add_key(to_string_ref(key));
+            // The shredder joins every key below the first with '.', an empty one included:
+            // {"":{"b":1}} is the path ".b", which a field declared 'b' does not match. So the
+            // separator goes by the number of keys above, not by whether the path is still empty.
+            const size_t path_size = _path.size();
+            if (_keys != 0) {
+                _path.push_back('.');
+            }
+            _path.append(key);
+            ++_keys;
+            simdjson::ondemand::value child = field.value();
+            const bool collected = collect(child, depth + 1);
+            --_keys;
+            _path.resize(path_size);
+            if (!collected) {
+                return false;
+            }
+        }
+        scope.finish();
+        _in_array = element_of_array;
+        if (element_of_array) {
+            --_unmatched;
+        }
+        return true;
+    }
+
+    VariantBatchBuilder::Row& _builder;
+    const JsonToVariantOptions& _options;
+    const VariantTemplatePaths& _paths;
+    std::string _path;
+    // The number of object keys `_path` joins: 0 for a value with no key above it.
+    uint32_t _keys = 0;
+    // Set while an array's elements are collected; an object or array element raises `_unmatched`
+    // for its whole subtree. A `false` return abandons the collector with its row, so none of the
+    // three is restored on that path.
+    bool _in_array = false;
+    uint32_t _unmatched = 0;
 };
 
 } // namespace
@@ -379,13 +648,32 @@ struct JsonStringToVariantEncoder::Impl {
     }
 
     void add_json_row(StringRef json) {
-        auto row = builder.begin_row();
         if (json.size != 0 && json.data == nullptr) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant JSON input has a null data pointer");
         }
+        // A root scalar has no path, so the ondemand pass could only decline it after copying and
+        // indexing the text: the "null" the parse functions add for every SQL NULL row is the
+        // commonest one. Only an object or an array is given to it.
+        const bool has_template = options.template_paths != nullptr &&
+                                  !options.template_paths->empty() && starts_a_container(json);
+        // The DOM parser reads a fraction into a binary64 without complaint, so under a template
+        // with a DECIMAL field every document is read from its text first. Under one without
+        // (LARGEINT fields only) the two reads differ only on an integer beyond 64 bits, which
+        // fails the DOM parser: that parser goes first, and the text read gets what it rejects.
+        if (has_template && options.template_paths->reads_decimal_text() &&
+            add_row_with_template_paths(json)) {
+            return;
+        }
         SimdJSONParser::Element root;
-        if (json.size == 0 || !parser.parse(json.data, json.size, root)) {
+        const bool parsed = json.size != 0 && parser.parse(json.data, json.size, root);
+        if (!parsed && has_template && !options.template_paths->reads_decimal_text() &&
+            add_row_with_template_paths(json)) {
+            return;
+        }
+        // The DOM parser's verdict, the one the text has without a template.
+        auto row = builder.begin_row();
+        if (!parsed) {
             if (options.throw_on_invalid_json) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse JSON as Variant");
             }
@@ -397,9 +685,91 @@ struct JsonStringToVariantEncoder::Impl {
         row.finish();
     }
 
+    // Whether the first byte of the document opens an object or an array, past what simdjson
+    // itself passes over before a document: a UTF-8 byte order mark and JSON whitespace.
+    static bool starts_a_container(StringRef json) {
+        size_t pos = 0;
+        if (json.size >= 3 && std::memcmp(json.data, "\xEF\xBB\xBF", 3) == 0) {
+            pos = 3;
+        }
+        for (; pos < json.size; ++pos) {
+            const char c = json.data[pos];
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                return c == '{' || c == '[';
+            }
+        }
+        return false;
+    }
+
+    // Adds the document as the ondemand pass reads it, or nothing: false means the row it began
+    // was rolled back, and the caller gives the text the DOM parser's verdict.
+    bool add_row_with_template_paths(StringRef json) {
+        auto row = builder.begin_row();
+        bool collected = false;
+        // The DOM parser reads the whole text before any depth or key check runs, and the ondemand
+        // pass checks as it reads. So on a document whose prefix is over-deep or duplicate-keyed
+        // AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, the ondemand pass meets the
+        // builder's check where the DOM parser meets the syntax error. It would throw where the
+        // lenient serde stored the text as a string row, and the strict functions would report
+        // the prefix's defect where they reported the syntax error. Let the DOM parser give the
+        // verdict in both: a well-formed document meets the same check there and fails as it
+        // always did.
+        try {
+            collected = collect_with_template_paths(row, json);
+        } catch (const Exception& exception) {
+            if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
+                throw;
+            }
+        }
+        if (!collected) {
+            // `row` ends here and rolls its partial content back
+            return false;
+        }
+        row.finish();
+        return true;
+    }
+
+    // A root object or array read with the ondemand parser; false on any simdjson error, and for a
+    // root scalar, which has no path.
+    bool collect_with_template_paths(VariantBatchBuilder::Row& row, StringRef json) {
+        // One padded copy per encoder, grown to the largest document seen: ondemand values point
+        // into it, and the builder copies a row's bytes before the next document is read.
+        const size_t padded_size = json.size + simdjson::SIMDJSON_PADDING;
+        if (padding_buffer.size() < padded_size) {
+            padding_buffer.resize(padded_size);
+        }
+        std::memcpy(padding_buffer.data(), json.data, json.size);
+        const std::string_view padded(padding_buffer.data(), json.size);
+        simdjson::ondemand::document document;
+        if (ondemand_parser.iterate(padded, padding_buffer.size()).get(document) !=
+            simdjson::SUCCESS) {
+            return false;
+        }
+        simdjson::ondemand::json_type type;
+        if (document.type().get(type) != simdjson::SUCCESS) {
+            return false;
+        }
+        if (type != simdjson::ondemand::json_type::object &&
+            type != simdjson::ondemand::json_type::array) {
+            return false;
+        }
+        simdjson::ondemand::value root;
+        if (document.get_value().get(root) != simdjson::SUCCESS) {
+            return false;
+        }
+        if (!OndemandTreeCollector(row, options).collect(root, 0)) {
+            return false;
+        }
+        return document.at_end();
+    }
+
     JsonToVariantOptions options;
     VariantBatchBuilder builder;
     SimdJSONParser parser;
+    simdjson::ondemand::parser ondemand_parser;
+    // The ondemand parser's input: a padded copy of the current document, reused across rows and
+    // freed with the encoder. Untracked, like the DOM parser's own copy of the document.
+    std::string padding_buffer;
     State state = State::COLLECTING;
 };
 

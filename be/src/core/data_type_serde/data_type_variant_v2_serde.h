@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/value/variant/variant_template_paths.h"
 
 namespace arrow {
 class DataType;
@@ -25,10 +26,15 @@ class DataType;
 
 namespace doris {
 
+struct JsonToVariantOptions;
+
 // Direct SerDe used when the logical Variant type carries a ColumnVariantV2 physical column.
 class DataTypeVariantV2SerDe final : public DataTypeSerDe {
 public:
-    explicit DataTypeVariantV2SerDe(int nesting_level = 1);
+    explicit DataTypeVariantV2SerDe(int nesting_level = 1,
+                                    VariantTemplatePathsPtr template_paths = nullptr);
+
+    const VariantTemplatePathsPtr& template_paths() const { return _template_paths; }
 
     static int64_t get_uncompressed_serialized_bytes(const IColumn& column, int be_exec_version);
     static char* serialize(const IColumn& column, char* buf, int be_exec_version);
@@ -90,6 +96,11 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+private:
+    JsonToVariantOptions json_options() const;
+
+    VariantTemplatePathsPtr _template_paths;
 };
 
 } // namespace doris

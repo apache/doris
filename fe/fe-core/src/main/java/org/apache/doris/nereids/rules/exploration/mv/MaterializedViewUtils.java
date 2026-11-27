@@ -373,8 +373,11 @@ public class MaterializedViewUtils {
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
                 .getSessionVariable()
                 .getDisableNereidsRuleNames();
+        // TYPE_VARIANT_TEMPLATE_PARSE has decided on the statement's own plan, which this one was recorded from:
+        // here the readers it counted may have become copies of the call, and a second decision could differ
         rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
-                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name(),
+                        RuleType.TYPE_VARIANT_TEMPLATE_PARSE.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         List<PlannerHook> removedMaterializedViewHooks = new ArrayList<>();
         try {
