@@ -34,7 +34,11 @@
 #include "runtime/thread_context.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/predicate_creator.h"
+#include "storage/predicate/shared_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/test_segment_writer.h"
@@ -52,6 +56,42 @@ struct ScanResult {
     int64_t raw_rows = 0;
     int64_t pages = 0;
     int64_t range_filtered = 0;
+};
+
+struct InitPruning {
+    RowRanges ranges;
+    int zone_map_calls = 0;
+    int shared_predicates = 0;
+};
+
+// Answers zone-map pruning with the segment's real zone map and records the predicates it gets.
+class RecordingZoneMapIterator : public ColumnIterator {
+public:
+    explicit RecordingZoneMapIterator(ColumnIterator* real) : _real(real) {}
+
+    Status seek_to_ordinal(ordinal_t ord) override { return _real->seek_to_ordinal(ord); }
+    ordinal_t get_current_ordinal() const override { return _real->get_current_ordinal(); }
+
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) override {
+        ++_zone_map_calls;
+        for (const auto& child : col_predicates->_block_column_predicate_vec) {
+            const auto& single = assert_cast<const SingleColumnBlockPredicate&>(*child);
+            _shared_predicates +=
+                    dynamic_cast<const SharedPredicate*>(single._predicate.get()) != nullptr;
+        }
+        return _real->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges);
+    }
+
+    int zone_map_calls() const { return _zone_map_calls; }
+    int shared_predicates() const { return _shared_predicates; }
+
+private:
+    ColumnIterator* _real;
+    int _zone_map_calls = 0;
+    int _shared_predicates = 0;
 };
 } // namespace
 
@@ -103,8 +143,9 @@ protected:
                             .ok());
     }
 
+    // `other` is a second predicate on the same column, placed before the TopN filter.
     void start(bool reverse = false, const Field& initial = Field(), bool with_hole = false,
-               int batch_rows = 1024) {
+               int batch_rows = 1024, std::shared_ptr<ColumnPredicate> other = nullptr) {
         _reader.reset();
         _stats = OlapReaderStatistics {};
         auto target = TRuntimeFilterDescBuilder::get_default_expr();
@@ -129,9 +170,15 @@ protected:
             options.row_ranges.add({4096, kRows});
         }
         options.column_predicates = {_predicate->get_predicate(20)};
+        if (other != nullptr) {
+            options.column_predicates.insert(options.column_predicates.begin(), std::move(other));
+        }
+        // Grouped by column in the order of column_predicates, as BetaRowsetReader does.
         auto block_predicate = AndBlockColumnPredicate::create_shared();
-        block_predicate->add_column_predicate(
-                SingleColumnBlockPredicate::create_unique(options.column_predicates.front()));
+        for (const auto& predicate : options.column_predicates) {
+            block_predicate->add_column_predicate(
+                    SingleColumnBlockPredicate::create_unique(predicate));
+        }
         options.col_id_to_predicates.emplace(0, std::move(block_predicate));
         ASSERT_TRUE(_segment->new_iterator(_schema, options, &_reader).ok());
         _block = _schema->create_read_block();
@@ -194,6 +241,48 @@ protected:
         RecordProperty(reverse ? "reverse_pages" : "forward_pages", std::to_string(dynamic.pages));
         RecordProperty("baseline_raw_rows", std::to_string(baseline.raw_rows));
         RecordProperty("baseline_pages", std::to_string(baseline.pages));
+    }
+
+    // Runs the page pruning the first next_batch() does, with a recorder in front of the zone map.
+    void prune_pages_at_init(InitPruning* result) {
+        auto* iterator = assert_cast<SegmentIterator*>(_reader.get());
+        auto real = std::move(iterator->_column_iterators[0]);
+        auto recorder = std::make_unique<RecordingZoneMapIterator>(real.get());
+        const auto* recording = recorder.get();
+        iterator->_column_iterators[0] = std::move(recorder);
+        result->ranges = RowRanges::create_single(kRows);
+        const auto status = iterator->_get_row_ranges_from_conditions(&result->ranges);
+        result->zone_map_calls = recording->zone_map_calls();
+        result->shared_predicates = recording->shared_predicates();
+        iterator->_column_iterators[0] = std::move(real);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    // The bound keeps half of the rows from the start; pages beyond it are never read.
+    void check_bound_known_at_init(bool reverse) {
+        SCOPED_TRACE(reverse);
+        ASSERT_NO_FATAL_FAILURE(
+                start(reverse, Field::create_field<TYPE_INT>(reverse ? kBound + 1 : kBound)));
+        std::vector<int32_t> ids;
+        ASSERT_NO_FATAL_FAILURE(drain(&ids));
+        const std::set<int32_t> unique(ids.begin(), ids.end());
+        EXPECT_EQ(kRows / 2, ids.size());
+        EXPECT_EQ(unique.size(), ids.size());
+        EXPECT_EQ(reverse ? kBound + 1 : 0, *unique.begin());
+        EXPECT_EQ(reverse ? kRows - 1 : kBound, *unique.rbegin());
+        EXPECT_LT(_stats.raw_rows_read, kRows * 3 / 4);
+    }
+
+    uint64_t applied_version() {
+        return assert_cast<SegmentIterator*>(_reader.get())
+                ->_topn_runtime_filters[0]
+                .applied_version;
+    }
+
+    std::shared_ptr<ColumnPredicate> at_least(int value) {
+        return create_comparison_predicate<PredicateType::GE>(
+                0, _tablet_schema->column(0).name(), std::make_shared<DataTypeInt32>(),
+                Field::create_field<TYPE_INT>(value), false);
     }
 
     TabletSchemaSPtr _tablet_schema;
@@ -282,6 +371,67 @@ TEST_F(SegmentIteratorTopNRuntimeFilterTest, RebuildingPreservesHolesFromInitial
     EXPECT_EQ(std::set<int32_t>(ids.begin(), ids.end()).size(), ids.size());
     EXPECT_TRUE(std::ranges::all_of(
             ids, [](int id) { return (id < 2048 || id >= 4096) && id <= 8191; }));
+}
+
+// Zone-map pruning tests the bound once per page. The TopN filter is one SharedPredicate for all
+// scanners of a query and each of its calls takes a lock, so pages are tested against a snapshot.
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, InitialPagePruningUsesASnapshotOfTheBound) {
+    ASSERT_NO_FATAL_FAILURE(start(false, Field::create_field<TYPE_INT>(kBound)));
+    InitPruning pruning;
+    ASSERT_NO_FATAL_FAILURE(prune_pages_at_init(&pruning));
+    EXPECT_EQ(1, pruning.zone_map_calls);
+    EXPECT_EQ(0, pruning.shared_predicates);
+    // Rows [0, kBound] pass. Pruning keeps whole pages, so the last page kept may hold more rows.
+    EXPECT_GE(pruning.ranges.count(), kBound + 1);
+    EXPECT_LT(pruning.ranges.count(), kRows * 3 / 4);
+}
+
+// A bound published after the iterator was created, before its first batch, is applied by the
+// initial pruning. The refresh before that batch must not test it against every page again.
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, InitialPagePruningMarksTheBoundItUsedAsApplied) {
+    ASSERT_NO_FATAL_FAILURE(start());
+    ASSERT_EQ(0, applied_version());
+    ASSERT_TRUE(_predicate->update(Field::create_field<TYPE_INT>(kBound)).ok());
+    InitPruning pruning;
+    ASSERT_NO_FATAL_FAILURE(prune_pages_at_init(&pruning));
+    EXPECT_LT(pruning.ranges.count(), kRows * 3 / 4);
+    EXPECT_EQ(1, applied_version());
+}
+
+// A scanner can open its segment before the TopN has a bound: every page passes and no version
+// counts as applied, so the bound is applied by the refresh as soon as it is published.
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, InitialPagePruningPassesEveryPageWithoutABound) {
+    ASSERT_NO_FATAL_FAILURE(start());
+    InitPruning pruning;
+    ASSERT_NO_FATAL_FAILURE(prune_pages_at_init(&pruning));
+    EXPECT_EQ(0, pruning.shared_predicates);
+    EXPECT_EQ(kRows, pruning.ranges.count());
+    EXPECT_EQ(0, applied_version());
+}
+
+// Only the TopN filter is replaced: the other predicates of its column keep pruning pages.
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, OtherPredicatesOfTheColumnKeepPruningPages) {
+    ASSERT_NO_FATAL_FAILURE(start(false, Field(), false, 1024, at_least(kRows - 1000)));
+    InitPruning pruning;
+    ASSERT_NO_FATAL_FAILURE(prune_pages_at_init(&pruning));
+    EXPECT_EQ(0, pruning.shared_predicates);
+    EXPECT_GE(pruning.ranges.count(), 1000);
+    EXPECT_LT(pruning.ranges.count(), kRows / 4);
+
+    // ASC: the bound keeps k <= kBound, the other predicate k >= 1000.
+    ASSERT_NO_FATAL_FAILURE(
+            start(false, Field::create_field<TYPE_INT>(kBound), false, 1024, at_least(1000)));
+    std::vector<int32_t> ids;
+    ASSERT_NO_FATAL_FAILURE(drain(&ids));
+    EXPECT_EQ(kBound + 1 - 1000, ids.size());
+    EXPECT_EQ(1000, *std::ranges::min_element(ids));
+    EXPECT_EQ(kBound, *std::ranges::max_element(ids));
+    EXPECT_LT(_stats.raw_rows_read, kRows * 3 / 4);
+}
+
+TEST_F(SegmentIteratorTopNRuntimeFilterTest, BoundKnownAtInitPrunesPagesAndMatchesRowFiltering) {
+    ASSERT_NO_FATAL_FAILURE(check_bound_known_at_init(false));
+    ASSERT_NO_FATAL_FAILURE(check_bound_known_at_init(true));
 }
 
 TEST_F(SegmentIteratorTopNRuntimeFilterTest, SnapshotKeepsItsBoundAfterPublicationOfANewerVersion) {
