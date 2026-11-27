@@ -49,38 +49,47 @@ If build doris use `sh build.sh --fe --be --cloud` **without do any change on th
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
-The Dockerfile defaults to `bellsoft/liberica-openjdk-debian:17`, which provides Debian 12 (bookworm) and Liberica JDK 17 for Doris 2.1, 3.0 and master.
-
-But doris 2.0 still use JDK 8, for build 2.0 image, user need specific use JDK 8 with arg `JDK_IMAGE=openjdk:8u342-jdk`. Here is build 2.0 image command:
-
+The default image is a digest-pinned Temurin 17 JDK on Ubuntu 22.04. It retains
+a full JDK for FE coverage and JVM diagnostics. Build from the repository root
+so the shared package-update script is available:
 
 ```shell
-docker build -f docker/runtime/doris-compose/Dockerfile \
-     --build-arg JDK_IMAGE=openjdk:8u342-jdk            \
-    -t <image> .
+docker build --pull --no-cache -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
+`OUTPUT_PATH` selects a directory within that build context. Only its `fe/`,
+`be/` and optional `ms/` directories are packaged; unrelated files in
+`output/` are excluded. An external release directory can be passed without
+copying it into the checkout:
 
-The `<image>` is the name you want the docker image to have.
-
-User can also download a doris release package from [Doris Home](https://doris.apache.org/docs/releasenotes/all-release) or [Doris Github](https://github.com/apache/doris/releases), extract it, then build its image with arg `OUTPUT_PATH`
-
-for example:
-
- ```shell
-cd ~/tmp
-wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.5-bin-x64.tar.gz
-tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
-
-# -f: the Dockerfile file
-# -t: the builded image
-# . : current directory, here it's ~/tmp, then output path is ~/tmp/apache-doris-3.0.5-bin-x64
-docker build \
-     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
-     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
-     -t my-doris:v3.0.5 \
-     .
+```shell
+# Run from the repository root after verifying and extracting the release archive.
+docker buildx build --pull --no-cache --load \
+    --build-context doris-output=/path/to/apache-doris-4.1.5-bin-arm64 \
+    --build-arg ARTIFACT_SOURCE=dir \
+    -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
+
+For Doris 2.0, pass a maintained Java 8 Jammy image through `JDK_IMAGE`, for
+example `eclipse-temurin:8u512-b09-jdk-jammy@sha256:dfbb2839b4aa0f356ed4dc1025b2612ac0518de9c74fb6c32cf929856d8f5325`.
+Doris 2.1 and newer continue to use Java 17 in this compose workflow.
+Custom JDK inputs must provide Ubuntu Jammy, `JAVA_HOME`, and a CA bundle.
+
+APT is updated first, retained packages are upgraded over HTTPS, and the
+installed package inventory is saved in `/usr/share/doris/runtime-packages.tsv`.
+The runtime keeps `gosu`, Python 3 and the MySQL CLI, including its TLS
+options, but omits build-only unzip and patchelf. JaCoCo 0.8.16 is downloaded
+over HTTPS with a pinned SHA512 checksum in an intermediate stage; its
+`lib/` files and license enter the runtime at `/jacoco/lib/` and
+`/jacoco/LICENSE.html`.
+Override both `JACOCO_VERSION` and `JACOCO_SHA512` together when updating it.
+
+Arthas and the default MySQL certificate directory are removed before any
+payload enters a final image layer. MySQL SSL users must mount their own
+certificate stores and set the existing FE certificate properties; see
+[the runtime README](../README.md#mysql-tls-certificates). Rebuild and redeploy
+the image to apply these changes. Previous image digests remain the rollback
+path, including their older runtime dependencies.
 
 ### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 
