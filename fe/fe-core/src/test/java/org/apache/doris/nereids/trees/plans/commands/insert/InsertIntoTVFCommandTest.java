@@ -64,6 +64,8 @@ class InsertIntoTVFCommandTest {
         Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
         Mockito.when(coordinator.getDispatchedBackendIds()).thenReturn(Set.of(10001L));
         Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
+        Mockito.when(coordinator.join(Mockito.anyInt())).thenReturn(true);
+        Mockito.when(coordinator.isDone()).thenReturn(true);
         Mockito.when(coordinator.getLoadCounters()).thenReturn(Collections.emptyMap());
         if (dispatchFails) {
             Mockito.doThrow(new UserException("fragment dispatch failed")).when(coordinator).exec();
