@@ -1023,12 +1023,17 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 break;
             });
 
-            // should check the max_version >= request.alter_version, if not the convert is useless
-            if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
+            int64_t required_version = request.alter_version;
+            if (_new_tablet->enable_unique_key_merge_on_write()) {
+                required_version =
+                        std::max(required_version,
+                                 _new_tablet->schema_change_max_missing_version_unlocked());
+            }
+            // History must cover the gaps admitted by publish scheduling.
+            if (max_rowset == nullptr || max_rowset->end_version() < required_version) {
                 res = Status::InternalError(
                         "base tablet's max version={} is less than request version={}",
-                        (max_rowset == nullptr ? 0 : max_rowset->end_version()),
-                        request.alter_version);
+                        (max_rowset == nullptr ? 0 : max_rowset->end_version()), required_version);
                 break;
             }
             // before calculating version_to_be_changed,
@@ -1123,6 +1128,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                     LOG(WARNING) << "failed to init rowset reader: " << _base_tablet->tablet_id();
                     break;
                 }
+            }
+            if (res.ok() && _new_tablet->enable_unique_key_merge_on_write()) {
+                _new_tablet->set_schema_change_conversion_started_unlocked();
             }
         } while (false);
     }

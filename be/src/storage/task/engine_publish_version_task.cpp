@@ -213,10 +213,18 @@ Status EnginePublishVersionTask::execute() {
                 }
                 int64_t max_version;
                 TabletState tablet_state;
+                bool defer_continuity_check;
                 {
-                    std::shared_lock rdlock(tablet->get_header_lock());
+                    std::lock_guard wrlock(tablet->get_header_lock());
                     max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
+                    defer_continuity_check = tablet_state == TabletState::TABLET_NOTREADY &&
+                                             !tablet->tablet_meta()->in_restore_mode() &&
+                                             !tablet->schema_change_conversion_started_unlocked();
+                    if (defer_continuity_check && version.first > max_version + 1) {
+                        tablet->update_schema_change_max_missing_version_unlocked(version.first -
+                                                                                  1);
+                    }
                 }
                 if (version.first != max_version + 1) {
                     if (tablet->check_version_exist(version)) {
@@ -227,7 +235,7 @@ Status EnginePublishVersionTask::execute() {
                     }
 
                     // The versions during the schema change period need to be also continuous
-                    if (tablet_state == TabletState::TABLET_NOTREADY) {
+                    if (tablet_state == TabletState::TABLET_NOTREADY && !defer_continuity_check) {
                         Version max_continuous_version = {-1, 0};
                         tablet->max_continuous_version_from_beginning(&max_continuous_version);
                         if (max_version > 1 && version.first > max_version &&
@@ -237,7 +245,7 @@ Status EnginePublishVersionTask::execute() {
                                     par_ver_info.commit_tso, max_version, first_time_update, res);
                             continue;
                         }
-                    } else {
+                    } else if (tablet_state != TabletState::TABLET_NOTREADY) {
                         _handle_publish_version_not_continuous(partition_id, tablet_info, tablet,
                                                                version, par_ver_info.commit_tso,
                                                                max_version, first_time_update, res);
