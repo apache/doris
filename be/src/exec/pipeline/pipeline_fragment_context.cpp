@@ -138,6 +138,7 @@
 #include "util/countdown_latch.h"
 #include "util/debug_util.h"
 #include "util/network_util.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -587,6 +588,29 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
     return Status::OK();
 }
 
+bool PipelineFragmentContext::_should_prepare_tasks_in_parallel() const {
+    const auto& options = _runtime_state->query_options();
+    const auto num_instances = _params.local_params.size();
+    // Jobs are split by local instance; a singleton has no parallel work. An explicitly unset
+    // threshold presence flag must retain the existing serial preparation path.
+    if (num_instances <= 1 || !options.__isset.parallel_prepare_threshold) {
+        return false;
+    }
+
+    // Local shuffle can split one fragment into several pipelines. For example, 32 local
+    // instances with two 32-task pipelines require preparing 64 tasks, not 32. Comparing only
+    // the instance count with the default threshold of 32 leaves all that work serialized
+    // and can exhaust the fragment RPC deadline for queries with many fragments.
+    size_t num_tasks = 0;
+    for (const auto& pipeline : _pipelines) {
+        // Match _build_pipeline_tasks_for_instance(): serial pipelines only run on instance 0.
+        num_tasks += pipeline->num_tasks() > 1 ? num_instances : 1;
+    }
+    // Preserve the existing unsigned comparison: negative thresholds disable parallel prepare.
+    const auto threshold = static_cast<size_t>(options.parallel_prepare_threshold);
+    return num_tasks > threshold;
+}
+
 Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     _total_tasks = 0;
     _closed_tasks = 0;
@@ -598,31 +622,23 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    if (target_size > 1 &&
-        (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
-         target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
-        // If instances parallelism is big enough ( > parallel_prepare_threshold), we will prepare all tasks by multi-threads
+    if (_should_prepare_tasks_in_parallel()) {
         std::vector<Status> prepare_status(target_size);
-        int submitted_tasks = 0;
-        Status submit_status;
         CountDownLatch latch((int)target_size);
+        // A failed worker bootstrap can leave the submitted callback queued. For example,
+        // with zero workers the first submit can enqueue a task and still return an error.
+        // Destroy this token before the latch and prepare_status: it removes queued callbacks
+        // and waits for running ones, so no callback can outlive the preparation locals.
+        auto prepare_token = thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
         for (int i = 0; i < target_size; i++) {
-            submit_status = thread_pool->submit_func([&, i]() {
+            RETURN_IF_ERROR(prepare_token->submit_func([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
                 prepare_status[i] = _build_pipeline_tasks_for_instance(i, pipeline_id_to_profile);
                 latch.count_down();
-            });
-            if (LIKELY(submit_status.ok())) {
-                submitted_tasks++;
-            } else {
-                break;
-            }
+            }));
         }
-        latch.arrive_and_wait(target_size - submitted_tasks);
-        if (UNLIKELY(!submit_status.ok())) {
-            return submit_status;
-        }
-        for (int i = 0; i < submitted_tasks; i++) {
+        latch.wait();
+        for (size_t i = 0; i < target_size; i++) {
             if (!prepare_status[i].ok()) {
                 return prepare_status[i];
             }
