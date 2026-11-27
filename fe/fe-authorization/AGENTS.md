@@ -152,7 +152,10 @@ concrete failure mode.
   and are listed in `README.md`: `isSkipAuth()`, `skip_catalog_priv_check` on a
   catalog with its own source, and the two literal `root`/`admin` accounts being
   exempt from data policies in `LogicalCheckPolicy`. Adding a fourth means
-  amending that list, not quietly widening one of these.
+  amending that list, not quietly widening one of these. One question,
+  `findColumnWithPriv`, is put to the built-in model outside the interface and
+  only for a catalog bound to that model itself; it is in the same list, and a
+  second such question belongs in the plugin API instead.
 - **A source installed instance-wide answers for administration itself.**
   `grantedByGlobalScopeAuthority` answers false when the asking source *is* the
   instance-scope authority, on purpose: it would otherwise ask itself a question

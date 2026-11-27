@@ -89,6 +89,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -577,6 +578,36 @@ public class Auth implements Writable {
             }
         }
         return false;
+    }
+
+    /**
+     * One of {@code cols} that the user holds the column level form of {@code wanted} on, by a grant on the
+     * column itself, if there is one. When the user holds several, through several roles, which of them is
+     * returned is not defined.
+     *
+     * <p>Asked for a statement that reads rows of a table and none of its columns ({@code COUNT(*)},
+     * {@code SELECT 1 FROM t}) once the table level check has refused it. It asks about the columns the
+     * table has now, so a grant left behind on a column that was dropped or renamed does not answer it:
+     * whoever is found a column here could already read every row of the table through that column.
+     */
+    protected Optional<String> findColWithPriv(UserIdentity currentUser, String ctl, String db, String tbl,
+            Set<String> cols, PrivPredicate wanted) {
+        Optional<Privilege> colPrivilege = wanted.getColPrivilege();
+        if (!colPrivilege.isPresent() || CollectionUtils.isEmpty(cols)) {
+            return Optional.empty();
+        }
+        readLock();
+        try {
+            for (Role role : getRolesByUserWithLdap(currentUser)) {
+                Optional<String> col = role.findColWithPriv(ctl, db, tbl, cols, colPrivilege.get());
+                if (col.isPresent()) {
+                    return col;
+                }
+            }
+            return Optional.empty();
+        } finally {
+            readUnlock();
+        }
     }
 
     // ==== Resource ====
