@@ -48,6 +48,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -112,6 +113,10 @@ public abstract class ConnectProcessor {
     // Executors of this request whose query result stays on the backend for the client to pull;
     // they are finalized when the request is closed. Only an Arrow Flight SQL session has any.
     protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
+    // Whether the request being handled by handleQuery reached executeQuery's statement loop. From then on
+    // every statement is reported (error state and audit) inside the loop, so an exception that reaches
+    // handleQuery afterwards must not be reported again.
+    private boolean statementLoopReached;
 
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
@@ -239,14 +244,30 @@ public abstract class ConnectProcessor {
                 return;
             }
         }
+        statementLoopReached = false;
         try {
             executeQuery(originStmt);
         } catch (ConnectionException exception) {
             throw exception;
-        } catch (UserException exception) {
-            LOG.warn("execute query exception", exception);
-        } catch (Exception ignored) {
-            // saved use handleQueryException
+        } catch (Exception exception) {
+            if (!statementLoopReached) {
+                // Thrown before any statement of the request ran, e.g. by the request metrics or the
+                // dialect conversion. Nothing has set an error or audited it, so without this the client
+                // is told the request succeeded: an Arrow Flight SQL query would be answered with the
+                // synthetic OK result instead of its rows.
+                LOG.warn("request failed before its statements executed, connection {}",
+                        ctx.getConnectionId(), exception);
+                handleQueryException(exception, originStmt, null, null);
+            } else if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                // The failed statement already set its error and was audited in executeQuery.
+                if (exception instanceof UserException) {
+                    LOG.warn("execute query exception", exception);
+                }
+            } else {
+                // A statement that ran and was audited failed afterwards, e.g. while closing its
+                // statement context. Keep its outcome, but do not drop the exception silently.
+                LOG.warn("statement failed after it was reported, connection {}", ctx.getConnectionId(), exception);
+            }
         }
     }
 
@@ -317,50 +338,74 @@ public abstract class ConnectProcessor {
         long parseSqlFinishTime = System.currentTimeMillis();
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+        statementLoopReached = true;
         for (int i = 0; i < stmts.size(); ++i) {
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
             if (stmts.size() > 1 && usingOrigSingleStmt) {
                 ctx.setSqlHash(DigestUtils.md5Hex(auditStmt));
             }
             try {
-                ctx.getState().reset();
-                if (i > 0) {
-                    ctx.resetReturnRows();
-                }
-                ctx.getProtocolAdapter().beforeStatement(ctx);
-                // Re-resolve per statement: an earlier statement in the same multi-stmt
-                // request (e.g. SET workload_group=...) may have changed the effective
-                // workload group, and later statements that fail before Coordinator.exec
-                // would otherwise be audited with the stale value picked up once per
-                // packet in dispatch().
-                resolveWorkloadGroupName();
+                try {
+                    ctx.getState().reset();
+                    if (i > 0) {
+                        ctx.resetReturnRows();
+                    }
+                    ctx.getProtocolAdapter().beforeStatement(ctx);
+                    // Re-resolve per statement: an earlier statement in the same multi-stmt
+                    // request (e.g. SET workload_group=...) may have changed the effective
+                    // workload group, and later statements that fail before Coordinator.exec
+                    // would otherwise be audited with the stale value picked up once per
+                    // packet in dispatch().
+                    resolveWorkloadGroupName();
+                    // Fault injection for tests: fail a statement whose text contains the given marker here,
+                    // before its executor is built.
+                    String failMarker = DebugPointUtil.getDebugParamOrDefault(
+                            "ConnectProcessor.executeQuery.failBeforeExecution", "stmt_contains", "");
+                    if (!failMarker.isEmpty() && auditStmt.contains(failMarker)) {
+                        throw new IllegalStateException(
+                                "debug point ConnectProcessor.executeQuery.failBeforeExecution");
+                    }
 
-                StatementBase parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
-                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                executor = new StmtExecutor(ctx, parsedStmt);
-                executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
-                executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
-                executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
-                // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
-                // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.
-                // When the Follower/Observer received the return result of Master, the Follower/Observer
-                // will check CLIENT_MULTI_STATEMENTS is set or not. It sends SERVER_MORE_RESULTS_EXISTS back to client
-                // only when CLIENT_MULTI_STATEMENTS is set.
-                // See MysqlProtocolAdapter.finishStatement.
-                if (i != stmts.size() - 1) {
-                    executor.setMoreStmtExists(true);
-                }
-                if (MetricRepo.isInit) {
-                    MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
-                            executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
-                }
-                ctx.setExecutor(executor);
+                    StatementBase parsedStmt = stmts.get(i);
+                    parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
+                    parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                    executor = new StmtExecutor(ctx, parsedStmt);
+                    executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
+                    executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                    executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
+                    // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
+                    // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.
+                    // When the Follower/Observer received the return result of Master, the Follower/Observer
+                    // will check CLIENT_MULTI_STATEMENTS is set or not. It sends SERVER_MORE_RESULTS_EXISTS back to
+                    // client only when CLIENT_MULTI_STATEMENTS is set.
+                    // See MysqlProtocolAdapter.finishStatement.
+                    if (i != stmts.size() - 1) {
+                        executor.setMoreStmtExists(true);
+                    }
+                    if (MetricRepo.isInit) {
+                        MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
+                                executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
+                    }
+                    ctx.setExecutor(executor);
 
-                if (cacheKeyType != null) {
-                    SqlCacheContext sqlCacheContext =
-                            executor.getContext().getStatementContext().getSqlCacheContext().get();
-                    sqlCacheContext.setCacheKeyType(cacheKeyType);
+                    if (cacheKeyType != null) {
+                        SqlCacheContext sqlCacheContext =
+                                executor.getContext().getStatementContext().getSqlCacheContext().get();
+                        sqlCacheContext.setCacheKeyType(cacheKeyType);
+                    }
+                } catch (Throwable throwable) {
+                    // Thrown before this statement executed, e.g. while building its executor. Report it as
+                    // this statement, or the client is told it succeeded.
+                    LOG.warn("statement failed before execution, connection {}", ctx.getConnectionId(), throwable);
+                    // The executor is the previous statement's, or this one's that never ran, and the query id
+                    // still names the previous statement: the executor must neither describe this statement in
+                    // its audit record nor be finalized under this statement's unset query id, as a later
+                    // statement's executor would have replaced it anyway.
+                    executor = null;
+                    ctx.setExecutor(null);
+                    ctx.resetQueryId();
+                    handleQueryException(throwable, auditStmt, stmts.get(i), null);
+                    throw throwable;
                 }
 
                 try {
