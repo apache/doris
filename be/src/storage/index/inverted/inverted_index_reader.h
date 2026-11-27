@@ -347,6 +347,14 @@ public:
     const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
+    // Runs `compute` once for concurrent identical full-segment queries, such as those of the
+    // scanners a large segment is split into, each of which asks for the whole segment: the first
+    // caller leads and the others take its bitmap. A leader that ends without one leaves each
+    // follower to compute for itself. `key` names the query as the result cache does.
+    Status run_query_single_flight(
+            const std::string& key, std::shared_ptr<roaring::Roaring>* result,
+            const std::function<Status(std::shared_ptr<roaring::Roaring>*)>& compute);
+
     friend class InvertedIndexIterator;
     std::shared_ptr<IndexFileReader> _index_file_reader;
     TabletIndex _index_meta;

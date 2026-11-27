@@ -24,8 +24,55 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/inverted/common/single_flight.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
+
+namespace {
+
+// Null tells a follower that its leader ended without a bitmap.
+using QueryFlight = inverted_index::SingleFlight<std::shared_ptr<roaring::Roaring>>;
+
+QueryFlight& query_single_flight() {
+    static QueryFlight flight;
+    return flight;
+}
+
+} // namespace
+
+Status InvertedIndexReader::run_query_single_flight(
+        const std::string& key, std::shared_ptr<roaring::Roaring>* result,
+        const std::function<Status(std::shared_ptr<roaring::Roaring>*)>& compute) {
+    auto& flight = query_single_flight();
+    auto follower = flight.join_or_lead(key);
+    if (follower.has_value()) {
+#ifdef BE_TEST
+        if (_single_flight_follower_joined_observer != nullptr) {
+            _single_flight_follower_joined_observer(_single_flight_follower_joined_opaque);
+        }
+#endif
+        if (const auto& leader_bitmap = follower->get(); leader_bitmap != nullptr) {
+            *result = leader_bitmap;
+            return Status::OK();
+        }
+    }
+    const bool is_leader = !follower.has_value();
+#ifdef BE_TEST
+    if (is_leader && _single_flight_leader_before_compute_observer != nullptr) {
+        _single_flight_leader_before_compute_observer(_single_flight_leader_before_compute_opaque);
+    }
+#endif
+    std::shared_ptr<roaring::Roaring> published;
+    // Followers learn the outcome on every exit path, errors and exceptions included. The publish
+    // allocates nothing, so it cannot fail on the way out and leave a follower waiting.
+    DEFER(if (is_leader) { flight.publish(key, published); });
+    std::shared_ptr<roaring::Roaring> bitmap;
+    RETURN_IF_ERROR(compute(&bitmap));
+    published = bitmap;
+    *result = std::move(bitmap);
+    return Status::OK();
+}
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);

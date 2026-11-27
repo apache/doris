@@ -39,7 +39,6 @@
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_query_type.h"
-#include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/engine/all_query/all_query.h"
@@ -60,7 +59,6 @@
 #include "storage/index/inverted/query/logical/match_lowering.h"
 #include "storage/index/inverted/query/scoring/bm25_similarity.h"
 #include "storage/olap_common.h"
-#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 
@@ -234,57 +232,6 @@ Status plan_query(const logical::Node& leaf, const IndexQueryContextPtr& context
 
 namespace {
 
-using QueryFlight =
-        inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>;
-
-QueryFlight& query_single_flight() {
-    static QueryFlight flight;
-    return flight;
-}
-
-// Runs `compute` once for concurrent identical queries: the first caller leads and the others
-// take its bitmap. A leader's failure leaves each follower to compute for itself.
-template <typename Compute>
-Status run_query_single_flight(
-        QueryFlight& flight, const std::string& key, std::shared_ptr<roaring::Roaring>* result,
-#ifdef BE_TEST
-        InvertedIndexReader::SingleFlightFollowerJoinedObserver follower_joined_observer,
-        void* follower_joined_opaque,
-        InvertedIndexReader::SingleFlightLeaderBeforeComputeObserver leader_before_compute_observer,
-        void* leader_before_compute_opaque,
-#endif
-        Compute&& compute) {
-    auto follower = flight.join_or_lead(key);
-    if (follower.has_value()) {
-#ifdef BE_TEST
-        if (follower_joined_observer != nullptr) {
-            follower_joined_observer(follower_joined_opaque);
-        }
-#endif
-        auto [leader_status, leader_bitmap] = follower->get();
-        if (leader_status.ok() && leader_bitmap != nullptr) {
-            *result = std::move(leader_bitmap);
-            return Status::OK();
-        }
-    }
-    const bool is_leader = !follower.has_value();
-#ifdef BE_TEST
-    if (is_leader && leader_before_compute_observer != nullptr) {
-        leader_before_compute_observer(leader_before_compute_opaque);
-    }
-#endif
-    Status status = Status::OK();
-    std::shared_ptr<roaring::Roaring> bitmap;
-    {
-        // Followers learn the outcome on every exit path, errors included.
-        DEFER(if (is_leader) { flight.publish(key, std::make_pair(status, bitmap)); });
-        status = compute(&bitmap);
-    }
-    RETURN_IF_ERROR(status);
-    *result = std::move(bitmap);
-    return Status::OK();
-}
-
 // The one exact term a COUNT_ON_INDEX scan of `leaf` can answer from the dictionary.
 const std::string* single_exact_term(const logical::Node& leaf) {
     if (const auto* term = leaf.as<logical::Term>()) {
@@ -388,13 +335,17 @@ Status TextIndexReader::_query_raw(const IndexQueryContextPtr& context,
 
 Status TextIndexReader::_admit(const IndexQueryContextPtr& /*context*/,
                                const std::string& column_name, const LeafRequest& request,
-                               Admission* /*admission*/) {
+                               Admission* admission) {
     // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
     if (is_gram_query(request.query_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "{} requires SNII storage format for column {}",
                 query_type_to_string(request.query_type), column_name);
     }
+    // Every scanner of a split segment asks for the whole segment at once, so concurrent identical
+    // queries share one run, as SNII's do: with 6.3M-row segments cut at 2M rows per scanner,
+    // MATCH_REGEXP 'cach.*' over 100M rows took 18 s of CPU instead of 6.
+    admission->coalesce = true;
     return Status::OK();
 }
 
@@ -546,13 +497,7 @@ Status TextIndexReader::_run_request(const IndexQueryContextPtr& context,
     std::shared_ptr<roaring::Roaring> result;
     const bool coalesce = allow_result_cache && admission.coalesce;
     const auto run_coalesced = [&](const auto& run) {
-        return run_query_single_flight(query_single_flight(), cache_key.encode(), &result,
-#ifdef BE_TEST
-                                       _single_flight_follower_joined_observer,
-                                       _single_flight_follower_joined_opaque,
-                                       _single_flight_leader_before_compute_observer,
-                                       _single_flight_leader_before_compute_opaque,
-#endif
+        return run_query_single_flight(cache_key.encode(), &result,
                                        [&](std::shared_ptr<roaring::Roaring>* shared) {
                                            RETURN_IF_ERROR(run(shared));
                                            insert_query_cache(context, cache, cache_key, *shared,
