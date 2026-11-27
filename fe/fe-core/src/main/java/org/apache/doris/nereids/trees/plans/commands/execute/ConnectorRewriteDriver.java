@@ -32,7 +32,11 @@ import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.scan.PluginDrivenScanNode;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
@@ -46,6 +50,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -195,8 +200,13 @@ public class ConnectorRewriteDriver {
     public ConnectorProcedureResult run() throws UserException {
         // STEP 0: ask the connector to plan the bin-packed groups, scoped by the lowered WHERE (null = no WHERE).
         List<ConnectorRewriteGroup> groups;
+        Optional<MvccSnapshot> operationSnapshot;
+        ConnectorTableHandle rewriteHandle;
         try {
-            groups = procedureOps.planRewrite(session, tableHandle, procedureName, properties, whereCondition,
+            operationSnapshot = pinOperationSnapshot();
+            rewriteHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                    metadata, session, tableHandle, operationSnapshot);
+            groups = procedureOps.planRewrite(session, rewriteHandle, procedureName, properties, whereCondition,
                     partitionNames);
         } catch (DorisConnectorException e) {
             throw new UserException(e.getMessage(), e);
@@ -215,7 +225,7 @@ public class ConnectorRewriteDriver {
         ConnectorTransaction connectorTx;
         long txnId;
         try {
-            connectorTx = metadata.beginTransaction(session, tableHandle);
+            connectorTx = metadata.beginTransaction(session, rewriteHandle);
             txnId = txnManager.begin(connectorTx);
         } catch (DorisConnectorException e) {
             throw new UserException(e.getMessage(), e);
@@ -234,7 +244,7 @@ public class ConnectorRewriteDriver {
         try {
             try {
                 // STEP 2: run one INSERT-SELECT per group concurrently, all sharing the transaction.
-                runGroups(groups, txnId, connectorTx);
+                runGroups(groups, txnId, connectorTx, operationSnapshot);
 
                 // STEP 3: register the UNION of every group's source data files in a SINGLE call. The connector
                 // re-derives them from the table at the pinned OCC snapshot with ONE planFiles() scan; the former
@@ -305,13 +315,25 @@ public class ConnectorRewriteDriver {
         return sourceFilePaths;
     }
 
-    private void runGroups(List<ConnectorRewriteGroup> groups, long txnId, ConnectorTransaction connectorTx)
+    private Optional<MvccSnapshot> pinOperationSnapshot() {
+        if (!(table instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        StatementContext statementContext = ctx.getStatementContext();
+        // File selection and every group's source/sink binding share the operation's read generation.
+        statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+        return statementContext.getSnapshot(table, Optional.empty(), Optional.empty());
+    }
+
+    private void runGroups(List<ConnectorRewriteGroup> groups, long txnId, ConnectorTransaction connectorTx,
+            Optional<MvccSnapshot> operationSnapshot)
             throws UserException {
         List<ConnectorRewriteGroupTask> tasks = Lists.newArrayList();
         RewriteResultCollector collector = new RewriteResultCollector(groups.size(), tasks);
 
         for (ConnectorRewriteGroup group : groups) {
             ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(group, txnId, connectorTx, table, ctx,
+                    operationSnapshot,
                     new ConnectorRewriteGroupTask.RewriteResultCallback() {
                         @Override
                         public void onTaskCompleted(Long taskId) {

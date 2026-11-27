@@ -194,8 +194,10 @@ public class IcebergConnectorTransactionTest {
         return new IcebergWriteContext(WriteOperation.MERGE, false, Collections.emptyMap(), Optional.empty());
     }
 
-    private static IcebergWriteContext rewriteCtx() {
-        return new IcebergWriteContext(WriteOperation.REWRITE, false, Collections.emptyMap(), Optional.empty());
+    private static IcebergWriteContext rewriteCtx(Table table) {
+        long snapshotId = table.currentSnapshot() == null ? -1L : table.currentSnapshot().snapshotId();
+        return new IcebergWriteContext(WriteOperation.REWRITE, false, Collections.emptyMap(), Optional.empty(),
+                snapshotId, true);
     }
 
     private static IcebergWriteContext deleteCtxPinned(long readSnapshotId) {
@@ -784,7 +786,7 @@ public class IcebergConnectorTransactionTest {
             IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
             txn.beginWrite(SESSION, "db1", "t1",
-                    operation == WriteOperation.REWRITE ? rewriteCtx() : pinnedCtx(operation, table));
+                    operation == WriteOperation.REWRITE ? rewriteCtx(table) : pinnedCtx(operation, table));
             if (operation == WriteOperation.REWRITE) {
                 txn.updateRewriteFiles(currentDataFiles(table));
             }
@@ -812,7 +814,7 @@ public class IcebergConnectorTransactionTest {
             IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
             txn.beginWrite(SESSION, "db1", "t1",
-                    operation == WriteOperation.REWRITE ? rewriteCtx() : pinnedCtx(operation, table));
+                    operation == WriteOperation.REWRITE ? rewriteCtx(table) : pinnedCtx(operation, table));
             // Model the complete sorting plan recorded before the sink starts writing files.
             txn.bindFileSortOrder(fileSortOrder);
             if (operation == WriteOperation.REWRITE) {
@@ -2311,7 +2313,8 @@ public class IcebergConnectorTransactionTest {
                 WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.REWRITE)) {
             IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
             txn.beginWrite(SESSION, "db1", "other", new IcebergWriteContext(
-                    operation, operation == WriteOperation.OVERWRITE, Collections.emptyMap(), Optional.empty()));
+                    operation, operation == WriteOperation.OVERWRITE, Collections.emptyMap(), Optional.empty(),
+                    -1L, operation == WriteOperation.REWRITE));
             Assertions.assertNotNull(txn.getTransaction());
             txn.close();
         }
@@ -2610,7 +2613,7 @@ public class IcebergConnectorTransactionTest {
     // ─────────────────── rewrite_data_files: WriteOperation.REWRITE variant (P6.4-T06, dormant) ───────────────────
 
     @Test
-    public void rewriteCapturesStartingSnapshotIdAtBegin() {
+    public void rewriteCapturesReadSnapshotIdAtBegin() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
@@ -2619,10 +2622,9 @@ public class IcebergConnectorTransactionTest {
         long expected = reloaded.currentSnapshot().snapshotId();
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
 
-        // legacy IcebergTransaction.beginRewrite:187-188 captures the current snapshot for the commit-time
-        // validateFromSnapshot OCC anchor; REWRITE does NOT pin baseSnapshotId (that drives the RowDelta path).
+        // REWRITE validates from the source read snapshot without using the RowDelta baseSnapshotId.
         Assertions.assertEquals(expected, txn.getStartingSnapshotId());
         Assertions.assertNull(txn.getBaseSnapshotId(), "REWRITE uses startingSnapshotId, not baseSnapshotId");
     }
@@ -2632,7 +2634,7 @@ public class IcebergConnectorTransactionTest {
         InMemoryCatalog catalog = freshCatalog();
         Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), SCHEMA, PartitionSpec.unpartitioned());
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         // No current snapshot -> -1L sentinel passed verbatim to validateFromSnapshot (legacy beginRewrite:188).
         Assertions.assertEquals(-1L, txn.getStartingSnapshotId());
     }
@@ -2641,7 +2643,7 @@ public class IcebergConnectorTransactionTest {
     public void beginWriteIsBeginOnceForSharedRewriteTransaction() {
         // A distributed rewrite runs N per-group writes that SHARE one transaction; each group's plan-time
         // sink planWrite calls beginWrite again (concurrently). The begin-once guard must load the table +
-        // open the SDK transaction + pin the OCC snapshot EXACTLY ONCE; the rest are no-ops.
+        // open the SDK transaction + pin the OCC snapshot EXACTLY ONCE; later groups validate the same read.
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
@@ -2652,14 +2654,14 @@ public class IcebergConnectorTransactionTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnectorTransaction txn = txnFor(ops, ctx);
 
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         Object firstSdkTxn = txn.getTransaction();
         int authAfterFirst = ctx.authCount;
         long loadsAfterFirst = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
 
         // Subsequent concurrent group writes must reuse the shared state, not rebuild it.
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
 
         Assertions.assertSame(firstSdkTxn, txn.getTransaction(), "shared SDK transaction must not be rebuilt");
         Assertions.assertEquals(authAfterFirst, ctx.authCount, "begin-once: no extra auth-wrapped begins");
@@ -2679,12 +2681,12 @@ public class IcebergConnectorTransactionTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 2L)).commit();
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         txn.bindFileSortOrder(fileSortOrder);
         txn.updateRewriteFiles(currentDataFiles(table));
         txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/group1.parquet", 1L, 1024L)));
 
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         SortOrder sameOrder = SortOrder.builderFor(SCHEMA)
                 .withOrderId(fileSortOrder.orderId()).asc("id").build();
         Assertions.assertDoesNotThrow(() -> txn.bindFileSortOrder(sameOrder));
@@ -2738,7 +2740,7 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertEquals(2, oldFiles.size());
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.updateRewriteFiles(oldFiles);                       // files-to-delete (planner FileScanTask.file())
         // BE reports one new compacted data file (same commitDataList channel INSERT uses).
         txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/compacted.parquet", 12L, 2048L)));
@@ -2777,7 +2779,7 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertEquals(2, oldFiles.size());
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.updateRewriteFiles(oldFiles);                       // files-to-delete; NO commit data -> filesToAdd empty
         long beforeSnapshotId = reloadCurrentSnapshot(catalog, id).snapshotId();
 
@@ -2807,7 +2809,7 @@ public class IcebergConnectorTransactionTest {
         List<DataFile> oldFiles = currentDataFiles(reloaded);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());     // pins startingSnapshotId = S1
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));     // pins startingSnapshotId = S1
         txn.updateRewriteFiles(oldFiles);
 
         // A concurrent writer removes the very file we are about to rewrite, advancing the table past S1.
@@ -2841,7 +2843,7 @@ public class IcebergConnectorTransactionTest {
         List<DataFile> oldFiles = currentDataFiles(reloaded);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());     // pins startingSnapshotId = S1
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));     // pins startingSnapshotId = S1
         txn.updateRewriteFiles(oldFiles);
 
         // Concurrent RowDelta adds a position-delete for the rewritten data file, advancing the table past S1.
@@ -2866,7 +2868,7 @@ public class IcebergConnectorTransactionTest {
         long before = reloaded.currentSnapshot().snapshotId();
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         // No files to delete + no new files -> updateManifestAfterRewrite early-returns (legacy :248-251);
         // the (empty) SDK transaction still commits without throwing.
         Assertions.assertDoesNotThrow(txn::commit);
@@ -2888,7 +2890,7 @@ public class IcebergConnectorTransactionTest {
         List<DataFile> oldFiles = currentDataFiles(reloaded);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.updateRewriteFiles(oldFiles);
         // filesToDelete is populated at updateRewriteFiles time; each dataFile() helper is 1024 bytes.
         Assertions.assertEquals(2, txn.getFilesToDeleteCount());
@@ -2921,7 +2923,7 @@ public class IcebergConnectorTransactionTest {
         List<DataFile> files = currentDataFiles(catalog.loadTable(id));
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         // legacy updateRewriteFiles is called once per bin-packed group; the connector accumulates across calls.
         txn.updateRewriteFiles(Collections.singletonList(files.get(0)));
         txn.updateRewriteFiles(Collections.singletonList(files.get(1)));
@@ -2945,7 +2947,7 @@ public class IcebergConnectorTransactionTest {
         Table reloaded = catalog.loadTable(id);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList(
                 "s3://b/db1/t1/old1.parquet", "s3://b/db1/t1/old2.parquet")));
 
@@ -2966,7 +2968,7 @@ public class IcebergConnectorTransactionTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), ctx);
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         int authAfterBegin = ctx.authCount;
 
         txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList("s3://b/db1/t1/old1.parquet")));
@@ -2985,7 +2987,7 @@ public class IcebergConnectorTransactionTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), ctx);
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(table));
         // failAuth throws WITHOUT invoking the task, so a passing test proves the re-derive sits INSIDE the
         // authenticator (nothing gets registered), not merely next to it.
         ctx.failAuth = true;
@@ -3006,7 +3008,7 @@ public class IcebergConnectorTransactionTest {
         Table reloaded = catalog.loadTable(id);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         // A path absent at the pinned snapshot (stale plan / table moved since planning) must fail loud rather
         // than silently delete fewer files than the engine intended.
         Assertions.assertThrows(DorisConnectorException.class, () ->
@@ -3023,7 +3025,7 @@ public class IcebergConnectorTransactionTest {
         Table reloaded = catalog.loadTable(id);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.registerRewriteSourceFiles(Collections.emptySet());
         Assertions.assertEquals(0, txn.getFilesToDeleteCount(), "an empty registration is a no-op");
     }
@@ -3045,7 +3047,7 @@ public class IcebergConnectorTransactionTest {
         Table reloaded = catalog.loadTable(id);
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
-        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx(reloaded));
         txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList(
                 "s3://b/db1/t1/old1.parquet", "s3://b/db1/t1/old2.parquet")));
         txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/compacted.parquet", 12L, 4096L)));

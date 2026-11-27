@@ -1174,7 +1174,7 @@ public class IcebergWritePlanProviderTest {
         // write_type=REWRITE; with no v3 row-lineage append the schema-json equals the plain table schema.
         Table table = partitionedSortedTable(freshCatalog());
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
-                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.REWRITE));
+                new WriteHandle(pinnedTableHandle(table, "t1")).writeOperation(WriteOperation.REWRITE));
 
         Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType(),
                 "a REWRITE write must stamp write_type=REWRITE so the BE routes to RewriteFiles semantics");
@@ -1187,10 +1187,48 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planRewriteRejectsRecreatedFieldBetweenSourcePinAndSinkBinding() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://bucket/old.parquet").withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        RecordingConnectorContext ctx = contextWithStorage();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(NON_REST_PROPS), ctx);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        ConnectorMvccSnapshot pin = metadata.beginQuerySnapshot(null, tableHandle).orElseThrow(AssertionError::new);
+        IcebergTableHandle readHandle = (IcebergTableHandle) metadata.applySnapshot(null, tableHandle, pin);
+
+        table.updateSchema().deleteColumn("name").commit();
+        table.updateSchema().addColumn("name", Types.StringType.get()).commit();
+        Assertions.assertEquals(readHandle.getSnapshotId(), table.currentSnapshot().snapshotId());
+        ConnectorColumn source = metadata.getTableSchema(null, readHandle, pin).getColumns().get(1);
+        Assertions.assertEquals("name", source.getName());
+        Assertions.assertNotEquals(source.getUniqueId(), table.schema().findField("name").fieldId());
+
+        // The analyzer binds the current target columns and metadata, even though the source is pinned.
+        List<ConnectorColumn> boundColumns = boundDataColumns(table);
+        String boundIdentity = IcebergWritePlanProvider.writeMetadataIdentity(table);
+        WriteHandle handle = new WriteHandle(readHandle).writeOperation(WriteOperation.REWRITE)
+                .boundTargetColumns(boundColumns).boundWriteMetadataIdentity(boundIdentity);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, ctx, handle));
+        Assertions.assertTrue(ex.getMessage().contains("rewrite source schema " + readHandle.getSchemaId()
+                + " differs from write schema " + table.schema().schemaId()));
+
+        TIcebergTableSink retry = planSink(table, ctx, new WriteHandle(pinnedTableHandle(table, "t2"))
+                .writeOperation(WriteOperation.REWRITE)
+                .boundTargetColumns(boundColumns).boundWriteMetadataIdentity(boundIdentity));
+        Assertions.assertEquals(table.schema().findField("name").fieldId(),
+                SchemaParser.fromJson(retry.getSchemaJson()).findField("name").fieldId());
+    }
+
+    @Test
     public void planWriteRewriteFv3AppendsRowLineageSchema() {
         Table table = formatVersionThreeTable(freshCatalog());
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
-                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.REWRITE));
+                new WriteHandle(pinnedTableHandle(table, "tv3")).writeOperation(WriteOperation.REWRITE));
 
         Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType());
         Assertions.assertTrue(sink.getSchemaJson().contains("_row_id"),
@@ -1209,7 +1247,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext context = contextWithStorage();
         IcebergWritePlanProvider provider = providerFor(table, context);
         WriteSession session = sessionFor(table, context);
-        IcebergTableHandle tableHandle = new IcebergTableHandle("db1",
+        IcebergTableHandle tableHandle = pinnedTableHandle(table,
                 IcebergWriterHelper.getFormatVersion(table) >= 3 ? "tv3" : "t2");
         List<ConnectorColumn> boundColumns = new ArrayList<>(boundDataColumns(table));
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
@@ -1235,7 +1273,7 @@ public class IcebergWritePlanProviderTest {
         Table table = partitionedSortedTable(freshCatalog());
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> planSink(table, contextWithStorage(),
-                        new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        new WriteHandle(pinnedTableHandle(table, "t1"))
                                 .writeOperation(WriteOperation.REWRITE).overwrite(true)));
         Assertions.assertTrue(ex.getMessage().contains("overwrite"),
                 "the rewrite-vs-overwrite rejection must name the offending overwrite flag");
@@ -1640,7 +1678,7 @@ public class IcebergWritePlanProviderTest {
         IcebergConnectorTransaction transaction = (IcebergConnectorTransaction)
                 session.getCurrentTransaction().orElseThrow(AssertionError::new);
         providerFor(table, context).planWrite(session,
-                new WriteHandle(new IcebergTableHandle("db1", "t2")).writeOperation(operation)
+                new WriteHandle(pinnedTableHandle(table, "t2")).writeOperation(operation)
                         .overwrite(operation == WriteOperation.OVERWRITE).sortInfo(sortInfo));
         if (operation == WriteOperation.REWRITE) {
             transaction.updateRewriteFiles(Collections.singletonList(original));
@@ -2024,7 +2062,7 @@ public class IcebergWritePlanProviderTest {
                 .invisible().reservedPassthrough());
 
         TIcebergTableSink sink = Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
-                new WriteHandle(new IcebergTableHandle("db1", "tv3"))
+                new WriteHandle(pinnedTableHandle(table, "tv3"))
                         .boundTargetColumns(boundColumns)
                         .writeOperation(WriteOperation.REWRITE)));
         Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType());
@@ -2039,7 +2077,7 @@ public class IcebergWritePlanProviderTest {
         RecordingConnectorContext ctx = contextWithStorage();
         IcebergWritePlanProvider provider = providerFor(table, ctx);
         WriteSession session = sessionFor(table, ctx);
-        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "t2");
+        IcebergTableHandle tableHandle = pinnedTableHandle(table, "t2");
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.planWrite(session, new WriteHandle(tableHandle)
@@ -2332,13 +2370,13 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
                 sessionFor(table, contextWithStorage()), currentBeWrite));
 
-        WriteHandle oldBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+        WriteHandle oldBeRewrite = new WriteHandle(pinnedTableHandle(table, "nested_partition"))
                 .writeOperation(WriteOperation.REWRITE).beExecVersion(11);
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> providerFor(table, contextWithStorage()).planWrite(
                         sessionFor(table, contextWithStorage()), oldBeRewrite));
 
-        WriteHandle currentBeRewrite = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+        WriteHandle currentBeRewrite = new WriteHandle(pinnedTableHandle(table, "nested_partition"))
                 .writeOperation(WriteOperation.REWRITE).beExecVersion(12);
         Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
                 sessionFor(table, contextWithStorage()), currentBeRewrite));
@@ -2800,7 +2838,7 @@ public class IcebergWritePlanProviderTest {
             ops.table = table;
             IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
             providerFor(table, ctx).planWrite(new WriteSession(txn),
-                    new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(operation));
+                    new WriteHandle(pinnedTableHandle(table, "t1")).writeOperation(operation));
 
             txn.addCommitData(commitFragment("oss://bucket/wh/db1/t1/data/id=1/f.parquet"));
             DorisConnectorException rejected = Assertions.assertThrows(DorisConnectorException.class,
@@ -3017,6 +3055,11 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(provider.requiresMaterializeStaticPartitionValues());
         Assertions.assertFalse(provider.requiresPartitionLocalSort(),
                 "iceberg does NOT require partition-local sort (unlike MaxCompute)");
+    }
+
+    private static IcebergTableHandle pinnedTableHandle(Table table, String tableName) {
+        long snapshotId = table.currentSnapshot() == null ? -1L : table.currentSnapshot().snapshotId();
+        return new IcebergTableHandle("db1", tableName).withSnapshot(snapshotId, null, table.schema().schemaId());
     }
 
     // ───────────────────────────── test doubles ─────────────────────────────

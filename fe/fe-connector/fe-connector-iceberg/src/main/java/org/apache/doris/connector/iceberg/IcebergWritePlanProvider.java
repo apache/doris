@@ -207,7 +207,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
         if (schemaContext != null) {
-            // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
+            // REWRITE resolves and validates its schema after beginWrite.
             validateVariantWrite(handle, schemaContext);
         }
         validateNestedPartitionWriteCompatibility(handle, schemaContext);
@@ -964,11 +964,18 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
+        Schema writeSchema = rewriteSchemaContext.getSchema();
+        // The source reads the operation's pinned schema. A schema-only commit can replace a field
+        // under the same name without changing the data snapshot, before the sink binds its columns.
+        if (tableHandle.getSchemaId() != writeSchema.schemaId()) {
+            throw new DorisConnectorException("Iceberg rewrite source schema " + tableHandle.getSchemaId()
+                    + " differs from write schema " + writeSchema.schemaId() + "; retry the rewrite");
+        }
         TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);
-        if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
+        if (rewriteSchemaContext.getFormatVersion() >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.
-            Schema rewriteSchema = IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema());
+            Schema rewriteSchema = IcebergWriterHelper.appendRowLineageFieldsForV3(writeSchema);
             tSink.setSchemaJson(SchemaParser.toJson(rewriteSchema));
             // #65782: the collect flag must reflect the same (v3-appended) schema the sink advertises.
             tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, rewriteSchema));
