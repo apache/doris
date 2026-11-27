@@ -250,7 +250,9 @@ public:
     std::shared_ptr<MemTrackerLimiter> subcolumns_tree_tracker() {
         return _subcolumns_tree_tracker;
     }
-    std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
+    std::shared_ptr<MemTrackerLimiter> obj_storage_buffer_tracker() {
+        return _obj_storage_buffer_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> parquet_meta_tracker() { return _parquet_meta_tracker; }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
@@ -258,10 +260,12 @@ public:
         return _buffered_reader_prefetch_thread_pool.get();
     }
     ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
-    ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
+    ThreadPool* obj_storage_upload_thread_pool() { return _obj_storage_upload_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
-    ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
+    ThreadPool* obj_storage_file_system_thread_pool() {
+        return _obj_storage_file_system_thread_pool.get();
+    }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
     ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
@@ -363,8 +367,8 @@ public:
     void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
         _non_block_close_thread_pool = std::move(pool);
     }
-    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-        _s3_file_upload_thread_pool = std::move(pool);
+    void set_obj_storage_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _obj_storage_upload_thread_pool = std::move(pool);
     }
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
     void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
@@ -476,7 +480,7 @@ private:
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
     std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
-    std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
+    std::shared_ptr<MemTrackerLimiter> _obj_storage_buffer_tracker;
 
     // Tracking memory consumption of parquet meta
     std::shared_ptr<MemTrackerLimiter> _parquet_meta_tracker;
@@ -487,12 +491,12 @@ private:
     // Threadpool used to send TableStats to FE
     std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
     // Threadpool used to upload local file to s3
-    std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
+    std::unique_ptr<ThreadPool> _obj_storage_upload_thread_pool;
     // Pool used by join node to build hash table
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
-    std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
+    std::unique_ptr<ThreadPool> _obj_storage_file_system_thread_pool;
     // for java-udf to close
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
     // Threadpool used to prefetch segment file cache blocks

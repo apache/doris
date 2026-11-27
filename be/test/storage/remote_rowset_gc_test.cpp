@@ -39,7 +39,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "load/delta_writer/delta_writer.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -56,7 +56,6 @@
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
-#include "util/s3_util.h"
 
 namespace doris {
 class OlapMeta;
@@ -70,18 +69,17 @@ static constexpr int64_t kStoragePolicyId = 10002;
 class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        S3Conf s3_conf;
-        s3_conf.ak = config::test_s3_ak;
-        s3_conf.sk = config::test_s3_sk;
-        s3_conf.endpoint = config::test_s3_endpoint;
-        s3_conf.region = config::test_s3_region;
-        s3_conf.bucket = config::test_s3_bucket;
-        s3_conf.prefix = "remote_rowset_gc_test";
-        std::shared_ptr<io::S3FileSystem> s3_fs;
-        ASSERT_TRUE(
-                io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId), &s3_fs)
-                        .ok());
-        put_storage_resource(kResourceId, {s3_fs, 1});
+        ObjStorageResourceConfig resource {
+                .bucket = config::test_s3_bucket,
+                .prefix = "remote_rowset_gc_test",
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = config::test_s3_endpoint},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = config::test_s3_ak,
+                                                                    .secret_key = config::test_s3_sk}},
+                        .region = config::test_s3_region}};
+        auto fs = io::ObjStorageFileSystem::create(std::move(resource), std::to_string(kResourceId));
+        ASSERT_TRUE(fs.has_value()) << fs.error();
+        put_storage_resource(kResourceId, StorageResource(fs.value()), 1);
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
         storage_policy->version = 1;

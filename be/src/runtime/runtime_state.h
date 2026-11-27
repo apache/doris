@@ -44,7 +44,6 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/scan/vector_search_user_params.h"
-#include "io/fs/s3_file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
@@ -52,6 +51,9 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace io {
+class ObjStorageFileSystem;
+} // namespace io
 class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
@@ -1017,7 +1019,7 @@ private:
     RuntimeState(const RuntimeState&);
 
     // save error log to s3
-    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _error_log_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     // Protects the load error log stream, paths, and first error message.

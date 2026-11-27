@@ -17,7 +17,7 @@
 
 #include "io/fs/connectivity/storage_connectivity_tester.h"
 
-#include "io/fs/connectivity/s3_connectivity_tester.h"
+#include "io/fs/connectivity/obj_storage_connectivity_tester.h"
 
 namespace doris::io {
 #include "common/compile_check_begin.h"
@@ -26,7 +26,7 @@ Status StorageConnectivityTester::test(TStorageBackendType::type type,
                                        const std::map<std::string, std::string>& properties) {
     switch (type) {
     case TStorageBackendType::S3:
-        return S3ConnectivityTester::test(properties);
+        return ObjStorageConnectivityTester::test(properties);
     case TStorageBackendType::HDFS:
     case TStorageBackendType::AZURE:
     default:

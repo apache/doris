@@ -37,7 +37,7 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta();
 
-    bool is_s3_storage() const;
+    bool uses_object_storage() const;
 
     Status set_txn_related_info();
 

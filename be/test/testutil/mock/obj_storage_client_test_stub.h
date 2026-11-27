@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include <gen_cpp/Status_types.h>
+
+#include "cpp/obj-storage/client/obj_storage_client.h"
 
 namespace doris::io {
 
