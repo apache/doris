@@ -78,6 +78,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -577,6 +578,71 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBufferSpillThreshold) {
     for (uint16_t source = 0; source < 8; ++source) {
         EXPECT_TRUE(buffer.is_source_exhausted(source));
     }
+}
+
+// Regression test for RowSourcesBuffer::_serialize / _deserialize looped I/O.
+// Uses non-aligned odd single-syscall byte limits to verify multi-iteration
+// write/read loops handle short I/O and split UInt16 boundaries cleanly.
+TEST_F(VerticalCompactionTest, TestRowSourcesBufferLoopIO) {
+    bool prev_debug_points = config::enable_debug_points;
+    int64_t prev_mem_mb = config::vertical_compaction_max_row_source_memory_mb;
+    Defer defer([&]() {
+        DebugPoints::instance()->remove("RowSourcesBuffer._serialize.max_io_bytes");
+        DebugPoints::instance()->remove("RowSourcesBuffer._deserialize.max_io_bytes");
+        config::enable_debug_points = prev_debug_points;
+        config::vertical_compaction_max_row_source_memory_mb = prev_mem_mb;
+    });
+
+    config::enable_debug_points = true;
+    config::vertical_compaction_max_row_source_memory_mb = 1;
+    // Intentionally use odd, distinct chunk sizes (not multiples of sizeof(UInt16))
+    // to exercise partial UInt16 writes/reads across syscall boundaries.
+    // Set execute_limit > 0 so DebugPoint tracks execute_num.
+    auto ser_dp = std::make_shared<DebugPoint>();
+    ser_dp->execute_limit = 1000;
+    ser_dp->params["value"] = "4099";
+    auto deser_dp = std::make_shared<DebugPoint>();
+    deser_dp->execute_limit = 1000;
+    deser_dp->params["value"] = "3001";
+    DebugPoints::instance()->add("RowSourcesBuffer._serialize.max_io_bytes", ser_dp);
+    DebugPoints::instance()->add("RowSourcesBuffer._deserialize.max_io_bytes", deser_dp);
+
+    RowSourcesBuffer buffer(201, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
+
+    constexpr size_t kBatchSize = 4096;
+    constexpr size_t kTotalBatches = 200; // 819,200 rows (~1.6 MB) -> multiple spills & flush
+    size_t expected_total = 0;
+    for (size_t b = 0; b < kTotalBatches; ++b) {
+        std::vector<RowSource> batch;
+        batch.reserve(kBatchSize);
+        for (size_t i = 0; i < kBatchSize; ++i) {
+            size_t idx = b * kBatchSize + i;
+            auto src = static_cast<uint16_t>((idx * 7 + 3) % 1024);
+            bool agg = (idx % 3) == 0;
+            batch.emplace_back(src, agg);
+        }
+        ASSERT_TRUE(buffer.append(batch).ok());
+        expected_total += kBatchSize;
+    }
+
+    ASSERT_EQ(buffer.total_size(), expected_total);
+    ASSERT_TRUE(buffer.flush().ok());
+    ASSERT_TRUE(buffer.seek_to_begin().ok());
+
+    size_t read_back = 0;
+    while (buffer.has_remaining().ok()) {
+        RowSource cur = buffer.current();
+        auto expected_src = static_cast<uint16_t>((read_back * 7 + 3) % 1024);
+        bool expected_agg = (read_back % 3) == 0;
+        ASSERT_EQ(cur.get_source_num(), expected_src) << "mismatch at row " << read_back;
+        ASSERT_EQ(cur.agg_flag(), expected_agg) << "agg mismatch at row " << read_back;
+        buffer.advance(1);
+        ++read_back;
+    }
+    EXPECT_EQ(read_back, expected_total);
+
+    EXPECT_GE(ser_dp->execute_num.load(), 2);
+    EXPECT_GE(deser_dp->execute_num.load(), 2);
 }
 
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
