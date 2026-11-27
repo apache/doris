@@ -737,9 +737,15 @@ void AggSinkOperatorX::update_operator(const TPlanNode& tnode, bool followed_by_
                                        bool require_bucket_distribution) {
     _followed_by_shuffled_operator = followed_by_shuffled_operator;
     _require_bucket_distribution = require_bucket_distribution;
+    const bool has_fe_distribute_expr_list =
+            tnode.__isset.distribute_expr_lists && !tnode.distribute_expr_lists.empty();
+    // A bucket keyed by k1 must not be rehashed by the wider grouping keys (k1, k2).
+    const bool use_bucket_key = _is_colocate && _require_bucket_distribution &&
+                                has_fe_distribute_expr_list &&
+                                !tnode.distribute_expr_lists.front().empty();
     _partition_exprs =
-            tnode.__isset.distribute_expr_lists &&
-                            (_followed_by_shuffled_operator ||
+            has_fe_distribute_expr_list &&
+                            (_followed_by_shuffled_operator || use_bucket_key ||
                              std::any_of(
                                      tnode.agg_node.aggregate_functions.begin(),
                                      tnode.agg_node.aggregate_functions.end(),
@@ -747,7 +753,7 @@ void AggSinkOperatorX::update_operator(const TPlanNode& tnode, bool followed_by_
                                          return texpr.nodes[0].fn.name.function_name.starts_with(
                                                  DISTINCT_FUNCTION_PREFIX);
                                      }))
-                    ? tnode.distribute_expr_lists[0]
+                    ? tnode.distribute_expr_lists.front()
                     : tnode.agg_node.grouping_exprs;
 }
 

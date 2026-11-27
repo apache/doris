@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
 #include "core/block/block.h"
 #include "exec/exchange/local_exchange_source_operator.h"
@@ -77,6 +78,66 @@ struct DistinctStreamingAggOperatorTest : public ::testing::Test {
     std::shared_ptr<MockRuntimeState> state;
     ObjectPool pool;
 };
+
+TEST_F(DistinctStreamingAggOperatorTest, bucket_parent_preserves_distribute_key) {
+    TQueryOptions query_options;
+    query_options.__set_enable_local_exchange_before_agg(true);
+    state->set_query_options(query_options);
+    auto slot_expr = [](int slot_id) {
+        TExpr expr;
+        auto& node = expr.nodes.emplace_back();
+        node.node_type = TExprNodeType::SLOT_REF;
+        node.slot_ref.__set_slot_id(slot_id);
+        node.slot_ref.__set_tuple_id(0);
+        return expr;
+    };
+    const auto k1 = slot_expr(1);
+    const auto k2 = slot_expr(2);
+    MockDescriptorTbl descs {{std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()},
+                             &pool};
+    TPlanNode plan;
+    plan.row_tuples = {0};
+    plan.nullable_tuples = {false};
+    plan.agg_node.__set_is_colocate(true);
+    plan.agg_node.need_finalize = true;
+    plan.agg_node.grouping_exprs = {k1, k2};
+    plan.__set_distribute_expr_lists({{k1}});
+
+    auto check = [&](auto& candidate, bool followed, bool bucket, ExchangeType type,
+                     const std::vector<int>& slots) {
+        candidate._probe_expr_ctxs = MockSlotRef::create_mock_contexts(
+                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()});
+        candidate.update_operator(plan, followed, bucket);
+        const auto distribution = candidate.required_data_distribution(state.get());
+        EXPECT_EQ(type, distribution.distribution_type);
+        ASSERT_EQ(slots.size(), distribution.partition_exprs.size());
+        for (size_t i = 0; i < slots.size(); ++i) {
+            ASSERT_EQ(1, distribution.partition_exprs[i].nodes.size());
+            EXPECT_EQ(TExprNodeType::SLOT_REF, distribution.partition_exprs[i].nodes[0].node_type);
+            EXPECT_EQ(slots[i], distribution.partition_exprs[i].nodes[0].slot_ref.slot_id);
+        }
+        ASSERT_EQ(2, plan.agg_node.grouping_exprs.size());
+        EXPECT_EQ(1, plan.agg_node.grouping_exprs[0].nodes[0].slot_ref.slot_id);
+        EXPECT_EQ(2, plan.agg_node.grouping_exprs[1].nodes[0].slot_ref.slot_id);
+    };
+    DistinctStreamingAggOperatorX child(&pool, 2, plan, descs);
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1});
+    check(child, false, false, ExchangeType::HASH_SHUFFLE, {1, 2});
+    check(child, true, false, ExchangeType::HASH_SHUFFLE, {1});
+
+    plan.__isset.distribute_expr_lists = false;
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+    plan.__set_distribute_expr_lists({});
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+    plan.__set_distribute_expr_lists({{}});
+    check(child, false, true, ExchangeType::BUCKET_HASH_SHUFFLE, {1, 2});
+
+    plan.__set_distribute_expr_lists({{k1}});
+    plan.agg_node.__set_is_colocate(false);
+    DistinctStreamingAggOperatorX non_colocate(&pool, 3, plan, descs);
+    check(non_colocate, false, true, ExchangeType::HASH_SHUFFLE, {1, 2});
+    check(non_colocate, true, true, ExchangeType::HASH_SHUFFLE, {1});
+}
 
 TEST_F(DistinctStreamingAggOperatorTest, test1) {
     op->_is_streaming_preagg = false;
