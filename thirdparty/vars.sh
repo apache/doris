@@ -636,6 +636,31 @@ LANCE_C_NAME="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8.tar.gz"
 LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
 LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
 
+# Source overlay for native allocation admission. Keep every Lance workspace
+# crate on this one source tree so the embedding budget has one Rust type.
+LANCE_NATIVE_DOWNLOAD="https://codeload.github.com/lance-format/lance/tar.gz/68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+LANCE_NATIVE_NAME="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57.tar.gz"
+LANCE_NATIVE_SOURCE="lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+LANCE_NATIVE_MD5SUM="6c9238690a2763316ffbfaaf4b249d84"
+
+# Owned task scopes for DataFusion's internal asynchronous workers.
+LANCE_DF_RUNTIME_DOWNLOAD="https://static.crates.io/crates/datafusion-common-runtime/datafusion-common-runtime-54.1.0.crate"
+LANCE_DF_RUNTIME_NAME="datafusion-common-runtime-54.1.0.crate"
+LANCE_DF_RUNTIME_SOURCE="datafusion-common-runtime-54.1.0"
+LANCE_DF_RUNTIME_MD5SUM="dbc81945733d1701b41cdba614d17bad"
+
+# Bounded FST registry for legacy full-text dictionary materialization.
+LANCE_FST_DOWNLOAD="https://static.crates.io/crates/fst/fst-0.4.7.crate"
+LANCE_FST_NAME="fst-0.4.7.crate"
+LANCE_FST_SOURCE="fst-0.4.7"
+LANCE_FST_MD5SUM="5259cf708a270d8811edbe62dd17c579"
+
+# Fallible scoped admission for Arrow selection/materialization kernels.
+LANCE_ARROW_SELECT_DOWNLOAD="https://static.crates.io/crates/arrow-select/arrow-select-58.3.0.crate"
+LANCE_ARROW_SELECT_NAME="arrow-select-58.3.0.crate"
+LANCE_ARROW_SELECT_SOURCE="arrow-select-58.3.0"
+LANCE_ARROW_SELECT_MD5SUM="a29624206daeff49fafffbd2c0c04b16"
+
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0.tar.gz"
 PAIMON_RUST_NAME="paimon-rust-v0.5.0.tar.gz"
@@ -732,6 +757,10 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'LANCE_NATIVE'
+    'LANCE_DF_RUNTIME'
+    'LANCE_FST'
+    'LANCE_ARROW_SELECT'
     'PAIMON_RUST'
 )
 

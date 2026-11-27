@@ -100,6 +100,24 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
         SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
     fi
+    # lance-c uses a patched, pinned Lance workspace rather than a second copy
+    # from Cargo's git checkout. It is a source companion, not a build target.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_NATIVE '* ]]; then
+        SPEC_ARCHIVES+=('LANCE_NATIVE')
+    fi
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_DF_RUNTIME '* ]]; then
+        SPEC_ARCHIVES+=('LANCE_DF_RUNTIME')
+    fi
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_FST '* ]]; then
+        SPEC_ARCHIVES+=('LANCE_FST')
+    fi
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' LANCE_ARROW_SELECT '* ]]; then
+        SPEC_ARCHIVES+=('LANCE_ARROW_SELECT')
+    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
@@ -271,7 +289,7 @@ echo "===== Checking all thirdpart archives...done"
 echo "===== Unpacking all thirdparty archives..."
 TAR_CMD="tar"
 UNZIP_CMD="unzip"
-SUFFIX_TGZ="\.(tar\.gz|tgz)$"
+SUFFIX_TGZ="\.(tar\.gz|tgz|crate)$"
 SUFFIX_XZ="\.tar\.xz$"
 SUFFIX_ZIP="\.zip$"
 SUFFIX_BZ2="\.tar\.bz2$"
@@ -763,26 +781,65 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Foyer remains a local patch until its cache interface is accepted upstream.
-# All search fixes are supplied by the immutable lance-c dependency revision.
+# Both overlays must identify the cached source: a changed ABI patch must not
+# leave an earlier lance-c source tree paired with a new Lance workspace.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_checksum="$(cat "${TP_PATCH_DIR}/lance-c-foyer.patch" \
+        "${TP_PATCH_DIR}/lance-c-memory.patch" | cksum)"
     foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
     # A new local patch must also replace previously patched cached sources.
     # Empty markers from older builds cannot identify the applied patch version.
-    if [[ -f "${foyer_patch_marker}" ]] &&
+    if [[ ! -f "${foyer_patch_marker}" ]] ||
         [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
-        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        rm -rf "${TP_SOURCE_DIR:?}/${LANCE_C_SOURCE:?}"
         "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
     fi
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
             -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-memory.patch"
         printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
+fi
+
+patch_lance_companion() {
+    local source_name="$1"
+    local archive_name="$2"
+    local patch_name="$3"
+    local native_patch_checksum
+    local native_patch_marker
+    native_patch_checksum="$(cksum < "${TP_PATCH_DIR}/${patch_name}")"
+    native_patch_marker="${TP_SOURCE_DIR}/${source_name}/${PATCHED_MARK}_memory"
+    if [[ ! -f "${native_patch_marker}" ]] ||
+        [[ "$(cat "${native_patch_marker}")" != "${native_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR:?}/${source_name:?}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${archive_name}" -C "${TP_SOURCE_DIR}/"
+    fi
+    cd "${TP_SOURCE_DIR}/${source_name}"
+    if [[ ! -f "${PATCHED_MARK}_memory" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${patch_name}"
+        printf '%s\n' "${native_patch_checksum}" > "${PATCHED_MARK}_memory"
+    fi
+    cd -
+    echo "Finished patching ${source_name}"
+}
+
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_NATIVE " ]]; then
+    patch_lance_companion "${LANCE_NATIVE_SOURCE}" "${LANCE_NATIVE_NAME}" lance-native-memory.patch
+fi
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_DF_RUNTIME " ]]; then
+    patch_lance_companion "${LANCE_DF_RUNTIME_SOURCE}" "${LANCE_DF_RUNTIME_NAME}" lance-df-runtime-memory.patch
+fi
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_FST " ]]; then
+    patch_lance_companion "${LANCE_FST_SOURCE}" "${LANCE_FST_NAME}" lance-fst-memory.patch
+fi
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_ARROW_SELECT " ]]; then
+    patch_lance_companion "${LANCE_ARROW_SELECT_SOURCE}" "${LANCE_ARROW_SELECT_NAME}" lance-arrow-select-memory.patch
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
