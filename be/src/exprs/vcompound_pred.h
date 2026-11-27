@@ -347,8 +347,11 @@ public:
                         res &= *index_result;
                     }
 
-                    if (res.get_data_bitmap()->isEmpty()) {
-                        break; // Early exit if result is empty
+                    // Stop only once every row is FALSE. A NULL row can still become FALSE in a
+                    // later branch: NULL AND FALSE is FALSE, so NOT (NULL AND FALSE) keeps it.
+                    if (res.get_data_bitmap()->isEmpty() &&
+                        (res.get_null_bitmap() == nullptr || res.get_null_bitmap()->isEmpty())) {
+                        break;
                     }
                 } else {
                     all_pass = false;

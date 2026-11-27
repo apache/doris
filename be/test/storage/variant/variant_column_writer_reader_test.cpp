@@ -54,8 +54,13 @@
 #include "exec/rowid_fetcher.h"
 #include "exprs/function/search/function_search.h"
 #include "exprs/function/search/variant_inverted_index_search.h"
+#include "exprs/function/simple_function_factory.h"
+#include "exprs/vcast_expr.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "gtest/gtest.h"
@@ -9251,6 +9256,163 @@ TEST_F(VariantColumnWriterReaderTest, test_search_distinguishes_unindexed_histor
             }
         }
     }
+}
+
+// Index evaluation of NOT(MATCH_ANY(CAST(v.<path> AS STRING), 'hit')), the form the planner sends
+// for `NOT v['<path>'] MATCH_ANY 'hit'`. It owns everything the index context refers to.
+struct NegatedMatchOnPath {
+    TabletColumnPtr leaf;
+    std::shared_ptr<VMatchPredicate> match;
+    VExprSPtr negation;
+    std::vector<ColumnId> col_ids {0};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> no_indexes;
+    std::vector<IndexFieldNameAndTypePair> types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    OlapReaderStatistics stats;
+    std::shared_ptr<IndexExecContext> scan;
+    Status status;
+};
+
+static std::shared_ptr<VMatchPredicate> make_match_any_hit(const TabletColumn& leaf) {
+    const auto text_type = make_nullable(std::make_shared<DataTypeString>());
+    TMatchPredicate match;
+    match.__set_parser_type("english");
+    match.__set_parser_lowercase(true);
+    TFunctionName name;
+    name.__set_function_name("match_any");
+    TFunction fn;
+    fn.__set_name(name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({create_type_desc(TYPE_STRING), create_type_desc(TYPE_STRING)});
+    fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::MATCH_PRED);
+    node.__set_type(create_type_desc(TYPE_BOOLEAN));
+    node.__set_is_nullable(true);
+    node.__set_num_children(2);
+    node.__set_fn(fn);
+    node.__set_match_predicate(match);
+    auto predicate = VMatchPredicate::create_shared(node);
+    TExprNode cast_node;
+    cast_node.__set_node_type(TExprNodeType::CAST_EXPR);
+    cast_node.__set_type(create_type_desc(TYPE_STRING));
+    cast_node.__set_is_nullable(true);
+    cast_node.__set_num_children(1);
+    auto cast = VCastExpr::create_shared(cast_node);
+    cast->_target_data_type = text_type;
+    auto slot = std::make_shared<VSlotRef>();
+    slot->set_node_type(TExprNodeType::SLOT_REF);
+    slot->set_column_id(0);
+    slot->_column_name = &leaf.name();
+    cast->add_child(slot);
+    predicate->add_child(cast);
+    TStringLiteral text;
+    text.__set_value("hit");
+    TExprNode literal;
+    literal.__set_node_type(TExprNodeType::STRING_LITERAL);
+    literal.__set_type(create_type_desc(TYPE_STRING));
+    literal.__set_string_literal(text);
+    predicate->add_child(VLiteral::create_shared(literal));
+    predicate->_function = SimpleFunctionFactory::instance().get_function(
+            "match_any",
+            {{nullptr, text_type, "v"}, {nullptr, std::make_shared<DataTypeString>(), "q"}},
+            make_nullable(std::make_shared<DataTypeUInt8>()));
+    DORIS_CHECK(predicate->_function != nullptr);
+    return predicate;
+}
+
+static std::unique_ptr<NegatedMatchOnPath> evaluate_negated_match_on_path(
+        segment_v2::Segment* segment, const std::string& path) {
+    auto run = std::make_unique<NegatedMatchOnPath>();
+    const auto& parent = segment->tablet_schema()->column(0);
+    auto leaf = std::make_shared<TabletColumn>();
+    leaf->set_name(parent.name() + "." + path);
+    leaf->set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    leaf->set_unique_id(-1);
+    leaf->set_parent_unique_id(parent.unique_id());
+    leaf->set_is_nullable(true);
+    // FE sends `v['a.b']` as the single path component `a.b`.
+    leaf->set_path_info(PathInData(parent.name(), std::vector<std::string> {path}));
+    run->leaf = leaf;
+    run->match = make_match_any_hit(*leaf);
+    TExprNode not_node;
+    not_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    not_node.__set_opcode(TExprOpcode::COMPOUND_NOT);
+    not_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+    not_node.__set_is_nullable(true);
+    not_node.__set_num_children(1);
+    run->negation = VCompoundPred::create_shared(not_node);
+    run->negation->add_child(run->match);
+
+    run->no_indexes.resize(1);
+    run->types = {{leaf->name(), std::make_shared<DataTypeString>()}};
+    run->status_map[0][run->match.get()] = false;
+    segment_v2::ColumnIteratorOptions opts;
+    opts.stats = &run->stats;
+    run->scan = std::make_shared<IndexExecContext>(
+            run->col_ids, run->no_indexes, run->types, run->status_map, nullptr, segment, opts,
+            std::make_shared<Schema>(std::vector<TabletColumnPtr> {leaf},
+                                     std::vector<ColumnId> {0}));
+    VExprContext context(run->negation);
+    context.set_index_context(run->scan);
+    run->status = run->negation->evaluate_inverted_index(&context, 2);
+    return run;
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_match_returns_null_rows_for_absent_variant_path) {
+    init_variant_tablet(41006);
+    auto rowset = create_variant_rowset({{R"({"missing":"hit"})", R"({})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+
+    // No row stores `absent`, so the MATCH is NULL on both rows, and so is its negation.
+    const auto run = evaluate_negated_match_on_path(segments.front().get(), "absent");
+    ASSERT_TRUE(run->status.ok()) << run->status;
+    for (const VExpr* expr :
+         std::initializer_list<const VExpr*> {run->match.get(), run->negation.get()}) {
+        const auto* result = run->scan->get_index_result_for_expr(expr);
+        ASSERT_NE(nullptr, result);
+        EXPECT_TRUE(result->get_data_bitmap()->isEmpty());
+        EXPECT_EQ(2, result->get_null_bitmap()->cardinality());
+    }
+    EXPECT_TRUE(run->status_map[0][run->match.get()]);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_match_reads_rows_for_unindexed_variant_path) {
+    init_variant_tablet(41007);
+    auto rowset = create_variant_rowset({{R"({"missing":"hit"})", R"({})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+    const auto& parent = segments.front()->tablet_schema()->column(0);
+    ASSERT_TRUE(segments.front()->tablet_schema()->inverted_indexs(parent.unique_id()).empty());
+
+    // Row 0 stores "hit" at `missing` without an index, so only row evaluation can answer it.
+    const auto run = evaluate_negated_match_on_path(segments.front().get(), "missing");
+    ASSERT_TRUE(run->status.ok()) << run->status;
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->match.get()));
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->negation.get()));
+    EXPECT_FALSE(run->status_map[0][run->match.get()]);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_match_reads_rows_for_legacy_dotted_variant_path) {
+    init_variant_tablet(41008);
+    // V2 keeps the path metadata inline, so no external meta store can answer the prefix `a.b.`.
+    init_tablet_from_current_schema(41008, TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2);
+    auto rowset = create_variant_rowset({{R"({"a":{"b":{"c":"hit"}}})", R"({})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+
+    // Without escaped keys, the segment stores row 0 under a -> b -> c, and the read plan reads
+    // `v['a.b']` from there as {"c":"hit"}. The path is stored, so only row evaluation can
+    // answer the MATCH.
+    const auto run = evaluate_negated_match_on_path(segments.front().get(), "a.b");
+    ASSERT_TRUE(run->status.ok()) << run->status;
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->match.get()));
+    EXPECT_FALSE(run->scan->has_index_result_for_expr(run->negation.get()));
+    EXPECT_FALSE(run->status_map[0][run->match.get()]);
 }
 
 TEST_F(VariantColumnWriterReaderTest,
