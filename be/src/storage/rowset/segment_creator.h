@@ -151,8 +151,9 @@ public:
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
 private:
-    Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false);
+    Status _create_segment_writer(
+            std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int32_t segment_id,
+            segment_v2::CompressionTypePB compression = segment_v2::UNKNOWN_COMPRESSION);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
     void _record_segment_index_file_cache_preload(

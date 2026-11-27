@@ -3738,6 +3738,119 @@ TEST_F(SegmentFlusherFormatTest, PhysicalMetadataOracleIgnoresOnlyPageOffsets) {
               physical_column_metadata_signature(recoded));
 }
 
+// GoogleTest assertions inflate the complexity of each format and codec case.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SegmentFlusherFormatTest, ReadSegmentsWithDifferentCompressionCodecs) {
+    const auto saved_lz4_threshold_kb = config::segment_lz4_threshold_kb;
+    const auto saved_fuzzy_mode = config::enable_fuzzy_mode;
+    Defer restore_config {[=] {
+        config::segment_lz4_threshold_kb = saved_lz4_threshold_kb;
+        config::enable_fuzzy_mode = saved_fuzzy_mode;
+    }};
+    config::segment_lz4_threshold_kb = 16;
+    constexpr size_t kThresholdBytes = 16 * 1024;
+    constexpr std::array segment_sizes {size_t {1024}, kThresholdBytes - 1, kThresholdBytes};
+    constexpr std::array expected_codecs {segment_v2::NO_COMPRESSION, segment_v2::LZ4,
+                                          segment_v2::ZSTD};
+
+    for (auto format : {TABLET_STORAGE_FORMAT_V2, TABLET_STORAGE_FORMAT_V3}) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(DUP_KEYS);
+        schema_pb.set_num_short_key_columns(1);
+        schema_pb.set_num_rows_per_row_block(1024);
+        schema_pb.set_compression_type(segment_v2::ZSTD);
+        schema_pb.set_storage_format(format);
+        add_column(&schema_pb, 0, "k", kKeyTypes[3], true, false);
+        add_column(&schema_pb, 1, "payload", kAdditionalScalarValueTypes[2], false, false);
+        schema_pb.set_next_column_unique_id(2);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
+
+        auto make_block = [&](size_t id, std::string_view payload) -> Result<Block> {
+            auto block = schema->create_storage_block();
+            RETURN_IF_ERROR_RESULT(append_text_value(&block, 0, std::to_string(id)));
+            RETURN_IF_ERROR_RESULT(append_text_value(&block, 1, payload));
+            return block;
+        };
+        auto empty_payload_block = make_block(0, "");
+        ASSERT_TRUE(empty_payload_block.has_value()) << empty_payload_block.error();
+        const auto overhead = empty_payload_block->bytes();
+
+        std::vector<Block> blocks;
+        std::vector<std::string> payloads;
+        for (size_t id = 0; id < segment_sizes.size(); ++id) {
+            ASSERT_GT(segment_sizes[id], overhead);
+            constexpr std::string_view kPayloadCharacters = "abc";
+            payloads.emplace_back(segment_sizes[id] - overhead, kPayloadCharacters[id]);
+            auto block = make_block(id, payloads.back());
+            ASSERT_TRUE(block.has_value()) << block.error();
+            ASSERT_EQ(block->bytes(), segment_sizes[id]);
+            blocks.emplace_back(std::move(block).value());
+        }
+
+        RowsetWriterContext read_context;
+        read_context.tablet_id = 10001;
+        read_context.rowset_id.init(10002);
+        for (bool fuzzy_mode : {false, true}) {
+            config::enable_fuzzy_mode = fuzzy_mode;
+            const auto case_name = fmt::format("mixed_compression_{}_{}_repeat",
+                                               static_cast<int>(format), fuzzy_mode);
+            auto written =
+                    flush_blocks(case_name, schema, blocks, true, /*compression_threshold_kb=*/1);
+            ASSERT_TRUE(written.has_value()) << written.error();
+            ASSERT_EQ(written->size(), blocks.size());
+
+            for (uint32_t id = 0; id < blocks.size(); ++id) {
+                SCOPED_TRACE(fmt::format("format={}, segment={}", static_cast<int>(format), id));
+                const auto path = fmt::format("{}/{}/segment_{}.dat", kTestDir, case_name, id);
+                std::shared_ptr<segment_v2::Segment> segment;
+                auto status = segment_v2::Segment::open(
+                        io::global_local_filesystem(), path, read_context.tablet_id, id,
+                        read_context.rowset_id, schema, io::FileReaderOptions {}, &segment);
+                ASSERT_TRUE(status.ok()) << status;
+                size_t columns_checked = 0;
+                auto segment_codec = segment_v2::UNKNOWN_COMPRESSION;
+                status = segment->traverse_column_meta_pbs(
+                        [&](const segment_v2::ColumnMetaPB& meta) {
+                            if (columns_checked == 0) {
+                                segment_codec = meta.compression();
+                            }
+                            EXPECT_EQ(meta.compression(), segment_codec);
+                            ++columns_checked;
+                        });
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(columns_checked, schema->num_columns());
+
+                if (fuzzy_mode) {
+                    EXPECT_NE(segment_codec, segment_v2::UNKNOWN_COMPRESSION);
+                } else {
+                    EXPECT_EQ(segment_codec, expected_codecs[id]);
+                }
+                if (!fuzzy_mode && expected_codecs[id] != segment_v2::NO_COMPRESSION) {
+                    // The payload is stored in a single Page or dictionary. A whole file
+                    // smaller than the payload establishes that it was actually compressed.
+                    EXPECT_LT((*written)[id].bytes.size(), payloads[id].size());
+                }
+                OlapReaderStatistics stats;
+                StorageReadOptions read_options(stats);
+                auto read_schema = std::make_shared<ReadSchema>(schema->columns());
+                std::unique_ptr<RowwiseIterator> iterator;
+                status = segment->new_iterator(read_schema, read_options, &iterator);
+                ASSERT_TRUE(status.ok()) << status;
+                auto values = schema->create_storage_block();
+                status = iterator->next_batch(&values);
+                ASSERT_TRUE(status.ok()) << status;
+                ASSERT_EQ(values.rows(), 1);
+                EXPECT_EQ(values.get_by_position(0).column->get_int(0), static_cast<int64_t>(id));
+                const auto payload = values.get_by_position(1).column->get_data_at(0);
+                EXPECT_EQ(std::string_view(payload.data, payload.size), payloads[id]);
+                values.clear_column_data();
+                EXPECT_TRUE(iterator->next_batch(&values).is<ErrorCode::END_OF_FILE>());
+            }
+        }
+    }
+}
+
 TEST_F(SegmentFlusherFormatTest, WideKeyTableModelsKeepTheirSegmentBytes) {
     auto run_case = [this](std::string_view name, const WideKeySchemaOptions& options,
                            bool use_flush_single_block) -> testing::AssertionResult {
