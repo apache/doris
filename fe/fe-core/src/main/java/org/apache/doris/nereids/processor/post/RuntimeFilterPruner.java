@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,16 +29,21 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -44,6 +51,7 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -56,11 +64,14 @@ import java.util.Set;
  * 2. the build column ndv is less than that of probe column, OR
  * 3. the build column's ColumnStats.selectivity < 1, OR
  * 4. the build column is reduced by another RF, which satisfies above criterions, OR
- * 5. the RF can eliminate whole scan ranges.
+ * 5. the RF can eliminate whole scan ranges, OR
+ * 6. the build subtree reads a table stream's incremental data.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
+    private final Set<CTEId> changelogCteIds = new HashSet<>();
+    private final Set<CTEId> changelogWorkTableIds = new HashSet<>();
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
@@ -68,38 +79,65 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             Preconditions.checkArgument(plan.children().size() == 1,
                     plan.getClass().getSimpleName()
                     + " has more than one child, needs its own visitor implementation");
-            plan.child(0).accept(this, context);
-            if (context.getRuntimeFilterContext().isEffectiveSrcNode(plan.child(0))) {
-                RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
-                        .getEffectiveSrcType(plan.child(0));
-                context.getRuntimeFilterContext().addEffectiveSrcNode(plan, childType);
-            }
+            return propagateEffectiveSrc(plan, context);
         }
         return plan;
     }
 
     @Override
-    public PhysicalRecursiveUnion visitPhysicalRecursiveUnion(
+    public PhysicalRecursiveUnion<? extends Plan, ? extends Plan> visitPhysicalRecursiveUnion(
             PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, CascadesContext context) {
-        for (Plan child : recursiveUnion.children()) {
-            child.accept(this, context);
-        }
+        visitChildrenAndPropagateChangelog(recursiveUnion, context);
         return recursiveUnion;
     }
 
     @Override
-    public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
-        for (Plan child : setOperation.children()) {
-            child.accept(this, context);
+    public PhysicalRecursiveUnionAnchor<? extends Plan> visitPhysicalRecursiveUnionAnchor(
+            PhysicalRecursiveUnionAnchor<? extends Plan> anchor, CascadesContext context) {
+        // The recursive union visits the seed before the recursive term reads the work table.
+        propagateEffectiveSrc(anchor, context);
+        if (context.getRuntimeFilterContext().getEffectiveSrcType(anchor)
+                == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            changelogWorkTableIds.add(anchor.getCteId());
         }
+        return anchor;
+    }
+
+    @Override
+    public PhysicalWorkTableReference visitPhysicalWorkTableReference(
+            PhysicalWorkTableReference reference, CascadesContext context) {
+        if (changelogWorkTableIds.contains(reference.getCteId())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(reference,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(reference, context);
+        }
+        return reference;
+    }
+
+    @Override
+    public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
+        visitChildrenAndPropagateChangelog(setOperation, context);
         return setOperation;
+    }
+
+    private void visitChildrenAndPropagateChangelog(Plan plan, CascadesContext context) {
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        for (Plan child : plan.children()) {
+            child.accept(this, context);
+            propagateChangelog(plan, child, rfContext);
+        }
+    }
+
+    private void propagateChangelog(Plan plan, Plan child, RuntimeFilterContext rfContext) {
+        if (rfContext.getEffectiveSrcType(child) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            rfContext.addEffectiveSrcNode(plan, RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        }
     }
 
     @Override
     public PhysicalIntersect visitPhysicalIntersect(PhysicalIntersect intersect, CascadesContext context) {
-        for (Plan child : intersect.children()) {
-            child.accept(this, context);
-        }
+        visitPhysicalSetOperation(intersect, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(intersect, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return intersect;
     }
@@ -110,11 +148,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(join.child(0))) {
-            RuntimeFilterContext.EffectiveSrcType childType = context.getRuntimeFilterContext()
-                    .getEffectiveSrcType(join.child(0));
-            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
-        }
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        propagateEffectiveSrc(join, join.left(), rfContext);
+        // The right stream can affect the result even when the join emits only left slots.
+        propagateChangelog(join, join.right(), rfContext);
         return join;
     }
 
@@ -122,14 +159,31 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalCTEAnchor<? extends Plan, ? extends Plan> visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext context) {
-        cteAnchor.child(0).accept(this, context);
-        cteAnchor.child(1).accept(this, context);
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        // Visit the producer first so that its source is available to all consumers in the query.
+        cteAnchor.left().accept(this, context);
+        if (rfContext.getEffectiveSrcType(cteAnchor.left()) == RuntimeFilterContext.EffectiveSrcType.CHANGELOG) {
+            changelogCteIds.add(cteAnchor.getCteId());
+        }
+        cteAnchor.right().accept(this, context);
+        propagateChangelog(cteAnchor, cteAnchor.right(), rfContext);
         return cteAnchor;
     }
 
     @Override
+    public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, CascadesContext context) {
+        if (changelogCteIds.contains(consumer.getCteId())) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(consumer,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(consumer, context);
+        }
+        return consumer;
+    }
+
+    @Override
     public PhysicalTopN<? extends Plan> visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext context) {
-        topN.child().accept(this, context);
+        propagateEffectiveSrc(topN, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(topN, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return topN;
     }
@@ -137,7 +191,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalLimit<? extends Plan> visitPhysicalLimit(
             PhysicalLimit<? extends Plan> limit,
             CascadesContext context) {
-        limit.child().accept(this, context);
+        propagateEffectiveSrc(limit, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(limit, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return limit;
     }
@@ -148,10 +202,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             CascadesContext context) {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
-        if (rfContext.isEffectiveSrcNode(join.right())) {
-            RuntimeFilterContext.EffectiveSrcType childType =
-                    rfContext.getEffectiveSrcType(join.right());
-            context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);
+        RuntimeFilterContext.EffectiveSrcType buildSource = rfContext.getEffectiveSrcType(join.right());
+        if (buildSource != null) {
+            rfContext.addEffectiveSrcNode(join, buildSource);
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
@@ -176,17 +229,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             }
         }
         join.left().accept(this, context);
-        if (rfContext.isEffectiveSrcNode(join.left())) {
-            RuntimeFilterContext.EffectiveSrcType leftType =
-                    rfContext.getEffectiveSrcType(join.left());
-            RuntimeFilterContext.EffectiveSrcType rightType =
-                    rfContext.getEffectiveSrcType(join.right());
-            if (rightType == null
-                    || (rightType == RuntimeFilterContext.EffectiveSrcType.REF
-                        && leftType == RuntimeFilterContext.EffectiveSrcType.NATIVE)) {
-                rfContext.addEffectiveSrcNode(join, leftType);
-            }
-        }
+        propagateEffectiveSrc(join, join.left(), rfContext);
         return join;
     }
 
@@ -226,6 +269,26 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
+    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+        if (scan.getTable() instanceof OlapChangelogTableWrapper) {
+            // Base-table statistics do not describe the stream's incremental data.
+            context.getRuntimeFilterContext().addEffectiveSrcNode(scan,
+                    RuntimeFilterContext.EffectiveSrcType.CHANGELOG);
+        } else {
+            visitPhysicalRelation(scan, context);
+        }
+        return scan;
+    }
+
+    @Override
+    public Plan visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate aggregate, CascadesContext context) {
+        PhysicalStorageLayerAggregate visited =
+                (PhysicalStorageLayerAggregate) super.visitPhysicalStorageLayerAggregate(aggregate, context);
+        propagateChangelog(visited, visited.getRelation(), context.getRuntimeFilterContext());
+        return visited;
+    }
+
+    @Override
     public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
         List<Slot> slots = rfCtx.getTargetListByScan(scan);
@@ -242,7 +305,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             CascadesContext context) {
-        assertNumRows.child().accept(this, context);
+        propagateEffectiveSrc(assertNumRows, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(assertNumRows,
                 RuntimeFilterContext.EffectiveSrcType.NATIVE);
         return assertNumRows;
@@ -264,13 +327,17 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * RF on q1 is not effective, but RF on q2 is. Let RF judge by ndv.
      */
     private <T extends Plan> T propagateEffectiveSrc(T plan, CascadesContext context) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        plan.child(0).accept(this, context);
-        if (ctx.isEffectiveSrcNode(plan.child(0))) {
-            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(plan.child(0));
-            ctx.addEffectiveSrcNode(plan, childType);
-        }
+        Plan child = plan.child(0);
+        child.accept(this, context);
+        propagateEffectiveSrc(plan, child, context.getRuntimeFilterContext());
         return plan;
+    }
+
+    private void propagateEffectiveSrc(Plan plan, Plan child, RuntimeFilterContext rfContext) {
+        RuntimeFilterContext.EffectiveSrcType type = rfContext.getEffectiveSrcType(child);
+        if (type != null) {
+            rfContext.addEffectiveSrcNode(plan, type);
+        }
     }
 
     /**

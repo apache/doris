@@ -66,7 +66,7 @@ public class RuntimeFilterContext {
 
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
-    private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
+    private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newIdentityHashMap();
 
     private final SessionVariable sessionVariable;
 
@@ -219,18 +219,15 @@ public class RuntimeFilterContext {
     }
 
     /**
-     * the selectivity produced by predicate or rf
+     * Effective source types in increasing priority for propagation.
      */
     public enum EffectiveSrcType {
-        NATIVE, REF
+        REF, NATIVE, CHANGELOG
     }
 
     public void addEffectiveSrcNode(Plan node, EffectiveSrcType type) {
-        effectiveSrcNodes.put(node, type);
-    }
-
-    public boolean isEffectiveSrcNode(Plan node) {
-        return effectiveSrcNodes.keySet().contains(node);
+        effectiveSrcNodes.merge(node, type,
+                (existing, incoming) -> existing.compareTo(incoming) >= 0 ? existing : incoming);
     }
 
     public EffectiveSrcType getEffectiveSrcType(Plan plan) {
