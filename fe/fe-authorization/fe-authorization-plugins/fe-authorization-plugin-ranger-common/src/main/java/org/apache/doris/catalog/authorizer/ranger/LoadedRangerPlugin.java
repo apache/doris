@@ -19,6 +19,7 @@ package org.apache.doris.catalog.authorizer.ranger;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 import org.apache.ranger.plugin.util.ServicePolicies;
 
@@ -69,6 +70,10 @@ public abstract class LoadedRangerPlugin extends RangerBasePlugin {
 
     protected LoadedRangerPlugin(String serviceType, String serviceName, String appId) {
         super(serviceType, serviceName, appId);
+    }
+
+    protected LoadedRangerPlugin(RangerPluginConfig config) {
+        super(config);
     }
 
     /**
@@ -152,7 +157,8 @@ public abstract class LoadedRangerPlugin extends RangerBasePlugin {
     @Override
     public void setPolicies(ServicePolicies policies) {
         RangerUserStoreGroups.addUserStoreEnricher(getConfig(), policies);
-        super.setPolicies(policies);
+        boolean deduplicateStrings = getConfig().getBoolean(getConfig().getPropertyPrefix() + ".dedup.strings", true);
+        super.setPolicies(CompactedServicePolicies.wrap(policies, deduplicateStrings));
         Long version = policies == null ? null : policies.getPolicyVersion();
         policiesWithoutEngine = version != null && getPoliciesVersion() < 0 ? version : null;
     }
