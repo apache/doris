@@ -64,6 +64,10 @@ public class ShowEncryptKeysCommand extends ShowCommand {
         this.likeString = likeString;
     }
 
+    String getDbName() {
+        return dbName;
+    }
+
     private void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
