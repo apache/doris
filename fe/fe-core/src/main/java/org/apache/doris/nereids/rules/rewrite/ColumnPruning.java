@@ -209,7 +209,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
         if (union.getQualifier() == Qualifier.DISTINCT) {
-            return skipPruneThis(union);
+            // A DISTINCT union is rewritten to Agg + UNION ALL after this stage, and all of its
+            // child output columns are read. skipPruneThis() derives the required child columns
+            // from LogicalUnion.getExpressions(), which only contains the constant rows, so the
+            // real child columns would be pruned away; CheckPrivileges reuses this pruning and
+            // would then check at most one pruned column (column privilege bypass).
+            return skipPruneThisAndFirstLevelChildren(union);
         }
         LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
