@@ -18,21 +18,80 @@
 package org.apache.doris.master;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.persist.StorageInfo;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 public class MetaHelperTest {
+
+    @Test
+    public void testDownloadAndComplete(@TempDir File dir) throws Exception {
+        byte[] image = "synthetic image content".getBytes(StandardCharsets.UTF_8);
+        File downloaded = downloadAndComplete(dir, image, DigestUtils.md5Hex(image));
+
+        Assertions.assertArrayEquals(image, Files.readAllBytes(downloaded.toPath()));
+        Assertions.assertFalse(new File(dir, "image.1.part").exists());
+    }
+
+    @Test
+    public void testDownloadRejectsMd5Mismatch(@TempDir File dir) {
+        byte[] image = "synthetic image content".getBytes(StandardCharsets.UTF_8);
+        IOException e = Assertions.assertThrows(IOException.class,
+                () -> downloadAndComplete(dir, image, DigestUtils.md5Hex("other content")));
+        Assertions.assertTrue(e.getMessage().contains("Unexpected image md5"), e.getMessage());
+        Assertions.assertFalse(new File(dir, "image.1").exists());
+    }
+
+    @Test
+    public void testSyncDirectory(@TempDir File dir) throws IOException {
+        MetaHelper.syncDirectory(dir);
+        Assertions.assertThrows(IOException.class, () -> MetaHelper.syncDirectory(new File(dir, "missing")));
+    }
+
+    private File downloadAndComplete(File dir, byte[] image, String md5) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/image", exchange -> {
+            exchange.getResponseHeaders().add(MetaHelper.X_IMAGE_SIZE, String.valueOf(image.length));
+            exchange.getResponseHeaders().add(MetaHelper.X_IMAGE_MD5, md5);
+            exchange.sendResponseHeaders(200, image.length);
+            try (OutputStream body = exchange.getResponseBody()) {
+                body.write(image);
+            }
+        });
+        server.start();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/image?version=1";
+        try (MockedStatic<HttpURLUtil> httpUtil = Mockito.mockStatic(HttpURLUtil.class)) {
+            httpUtil.when(() -> HttpURLUtil.getConnectionWithNodeIdent(url))
+                    .thenAnswer(invocation -> (HttpURLConnection) new URL(url).openConnection());
+            MetaHelper.getRemoteFile(url, 10_000, MetaHelper.getFile("image.1", dir));
+            return MetaHelper.complete("image.1", dir);
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     public void test() throws JsonProcessingException {
