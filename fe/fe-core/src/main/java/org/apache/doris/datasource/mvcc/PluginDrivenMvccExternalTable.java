@@ -271,7 +271,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // UNPARTITIONED verdict keeps this table out of the snapshot-id MTMV path.
             if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !partitionColumns.isEmpty()) {
                 PluginDrivenPartitionView viewItems = listPartitions(read, metadata, session, partitionHandle,
-                        partitionColumns);
+                        partitionColumns, partitionViewVersion);
                 return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems,
                         pinnedSchema, PartitionType.UNPARTITIONED, false, 0L, 0L);
             }
@@ -279,7 +279,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
 
         PluginDrivenPartitionView viewItems =
-                listPartitions(read, metadata, session, partitionHandle, partitionColumns);
+                listPartitions(read, metadata, session, partitionHandle, partitionColumns, partitionViewVersion);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, viewItems, pinnedSchema);
     }
 
@@ -375,8 +375,14 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     private PluginDrivenPartitionView listPartitions(MetadataRead read, ConnectorMetadata metadata,
             ConnectorSession session,
             ConnectorTableHandle handle, List<Column> partitionColumns) {
-        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         Optional<String> version = read.execute(() -> metadata.getPartitionViewVersion(session, handle));
+        return listPartitions(read, metadata, session, handle, partitionColumns, version);
+    }
+
+    private PluginDrivenPartitionView listPartitions(MetadataRead read, ConnectorMetadata metadata,
+            ConnectorSession session, ConnectorTableHandle handle, List<Column> partitionColumns,
+            Optional<String> version) {
+        List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         if (version.isPresent()) {
             PluginDrivenPartitionView.Key key = PluginDrivenPartitionView.Key.versioned(
                     getId(), getDbName(), getName(), version.get(), types, false);

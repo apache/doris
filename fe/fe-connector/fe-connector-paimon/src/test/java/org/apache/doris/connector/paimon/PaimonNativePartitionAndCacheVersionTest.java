@@ -27,11 +27,14 @@ import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.ChainGroupReadTable;
@@ -81,6 +84,26 @@ public class PaimonNativePartitionAndCacheVersionTest {
                 session(Collections.singletonMap(key, "true"), new MapStatementScope()), dataHandle));
         Assertions.assertFalse(md.supportsNativePartitionPlanning(
                 session(Collections.singletonMap(key, "false"), new MapStatementScope()), sysHandle));
+    }
+
+    @Test
+    public void restPartitionListingHasNoSnapshotVersion() throws Exception {
+        Options options = Options.fromMap(Map.of("uri", "http://localhost:1", "prefix", "test",
+                "token.provider", "bear", "token", "test-token"));
+        try (Catalog catalog = newCatalog(); RESTCatalog rest = new RESTCatalog(CatalogContext.create(options), false)) {
+            catalog.createDatabase("db1", false);
+            Identifier id = Identifier.create("db1", "t1");
+            catalog.createTable(id, partitionedSchema(Collections.emptyMap()), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            writeRow(table, 1, "2026-01-01");
+            PaimonTableHandle handle = new PaimonTableHandle("db1", "t1", List.of("dt"), Collections.emptyList())
+                    .withScanOptions(Map.of(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1"));
+            handle.setPaimonTable(table);
+            ConnectorSession session = session(Collections.emptyMap(), new MapStatementScope());
+            PaimonConnectorMetadata metadata = liveMetadata(new CountingCatalogOps(rest));
+            Assertions.assertTrue(metadata.getSqlCacheVersion(session, handle).isPresent());
+            Assertions.assertFalse(metadata.getPartitionViewVersion(session, handle).isPresent());
+        }
     }
 
     @Test

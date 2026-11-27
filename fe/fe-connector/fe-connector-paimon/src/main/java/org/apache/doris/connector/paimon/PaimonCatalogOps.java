@@ -75,6 +75,11 @@ public interface PaimonCatalogOps {
 
     List<Partition> listPartitions(Identifier identifier, Table table) throws Catalog.TableNotExistException;
 
+    /** Whether listPartitions enumerates the snapshot selected on the supplied table. */
+    default boolean listsPartitionsFromSnapshot() {
+        return false;
+    }
+
     void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
             throws Catalog.DatabaseAlreadyExistException;
 
@@ -335,6 +340,12 @@ public interface PaimonCatalogOps {
             // The supplied handle already contains catalog and relation policy. Reloading by identifier
             // would discard those copies before manifest enumeration reaches the final scan guard.
             return CatalogUtils.listPartitionsFromFileSystem(table);
+        }
+
+        @Override
+        public boolean listsPartitionsFromSnapshot() {
+            // REST lists by identifier. Its response can change independently of the table snapshot.
+            return restCatalog(catalog) == null;
         }
 
         static RESTCatalog restCatalog(Catalog catalog) {

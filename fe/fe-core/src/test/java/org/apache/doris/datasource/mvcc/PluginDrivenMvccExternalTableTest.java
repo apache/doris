@@ -2553,6 +2553,7 @@ public class PluginDrivenMvccExternalTableTest {
         Optional<MvccSnapshot> first = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
         Optional<MvccSnapshot> again = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
         Assertions.assertSame(f.table.getNameToPartitionItems(first), f.table.getNameToPartitionItems(again));
+        Mockito.verify(f.metadata, Mockito.times(2)).getPartitionViewVersion(f.session, f.pinnedHandle);
         Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
         Mockito.when(f.metadata.getPartitionViewVersion(f.session, f.pinnedHandle))

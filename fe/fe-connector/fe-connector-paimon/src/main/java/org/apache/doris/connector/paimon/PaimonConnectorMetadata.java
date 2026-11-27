@@ -1686,6 +1686,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         if (paimonHandle.isSystemTable() || session == null
                 || session.getStatementScope() == ConnectorStatementScope.NONE
+                || !catalogOps.listsPartitionsFromSnapshot()
                 || !PaimonScanParams.supportsPartitionViewVersion(paimonHandle.getScanOptions())) {
             // Without a statement-scoped pinned handle, metadata could change between version lookup and listing.
             return Optional.empty();
