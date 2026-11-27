@@ -2453,4 +2453,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         }
     }
 
+    @Test
+    public void testUnusedLambdaArgumentKeepsArrayPayload() throws Exception {
+        assertAllAccessPathsContain(
+                "select array_map(x -> true, a) from nested_array_tbl where a is not null",
+                ImmutableList.of(path("a", "*")), ImmutableList.of());
+    }
+
 }
