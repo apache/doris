@@ -34,6 +34,7 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TVariantSerializeType;
 
+import doris.segment_v2.SegmentV2;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -214,9 +215,9 @@ public class ColumnTest {
                 TVariantSerializeType.V2), false, null, true, null, "");
         Assertions.assertEquals(TVariantSerializeType.V2,
                 ColumnToThrift.toThrift(v2Zero).getVariantSerializeType());
-        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,
+        Assertions.assertEquals(SegmentV2.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,
                 ColumnToProtobuf.toPb(v2Zero, null, null).getVariantSerializeType());
-        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V1,
+        Assertions.assertEquals(SegmentV2.VariantSerializeTypePB.VARIANT_SERIALIZE_V1,
                 ColumnToProtobuf.toPb(v1Zero, null, null).getVariantSerializeType());
     }
 

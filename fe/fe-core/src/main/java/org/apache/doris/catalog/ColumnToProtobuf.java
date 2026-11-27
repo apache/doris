@@ -21,12 +21,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
-import org.apache.doris.proto.OlapFile.VariantSerializeTypePB;
 import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import doris.segment_v2.SegmentV2.VariantSerializeTypePB;
 
 import java.util.List;
 import java.util.Set;

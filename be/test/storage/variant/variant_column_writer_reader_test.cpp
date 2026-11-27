@@ -3507,6 +3507,10 @@ TEST_F(VariantColumnWriterReaderTest, serialize_type_decides_what_count_zero_mat
                 write_variant_segment(source, source_type, test_case.rowset_id, &footer, &file_path)
                         .ok());
 
+        ASSERT_GT(footer.columns_size(), 0);
+        EXPECT_TRUE(footer.columns(0).has_variant_serialize_type());
+        EXPECT_EQ(footer.columns(0).variant_serialize_type(), test_case.serialize_type);
+
         // every path is either its own footer column or only in the sparse column's stats
         const auto* sparse_meta =
                 find_footer_column_meta_by_relative_path(footer, SPARSE_COLUMN_PATH);

@@ -63,6 +63,7 @@ class TOlapTableIndex;
 class TabletColumn;
 
 using TabletColumnPtr = std::shared_ptr<TabletColumn>;
+using VariantSerializeTypePB = segment_v2::VariantSerializeTypePB;
 
 class TabletColumn : public MetadataAdder<TabletColumn> {
 public:

@@ -186,6 +186,17 @@ message VariantStatisticsPB {
     optional bool has_nested_group = 4 [default = false];
 } 
 
+// How a VARIANT column shreds its paths into subcolumns and the sparse column. The value only
+// changes what variant_max_subcolumns_count == 0 means; every other count keeps one meaning.
+enum VariantSerializeTypePB {
+    // Columns created before the field existed: count 0 materializes every dynamic path as a
+    // subcolumn.
+    VARIANT_SERIALIZE_V1 = 0;
+    // Count 0 materializes no dynamic path: they all go to the sparse column. Predefined typed
+    // paths are materialized as for any count, unless variant_enable_typed_paths_to_sparse.
+    VARIANT_SERIALIZE_V2 = 1;
+}
+
 message ColumnMetaPB {
     // column id in table schema
     optional uint32 column_id = 1;
@@ -234,6 +245,8 @@ message ColumnMetaPB {
     optional bool variant_enable_doc_mode = 27 [default = false];
     // Variant root only: 0 is the legacy namespace, 1 escapes object-key components.
     optional uint32 variant_path_encoding = 28 [default = 0];
+    // Variant root only: what variant_max_subcolumns_count == 0 means when this segment was written.
+    optional VariantSerializeTypePB variant_serialize_type = 29 [default = VARIANT_SERIALIZE_V1];
 }
 
 // External column meta entry describing one top-level column's externalized
