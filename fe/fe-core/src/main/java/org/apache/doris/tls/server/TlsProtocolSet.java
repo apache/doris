@@ -45,6 +45,10 @@ public final class TlsProtocolSet {
         return !excludedProtocols().contains(protocol.name().toLowerCase(Locale.ROOT));
     }
 
+    public static boolean isHttpTlsActive() {
+        return Config.enable_tls && isProtocolIncluded(Protocol.HTTP);
+    }
+
     private static Set<String> excludedProtocols() {
         String raw = Config.tls_excluded_protocols == null ? "" : Config.tls_excluded_protocols;
         if (raw.equals(cachedRaw)) {

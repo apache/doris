@@ -64,6 +64,8 @@ CONF_String(tls_private_key_password, "");
 CONF_String(tls_verify_mode, "verify_peer");
 CONF_String(tls_ca_certificate_path, "");
 CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
+// FoundationDB peer certificate constraints, for example Check.Valid=1.
+CONF_String(tls_fdb_verify_peers, "Check.Valid=1");
 CONF_String(tls_excluded_protocols, "");
 CONF_String(tls_peer_cert_required_san_dns, "");
 

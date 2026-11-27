@@ -67,7 +67,7 @@ suite("test_database_properties") {
 
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
         qt_select_check_3 """
             select * from information_schema.database_properties
             order by CATALOG_NAME, SCHEMA_NAME, PROPERTY_NAME, PROPERTY_VALUE
@@ -76,7 +76,7 @@ suite("test_database_properties") {
 
     sql "REVOKE SELECT_PRIV ON information_schema.database_properties FROM ${user}"
     sql "GRANT SELECT_PRIV ON ${dbName} TO ${user}"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
         qt_select_check_4 """
             select * from information_schema.database_properties
             where schema_name = "${dbName}"

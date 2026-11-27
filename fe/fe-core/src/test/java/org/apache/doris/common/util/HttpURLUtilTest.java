@@ -18,7 +18,10 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -88,6 +91,36 @@ public class HttpURLUtilTest {
             Assertions.assertEquals("127.0.0.1", connection.getRequestProperty(Env.CLIENT_NODE_HOST_KEY));
             Assertions.assertEquals("9010", connection.getRequestProperty(Env.CLIENT_NODE_PORT_KEY));
             Assertions.assertEquals("cluster-token", connection.getRequestProperty(MetaBaseAction.TOKEN));
+        }
+    }
+
+    @Test
+    public void testNodeIdentConnectionChecksAndOpensNormalizedUrl() throws Exception {
+        String request = "http://fe-host:8030/info";
+        String normalizedRequest = "https://fe-host:8050/info";
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        InternalHttpClientProvider provider = Mockito.mock(InternalHttpClientProvider.class);
+        HttpURLConnection connection = Mockito.mock(HttpURLConnection.class);
+        Mockito.when(provider.normalizeInternalUrl(request, InternalHttpClientProvider.Target.FE))
+                .thenReturn(normalizedRequest);
+        Mockito.when(provider.openConnection(normalizedRequest, InternalHttpClientProvider.Target.FE))
+                .thenReturn(connection);
+        SecurityChecker securityChecker = Mockito.mock(SecurityChecker.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<InternalHttpClientProviderFactory> providerFactory =
+                        Mockito.mockStatic(InternalHttpClientProviderFactory.class);
+                MockedStatic<SecurityChecker> securityCheckerFactory = Mockito.mockStatic(SecurityChecker.class)) {
+            envStatic.when(Env::getServingEnv).thenReturn(env);
+            providerFactory.when(InternalHttpClientProviderFactory::getProvider).thenReturn(provider);
+            securityCheckerFactory.when(SecurityChecker::getInstance).thenReturn(securityChecker);
+
+            Assertions.assertSame(connection, HttpURLUtil.getConnectionWithNodeIdent(request));
+
+            Mockito.verify(securityChecker).startSSRFChecking(normalizedRequest);
+            Mockito.verify(provider).openConnection(normalizedRequest, InternalHttpClientProvider.Target.FE);
+            Mockito.verify(securityChecker).stopSSRFChecking();
         }
     }
 

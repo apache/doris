@@ -71,6 +71,10 @@ void reap_direct_child_if_present(pid_t pid) {
 class CdcClientMgrTest : public testing::Test {
 public:
     void SetUp() override {
+        _original_cdc_client_port = config::cdc_client_port;
+        // Keep loopback requests isolated from services running on the test host.
+        config::cdc_client_port = 0;
+
         // Missing-env tests call unsetenv("JAVA_HOME"), which can free getenv()'s storage.
         // Own the saved values until TearDown() and any intermediate restores finish.
         _original_doris_home = snapshot_env("DORIS_HOME");
@@ -108,6 +112,8 @@ public:
     }
 
     void TearDown() override {
+        config::cdc_client_port = _original_cdc_client_port;
+
         // Restore original environment variables
         if (_original_doris_home) {
             setenv("DORIS_HOME", _original_doris_home->c_str(), 1);
@@ -145,6 +151,7 @@ protected:
     std::optional<std::string> _original_java_home;
     bool _jar_created = false;
     bool _log_dir_set = false;
+    int32_t _original_cdc_client_port = 0;
     std::unique_ptr<ClusterInfo> _cluster_info;
 };
 

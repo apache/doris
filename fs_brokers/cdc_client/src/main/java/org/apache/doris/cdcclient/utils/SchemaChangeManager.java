@@ -17,6 +17,8 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import org.apache.doris.cdcclient.common.Env;
+
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -47,8 +49,8 @@ import org.slf4j.LoggerFactory;
 public class SchemaChangeManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeManager.class);
-    private static final String SCHEMA_CHANGE_API = "http://%s/api/streaming/schema_change";
-    private static final String TABLE_SCHEMA_API = "http://%s/api/streaming/schema/%s/%s";
+    private static final String SCHEMA_CHANGE_API = "%s/api/streaming/schema_change";
+    private static final String TABLE_SCHEMA_API = "%s/api/streaming/schema/%s/%s";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String COLUMN_EXISTS_MSG = "Can not add column which already exists";
     private static final String COLUMN_NOT_EXISTS_MSG = "Column does not exists";
@@ -180,7 +182,8 @@ public class SchemaChangeManager {
 
     private static HttpPost buildHttpPost(String feAddr, String token, String jobId, String sql)
             throws IOException {
-        String url = String.format(SCHEMA_CHANGE_API, feAddr);
+        String url =
+                String.format(SCHEMA_CHANGE_API, Env.getCurrentEnv().getInternalHttpUrl(feAddr));
         Map<String, Object> bodyMap = new HashMap<>();
         bodyMap.put("stmt", sql);
         String body = OBJECT_MAPPER.writeValueAsString(bodyMap);
@@ -215,7 +218,12 @@ public class SchemaChangeManager {
     private static Set<String> fetchTargetColumnNames(
             String feAddr, String db, String token, String jobId, String tableName)
             throws IOException {
-        String url = String.format(TABLE_SCHEMA_API, feAddr, db, tableName);
+        String url =
+                String.format(
+                        TABLE_SCHEMA_API,
+                        Env.getCurrentEnv().getInternalHttpUrl(feAddr),
+                        db,
+                        tableName);
         HttpGet request = new HttpGet(url);
         request.setHeader("token", token);
         request.setHeader("jobId", jobId);

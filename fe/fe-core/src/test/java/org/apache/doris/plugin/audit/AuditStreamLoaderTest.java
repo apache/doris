@@ -47,7 +47,7 @@ public class AuditStreamLoaderTest {
 
     @Test
     public void testConnectionUsesGzipCompression() throws Exception {
-        HttpURLConnection connection = Deencapsulation.invoke(AuditStreamLoader.class, "getConnection",
+        HttpURLConnection connection = Deencapsulation.invoke(AuditStreamLoader.class, "getFeConnection",
                 "http://127.0.0.1:8030/api/db/table/_stream_load?", "label", "token", "query_id,time");
 
         Assertions.assertEquals("gz", connection.getRequestProperty("compress_type"));

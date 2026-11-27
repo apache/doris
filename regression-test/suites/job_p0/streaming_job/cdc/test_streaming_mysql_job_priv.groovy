@@ -63,7 +63,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
         }
 
         // create job with select priv user
-        connect(user, "${pwd}", url) {
+        connectToDoris(user, "${pwd}", url) {
             expectExceptionLike({
                 sql """CREATE JOB ${jobName}
                     ON STREAMING
@@ -112,7 +112,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
 
         // Create the job without ALTER privilege to verify schema changes use the job creator's identity.
         sql """grant load_priv,create_priv on ${dbName}.* to ${user}"""
-        connect(user, "${pwd}", url) {
+        connectToDoris(user, "${pwd}", url) {
             test {
                 sql """CREATE JOB ${jobName} ON STREAMING
                         FROM MYSQL (
@@ -211,7 +211,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
         }
 
         sql "PAUSE JOB where jobname =  '${jobName}'";
-        connect(user, "${pwd}", url) {
+        connectToDoris(user, "${pwd}", url) {
             test {
                 sql """ALTER JOB ${jobName} FROM MYSQL ("driver_url" = "${driver_url}")
                         TO DATABASE ${currentDb}"""

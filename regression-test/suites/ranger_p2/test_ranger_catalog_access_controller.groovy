@@ -102,7 +102,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 
 	// Can `user` read the table through this catalog at all.
 	def readable = { String catalog ->
-		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		return connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 			try {
 				sql """SELECT * FROM ${catalog}.${dbName}.${tblName}"""
 				return true
@@ -114,14 +114,14 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 
 	// How many rows `user` sees through this catalog, which is what a row filter changes.
 	def visibleRows = { String catalog ->
-		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		return connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 			return sql("""SELECT id FROM ${catalog}.${dbName}.${tblName}""").size()
 		}
 	}
 
 	// Whether every username `user` sees through this catalog is masked away.
 	def usernamesMasked = { String catalog ->
-		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		return connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 			def rows = sql("""SELECT username FROM ${catalog}.${dbName}.${tblName}""")
 			return !rows.isEmpty() && rows.every { it[0] == null }
 		}
@@ -224,7 +224,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	// case 1: what is inside the catalog is the bound source's to answer, and it has been given
 	// nothing. The refusal names the table, in the shape a Hive service phrases it: no catalog,
 	// because a Hive service has no such scope.
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		test {
 			sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
 			exception "does not have privilege"
@@ -234,21 +234,21 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	// case 2: a policy in that service, and only in that service, opens the table.
 	// Hive access types are lower case; RangerHiveAccessController maps a Doris SELECT onto this.
 	grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"], { readable(boundCatalog) })
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		order_qt_opened_by_the_hive_policy """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
 	}
 
 	// case 3: the catalog itself is a different question, and the bound source never sees it.
 	// Reading a qualified table above asked about the table alone; SWITCH asks about the catalog,
 	// which routes to the instance wide source, where nothing has been granted yet.
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		test {
 			sql """SWITCH ${boundCatalog}"""
 			exception "to catalog"
 		}
 	}
 	grant(dorisServiceName, dorisPolicyName, dorisResources, dorisAccesses)
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		sql """SWITCH ${boundCatalog}"""
 	}
 
@@ -257,7 +257,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	// doing: the two services each answer their own half and neither covers for the other.
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
 	awaitPolicyEffect("the hive policy to stop opening the table", { !readable(boundCatalog) })
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		test {
 			sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
 			exception "does not have privilege"
@@ -275,7 +275,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		'access_controller.class' = '${FACTORY_CLASS}',
 		'access_controller.properties.ranger.service.name' = '${HIVE_SERVICE_NAME}'
 	)"""
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		order_qt_selected_by_the_factory_class_name """SELECT * FROM ${fqcnCatalog}.${dbName}.${tblName}"""
 	}
 
@@ -301,7 +301,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	logger.info("created row filter policy id ${rangerClient.createPolicy(rowFilter).getId()}")
 	awaitPolicyEffect("the row filter to reach the bound catalog", { visibleRows(boundCatalog) == 2 })
 
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		// The same table, read through the two authorities: filtered by the one whose service the filter
 		// was written in, whole through the one that has no source of its own.
 		order_qt_row_filter_through_the_bound_catalog """SELECT id FROM ${boundCatalog}.${dbName}.${tblName}"""
@@ -332,7 +332,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	logger.info("created data mask policy id ${rangerClient.createPolicy(mask).getId()}")
 	awaitPolicyEffect("the column mask to reach the bound catalog", { usernamesMasked(boundCatalog) })
 
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		order_qt_mask_through_the_bound_catalog """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
 		order_qt_mask_through_the_plain_catalog """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
 	}
@@ -384,7 +384,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 					+ " unchanged and this case can no longer tell a masked read from an unmasked one:"
 					+ " ${firstUsername}")
 	awaitPolicyEffect("the partial column mask to reach the bound catalog", {
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 			try {
 				def read = sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} WHERE id = 1""")
 				return read[0][0].toString() == showLast4Of(firstUsername)
@@ -397,7 +397,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		}
 	})
 
-	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	connectToDoris("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		def masked = sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} ORDER BY id""")
 				.collect { it[0] }
 		assertEquals(['alice', 'bob', 'carol', 'dave'].collect { showLast4Of(it) }, masked,

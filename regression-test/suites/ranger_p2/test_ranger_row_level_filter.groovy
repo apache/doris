@@ -164,10 +164,10 @@ suite("test_ranger_row_level_filter", "p2,ranger,external") {
 		// check
 		def tokens = context.config.jdbcUrl.split('/')
 		def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
-		connect("$user", "$pwd", "$defaultJdbcUrl") {
+		connectToDoris("$user", "$pwd", "$defaultJdbcUrl") {
 			order_qt_internal("""SELECT * FROM internal.${internalDb}.${internalTable}""")
 		}
-		connect("$user", "$pwd", "$defaultJdbcUrl") {
+		connectToDoris("$user", "$pwd", "$defaultJdbcUrl") {
 			order_qt_catalog("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
 		}
 	}
