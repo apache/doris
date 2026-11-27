@@ -18,6 +18,7 @@
 #include "client_bvar.h"
 
 #include <bvar/latency_recorder.h>
+#include <bvar/reducer.h>
 
 namespace doris {
 
@@ -26,6 +27,7 @@ bvar::LatencyRecorder s3_get_latency("s3_get");
 bvar::LatencyRecorder s3_put_latency("s3_put");
 bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
 bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
+bvar::Adder<int64_t> s3_deleted_objects_total("s3_deleted_objects_total");
 bvar::LatencyRecorder s3_head_latency("s3_head");
 bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
 bvar::LatencyRecorder s3_list_latency("s3_list");
