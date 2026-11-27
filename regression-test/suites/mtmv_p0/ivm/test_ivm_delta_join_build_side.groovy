@@ -15,18 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_delta_join_build_side", "nonConcurrent") {
+suite("test_ivm_delta_join_build_side") {
     sql "SET enable_materialized_view_rewrite = false"
     sql "SET enable_dml_materialized_view_rewrite = false"
 
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_dup"
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_build_mow"
-    def orderedViews = []
+    // Refresh reparses the MV query in its own context. Use statement hints to control reorder there.
+    def hintsByKind = [
+        inner_ordered: "ORDERED",
+        cross_ordered: "ORDERED",
+        cross: "SET_VAR(disable_join_reorder=true)",
+        cross_leading: "SET_VAR(disable_join_reorder=false) LEADING(l r)",
+        cross_leading_disabled: "SET_VAR(disable_join_reorder=true) LEADING(l r)"
+    ]
+    def hintedViews = []
     for (def model : ["dup", "mow"]) {
-        orderedViews.addAll(["ivm_build_${model}_inner_ordered", "ivm_build_${model}_cross_ordered",
-                             "ivm_build_${model}_cross", "ivm_build_${model}_cross_leading"])
+        hintedViews.addAll(hintsByKind.keySet().collect { kind -> "ivm_build_${model}_${kind}" })
     }
-    for (def mv : orderedViews) {
+    for (def mv : hintedViews) {
         sql "DROP MATERIALIZED VIEW IF EXISTS ${mv}"
     }
     sql "DROP TABLE IF EXISTS ivm_build_snapshot"
@@ -49,7 +56,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ("replication_num" = "1")
-        AS SELECT l.k, l.value AS lv, r.value AS rv
+        AS SELECT /*+ SET_VAR(disable_join_reorder=true) */ l.k, l.value AS lv, r.value AS rv
         FROM ivm_build_delta l INNER JOIN ivm_build_snapshot r ON l.k = r.k
     """
     sql """
@@ -57,14 +64,12 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ("replication_num" = "1", "ivm_force_mow" = "true")
-        AS SELECT l.k, l.value AS lv, r.value AS rv
+        AS SELECT /*+ SET_VAR(disable_join_reorder=true) */ l.k, l.value AS lv, r.value AS rv
         FROM ivm_build_delta l INNER JOIN ivm_build_snapshot r ON l.k = r.k
     """
     for (def model : ["dup", "mow"]) {
         def modelProperty = model == "mow" ? ', "ivm_force_mow" = "true"' : ""
-        for (def kind : ["inner_ordered", "cross_ordered", "cross", "cross_leading"]) {
-            def hint = kind.endsWith("_ordered") ? "/*+ ORDERED */"
-                     : kind.endsWith("_leading") ? "/*+ LEADING(l r) */" : ""
+        for (def kind : hintsByKind.keySet()) {
             def join = kind.startsWith("inner") ? "INNER JOIN ivm_build_snapshot r ON l.k = r.k"
                                                : "CROSS JOIN ivm_build_snapshot r"
             sql """
@@ -72,7 +77,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
                 BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ("replication_num" = "1"${modelProperty})
-                AS SELECT ${hint} l.k, l.value AS lv, r.value AS rv
+                AS SELECT /*+ ${hintsByKind[kind]} */ l.k, l.value AS lv, r.value AS rv
                 FROM ivm_build_delta l ${join}
             """
         }
@@ -80,7 +85,7 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
 
     sql "INSERT INTO ivm_build_delta VALUES (1, 10), (2, 20)"
     sql "INSERT INTO ivm_build_snapshot VALUES (1, 100), (1, 101)"
-    for (def mv : ["ivm_build_dup", "ivm_build_mow"] + orderedViews) {
+    for (def mv : ["ivm_build_dup", "ivm_build_mow"] + hintedViews) {
         sql "REFRESH MATERIALIZED VIEW ${mv} COMPLETE"
         waitingMTMVTaskFinishedByMvName(mv)
     }
@@ -103,28 +108,20 @@ suite("test_ivm_delta_join_build_side", "nonConcurrent") {
         }
     }
 
-    // Refresh EXPLAIN uses a fresh FE context, which inherits the global default.
-    def previous = sql_return_maparray("SHOW GLOBAL VARIABLES LIKE 'disable_join_reorder'")[0]["Value"]
-    try {
-        // LEADING is applied only while join reorder is enabled.
-        sql "SET GLOBAL disable_join_reorder = false"
-        checkJoinAndScanOrder("dup_cross_leading", "ivm_build_dup_cross_leading")
-        checkJoinAndScanOrder("mow_cross_leading", "ivm_build_mow_cross_leading")
-        sql "SET GLOBAL disable_join_reorder = true"
-        checkJoinAndScanOrder("dup_inner", "ivm_build_dup")
-        checkJoinAndScanOrder("mow_inner", "ivm_build_mow")
-        for (def mv : orderedViews) {
-            def tag = mv.substring("ivm_build_".length())
-            checkJoinAndScanOrder(mv.endsWith("_leading") ? tag + "_disabled" : tag, mv)
+    checkJoinAndScanOrder("dup_cross_leading", "ivm_build_dup_cross_leading")
+    checkJoinAndScanOrder("mow_cross_leading", "ivm_build_mow_cross_leading")
+    checkJoinAndScanOrder("dup_inner", "ivm_build_dup")
+    checkJoinAndScanOrder("mow_inner", "ivm_build_mow")
+    for (def mv : hintedViews) {
+        if (!mv.endsWith("_leading")) {
+            checkJoinAndScanOrder(mv.substring("ivm_build_".length()), mv)
         }
-        sql "INSERT INTO ivm_build_snapshot VALUES (2, 200), (2, 201)"
-        for (def mv : ["ivm_build_dup", "ivm_build_mow"]) {
-            sql "REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
-            waitingMTMVTaskFinishedByMvName(mv)
-        }
-        order_qt_dup "SELECT k, lv, rv FROM ivm_build_dup"
-        order_qt_mow "SELECT k, lv, rv FROM ivm_build_mow"
-    } finally {
-        sql "SET GLOBAL disable_join_reorder = '${previous}'"
     }
+    sql "INSERT INTO ivm_build_snapshot VALUES (2, 200), (2, 201)"
+    for (def mv : ["ivm_build_dup", "ivm_build_mow"]) {
+        sql "REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
+        waitingMTMVTaskFinishedByMvName(mv)
+    }
+    order_qt_dup "SELECT k, lv, rv FROM ivm_build_dup"
+    order_qt_mow "SELECT k, lv, rv FROM ivm_build_mow"
 }
