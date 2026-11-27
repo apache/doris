@@ -26,8 +26,10 @@
 
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "storage/options.h"
+#include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -44,77 +46,14 @@ struct MetricPrototype;
 class QueryContext;
 class ResourceContext;
 
+class RemoteSpillDataDir;
 class SpillFileManager;
-class SpillDataDir {
-public:
-    SpillDataDir(std::string path, int64_t capacity_bytes,
-                 TStorageMedium::type storage_medium = TStorageMedium::HDD);
+struct StorePath;
 
-    Status init();
-
-    const std::string& path() const { return _path; }
-
-    std::string get_spill_data_path(const std::string& query_id = "") const;
-
-    std::string get_spill_data_gc_path(const std::string& sub_dir_name = "") const;
-
-    TStorageMedium::type storage_medium() const { return _storage_medium; }
-
-    // check if the capacity reach the limit after adding the incoming data
-    // return true if limit reached, otherwise, return false.
-    bool reach_capacity_limit(int64_t incoming_data_size);
-
-    Status update_capacity();
-
-    void update_spill_data_usage(int64_t incoming_data_size) {
-        std::lock_guard<std::mutex> l(_mutex);
-        _spill_data_bytes += incoming_data_size;
-        spill_disk_data_size->set_value(_spill_data_bytes);
-    }
-
-    int64_t get_spill_data_bytes() {
-        std::lock_guard<std::mutex> l(_mutex);
-        return _spill_data_bytes;
-    }
-
-    int64_t get_spill_data_limit() {
-        std::lock_guard<std::mutex> l(_mutex);
-        return _spill_data_limit_bytes;
-    }
-
-    std::string debug_string();
-
-private:
-    bool _reach_disk_capacity_limit(int64_t incoming_data_size);
-    double _get_disk_usage(int64_t incoming_data_size) const {
-        return _disk_capacity_bytes == 0
-                       ? 0
-                       : (double)(_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                                 (double)_disk_capacity_bytes;
-    }
-
-    friend class SpillFileManager;
-    std::string _path;
-
-    // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
-    std::mutex _mutex;
-    // the actual capacity of the disk of this data dir
-    size_t _disk_capacity_bytes;
-    int64_t _spill_data_limit_bytes = 0;
-    // the actual available capacity of the disk of this data dir
-    size_t _available_bytes = 0;
-    int64_t _spill_data_bytes = 0;
-    TStorageMedium::type _storage_medium;
-
-    std::shared_ptr<MetricEntity> spill_data_dir_metric_entity;
-    IntGauge* spill_disk_capacity = nullptr;
-    IntGauge* spill_disk_limit = nullptr;
-    IntGauge* spill_disk_avail_capacity = nullptr;
-    IntGauge* spill_disk_data_size = nullptr;
-    // for test
-    IntGauge* spill_disk_has_spill_data = nullptr;
-    IntGauge* spill_disk_has_spill_gc_data = nullptr;
-};
+// Reconcile the byte counter for one remote spill prefix with the objects still listed there.
+// Used after uncertain publication or partial deletion, never on the normal write path.
+Status reconcile_remote_spill_bytes(SpillDataDir* data_dir, const io::FileSystemSPtr& fs,
+                                    const std::string& dir, int64_t* accounted_bytes);
 
 // Adapts one external writer to the same root selection, capacity accounting and query cleanup
 // used by Doris spill files.
@@ -150,9 +89,13 @@ private:
 class SpillFileManager {
 public:
     ~SpillFileManager();
+    // Builds the spill stores from the configuration: the remote store when
+    // spill_storage_type is "s3", and one local store per configured spill path.
+    explicit SpillFileManager(const std::vector<StorePath>& spill_store_paths);
     SpillFileManager(
             std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
 
+    // Validates the spill configuration and initializes the stores.
     Status init();
 
     void stop();
@@ -174,9 +117,18 @@ public:
     // Delete SpillFile data synchronously.
     void delete_spill_file(SpillFileSPtr spill_file);
 
-    // Recursively delete a per-query spill directory during query teardown. Failed deletions are
-    // retained by the manager and retried by its GC and shutdown paths.
+    // Recursively delete a per-query spill directory of a local store during query teardown.
+    // Failed deletions are retained by the manager and retried by its GC and shutdown paths.
+    // A no-op for the remote store: its spill is deleted per spill file only.
     void delete_query_spill_directory(const std::string& query_id, SpillDataDir* data_dir);
+
+    // Take over a spill file directory whose deletion failed. Its objects are still stored, so
+    // `charged_bytes` stay charged to `data_dir` until a retry deletes them; otherwise a
+    // deletion outage would free capacity that is still in use.
+    void retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
+                                        std::string dir, int64_t charged_bytes,
+                                        int64_t persisted_bytes, std::string query_id,
+                                        std::vector<std::string> file_log_contexts = {});
 
     void gc(int32_t max_work_time_ms);
 
@@ -184,34 +136,82 @@ public:
 
     void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
+    /// Bytes successfully uploaded by spill to object storage.
+    void update_spill_remote_write(int64_t bytes);
+
+    /// Bytes and GET requests issued by spill against object storage.
+    void update_spill_remote_read(int64_t bytes, int64_t get_requests);
+
+    /// Number of spill directories whose deletion failed and is being retried.
+    size_t pending_delete_dir_count();
+
+    /// Bytes of completed spill objects this process currently holds in object storage;
+    /// uncommitted capacity reservations are excluded. Sent to the master FE with every disk
+    /// report (cloud mode) for SHOW DATA.
+    int64_t remote_spill_data_bytes();
+
 private:
     friend class ExternalSpillSession;
 
-    struct PendingQuerySpillDirectory {
+    struct PendingSpillDirectory {
         int failed_count {0};
-        std::string query_dir;
+        // A query directory or the directory of one spill file.
+        std::string dir;
+        std::string query_id;
+        SpillDataDir* data_dir {nullptr};
+        // Pinned for remote spill: a later change of the spill vault must not redirect GC.
+        io::FileSystemSPtr fs;
+        // Bytes of the objects under `dir` still charged to `data_dir`; released once deleted.
+        int64_t charged_bytes {0};
+        int64_t persisted_bytes {0};
+        // Per-file identities/sizes survive directory merging, until successful deletion.
+        std::vector<std::string> file_log_contexts;
+    };
+
+    struct SpillGcStats {
+        bool has_work = false;
+        size_t backlog_dirs = 0;
+        size_t deleted_dirs = 0;
+        size_t deleted_files = 0;
+        size_t failed_deletes = 0;
     };
 
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
-    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
-    void _retry_pending_query_spill_directories();
+    Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
+    /// Retry the queued failed deletions, at least one, until `max_work_time_ns` has passed on
+    /// `watch`; a remote one can take longer, since it waits for the object store. Remote ones
+    /// are only retried when `retry_remote` is set. The rest stay queued for the next round.
+    void _retry_pending_spill_directories(const MonotonicStopWatch& watch, int64_t max_work_time_ns,
+                                          bool retry_remote);
+    /// Retry every queued failed deletion of a local store, for shutdown: it does not wait for
+    /// the object store.
+    void _retry_pending_local_spill_directories();
+    void _gc_spill_store(LocalSpillDataDir* store_dir, const MonotonicStopWatch& watch,
+                         int64_t max_work_time_ns, SpillGcStats* stats);
+    /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
+    /// of the same store so that an outage keeps about one entry per query.
+    void _add_pending_directory(PendingSpillDirectory pending_directory);
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
     void _release_external_spill_session(ExternalSpillSession* spill_session);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
-    SpillDataDir* _get_store_for_spill();
+    std::vector<SpillDataDir*> _get_local_stores_for_spill(TStorageMedium::type storage_medium);
+    SpillDataDir* _get_local_store_for_external_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
+    // Views of _spill_store_map by kind. With spill_storage_type=s3 a BE has the remote store
+    // for query spill and keeps its local stores for external writers.
+    std::vector<LocalSpillDataDir*> _local_stores;
+    RemoteSpillDataDir* _remote_store = nullptr;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
 
-    // Query cleanup uses the regular pending-deletion path. External leases only defer deletion
-    // while an SDK task can still access the same query directory; filesystem I/O never holds this
-    // mutex.
-    std::mutex _pending_query_spill_directories_mutex;
-    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+    // External spill leases defer query-directory deletion until native callbacks finish.
+    // Filesystem I/O never holds this mutex.
+    std::mutex _pending_spill_directories_mutex;
+    std::vector<PendingSpillDirectory> _pending_spill_directories;
     std::unordered_map<std::string, size_t> _external_spill_directory_leases;
 
     std::atomic_uint64_t id_ = 0;
@@ -223,6 +223,16 @@ private:
 
     IntAtomicCounter* _spill_write_bytes_counter {nullptr};
     IntAtomicCounter* _spill_read_bytes_counter {nullptr};
+
+    std::unique_ptr<doris::MetricPrototype> _spill_remote_write_bytes_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_remote_read_bytes_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_remote_get_requests_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_pending_delete_dir_count_metric {nullptr};
+
+    IntAtomicCounter* _spill_remote_write_bytes_counter {nullptr};
+    IntAtomicCounter* _spill_remote_read_bytes_counter {nullptr};
+    IntAtomicCounter* _spill_remote_get_requests_counter {nullptr};
+    IntGauge* _spill_pending_delete_dir_count_gauge {nullptr};
 };
 } // namespace doris
 #include "common/compile_check_end.h"
