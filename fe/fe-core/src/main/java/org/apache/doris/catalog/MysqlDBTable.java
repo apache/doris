@@ -69,6 +69,7 @@ public class MysqlDBTable extends SchemaTable {
                                     .column("password_policy.password_lock_seconds", ScalarType.createVarcharType(32))
                                     .column("password_policy.failed_login_counter", ScalarType.createVarcharType(32))
                                     .column("password_policy.lock_time", ScalarType.createVarcharType(32))
+                                    .column("password_policy.account_locked", ScalarType.createVarcharType(32))
                                     .build()))
             .put("procs_priv",
                     new MysqlDBTable(SystemIdGenerator.getNextId(), "procs_priv", TableType.SCHEMA,

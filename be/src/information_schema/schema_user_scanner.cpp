@@ -61,7 +61,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaUserScanner::_s_user_columns = {
         {"password_policy.num_failed_login", TYPE_VARCHAR, sizeof(StringRef), false},
         {"password_policy.password_lock_seconds", TYPE_VARCHAR, sizeof(StringRef), false},
         {"password_policy.failed_login_counter", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"password_policy.lock_time", TYPE_VARCHAR, sizeof(StringRef), false}};
+        {"password_policy.lock_time", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"password_policy.account_locked", TYPE_VARCHAR, sizeof(StringRef), false}};
 
 SchemaUserScanner::SchemaUserScanner()
         : SchemaScanner(_s_user_columns, TSchemaTableType::SCH_USER) {}
