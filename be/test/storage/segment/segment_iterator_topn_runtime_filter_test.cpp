@@ -299,8 +299,8 @@ TEST_F(SegmentIteratorTopNRuntimeFilterTest, SnapshotKeepsItsBoundAfterPublicati
     zone_map.has_not_null = true;
     zone_map.min_value = Field::create_field<TYPE_INT>(75);
     zone_map.max_value = zone_map.min_value;
-    EXPECT_TRUE(snapshot.predicate->evaluate_and(zone_map));
-    EXPECT_FALSE(shared->evaluate_and(zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kNoMatch, snapshot.predicate->evaluate_zonemap_filter(zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, shared->evaluate_zonemap_filter(zone_map));
 }
 
 TEST_F(SegmentIteratorTopNRuntimeFilterTest, ConcurrentSnapshotsPairEachVersionWithItsBound) {
@@ -320,10 +320,12 @@ TEST_F(SegmentIteratorTopNRuntimeFilterTest, ConcurrentSnapshotsPairEachVersionW
         zone_map.has_not_null = true;
         zone_map.min_value = Field::create_field<TYPE_INT>(boundary);
         zone_map.max_value = zone_map.min_value;
-        EXPECT_TRUE(snapshot.predicate->evaluate_and(zone_map));
+        EXPECT_NE(ZoneMapFilterResult::kNoMatch,
+                  snapshot.predicate->evaluate_zonemap_filter(zone_map));
         zone_map.min_value = Field::create_field<TYPE_INT>(boundary + 1);
         zone_map.max_value = zone_map.min_value;
-        EXPECT_FALSE(snapshot.predicate->evaluate_and(zone_map));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+                  snapshot.predicate->evaluate_zonemap_filter(zone_map));
     }
     writer.join();
     EXPECT_EQ(1001, shared->version());

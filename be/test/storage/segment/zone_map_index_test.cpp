@@ -636,16 +636,16 @@ public:
         // The page holds only 'a\0b', so every predicate below has to keep the page.
         const auto a = Field::create_field<PType>(cut_value);
         ComparisonPredicateBase<PType, PredicateType::GT> gt(0, "", a);
-        EXPECT_TRUE(gt.evaluate_and(zone_map));
+        EXPECT_NE(ZoneMapFilterResult::kNoMatch, gt.evaluate_zonemap_filter(zone_map));
         ComparisonPredicateBase<PType, PredicateType::NE> ne(0, "", a);
-        EXPECT_TRUE(ne.evaluate_and(zone_map));
+        EXPECT_NE(ZoneMapFilterResult::kNoMatch, ne.evaluate_zonemap_filter(zone_map));
         ComparisonPredicateBase<PType, PredicateType::EQ> eq(0, "",
                                                              Field::create_field<PType>(value));
-        EXPECT_TRUE(eq.evaluate_and(zone_map));
+        EXPECT_NE(ZoneMapFilterResult::kNoMatch, eq.evaluate_zonemap_filter(zone_map));
 
         // ... and 'a\0b' <= 'a' matches nothing, so this one may drop it.
         ComparisonPredicateBase<PType, PredicateType::LE> le(0, "", a);
-        EXPECT_FALSE(le.evaluate_and(zone_map));
+        EXPECT_EQ(ZoneMapFilterResult::kNoMatch, le.evaluate_zonemap_filter(zone_map));
     }
 
     io::FileSystemSPtr _fs;
@@ -1609,8 +1609,10 @@ TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
 
     const auto epoch = Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0));
     ComparisonPredicateBase<TYPE_TIMESTAMP_NS, PredicateType::EQ> epoch_predicate(0, "", epoch);
-    EXPECT_FALSE(epoch_predicate.evaluate_and(negative_page_zone_map));
-    EXPECT_TRUE(epoch_predicate.evaluate_and(nonnegative_page_zone_map));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              epoch_predicate.evaluate_zonemap_filter(negative_page_zone_map));
+    EXPECT_NE(ZoneMapFilterResult::kNoMatch,
+              epoch_predicate.evaluate_zonemap_filter(nonnegative_page_zone_map));
 }
 
 // Regression test for "all-null page after a value page" — int variant.

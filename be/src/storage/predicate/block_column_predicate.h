@@ -72,7 +72,7 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const segment_v2::ZoneMap& zone_map) const {
+    virtual ZoneMapFilterResult evaluate_zonemap_filter(const segment_v2::ZoneMap& zone_map) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
 
@@ -130,7 +130,7 @@ public:
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const segment_v2::ZoneMap& zone_map) const override;
     bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         return _predicate->evaluate_and(statistic);
     }
@@ -160,16 +160,6 @@ public:
 
     ~MutilColumnBlockPredicate() override = default;
 
-    bool support_zonemap() const override {
-        for (const auto& child_block_predicate : _block_column_predicate_vec) {
-            if (!child_block_predicate->support_zonemap()) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     void add_column_predicate(std::unique_ptr<BlockColumnPredicate> column_predicate) {
         _block_column_predicate_vec.push_back(std::move(column_predicate));
     }
@@ -197,6 +187,11 @@ class OrBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(OrBlockColumnPredicate);
 
 public:
+    // Judging an OR group needs one zone map per branch, but this interface is handed the zone
+    // map of a single column. The only OR groups built today come from a delete statement with
+    // several conditions, whose branches sit on different columns, so keep OR out of this path.
+    bool support_zonemap() const override { return false; }
+
     uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
@@ -225,6 +220,13 @@ class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(AndBlockColumnPredicate);
 
 public:
+    // One branch that can read zone maps is enough for the group to rule a zone out; the others
+    // just report kUnsupported and hold the group at kMayMatch.
+    bool support_zonemap() const override {
+        return std::ranges::any_of(_block_column_predicate_vec,
+                                   [](const auto& child) { return child->support_zonemap(); });
+    }
+
     uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
@@ -233,7 +235,7 @@ public:
 
     void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const override;
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const segment_v2::ZoneMap& zone_map) const override;
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 

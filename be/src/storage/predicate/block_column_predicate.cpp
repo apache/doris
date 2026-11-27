@@ -42,8 +42,9 @@ void SingleColumnBlockPredicate::evaluate_and(MutableColumns& block, uint16_t* s
     _predicate->evaluate_and(*column, sel, selected_size, flags);
 }
 
-bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
-    return _predicate->evaluate_and(zone_map);
+ZoneMapFilterResult SingleColumnBlockPredicate::evaluate_zonemap_filter(
+        const segment_v2::ZoneMap& zone_map) const {
+    return _predicate->evaluate_zonemap_filter(zone_map);
 }
 
 bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
@@ -172,13 +173,21 @@ void AndBlockColumnPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
     }
 }
 
-bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
+ZoneMapFilterResult AndBlockColumnPredicate::evaluate_zonemap_filter(
+        const segment_v2::ZoneMap& zone_map) const {
+    // One child that matches nothing kills the whole group. The group matches everything only
+    // when every child does.
+    auto result = ZoneMapFilterResult::kAllMatch;
     for (auto& block_column_predicate : _block_column_predicate_vec) {
-        if (!block_column_predicate->evaluate_and(zone_map)) {
-            return false;
+        const auto child_result = block_column_predicate->evaluate_zonemap_filter(zone_map);
+        if (child_result == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (child_result != ZoneMapFilterResult::kAllMatch) {
+            result = ZoneMapFilterResult::kMayMatch;
         }
     }
-    return true;
+    return result;
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {

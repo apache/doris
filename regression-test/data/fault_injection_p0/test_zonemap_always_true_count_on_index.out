@@ -5,3 +5,27 @@
 -- !count_with_key_range --
 2
 
+-- !always_true_in_and_is_not_null --
+2
+
+-- !whole_page_delete --
+0	50000
+2	50000
+
+-- !version_eq_placeholder --
+0
+
+-- !version_in_placeholder --
+0
+
+-- !version_below_one --
+0
+
+-- !version_or_expr --
+0
+
+-- !version_above_zero --
+3
+
+-- !version_not_placeholder --
+3

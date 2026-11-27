@@ -210,14 +210,18 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
     ordinal_t get_current_ordinal() const override { return 0; }
 
-    Status get_row_ranges_by_zone_map(
-            const AndBlockColumnPredicate* col_predicates,
-            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override {
+    Status get_page_zone_map_count(size_t* count) override {
         if (_zone_map_reads != nullptr) {
             ++*_zone_map_reads;
         }
-        *row_ranges = _row_ranges;
+        *count = _row_ranges.range_size();
+        return Status::OK();
+    }
+
+    Status get_page_zone_map(size_t page_index, RowRange* rows,
+                             segment_v2::ZoneMap* zone_map) override {
+        *rows = _row_ranges.get_range(page_index);
+        zone_map->pass_all = true;
         return Status::OK();
     }
 

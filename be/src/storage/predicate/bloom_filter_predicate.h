@@ -58,6 +58,9 @@ public:
 
     PredicateType type() const override { return PredicateType::BF; }
 
+    // A bloom filter answers "is this exact value present", which min/max cannot tell.
+    bool support_zonemap() const override { return false; }
+
     using ColumnPredicate::evaluate;
 
     double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
