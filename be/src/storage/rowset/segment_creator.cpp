@@ -45,6 +45,7 @@
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/vertical_segment_writer.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/block_transform.h"
 #include "storage/utils.h"
@@ -82,19 +83,29 @@ SegmentFlusher::~SegmentFlusher() = default;
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
+    return flush_single_block(block, nullptr, segment_id, flush_size);
+}
+
+Status SegmentFlusher::flush_single_block(
+        const Block* block, const std::shared_ptr<const SparseFlushOutput>& sparse_output,
+        int32_t segment_id, int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
     Block flush_block(*block);
     const size_t input_rows = flush_block.rows();
-    bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
+    // Sparse columns have empty Block prototypes; their encoded byte count must not
+    // disable compression for a logically large segment.
+    bool no_compression = !sparse_output &&
+                          flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     segment_v2::DerivedColumn derived_column;
     RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
     std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
     RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
     // write_block pumps the derived column from its generator in small batches
     writer->set_derived_column(std::move(derived_column));
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->write_block(&flush_block, 0, flush_block.rows()));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            writer->write_block(&flush_block, 0, flush_block.rows(), sparse_output));
     [[maybe_unused]] uint32_t flushed_segment_id = writer->segment_id();
     TEST_SYNC_POINT_CALLBACK("SegmentFlusher::write_block_path", &flushed_segment_id);
     RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
@@ -355,6 +366,12 @@ Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id
     }
     RETURN_IF_ERROR(_segment_flusher.flush_single_block(block, segment_id, flush_size));
     return Status::OK();
+}
+
+Status SegmentCreator::flush_single_block(
+        const Block* block, const std::shared_ptr<const SparseFlushOutput>& sparse_output,
+        int32_t segment_id, int64_t* flush_size) {
+    return _segment_flusher.flush_single_block(block, sparse_output, segment_id, flush_size);
 }
 
 Status SegmentCreator::close() {

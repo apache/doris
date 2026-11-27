@@ -58,6 +58,7 @@
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
@@ -929,6 +930,19 @@ Status BaseBetaRowsetWriter::flush_memtable(Block* block, int32_t segment_id, in
     return Status::OK();
 }
 
+Status BaseBetaRowsetWriter::flush_memtable(const MemTableFlushOutput& output, int32_t segment_id,
+                                            int64_t* flush_size) {
+    if (!output.sparse_attachment) {
+        return flush_memtable(output.block.get(), segment_id, flush_size);
+    }
+    if (output.block->rows() == 0) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_segment_writer_ns);
+    return _segment_creator.flush_single_block(output.block.get(), output.sparse_attachment,
+                                               segment_id, flush_size);
+}
+
 Status BaseBetaRowsetWriter::flush_single_block(const Block* block) {
     return _segment_creator.flush_single_block(block);
 }
@@ -1025,7 +1039,9 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
         RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
     }
     RETURN_IF_ERROR(_close_file_writers());
-    const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    // All in-flight segcompaction work has been joined by _close_file_writers(), so _num_seg()
+    // is the exact number of segment files that will be recorded in the rowset metadata.
+    const auto total_segment_num = _num_seg();
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
                                    "too many segments when build new rowset");
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
@@ -1056,6 +1072,10 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
             RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
                                          &rowset),
             "rowset init failed when build new rowset");
+    VLOG_DEBUG << "rowset_segment_observability tablet_id=" << _context.tablet_id
+               << " load_id=" << print_id(_context.load_id)
+               << " raw_segment_num=" << _num_segment.load()
+               << " segment_num_after_segcompaction=" << total_segment_num;
     _already_built = true;
     return Status::OK();
 }

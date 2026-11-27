@@ -35,7 +35,8 @@ TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
 
 // item_id of -1 indicates no itemTupleId
 static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const DataTypePtr& type,
-                                            const std::string& name, int slot_idx, int item_id) {
+                                            const std::string& name, int32_t unique_id,
+                                            int slot_idx, int item_id) {
     int null_byte = slot_idx / 8;
     int null_bit = slot_idx % 8;
     TSlotDescriptor slot_desc;
@@ -50,6 +51,7 @@ static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const DataTyp
     slot_desc.__set_slotIdx(slot_idx);
     slot_desc.__set_isMaterialized(true);
     slot_desc.__set_colName(name);
+    slot_desc.__set_col_unique_id(unique_id);
     // if (item_id != -1) {
     //     slot_desc.__set_itemTupleId(item_id);
     // }
@@ -71,8 +73,8 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     int slot_id = 0;
 
     for (auto& _tuples_desc : _tuples_descs) {
-        build_tuple(_tuples_desc->slot_types(), _tuples_desc->slot_names(), &thrift_desc_tbl,
-                    &tuple_id, &slot_id);
+        build_tuple(_tuples_desc->slot_types(), _tuples_desc->slot_names(),
+                    _tuples_desc->slot_unique_ids(), &thrift_desc_tbl, &tuple_id, &slot_id);
     }
 
     Status status = DescriptorTbl::create(_obj_pool, thrift_desc_tbl, &desc_tbl);
@@ -82,6 +84,7 @@ DescriptorTbl* DescriptorTblBuilder::build() {
 
 TTupleDescriptor DescriptorTblBuilder::build_tuple(const std::vector<DataTypePtr>& slot_types,
                                                    const std::vector<std::string>& slot_names,
+                                                   const std::vector<int32_t>& slot_unique_ids,
                                                    TDescriptorTable* thrift_desc_tbl,
                                                    int* next_tuple_id, int* slot_id) {
     // We never materialize struct slots (there's no in-memory representation of structs,
@@ -93,6 +96,11 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const std::vector<DataTypePtr
                                    ->get_elements(),
                            assert_cast<const DataTypeStruct*>(remove_nullable(slot_types[0]).get())
                                    ->get_element_names(),
+                           std::vector<int32_t>(assert_cast<const DataTypeStruct*>(
+                                                        remove_nullable(slot_types[0]).get())
+                                                        ->get_elements()
+                                                        .size(),
+                                                -1),
                            thrift_desc_tbl, next_tuple_id, slot_id);
     }
 
@@ -103,8 +111,8 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const std::vector<DataTypePtr
         DCHECK_NE(slot_types[i]->get_primitive_type(), TYPE_STRUCT);
         int item_id = -1;
 
-        thrift_desc_tbl->slotDescriptors.push_back(
-                make_slot_descriptor(*slot_id, tuple_id, slot_types[i], slot_names[i], i, item_id));
+        thrift_desc_tbl->slotDescriptors.push_back(make_slot_descriptor(
+                *slot_id, tuple_id, slot_types[i], slot_names[i], slot_unique_ids[i], i, item_id));
         thrift_desc_tbl->__isset.slotDescriptors = true;
         ++(*slot_id);
     }

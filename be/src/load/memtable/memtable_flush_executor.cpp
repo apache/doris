@@ -409,11 +409,18 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // Defer defer {[&]() {
             //     ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
             // }};
-            std::shared_ptr<Block> flush_block;
-            RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
-            RETURN_IF_ERROR(_get_load_cancel_status());
-            RETURN_IF_ERROR(
-                    flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
+            if (shared_memtable == nullptr) {
+                MemTableFlushOutput output;
+                RETURN_IF_ERROR(memtable->to_flush_output(&output));
+                RETURN_IF_ERROR(_get_load_cancel_status());
+                RETURN_IF_ERROR(flush_writer->flush_memtable(output, segment_id, &flush_size));
+            } else {
+                std::shared_ptr<Block> flush_block;
+                RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
+                RETURN_IF_ERROR(_get_load_cancel_status());
+                RETURN_IF_ERROR(
+                        flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
+            }
             memtable->set_flush_success();
 
             return Status::OK();
@@ -427,6 +434,7 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
                         finished_sub_task_count == shared_memtable->total_sub_task_count.load();
             }
             if (record_memtable_stat) {
+                memtable->set_peak_memory_bytes(memtable->mem_tracker()->peak_consumption());
                 _memtable_stat += memtable->stat();
             }
             DorisMetrics::instance()->memtable_flush_total->increment(1);

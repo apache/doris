@@ -59,30 +59,43 @@ private:
 
     TTupleDescriptor build_tuple(const std::vector<DataTypePtr>& slot_types,
                                  const std::vector<std::string>& slot_names,
+                                 const std::vector<int32_t>& slot_unique_ids,
                                  TDescriptorTable* thrift_desc_tbl, int* tuple_id, int* slot_id);
 };
 
 class TupleDescBuilder {
 public:
     using SlotType = std::tuple<DataTypePtr, std::string>;
+    using SlotWithUniqueIdType = std::tuple<DataTypePtr, std::string, int32_t>;
     TupleDescBuilder& operator<<(const SlotType& slot) {
         _slot_types.push_back(std::get<0>(slot));
         _slot_names.push_back(std::get<1>(slot));
+        _slot_unique_ids.push_back(-1);
+        return *this;
+    }
+
+    TupleDescBuilder& operator<<(const SlotWithUniqueIdType& slot) {
+        _slot_types.push_back(std::get<0>(slot));
+        _slot_names.push_back(std::get<1>(slot));
+        _slot_unique_ids.push_back(std::get<2>(slot));
         return *this;
     }
 
     TupleDescBuilder& operator<<(const DataTypePtr& slot_type) {
         _slot_types.push_back(slot_type);
         _slot_names.emplace_back("");
+        _slot_unique_ids.push_back(-1);
         return *this;
     }
 
     std::vector<DataTypePtr> slot_types() const { return _slot_types; }
     std::vector<std::string> slot_names() const { return _slot_names; }
+    std::vector<int32_t> slot_unique_ids() const { return _slot_unique_ids; }
 
 private:
     std::vector<DataTypePtr> _slot_types;
     std::vector<std::string> _slot_names;
+    std::vector<int32_t> _slot_unique_ids;
 };
 
 } // end namespace doris
