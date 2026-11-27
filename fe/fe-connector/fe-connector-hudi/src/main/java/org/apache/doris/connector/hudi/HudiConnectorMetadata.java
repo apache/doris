@@ -838,13 +838,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     HmsPartitionListing loadHmsPartitionListing(HudiTableHandle handle, boolean bypassCache) {
+        return loadHmsPartitionListing(hmsClient, handle, bypassCache);
+    }
+
+    static HmsPartitionListing loadHmsPartitionListing(HmsClient hmsClient, HudiTableHandle handle,
+            boolean bypassCache) {
         List<String> hmsNames = bypassCache
                 ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
                 : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
         if (hmsNames == null || hmsNames.isEmpty()) {
             return new HmsPartitionListing(false, Collections.emptyList());
         }
-        return new HmsPartitionListing(true, Collections.unmodifiableList(hmsPartitionPaths(handle, hmsNames)));
+        List<String> paths = hmsPartitionPaths(hmsClient, handle, hmsNames);
+        return new HmsPartitionListing(true, Collections.unmodifiableList(paths));
     }
 
     static final class HmsPartitionListing {
@@ -957,7 +963,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return atPin;
     }
 
-    private List<String> hmsPartitionPaths(HudiTableHandle handle, List<String> names) {
+    private static List<String> hmsPartitionPaths(HmsClient hmsClient, HudiTableHandle handle, List<String> names) {
         List<String> encodedNames = names.stream().filter(name -> name.indexOf('%') >= 0)
                 .collect(Collectors.toList());
         if (encodedNames.isEmpty()) {

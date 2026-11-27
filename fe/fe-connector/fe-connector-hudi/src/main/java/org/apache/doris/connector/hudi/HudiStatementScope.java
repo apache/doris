@@ -22,7 +22,10 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
@@ -89,8 +92,7 @@ final class HudiStatementScope {
      */
     static HudiConnectorMetadata.Listing sharedMetadataPartitions(ConnectorSession session, HudiTableHandle handle,
             Supplier<HudiConnectorMetadata.Listing> loader) {
-        return ConnectorStatementScopes.resolveInStatement(
-                session, METADATA_PARTITIONS_NAMESPACE, handle.getDbName(), physicalTableKey(handle), loader);
+        return planningListing(session, METADATA_PARTITIONS_NAMESPACE, handle, loader);
     }
 
     /**
@@ -101,8 +103,7 @@ final class HudiStatementScope {
     static void rememberMetadataPartitions(ConnectorSession session, HudiTableHandle handle,
             HudiConnectorMetadata.Listing unpinnedListing) {
         if (session != null && unpinnedListing != null) {
-            ConnectorStatementScopes.resolveInStatement(session, METADATA_PARTITIONS_NAMESPACE,
-                    handle.getDbName(), physicalTableKey(handle), () -> unpinnedListing);
+            sharedMetadataPartitions(session, handle, () -> unpinnedListing);
         }
     }
 
@@ -112,14 +113,19 @@ final class HudiStatementScope {
      */
     static HudiConnectorMetadata.HmsPartitionListing sharedHmsPartitions(ConnectorSession session,
             HudiTableHandle handle, Supplier<HudiConnectorMetadata.HmsPartitionListing> loader) {
-        return ConnectorStatementScopes.resolveInStatement(
-                session, HMS_PARTITIONS_NAMESPACE, handle.getDbName(), physicalTableKey(handle), loader);
+        return planningListing(session, HMS_PARTITIONS_NAMESPACE, handle, loader);
     }
 
-    private static String physicalTableKey(HudiTableHandle handle) {
-        String basePath = handle.getBasePath();
-        return basePath == null || basePath.isEmpty()
-                ? handle.getTableName()
-                : handle.getTableName() + "@" + basePath;
+    private static <T> T planningListing(ConnectorSession session, String namespace, HudiTableHandle handle,
+            Supplier<T> loader) {
+        if (session == null) {
+            return loader.get();
+        }
+        // Partition paths are only needed to build the plan. Keep potentially large listings out of execution.
+        String key = namespace + ":" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<List<String>, T> listings = session.getStatementScope()
+                .computeIfAbsentForPlanning(key, ConcurrentHashMap::new);
+        return listings.computeIfAbsent(Arrays.asList(handle.getDbName(), handle.getTableName(), handle.getBasePath()),
+                ignored -> loader.get());
     }
 }

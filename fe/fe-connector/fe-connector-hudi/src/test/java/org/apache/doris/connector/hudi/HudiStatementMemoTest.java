@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -206,6 +207,23 @@ public class HudiStatementMemoTest {
     }
 
     @Test
+    public void partitionListingsAreReleasedWhenPlanningEnds() {
+        MemoScope scope = new MemoScope();
+        MemoSession session = new MemoSession(7L, "q1", scope);
+        HudiTableHandle table = partitionedHandle();
+        RecordingMetadata metadata = new RecordingMetadata();
+        RecordingMetadata hms = new RecordingMetadata(
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"));
+        for (int i = 1; i <= 2; i++) {
+            metadata.listPartitions(session, table, Optional.empty());
+            hms.listPartitions(session, table, Optional.empty());
+            Assertions.assertEquals(i, metadata.metadataPartitionLoads);
+            Assertions.assertEquals(i, hms.hmsPartitionLoads);
+            scope.endPlanning();
+        }
+    }
+
+    @Test
     public void pinnedMetadataPartitionListingSeedsUnpinnedMemoWithoutCouplingDifferentPins() {
         RecordingMetadata m = new RecordingMetadata();
         MemoSession session = new MemoSession(7L, "q1", new MemoScope());
@@ -267,6 +285,19 @@ public class HudiStatementMemoTest {
     /** A statement scope that memoizes like the engine's real one (ConcurrentHashMap computeIfAbsent). */
     private static final class MemoScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            planningKeys.add(key);
+            return computeIfAbsent(key, loader);
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
+        }
 
         @Override
         @SuppressWarnings("unchecked")
