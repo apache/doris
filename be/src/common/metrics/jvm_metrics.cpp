@@ -17,6 +17,7 @@
 
 #include "common/metrics/jvm_metrics.h"
 
+#include <atomic>
 #include <functional>
 
 #include "common/config.h"
@@ -183,26 +184,26 @@ void JvmMetrics::update() {
     if (!doris::config::enable_jvm_monitor) {
         return;
     }
-    static long fail_count = 0;
-    if (fail_count >= 30) {
+    static std::atomic<long> fail_count {0};
+    if (fail_count.load(std::memory_order_relaxed) >= 30) {
         return;
     }
 
     try {
         Status st = _jvm_stats.refresh(this);
         if (!st) {
-            fail_count++;
+            fail_count.fetch_add(1, std::memory_order_relaxed);
             LOG(WARNING) << "Jvm Stats update Fail! " << st.to_string();
         } else {
-            fail_count = 0;
+            fail_count.store(0, std::memory_order_relaxed);
         }
     } catch (...) {
         LOG(WARNING) << "Jvm Stats update throw Exception!";
-        fail_count++;
+        fail_count.fetch_add(1, std::memory_order_relaxed);
     }
 
     //When 30 consecutive exceptions occur, turn off jvm information collection.
-    if (fail_count >= 30) {
+    if (fail_count.load(std::memory_order_relaxed) >= 30) {
         LOG(WARNING) << "Jvm Stats CLOSE!";
         jvm_heap_size_bytes_max->set_value(0);
         jvm_heap_size_bytes_committed->set_value(0);
