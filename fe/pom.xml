@@ -223,6 +223,8 @@ under the License.
     <modules>
         <module>fe-foundation</module>
         <module>fe-common</module>
+        <module>cos-api-shade</module>
+        <module>hive-catalog-filtered</module>
         <module>fe-iceberg-common</module>
         <module>fe-core</module>
         <!-- Keep the dependency-only bundle independent of the master connector aggregator. -->
@@ -401,10 +403,9 @@ under the License.
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.9.0</ranger-plugins-common.version>
-        <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
-             CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
-             CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
-        <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
+        <!-- Keep provider, PKIX and utility modules aligned: 1.85/1.86 fix excluded-name
+             constraints and empty CMS signer sets, which remain vulnerable in 1.84. -->
+        <bcprov-jdk18on.version>1.87</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
@@ -739,6 +740,16 @@ under the License.
                 <version>${bcprov-jdk18on.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcutil-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring.version}</version>
@@ -875,6 +886,16 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-catalog-shade</artifactId>
                 <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>hive-catalog-filtered</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>paimon-s3-shade</artifactId>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
@@ -2077,6 +2098,12 @@ under the License.
                 <version>${cos-api.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>cos-api-shade</artifactId>
+                <version>${project.version}</version>
+                <scope>${cos.dependency.scope}</scope>
+            </dependency>
+            <dependency>
                 <groupId>com.qcloud</groupId>
                 <artifactId>qcloud-java-sdk</artifactId>
                 <version>${qcloud-java-sdk.version}</version>
@@ -2088,6 +2115,11 @@ under the License.
                 <version>${tencentcos.version}</version>
                 <scope>${cos.dependency.scope}</scope>
                 <exclusions>
+                    <!-- The filtered SDK supplies the signed managed provider instead of embedded BC. -->
+                    <exclusion>
+                        <groupId>com.qcloud</groupId>
+                        <artifactId>cos_api-bundle</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>org.json</groupId>
                         <artifactId>json</artifactId>
