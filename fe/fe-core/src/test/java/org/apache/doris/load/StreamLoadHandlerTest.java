@@ -92,7 +92,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             handler.setCloudCluster();
 
             Assert.assertEquals("backend_compute_group",
@@ -164,6 +164,7 @@ public class StreamLoadHandlerTest {
         request.setPasswd("test_password");
         request.setBackendId(backend.getId());
         request.setCloudCluster("header_compute_group");
+        request.setAuthCode(0);
         request.setGroupCommitMode("sync_mode");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -173,7 +174,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             try {
                 handler.setCloudCluster();
                 Assert.fail("group commit should validate compute group privilege");
@@ -196,7 +197,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -214,7 +215,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(10L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -232,7 +233,7 @@ public class StreamLoadHandlerTest {
         request.setDb("test_db");
         request.setTbl("test_tbl");
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -251,7 +252,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TOlapTableSink sink = createSingleBucketSink();
         sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
@@ -268,7 +269,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TOlapTableSink sink = createSingleBucketSink();
         sink.getPartition().setPartitionsIsFake(true);
@@ -285,7 +286,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = new TPipelineFragmentParams();
         TPlanFragment fragment = new TPlanFragment();
