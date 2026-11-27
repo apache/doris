@@ -18,11 +18,8 @@
 
 package org.apache.doris.arrowflight.sessions;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.auth2.FlightAuthResult;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectScheduler;
 
 /**
  * The Arrow Flight SQL sessions of this frontend and the bearer tokens they are known by.
@@ -47,7 +44,7 @@ public interface FlightSessionsManager {
      *         user's limit is reached), in the words a MySQL client is refused in; no session and
      *         no token exist then
      */
-    String openSession(FlightAuthResult authResult);
+    String openSession(AuthenticateResponse authenticated, String remoteIp);
 
     /**
      * The session known by this bearer token (the peer identity of an authenticated call).
@@ -64,20 +61,4 @@ public interface FlightSessionsManager {
      * session that has already ended is not an error.
      */
     void closeConnectContext(String peerIdentity);
-
-    static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP,
-            ConnectScheduler connectScheduler) {
-        ConnectContext connectContext = ConnectContext.forFlight(peerIdentity);
-        connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(userIdentity);
-        connectContext.setRemoteIP(remoteIP);
-        connectContext.setUserQueryTimeout(
-                connectContext.getEnv().getAuth().getQueryTimeout(connectContext.getQualifiedUser()));
-        connectContext.setUserInsertTimeout(
-                connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
-
-        connectContext.setConnectScheduler(connectScheduler);
-        return connectContext;
-    }
 }

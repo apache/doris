@@ -39,6 +39,7 @@ import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegration
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -57,9 +58,10 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.ServiceLoader;
+import java.util.function.BooleanSupplier;
 
 /**
- * MySQL authenticator entry that keeps legacy auth-type compatibility while supporting plugin-based authenticators.
+ * Shared login strategy with a MySQL adapter for the legacy credential exchanges and error packets.
  *
  * <p>The compatibility rules are:
  * <ul>
@@ -192,6 +194,72 @@ public class AuthenticatorManager {
         }
         UserIdentity preferredUserIdentity = certDecision.isVerified() ? certDecision.getUserIdentity() : null;
 
+        LoginCredentials credentials = new LoginCredentials(channel::isSslMode,
+                () -> authPacket.getCapability().isClientUseSsl(), true,
+                authenticator -> resolveAuthenticateRequest(authenticator, userName, context, channel, serializer,
+                        authPacket, handshakePacket),
+                (authenticator, primary) -> resolveAuthenticationChainRequest(authenticator, primary, context,
+                        userName, channel, serializer, authPacket, handshakePacket));
+        LoginResult result = authenticate(userName, remoteIp, preferredUserIdentity, credentials);
+        if (result.status() == LoginStatus.NO_REQUEST) {
+            return false;
+        }
+        if (result.status() == LoginStatus.BOUND_TLS_REQUIRED) {
+            context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
+                    "Authentication-bound users require TLS before supplying clear text credentials");
+            MysqlProto.sendResponsePacket(context);
+            return false;
+        }
+        if (result.status() == LoginStatus.TOKEN_TLS_REQUIRED) {
+            setInsecureOidcTransportError(context);
+        }
+        if (result.response() != null) {
+            return finishSuccessfulAuthentication(context, result.remoteIp(), result.response(),
+                    result.status() == LoginStatus.CHAIN_SUCCESS);
+        }
+        return reportAuthenticationFailure(context, userName, result.remoteIp(), result.password(), result.failures());
+    }
+
+    /**
+     * Authenticate a credential delivered by a single-step protocol. The secure transport flag
+     * describes the actual connection, and is supplied by the server's protocol adapter.
+     */
+    public AuthenticateResponse authenticate(AuthenticateRequest request, boolean secureTransport) throws IOException {
+        LoginCredentials credentials = new LoginCredentials(() -> secureTransport, () -> secureTransport, false,
+                authenticator -> singleStepRequest(authenticator, request), this::singleStepRequest);
+        LoginResult result = authenticate(request.getUserName(), request.getRemoteIp(), null, credentials);
+        if (result.status() == LoginStatus.BOUND_TLS_REQUIRED || result.status() == LoginStatus.TOKEN_TLS_REQUIRED) {
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                    AuthenticationFailureType.ACCESS_DENIED, "Authentication requires secure transport",
+                    "Authentication requires secure transport"));
+        }
+        if (result.status() == LoginStatus.NO_REQUEST) {
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                    AuthenticationFailureType.ACCESS_DENIED, "Authentication method is unavailable on this protocol",
+                    "Authentication method is unavailable on this protocol"));
+        }
+        AuthenticateResponse response = result.response();
+        if (response == null) {
+            if (containsOnlyOperationalFailures(result.failures())) {
+                return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                        result.failures().get(0).getFailureType(), OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE));
+            }
+            return AuthenticateResponse.failedResponse;
+        }
+
+        if (validateSuccessfulAuthentication(response, result.remoteIp()) != null
+                || Env.getCurrentEnv().getAuth().requiresCertificateAuth(response.getUserIdentity())) {
+            return AuthenticateResponse.failedResponse;
+        }
+        return response;
+    }
+
+    private Optional<AuthenticateRequest> singleStepRequest(Authenticator authenticator, AuthenticateRequest request) {
+        return authenticator.acceptsSingleStepRequest() ? Optional.of(request) : Optional.empty();
+    }
+
+    private LoginResult authenticate(String userName, String remoteIp, UserIdentity preferredUserIdentity,
+            LoginCredentials credentials) throws IOException {
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
         boolean boundAuthentication = primaryAuthenticator instanceof AuthenticationIntegrationAuthenticator
                 && ((AuthenticationIntegrationAuthenticator) primaryAuthenticator).isBoundAuthentication();
@@ -199,69 +267,65 @@ public class AuthenticatorManager {
             try {
                 boolean requiresClear = ((AuthenticationIntegrationAuthenticator) primaryAuthenticator)
                         .prepareBoundAuthentication();
-                if (requiresClear && !channel.isSslMode()) {
-                    context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
-                            "Authentication-bound users require TLS before supplying clear text credentials");
-                    MysqlProto.sendResponsePacket(context);
-                    return false;
+                if (requiresClear && !credentials.secureBoundTransport().getAsBoolean()) {
+                    return new LoginResult(LoginStatus.BOUND_TLS_REQUIRED, null, remoteIp, null, List.of());
                 }
             } catch (org.apache.doris.authentication.AuthenticationException e) {
-                return reportAuthenticationFailure(context, userName, remoteIp, null,
-                        java.util.Collections.singletonList(AuthenticationFailureSummary.forException(e,
+                return new LoginResult(LoginStatus.REJECTED, null, remoteIp, null,
+                        List.of(AuthenticationFailureSummary.forException(e,
                                 "Unable to resolve bound authentication integration")));
             }
         }
 
-        boolean debugEnabled = LOG.isDebugEnabled();
-        long resolveStart = 0L;
-        if (debugEnabled) {
-            LOG.debug("AuthenticatorManager: user={}, authenticator={}",
-                    userName, primaryAuthenticator.getClass().getSimpleName());
-            resolveStart = System.currentTimeMillis();
+        Optional<AuthenticateRequest> primaryRequest = credentials.primary().resolve(primaryAuthenticator);
+        if (primaryRequest.isEmpty()) {
+            return new LoginResult(LoginStatus.NO_REQUEST, null, remoteIp, null, List.of());
         }
-        Optional<AuthenticateRequest> primaryRequest = resolveAuthenticateRequest(primaryAuthenticator, userName,
-                context, channel, serializer, authPacket, handshakePacket);
-        if (!primaryRequest.isPresent()) {
-            return false;
-        }
-
         AuthenticateRequest request = primaryRequest.get();
         if (preferredUserIdentity != null) {
             request = request.withUserIdentity(preferredUserIdentity);
         }
-        if (debugEnabled) {
-            long resolveElapsed = System.currentTimeMillis() - resolveStart;
-            LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
-            resolveStart = System.currentTimeMillis();
+        if (requiresSecureTokenTransport(request, credentials)) {
+            return new LoginResult(LoginStatus.TOKEN_TLS_REQUIRED, null, request.getRemoteIp(),
+                    request.getPassword(), List.of());
         }
-        remoteIp = request.getRemoteIp();
-        if (isOidcAuthenticationWithoutSsl(authPacket, request)) {
-            setInsecureOidcTransportError(context);
-            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(),
-                    new ArrayList<>());
+        AuthenticateResponse response = authenticateWith(primaryAuthenticator, request);
+        if (response.isSuccess()) {
+            return new LoginResult(LoginStatus.PRIMARY_SUCCESS, response, request.getRemoteIp(), null, List.of());
         }
-        AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
-        if (debugEnabled) {
-            long authenticateElapsed = System.currentTimeMillis() - resolveStart;
-            LOG.debug("authenticate: user={}, elapsed={}ms", userName, authenticateElapsed);
-        }
-        if (primaryResponse.isSuccess()) {
-            return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
-        }
-        List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
-        addFailureSummary(failureSummaries, primaryResponse);
+        List<AuthenticationFailureSummary> failures = new ArrayList<>();
+        addFailureSummary(failures, response);
 
-        if (boundAuthentication) {
-            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
+        if (!boundAuthentication) {
+            LoginResult fallback = tryAuthenticationChainFallback(userName, request, credentials, failures);
+            if (fallback != null) {
+                return fallback;
+            }
         }
-        AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
-                channel, serializer, authPacket, handshakePacket, request);
-        if (chainResponse != null && chainResponse.isSuccess()) {
-            return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
-        }
-        addFailureSummary(failureSummaries, chainResponse);
+        return new LoginResult(LoginStatus.REJECTED, null, request.getRemoteIp(), request.getPassword(), failures);
+    }
 
-        return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
+    @FunctionalInterface
+    private interface PrimaryCredentialResolver {
+        Optional<AuthenticateRequest> resolve(Authenticator authenticator) throws IOException;
+    }
+
+    @FunctionalInterface
+    private interface ChainCredentialResolver {
+        Optional<AuthenticateRequest> resolve(Authenticator authenticator, AuthenticateRequest primary)
+                throws IOException;
+    }
+
+    private record LoginCredentials(BooleanSupplier secureBoundTransport, BooleanSupplier secureTokenTransport,
+            boolean detectLegacyToken, PrimaryCredentialResolver primary, ChainCredentialResolver chain) {
+    }
+
+    private enum LoginStatus {
+        PRIMARY_SUCCESS, CHAIN_SUCCESS, REJECTED, NO_REQUEST, BOUND_TLS_REQUIRED, TOKEN_TLS_REQUIRED
+    }
+
+    private record LoginResult(LoginStatus status, AuthenticateResponse response, String remoteIp, Password password,
+            List<AuthenticationFailureSummary> failures) {
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
@@ -277,7 +341,8 @@ public class AuthenticatorManager {
         return new AuthenticationIntegrationAuthenticator(Config.authentication_chain, "authentication_chain");
     }
 
-    private void applyAuthenticateResponse(ConnectContext context, String remoteIp, AuthenticateResponse response) {
+    public static void applyAuthenticateResponse(ConnectContext context, String remoteIp,
+            AuthenticateResponse response) {
         context.setCurrentUserIdentity(response.getUserIdentity());
         context.setRemoteIP(remoteIp);
         context.setIsTempUser(response.isTemp());
@@ -339,35 +404,55 @@ public class AuthenticatorManager {
      * locked Doris account (the local-password path also checks it inside the password policy).
      * Returns true when the login was refused: the 3118 error is set and sent, nothing is applied.
      */
-    @VisibleForTesting
-    boolean refuseIfAccountLocked(ConnectContext context, UserIdentity userIdentity) throws IOException {
+    private ErrorCode validateSuccessfulAuthentication(AuthenticateResponse response, String remoteIp) {
+        Auth auth = Env.getCurrentEnv().getAuth();
+        User binding = auth.getAuthenticationBinding(response.getUserIdentity().getQualifiedUser(), remoteIp);
+        if ((binding == null && (response.getAuthenticationIntegration() != null
+                || auth.isAuthenticationBound(response.getUserIdentity())))
+                || (binding != null && (!binding.getUserIdentity().equals(response.getUserIdentity())
+                || response.isTemp()
+                || !binding.getAuthIntegration().equals(response.getAuthenticationIntegration())
+                || !java.util.Objects.equals(binding.getAuthIdentity(), response.getBoundIdentity())))) {
+            return ErrorCode.ERR_ACCESS_DENIED_ERROR;
+        }
+        return checkAccountLock(response.getUserIdentity());
+    }
+
+    private ErrorCode checkAccountLock(UserIdentity userIdentity) {
         try {
             Env.getCurrentEnv().getAuth().checkAccountLocked(userIdentity);
-            return false;
+            return null;
         } catch (AuthenticationException e) {
-            context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
-                    ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(userIdentity.getQualifiedUser(),
-                            userIdentity.getHost()));
-            MysqlProto.sendResponsePacket(context);
-            return true;
+            return ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED;
         }
+    }
+
+    @VisibleForTesting
+    boolean refuseIfAccountLocked(ConnectContext context, UserIdentity userIdentity) throws IOException {
+        if (checkAccountLock(userIdentity) == null) {
+            return false;
+        }
+        reportAccountLocked(context, userIdentity);
+        return true;
+    }
+
+    private void reportAccountLocked(ConnectContext context, UserIdentity userIdentity) throws IOException {
+        context.getState().setError(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED.formatErrorMsg(userIdentity.getQualifiedUser(),
+                        userIdentity.getHost()));
+        MysqlProto.sendResponsePacket(context);
     }
 
     @VisibleForTesting
     boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
             AuthenticateResponse response, boolean setOkState) throws IOException {
-        User binding = Env.getCurrentEnv().getAuth().getAuthenticationBinding(
-                response.getUserIdentity().getQualifiedUser(), remoteIp);
-        if ((binding == null && (response.getAuthenticationIntegration() != null
-                || Env.getCurrentEnv().getAuth().isAuthenticationBound(response.getUserIdentity())))
-                || (binding != null && (!binding.getUserIdentity().equals(response.getUserIdentity())
-                || response.isTemp()
-                || !binding.getAuthIntegration().equals(response.getAuthenticationIntegration())
-                || !java.util.Objects.equals(binding.getAuthIdentity(), response.getBoundIdentity())))) {
+        ErrorCode error = validateSuccessfulAuthentication(response, remoteIp);
+        if (error == ErrorCode.ERR_ACCESS_DENIED_ERROR) {
             return reportAuthenticationFailure(context, response.getUserIdentity().getQualifiedUser(), remoteIp,
-                    null, java.util.Collections.emptyList());
+                    null, List.of());
         }
-        if (refuseIfAccountLocked(context, response.getUserIdentity())) {
+        if (error == ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED) {
+            reportAccountLocked(context, response.getUserIdentity());
             return false;
         }
         if (setOkState) {
@@ -377,15 +462,9 @@ public class AuthenticatorManager {
         return true;
     }
 
-    private AuthenticateResponse tryAuthenticationChainFallback(ConnectContext context,
-            String userName,
-            String remoteIp,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket,
-            AuthenticateRequest primaryRequest) throws IOException {
-        if (!hasAuthenticationChain()) {
+    private LoginResult tryAuthenticationChainFallback(String userName, AuthenticateRequest primaryRequest,
+            LoginCredentials credentials, List<AuthenticationFailureSummary> failures) throws IOException {
+        if (AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty()) {
             return null;
         }
 
@@ -394,55 +473,42 @@ public class AuthenticatorManager {
             chainAuthenticator = getAuthenticationChainAuthenticator();
         } catch (RuntimeException e) {
             LOG.warn("Failed to initialize authentication_chain fallback authenticator: {}", e.getMessage(), e);
-            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
-                    AuthenticationFailureType.MISCONFIGURED,
+            failures.add(AuthenticationFailureSummary.forFailureType(AuthenticationFailureType.MISCONFIGURED,
                     "Failed to initialize authentication_chain fallback authenticator: " + e.getMessage()));
+            return null;
         }
         if (!chainAuthenticator.canDeal(userName)) {
             return null;
         }
 
-        AuthenticateRequest chainRequest = normalizeAuthenticationChainRequest(userName, channel, authPacket,
-                primaryRequest);
-        if (!canReuseRequestForAuthenticationChain(chainRequest)) {
-            Optional<AuthenticateRequest> fallbackRequest = resolveAuthenticateRequest(chainAuthenticator, userName,
-                    context, channel, serializer, authPacket, handshakePacket);
-            if (!fallbackRequest.isPresent()) {
-                return null;
-            }
-            chainRequest = fallbackRequest.get();
+        Optional<AuthenticateRequest> resolved = credentials.chain().resolve(chainAuthenticator, primaryRequest);
+        if (resolved.isEmpty()) {
+            return null;
         }
-
-        if (isOidcAuthenticationWithoutSsl(authPacket, chainRequest)) {
-            setInsecureOidcTransportError(context);
-            return AuthenticateResponse.failedResponse;
+        AuthenticateRequest chainRequest = resolved.get();
+        if (requiresSecureTokenTransport(chainRequest, credentials)) {
+            return new LoginResult(LoginStatus.TOKEN_TLS_REQUIRED, null, primaryRequest.getRemoteIp(),
+                    primaryRequest.getPassword(), failures);
         }
         LOG.info("Try authentication_chain fallback for user '{}'", userName);
-        return authenticateWith(chainAuthenticator, chainRequest);
+        AuthenticateResponse response = authenticateWith(chainAuthenticator, chainRequest);
+        if (response.isSuccess()) {
+            return new LoginResult(LoginStatus.CHAIN_SUCCESS, response, primaryRequest.getRemoteIp(), null, List.of());
+        }
+        addFailureSummary(failures, response);
+        return null;
     }
 
-    private boolean hasAuthenticationChain() {
-        return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
-    }
-
-    private boolean isOidcAuthenticationWithoutSsl(MysqlAuthPacket authPacket, AuthenticateRequest request) {
-        return isOidcAuthenticateRequest(request) && !authPacket.getCapability().isClientUseSsl();
-    }
-
-    private boolean isOidcAuthenticateRequest(AuthenticateRequest request) {
-        if (CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType())
-                || CredentialType.OAUTH_TOKEN.equals(request.getCredentialType())
-                || CredentialType.JWT_TOKEN.equals(request.getCredentialType())) {
-            return true;
+    private boolean requiresSecureTokenTransport(AuthenticateRequest request, LoginCredentials credentials) {
+        String type = request.getCredentialType();
+        boolean token = CredentialType.OIDC_ID_TOKEN.equals(type)
+                || CredentialType.OAUTH_TOKEN.equals(type)
+                || CredentialType.JWT_TOKEN.equals(type);
+        if (!token && credentials.detectLegacyToken() && request.getPassword() instanceof ClearPassword) {
+            String clearPassword = ((ClearPassword) request.getPassword()).getPassword();
+            token = !Strings.isNullOrEmpty(clearPassword) && looksLikeJwt(clearPassword);
         }
-        if (!(request.getPassword() instanceof ClearPassword)) {
-            return false;
-        }
-        String clearPassword = ((ClearPassword) request.getPassword()).getPassword();
-        if (Strings.isNullOrEmpty(clearPassword)) {
-            return false;
-        }
-        return looksLikeJwt(clearPassword);
+        return token && !credentials.secureTokenTransport().getAsBoolean();
     }
 
     private boolean looksLikeJwt(String token) {
@@ -462,6 +528,19 @@ public class AuthenticatorManager {
     private void setInsecureOidcTransportError(ConnectContext context) {
         context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
                 "OIDC authentication requires TLS/SSL; reconnect with sslMode=REQUIRED");
+    }
+
+    private Optional<AuthenticateRequest> resolveAuthenticationChainRequest(Authenticator authenticator,
+            AuthenticateRequest primary, ConnectContext context, String userName, MysqlChannel channel,
+            MysqlSerializer serializer, MysqlAuthPacket authPacket, MysqlHandshakePacket handshakePacket)
+            throws IOException {
+        AuthenticateRequest normalized = normalizeAuthenticationChainRequest(userName, channel, authPacket, primary);
+        if (CredentialType.CLEAR_TEXT_PASSWORD.equals(normalized.getCredentialType())
+                || normalized.getPassword() instanceof ClearPassword) {
+            return Optional.of(normalized);
+        }
+        return resolveAuthenticateRequest(authenticator, userName, context, channel, serializer, authPacket,
+                handshakePacket);
     }
 
     private AuthenticateRequest normalizeAuthenticationChainRequest(String userName, MysqlChannel channel,
@@ -486,13 +565,6 @@ public class AuthenticatorManager {
                 .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
                 .properties(primaryRequest.getProperties())
                 .build();
-    }
-
-    private boolean canReuseRequestForAuthenticationChain(AuthenticateRequest request) {
-        if (CredentialType.CLEAR_TEXT_PASSWORD.equals(request.getCredentialType())) {
-            return true;
-        }
-        return request.getPassword() instanceof ClearPassword;
     }
 
     private boolean reportAuthenticationFailure(ConnectContext context, String userName, String remoteIp,

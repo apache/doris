@@ -21,6 +21,7 @@
 package org.apache.doris.arrowflight.auth2;
 
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 
 import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.FlightRuntimeException;
@@ -41,13 +42,17 @@ import org.apache.logging.log4j.Logger;
 public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
     private static final Logger LOG = LogManager.getLogger(FlightBearerTokenAuthenticator.class);
 
+    static final String CREDENTIAL_TYPE_HEADER = "x-doris-auth-credential-type";
+
+    private final FlightCredentialValidator credentialValidator;
     private final CallHeaderAuthenticator initialAuthenticator;
     private final FlightSessionsManager flightSessionsManager;
 
-    public FlightBearerTokenAuthenticator(FlightSessionsManager flightSessionsManager) {
+    public FlightBearerTokenAuthenticator(FlightSessionsManager flightSessionsManager,
+            AuthenticatorManager authenticator) {
         this.flightSessionsManager = flightSessionsManager;
-        this.initialAuthenticator = new BasicCallHeaderAuthenticator(
-                new FlightCredentialValidator(this.flightSessionsManager));
+        this.credentialValidator = new FlightCredentialValidator(authenticator, flightSessionsManager);
+        this.initialAuthenticator = new BasicCallHeaderAuthenticator(credentialValidator);
     }
 
     /**
@@ -68,10 +73,13 @@ public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
 
         if (bearerToken != null) {
             return validateBearer(bearerToken);
-        } else {
-            final AuthResult result = initialAuthenticator.authenticate(incomingHeaders);
-            return createAuthResultWithBearerToken(result.getPeerIdentity());
         }
+
+        String credentialType = incomingHeaders.get(CREDENTIAL_TYPE_HEADER);
+        CallHeaderAuthenticator initial = credentialType == null ? initialAuthenticator
+                : new BasicCallHeaderAuthenticator(
+                        (user, secret) -> credentialValidator.validate(user, secret, credentialType));
+        return createAuthResultWithBearerToken(initial.authenticate(incomingHeaders).getPeerIdentity());
     }
 
     /**

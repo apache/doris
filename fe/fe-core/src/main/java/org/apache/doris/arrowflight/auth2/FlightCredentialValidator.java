@@ -21,49 +21,106 @@
 package org.apache.doris.arrowflight.auth2;
 
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.authentication.AuthenticationFailureType;
+import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.mysql.authenticate.AuthenticateRequest;
+import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
+import org.apache.doris.mysql.authenticate.password.ClearPassword;
+import org.apache.doris.qe.ConnectContext;
 
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.auth2.BasicCallHeaderAuthenticator;
 import org.apache.arrow.flight.auth2.CallHeaderAuthenticator.AuthResult;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/**
- * Authentication specialized CredentialValidator implementation.
- */
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
 public class FlightCredentialValidator implements BasicCallHeaderAuthenticator.CredentialValidator {
     private static final Logger LOG = LogManager.getLogger(FlightCredentialValidator.class);
 
-    private final FlightSessionsManager flightSessionsManager;
+    private final AuthenticatorManager authenticator;
+    private final FlightSessionsManager sessions;
 
-    public FlightCredentialValidator(FlightSessionsManager flightSessionsManager) {
-        this.flightSessionsManager = flightSessionsManager;
+    public FlightCredentialValidator(AuthenticatorManager authenticator, FlightSessionsManager sessions) {
+        this.authenticator = authenticator;
+        this.sessions = sessions;
     }
 
-    /**
-     * Authenticates against with the provided username and password.
-     *
-     * @param username username.
-     * @param password user password.
-     * @return AuthResult with username as the peer identity.
-     */
     @Override
     public AuthResult validate(String username, String password) {
-        String remoteIp = FlightRemoteIpServerStreamTracer.getRemoteIp();
-        FlightAuthResult flightAuthResult = FlightAuthUtils.authenticateCredentials(username, password, remoteIp, LOG);
-        return getAuthResultWithBearerToken(flightAuthResult);
+        return validate(username, password, CredentialType.CLEAR_TEXT_PASSWORD);
     }
 
+    AuthResult validate(String username, String secret, String credentialType) {
+        String remoteIp = FlightRemoteIpServerStreamTracer.getRemoteIp();
+        AuthenticateResponse response = authenticate(username, secret, credentialType, remoteIp);
+        String token = sessions.openSession(response, remoteIp);
+        return () -> token;
+    }
 
     /**
-     * Opens the session of the user just authenticated, with the client address the stream tracer
-     * captured, and answers with the bearer token the session is known by: the token is the peer
-     * identity of this and every later call of the session.
-     *
-     * @param flightAuthResult the FlightAuthResult from initial authentication, with peer identity captured.
-     * @return an AuthResult whose peer identity is the bearer token.
+     * Flight supplies a single credential and its explicit type. The current Flight listener is
+     * plaintext, so the shared strategy refuses any method requiring a secure connection.
      */
-    AuthResult getAuthResultWithBearerToken(FlightAuthResult flightAuthResult) {
-        final String token = flightSessionsManager.openSession(flightAuthResult);
-        return () -> token;
+    private AuthenticateResponse authenticate(String username, String secret, String credentialType, String remoteIp) {
+        if (!CredentialType.CLEAR_TEXT_PASSWORD.equals(credentialType)
+                && !CredentialType.OAUTH_TOKEN.equals(credentialType)
+                && !CredentialType.OIDC_ID_TOKEN.equals(credentialType)
+                && !CredentialType.JWT_TOKEN.equals(credentialType)) {
+            throw CallStatus.UNAUTHENTICATED.withDescription("Unsupported Flight SQL credential type")
+                    .toRuntimeException();
+        }
+
+        boolean password = CredentialType.CLEAR_TEXT_PASSWORD.equals(credentialType);
+        // Some DBeaver configurations encode an empty password as the literal "null".
+        String normalized = password && "null".equals(secret) ? null : secret;
+        AuthenticateRequest request = AuthenticateRequest.builder()
+                .userName(username)
+                .remoteHost(remoteIp)
+                .clientType("arrow-flight-sql")
+                .credentialType(credentialType)
+                .credential(normalized == null ? new byte[0] : normalized.getBytes(StandardCharsets.UTF_8))
+                .password(password ? new ClearPassword(normalized) : null)
+                .build();
+        AuthenticateResponse response;
+        // Legacy authenticators report MySQL errors through the current thread's QueryState.
+        ConnectContext previous = ConnectContext.get();
+        if (previous != null) {
+            ConnectContext.remove();
+        }
+        try {
+            response = authenticator.authenticate(request, false);
+        } catch (IOException e) {
+            LOG.warn("Flight SQL authentication could not complete: {}", e.getClass().getSimpleName());
+            throw CallStatus.UNAVAILABLE.withDescription("Flight SQL authentication could not complete")
+                    .toRuntimeException();
+        } finally {
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+        if (!response.isSuccess()) {
+            throw authenticationFailure(response.getFailureSummary()).toRuntimeException();
+        }
+        return response;
+    }
+
+    private CallStatus authenticationFailure(AuthenticationFailureSummary failure) {
+        if (failure == null) {
+            return CallStatus.UNAUTHENTICATED.withDescription("Flight SQL authentication failed");
+        }
+        if (failure.hasClientVisibleMessage()) {
+            return CallStatus.UNAUTHENTICATED.withDescription(failure.getClientVisibleMessage());
+        }
+        if (failure.isOperationalFailure()) {
+            CallStatus status = failure.getFailureType() == AuthenticationFailureType.SOURCE_UNAVAILABLE
+                    ? CallStatus.UNAVAILABLE : CallStatus.INTERNAL;
+            return status.withDescription("Flight SQL authentication could not complete");
+        }
+        return CallStatus.UNAUTHENTICATED.withDescription("Flight SQL authentication failed");
     }
 }

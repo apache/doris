@@ -18,11 +18,13 @@
 package org.apache.doris.authentication;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.auth2.FlightAuthUtils;
+import org.apache.doris.arrowflight.auth2.FlightCredentialValidator;
+import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.InternalCatalog;
@@ -30,6 +32,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegrationAuthenticator;
 import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -53,7 +56,7 @@ import org.apache.doris.qe.SqlModeHelper;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.arrow.flight.FlightRuntimeException;
-import org.apache.logging.log4j.LogManager;
+import org.apache.arrow.flight.FlightStatusCode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -181,8 +184,45 @@ class UserAuthenticationBindingTest {
                 () -> auth.checkPassword("alice", "10.1.2.3", new byte[0], new byte[20], null));
         Assertions.assertThrows(DdlException.class,
                 () -> auth.setPassword(user("alice").getUserIdentity(), MysqlPassword.makeScrambledPassword("new")));
-        Assertions.assertThrows(FlightRuntimeException.class, () -> FlightAuthUtils.authenticateCredentials(
-                "alice", "external", "10.1.2.3", LogManager.getLogger(getClass())));
+        FlightSessionsManager sessions = Mockito.mock(FlightSessionsManager.class);
+        FlightCredentialValidator flight = new FlightCredentialValidator(new AuthenticatorManager("default"), sessions);
+        FlightRuntimeException refusal = Assertions.assertThrows(FlightRuntimeException.class,
+                () -> flight.validate("alice", "external"));
+        Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, refusal.status().code());
+        Assertions.assertTrue(refusal.status().description().contains("secure transport"));
+        Mockito.verifyNoInteractions(sessions);
+    }
+
+    @Test
+    void testFlightUsesLocalPasswordBeforeConfiguredChainAndPreservesJitIdentity() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED BY 'local-secret'");
+        java.util.Map<String, String> properties = new java.util.HashMap<>();
+        properties.put("type", "binding_test");
+        properties.put("enable_jit_user", "true");
+        integrations.createAuthenticationIntegration("jit", false, properties, "", "root");
+        FlightSessionsManager sessions = Mockito.mock(FlightSessionsManager.class);
+        FlightCredentialValidator flight = new FlightCredentialValidator(new AuthenticatorManager("default"), sessions);
+
+        String savedChain = Config.authentication_chain;
+        Config.authentication_chain = "jit";
+        try {
+            flight.validate("alice", "local-secret");
+            flight.validate("alice", "external");
+            flight.validate("new_user", "external");
+        } finally {
+            Config.authentication_chain = savedChain;
+        }
+
+        ArgumentCaptor<AuthenticateResponse> result = ArgumentCaptor.forClass(AuthenticateResponse.class);
+        Mockito.verify(sessions, Mockito.times(3)).openSession(result.capture(), Mockito.anyString());
+        java.util.List<AuthenticateResponse> responses = result.getAllValues();
+        Assertions.assertEquals(user("alice").getUserIdentity(), responses.get(0).getUserIdentity());
+        Assertions.assertNull(responses.get(0).getPrincipal());
+        Assertions.assertEquals(user("alice").getUserIdentity(), responses.get(1).getUserIdentity());
+        Assertions.assertEquals("external", responses.get(1).getPrincipal().getExternalPrincipal().orElseThrow());
+        Assertions.assertTrue(responses.get(2).isTemp());
+        Assertions.assertEquals("new_user", responses.get(2).getUserIdentity().getQualifiedUser());
+        Assertions.assertSame(context, ConnectContext.get());
     }
 
     @Test
