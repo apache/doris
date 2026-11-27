@@ -82,6 +82,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/task/index_builder.h"
+#include "storage/txn/txn_manager.h"
 #include "util/client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/debug_points.h"
@@ -1784,7 +1785,12 @@ void StorageEngine::_process_async_publish() {
             int64_t commit_tso = std::get<2>(task_iter->second);
             int64_t max_version = tablet->max_version().second;
 
-            if (version <= max_version) {
+            // A cleared transaction cannot publish this version even after clone fills the gap.
+            // Remove its pending record before checking version continuity so it no longer
+            // limits the clone target to one version at a time.
+            if (version <= max_version ||
+                _txn_manager->get_txn_state(partition_id, transaction_id, tablet_id,
+                                            tablet->tablet_uid()) == TxnState::NOT_FOUND) {
                 need_removed_tasks.emplace_back(tablet, version);
                 tablet_iter->second.erase(task_iter);
                 tablet_iter++;
