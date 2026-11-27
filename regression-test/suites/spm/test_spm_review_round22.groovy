@@ -18,7 +18,7 @@
 suite("test_spm_review_round22", "spm") {
 
     // End-to-end coverage for the frozen-SQL output-name
-    // parsing and the runtime-context rejection.
+    // parsing and the runtime-context replay.
     //
     // Covered here:
     //  - a legal column named `a as b` (the name CONTAINS the alias token) must survive
@@ -26,8 +26,8 @@ suite("test_spm_review_round22", "spm") {
     //    truncated "b`" and the frozen planSql no longer reparses at replay
     //  - a derived table's ORDER BY ... LIMIT (LogicalTopN) is part of the match: a
     //    variant asking for a DIFFERENT slice must not replay the captured limit
-    //  - CREATE must reject a global baseline whose frozen SQL would persist the
-    //    CREATOR's identity (user())
+    //  - CREATE preserves user() as a call, rather than persisting the
+    //    CREATOR's identity.
     //
     // #1/#2/#3/#5 are covered by BaselineManagerConcurrencyTest / SPMRound18SafetyTest /
 
@@ -110,13 +110,13 @@ suite("test_spm_review_round22", "spm") {
     assertTrue(topNRows == rowsWithRewriteOff(topNVariant) && topNRows == [[1], [2], [3]],
             "the variant must return its own (3-row) slice: " + topNRows)
 
-    // ==================== #7: runtime-context expressions are rejected at CREATE ====================
-    test {
-        sql """CREATE GLOBAL BASELINE PLAN
-                'SELECT user() AS u FROM spm_r22_t'
-                WITH 'SELECT user() AS u FROM spm_r22_t'"""
-        exception "replay-time context"
-    }
+    // USER() remains a runtime function in frozen SQL.
+    String userQuery = "SELECT user() AS u FROM spm_r22_t"
+    long userId = sql("CREATE GLOBAL BASELINE PLAN '${userQuery}' WITH '${userQuery}'")[0][0] as Long
+    assertTrue(sql("SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${userId}")[0][0]
+            .toString() in ["1", "true"])
+    assertTrue(explainOf(userQuery).contains("SPM baseline hit: id=${userId}"))
+    assertEquals(rowsWithRewriteOff(userQuery), sql(userQuery))
 
     // leave no baselines behind for other runs
     // The DROP is durable and fenced, but a PARALLEL SPM suite can still observe a just-deleted

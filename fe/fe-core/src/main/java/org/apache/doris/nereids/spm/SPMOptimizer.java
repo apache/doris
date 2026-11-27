@@ -218,6 +218,7 @@ public class SPMOptimizer {
      * consults it.
      */
     private static final ThreadLocal<Boolean> CAPTURE_IN_PROGRESS = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> PRESERVE_CONTEXT_FUNCTIONS = new ThreadLocal<>();
 
     private SPMOptimizer() {
     }
@@ -398,6 +399,9 @@ public class SPMOptimizer {
         CaptureStatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean[] concreteSessionSensitiveExpression = {false};
+        Set<String> contextSignatures = new HashSet<>();
+        java.util.Map<String, Integer> contextCounts = attemptFreeze
+                ? SPMContextFunctions.counts(logicalPlan) : java.util.Map.of();
         if (attemptFreeze) {
             statementContext.addPlannerHook(new PlannerHook() {
                 @Override
@@ -406,6 +410,14 @@ public class SPMOptimizer {
                     concreteSessionSensitiveExpression[0] =
                             SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(analyzed);
                     SPMPlanTreeSupport.recordPartitionNames(statementContext.getPartitionNames(), analyzed);
+                    if (!contextCounts.isEmpty()) {
+                        if (!SPMContextFunctions.preservesCalls(contextCounts, analyzed)
+                                || !SPMContextFunctions.resolvesToBuiltins(analyzed)) {
+                            concreteSessionSensitiveExpression[0] = true;
+                        } else {
+                            contextSignatures.addAll(SPMContextFunctions.signatures(analyzed));
+                        }
+                    }
                 }
             });
         }
@@ -475,11 +487,18 @@ public class SPMOptimizer {
             // SimplifyCastRule) holds back.
             boolean wasCapturing = isCaptureInProgress();
             CAPTURE_IN_PROGRESS.set(true);
+            Boolean previousPreservation = PRESERVE_CONTEXT_FUNCTIONS.get();
+            PRESERVE_CONTEXT_FUNCTIONS.set(attemptFreeze && !contextCounts.isEmpty());
             Plan resultPlan;
             try {
                 resultPlan = planner.planWithLock(logicalPlan,
                         PhysicalProperties.ANY, ExplainLevel.NONE);
             } finally {
+                if (previousPreservation == null) {
+                    PRESERVE_CONTEXT_FUNCTIONS.remove();
+                } else {
+                    PRESERVE_CONTEXT_FUNCTIONS.set(previousPreservation);
+                }
                 // A nested optimization must not clear the enclosing capture's state.
                 if (!wasCapturing) {
                     CAPTURE_IN_PROGRESS.remove();
@@ -499,7 +518,8 @@ public class SPMOptimizer {
                     statementContext.getTableFingerprints(),
                     bindFunctionSnapshot,
                     functionRegistryVersionBefore,
-                    statementContext.getPartitionNames(), concreteSessionSensitiveExpression[0]);
+                    statementContext.getPartitionNames(), concreteSessionSensitiveExpression[0],
+                    contextSignatures, contextCounts);
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -674,6 +694,8 @@ public class SPMOptimizer {
         private final PhysicalPlan physicalPlan;
         private final double cost;
         private final boolean concreteSessionSensitiveExpression;
+        private final Set<String> contextSignatures;
+        private final java.util.Map<String, Integer> contextCounts;
         /**
          * Table fingerprint entries hashed WHILE the planning locks were held (see
          * CaptureStatementContext): lower-case bare / db-qualified /
@@ -731,7 +753,10 @@ public class SPMOptimizer {
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion,
                 java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames,
-                boolean concreteSessionSensitiveExpression) {
+                boolean concreteSessionSensitiveExpression, Set<String> contextSignatures,
+                java.util.Map<String, Integer> contextCounts) {
+            this.contextCounts = java.util.Map.copyOf(contextCounts);
+            this.contextSignatures = Set.copyOf(contextSignatures);
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.concreteSessionSensitiveExpression = concreteSessionSensitiveExpression;
@@ -743,6 +768,14 @@ public class SPMOptimizer {
 
         public PhysicalPlan getPhysicalPlan() {
             return physicalPlan;
+        }
+
+        java.util.Map<String, Integer> getContextCounts() {
+            return contextCounts;
+        }
+
+        Set<String> getContextSignatures() {
+            return contextSignatures;
         }
 
         public boolean hasConcreteSessionSensitiveExpression() {
@@ -853,6 +886,11 @@ public class SPMOptimizer {
         java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> getPartitionNames() {
             return partitionNames;
         }
+    }
+
+    /** Whether the current optimization is producing frozen SQL, not a replay or raw-plan probe. */
+    public static boolean isPreservingContextFunctions() {
+        return Boolean.TRUE.equals(PRESERVE_CONTEXT_FUNCTIONS.get());
     }
 
     /**

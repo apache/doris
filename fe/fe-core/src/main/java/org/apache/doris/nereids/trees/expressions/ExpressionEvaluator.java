@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.spm.SPMContextFunctions;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.ArrayArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
@@ -57,7 +58,8 @@ public enum ExpressionEvaluator {
      * Evaluate the value of the expression.
      */
     public Expression eval(Expression expression) {
-        if (!(expression.isConstant() || expression.foldable())) {
+        if (SPMContextFunctions.shouldPreserve(expression)
+                || !(expression.isConstant() || expression.foldable())) {
             return expression;
         }
 

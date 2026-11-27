@@ -25,7 +25,7 @@ suite("test_spm_review_round30", "spm") {
     //    the CREATE statement's start time, so a baseline for
     //    'SELECT now() AS ts FROM t' served the CREATE timestamp to every later matching
     //    query - the frozen planSql persisted the creator's value. CREATE GLOBAL BASELINE
-    //    PLAN now REJECTS those functions, while a deterministic function of the COLUMNS
+    //    PLAN now preserves those function calls, while a deterministic column function
     //    (unix_timestamp(k)) stays allowed and still hits its own baseline.
     //
     // #1 (audit window predicate for a pre-window statement completed inside the window),
@@ -80,34 +80,14 @@ suite("test_spm_review_round30", "spm") {
 
     dropOwnBaselines()
     try {
-        // ==================== #8: clock functions are rejected at CREATE ====================
-        // Each of these was constant-folded at CREATE time, freezing the statement start
-        // time into the persisted planSql.
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN
-                    'SELECT now() AS ts FROM spm_r30_t1'
-                    WITH 'SELECT now() AS ts FROM spm_r30_t1'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN
-                    'SELECT current_timestamp() AS ts FROM spm_r30_t1'
-                    WITH 'SELECT current_timestamp() AS ts FROM spm_r30_t1'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN
-                    'SELECT localtime() AS ts FROM spm_r30_t1'
-                    WITH 'SELECT localtime() AS ts FROM spm_r30_t1'"""
-            exception "replay-time context"
-        }
-        // unix_timestamp() with ARGUMENTS is a pure function of its input, so it is only
-        // rejected without arguments (the 0-arg form reads the statement start time)
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN
-                    'SELECT unix_timestamp() AS ts FROM spm_r30_t1'
-                    WITH 'SELECT unix_timestamp() AS ts FROM spm_r30_t1'"""
-            exception "replay-time context"
+        // Direct statement clocks must survive capture as real function calls.
+        for (String call : ["now()", "current_timestamp()", "localtime()", "unix_timestamp()"]) {
+            String query = "SELECT ${call} AS ts FROM spm_r30_t1"
+            long id = sql("CREATE GLOBAL BASELINE PLAN '${query}' WITH '${query}'")[0][0] as Long
+            def stored = sql("SELECT plan_frozen, plan_sql FROM __internal_schema.spm_baselines WHERE id = ${id}")[0]
+            assertTrue(stored[0].toString() in ["1", "true"], stored.toString())
+            assertTrue(explainOf(query).contains("SPM baseline hit: id=${id}"))
+            sql(query)
         }
 
         // the deterministic form stays allowed: CREATE succeeds and the baseline replays

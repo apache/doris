@@ -19,7 +19,7 @@ suite("test_spm_review_round9", "spm") {
 
     // End-to-end checks for
     //  - the one-row LIMIT sibling rule (LIMIT 1 / LIMIT 0 replay)
-    //  - replay-time context expressions being rejected at CREATE time
+    //  - runtime context functions surviving freeze
     //  - the persisted creation sql_mode (PIPES_AS_CONCAT)
     //  - reserved identifiers being quoted in the frozen SQL
 
@@ -95,23 +95,19 @@ suite("test_spm_review_round9", "spm") {
     assertTrue(explainOf(limitTableSql).contains("SPM baseline hit: id=${limitTableId}"),
             "the table LIMIT baseline must hit: " + explainOf(limitTableSql))
 
-    // ==================== #12: replay-time context expressions are rejected ====================
-    // current_user() / database() / ... survive parameterization and the creator-context
-    // optimization resolves them to LITERALS that the frozen SQL persists, while matching
-    // compares the original unbound tree - a global baseline would serve every other user
-    // the creator's identity.
-    test {
-        sql 'CREATE GLOBAL BASELINE PLAN "SELECT current_user() AS u, k FROM spm_r9_t WHERE k = 1" WITH "SELECT current_user() AS u, k FROM spm_r9_t WHERE k = 1"'
-        exception "replay-time context expressions"
+    // ==================== #12: replay-time context functions remain calls ====================
+    for (String call : ["current_user()", "database()", "connection_id()"]) {
+        String query = "SELECT ${call} AS u, k FROM spm_r9_t WHERE k = 1"
+        long id = createBaseline(query)
+        def frozen = sql("SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")[0][0]
+        assertTrue(frozen.toString() in ["1", "true"], query)
+        assertTrue(explainOf(query).contains("SPM baseline hit: id=${id}"))
+        def rewritten = sql(query)
+        sql "SET enable_spm_rewrite = false"
+        assertEquals(sql(query), rewritten)
+        sql "SET enable_spm_rewrite = true"
     }
-    test {
-        sql 'CREATE GLOBAL BASELINE PLAN "SELECT database() AS d, k FROM spm_r9_t WHERE k = 1" WITH "SELECT database() AS d, k FROM spm_r9_t WHERE k = 1"'
-        exception "replay-time context expressions"
-    }
-    test {
-        sql 'CREATE GLOBAL BASELINE PLAN "SELECT connection_id() AS c, k FROM spm_r9_t WHERE k = 1" WITH "SELECT connection_id() AS c, k FROM spm_r9_t WHERE k = 1"'
-        exception "replay-time context expressions"
-    }
+
 
     // ==================== #13: the creation sql_mode is persisted and reused ====================
     // CREATE under PIPES_AS_CONCAT parses "a || b" as concat(a, b) and stores that digest.

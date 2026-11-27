@@ -157,6 +157,7 @@ public class SPMPerformanceTest {
             support.verify(() -> SPMPlanTreeSupport.pinsExplicitIndex(plan));
             support.verify(() -> SPMPlanTreeSupport.requiresSessionSensitiveReplay(plan));
             support.verify(() -> SPMPlanTreeSupport.referencesView(null, plan));
+            support.verify(() -> SPMPlanTreeSupport.<RuntimeException>walkPlans(Mockito.eq(plan), Mockito.any()));
             support.verifyNoMoreInteractions();
         }
     }

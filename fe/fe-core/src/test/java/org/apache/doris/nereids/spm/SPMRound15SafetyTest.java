@@ -201,7 +201,7 @@ public class SPMRound15SafetyTest {
      * matching query, and WHERE event_time < now() replayed with a stale cutoff.
      */
     @Test
-    public void testCreatorTimeClockFunctionsAreDetected() {
+    public void testCreatorTimeClockFunctionsAreDetected() throws Exception {
         Assertions.assertTrue(SPMPlanTreeSupport.containsCreatorContextExpression(
                 parse("SELECT now() AS ts FROM t1")),
                 "now() freezes the CREATE statement's start time");
@@ -220,12 +220,12 @@ public class SPMRound15SafetyTest {
                 parse("SELECT unix_timestamp(k) AS ts FROM t1")),
                 "unix_timestamp(expr) is a pure function of its argument");
 
-        SPMPlanner planner = new SPMPlanner();
-        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
-                () -> SpmPlannerTestAccess.buildBaseline(planner, "SELECT now() AS ts FROM t1",
-                        "SELECT now() AS ts FROM t1"));
-        Assertions.assertTrue(failure.getMessage().contains("replay-time context"),
-                failure.getMessage());
+        Assertions.assertFalse(SPMPlanTreeSupport.containsUnsupportedCreatorContextExpression(
+                parse("SELECT now() AS ts FROM t1")));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsUnsupportedCreatorContextExpression(
+                parse("SELECT @v AS ts FROM t1")));
+        Assertions.assertNotNull(SpmPlannerTestAccess.buildBaseline(new SPMPlanner(),
+                "SELECT now() AS ts FROM t1", "SELECT now() AS ts FROM t1"));
     }
 
     /**

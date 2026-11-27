@@ -33,7 +33,7 @@ suite("test_spm_review_round35", "spm") {
     //    LOCALTIME / LOCALTIMESTAMP) parse into BOUND CurrentDate / CurrentTime / Now
     //    leaves, so the parenthesized rejections did not cover them: a baseline for
     //    'SELECT CURRENT_DATE AS d FROM t' froze the CREATE date and served it to every
-    //    later matching query. CREATE GLOBAL BASELINE PLAN rejects them now.
+    //    later matching query. CREATE now preserves the native clock call.
     //  -: the inner-cap walk now runs even when the caller's outer LIMIT
     //    EQUALS the captured one, so the exact-limit queries of #3 / #4 skip as well
     //    (their caps have no counterpart in the caller's tree) and run their own plan.
@@ -155,29 +155,14 @@ suite("test_spm_review_round35", "spm") {
             SELECT v FROM c ORDER BY v LIMIT 2
         """
 
-        // ==================== #5: bare clock keywords are rejected ====================
-        // Each of these was constant-folded at CREATE time, freezing the statement start
-        // time (its date) into the persisted planSql and serving it to every later
-        // matching query.
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN 'SELECT CURRENT_DATE AS d FROM spm_r35_a' WITH 'SELECT CURRENT_DATE AS d FROM spm_r35_a'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN 'SELECT CURRENT_TIME AS d FROM spm_r35_a' WITH 'SELECT CURRENT_TIME AS d FROM spm_r35_a'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN 'SELECT CURRENT_TIMESTAMP AS d FROM spm_r35_a' WITH 'SELECT CURRENT_TIMESTAMP AS d FROM spm_r35_a'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN 'SELECT LOCALTIME AS d FROM spm_r35_a' WITH 'SELECT LOCALTIME AS d FROM spm_r35_a'"""
-            exception "replay-time context"
-        }
-        test {
-            sql """CREATE GLOBAL BASELINE PLAN 'SELECT LOCALTIMESTAMP AS d FROM spm_r35_a' WITH 'SELECT LOCALTIMESTAMP AS d FROM spm_r35_a'"""
-            exception "replay-time context"
+        // Bare keywords bind to native clock functions, including LOCALTIME's TIME type.
+        for (String call : ["CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "LOCALTIME", "LOCALTIMESTAMP"]) {
+            String query = "SELECT ${call} AS d FROM spm_r35_a"
+            long id = sql("CREATE GLOBAL BASELINE PLAN '${query}' WITH '${query}'")[0][0] as Long
+            def frozen = sql("SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")[0][0]
+            assertTrue(frozen.toString() in ["1", "true"], query)
+            assertTrue(sql("EXPLAIN ${query}").toString().contains("SPM baseline hit: id=${id}"))
+            sql(query)
         }
     } finally {
         dropOwnBaselines()

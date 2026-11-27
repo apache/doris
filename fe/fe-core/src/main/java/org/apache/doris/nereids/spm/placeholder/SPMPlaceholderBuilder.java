@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.placeholder;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.spm.SPMContextFunctions;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -505,6 +506,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             if (mirror != null) {
                 return mirror;
             }
+        }
+        if (SPMContextFunctions.isPrecisionCall(expr)) {
+            return expr;
         }
         List<Expression> children = expr.children();
         if (children.isEmpty()) {

@@ -250,7 +250,17 @@ public class SPMPlanner {
             // structure for normal re-planning. Baselines without frozen SQL
             // (in-memory engine, decompile-fallback planSql, legacy "?" frozen text) fall
             // back to substituting the parameterized plan tree.
-            LogicalPlan rewritten = rewriteFromFrozenTree(candidate, placeholderValues);
+            LogicalPlan rewritten;
+            try {
+                rewritten = rewriteFromFrozenTree(candidate, placeholderValues);
+            } catch (ContextFunctionResolutionChangedException e) {
+                // The plan-side builtin identity changed; do not fall back to a cached
+                // raw tree of this frozen row (its fingerprint still describes the
+                // original rendered resolution).
+                LOG.info("SPM tryRewritePlan: baseline {} skipped: context function resolution changed",
+                        candidate.getId());
+                continue;
+            }
             if (rewritten != null) {
                 // non-expression literals (LIMIT / OFFSET) are long fields, not
                 // placeholders; adopt the user's values so a structurally identical query
@@ -528,6 +538,9 @@ public class SPMPlanner {
             if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
                 return null;
             }
+            if (!SPMContextFunctions.resolvesToBuiltins(parsed)) {
+                throw new ContextFunctionResolutionChangedException();
+            }
             // Classify on the PARSED TREE instead of the raw text: the fallback path
             // stores the ORIGINAL planSql when the decompiler rejects a node (e.g.
             // PhysicalAssertNumRows), and that ordinary SQL may merely CONTAIN one of
@@ -573,6 +586,8 @@ public class SPMPlanner {
             // SPMPlanTreeSupport.stripSetVarHints).
             LogicalPlan replayable = SPMPlanTreeSupport.stripSetVarHints(rewritten);
             return replayable == null ? rewritten : replayable;
+        } catch (ContextFunctionResolutionChangedException e) {
+            throw e;
         } catch (Throwable t) {
             // legacy "?" frozen text or any other re-parse failure -> fall back to the
             // parameterized plan tree path
@@ -581,6 +596,9 @@ public class SPMPlanner {
                     t.getClass().getSimpleName(), t.getMessage());
             return null;
         }
+    }
+
+    private static class ContextFunctionResolutionChangedException extends RuntimeException {
     }
 
     /**
@@ -667,30 +685,23 @@ public class SPMPlanner {
     // baseline creation.
 
     /**
-     * Rejects statements whose frozen SQL would persist the CREATOR's session state: a
-     * session / user variable or current_user / session_user / database /
-     * connection_id survives parameterization, the creator-context optimization then
-     * resolves it to a LITERAL, and the frozen planSql persists that value - while
-     * matching still compares the original unbound bind tree, so a global baseline would
-     * serve every other user the creator's identity / variables. Clock functions are the
-     * same class of value: FE constant folding evaluates now / current_timestamp from
-     * the CREATE statement's start time (see DateTimeAcquire), so a baseline for
-     * SELECT now() AS ts FROM t returned the CREATE timestamp on every later
-     * matching query.
+     * Rejects replay-time values whose bindings cannot be deferred, notably session
+     * and user variables. Direct builtin clocks and context functions may be retained
+     * in the frozen SQL, provided binding and round-trip verification prove their
+     * identity, precision and occurrences. Their evaluated values are never stored
+     * as part of the frozen text; normal replay evaluates them in the caller's session.
+     * The stricter transitive alias-body guard remains necessary: an alias expands
+     * during analysis, and the caller's parsed tree does not expose the dynamic leaf.
+     * This guard runs on both the bind and plan inputs before parameterization.
+     * If a direct call cannot be certified for freezing, the original text remains
+     * available to the ordinary parameterized replay path.
      */
     private static void rejectCreatorContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql) throws AnalysisException {
-        if (SPMPlanTreeSupport.containsCreatorContextExpression(bindPlan)
-                || SPMPlanTreeSupport.containsCreatorContextExpression(planPlan)) {
+        if (SPMPlanTreeSupport.containsUnsupportedCreatorContextExpression(bindPlan)
+                || SPMPlanTreeSupport.containsUnsupportedCreatorContextExpression(planPlan)) {
             throw new AnalysisException("SPM does not support replay-time context expressions"
-                    + " (user/session variables including a parsed @v, current_user(),"
-                    + " session_user(), user(), database(), current_catalog(), connection_id(),"
-                    + " last_query_id(), version(), a clock function evaluated at the"
-                    + " statement start - now() / current_timestamp() / current_date() /"
-                    + " utc_timestamp() / localtime() / unix_timestamp() without arguments -"
-                    + " and any * REPLACE payload carrying one):"
-                    + " the frozen SQL would persist the creator's value: "
-                    + bindSql);
+                    + " that cannot be preserved, including user/session variables: " + bindSql);
         }
         // The CALL alone is not enough: the guard above walks the PARSED trees, but
         // an ALIAS UDF's registry-owned body only enters the plan when analysis INLINES it -
@@ -771,6 +782,11 @@ public class SPMPlanner {
         // key(...) folds a named secret into a constant during optimization, and the parsed
         // form of KEY db.key is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
         // parsed inputs BEFORE optimizing / storing anything.
+        if (bindPlan != planPlan
+                && !SPMContextFunctions.structure(bindPlan).equals(SPMContextFunctions.structure(planPlan))) {
+            throw new AnalysisException("SPM cannot align the plan SQL with the bind SQL: "
+                    + "context function calls or precision arguments differ");
+        }
         SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
         if (!sameSql && SPMOptimizer.hasSqlModeHint(planPlan)) {
             // A permissive plan-side hint can turn an invalid strict bind into an explicit ANY_VALUE.
@@ -1070,7 +1086,8 @@ public class SPMPlanner {
                     + " preserved)");
             return false;
         }
-        return true;
+        return SPMContextFunctions.resolvesToBuiltins(bindPlan)
+                && (bindPlan == planPlan || SPMContextFunctions.resolvesToBuiltins(planPlan));
     }
 
     private static void logSessionSensitiveFreezeSkipped() {
@@ -1086,9 +1103,18 @@ public class SPMPlanner {
             return new DecompiledPlan(planSql, false);
         }
         try {
-            return new DecompiledPlan(
-                    new SPMPlan2SQLBuilder(optimizeResult.getPartitionNames())
-                            .toSQL(optimizeResult.getPhysicalPlan()), true);
+            String sql = new SPMPlan2SQLBuilder(optimizeResult.getPartitionNames())
+                    .toSQL(optimizeResult.getPhysicalPlan());
+            if (!optimizeResult.getContextSignatures().isEmpty()) {
+                Plan rendered = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects(sql);
+                if (!SPMContextFunctions.preservesCalls(optimizeResult.getContextCounts(), rendered)
+                        || !SPMContextFunctions.resolvesToBuiltins(rendered)
+                        || !optimizeResult.getContextSignatures().equals(SPMContextFunctions.signatures(rendered))) {
+                    LOG.info("SPM freeze skipped: context function identities, precision or occurrences changed");
+                    return new DecompiledPlan(planSql, false);
+                }
+            }
+            return new DecompiledPlan(sql, true);
         } catch (UnsupportedOperationException e) {
             LOG.info("SPM decompile unsupported ({}):\n{}", e.getMessage(),
                     optimizeResult.getPhysicalPlan().treeString());

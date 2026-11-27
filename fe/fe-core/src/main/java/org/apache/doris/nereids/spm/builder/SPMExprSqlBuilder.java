@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.builder;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.spm.SPMContextFunctions;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -415,6 +416,15 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
                         "SPM decompile: group_concat shape is not supported yet");
             }
             return rendered;
+        }
+        if (SPMContextFunctions.isPrecisionCall(boundFunction)) {
+            // The bound integer literal has already supplied the signature. The generic
+            // integer renderer may emit CAST(3 AS INT), which is not a literal precision
+            // at binding time (notably for UTC_TIME and CURRENT_TIME).
+            if (!(boundFunction.child(0) instanceof Literal)) {
+                throw new UnsupportedOperationException("SPM decompile: context precision is not a literal");
+            }
+            return functionName(boundFunction) + "(" + boundFunction.child(0).toSql() + ")";
         }
         String args = renderArguments(boundFunction instanceof AggregateFunction,
                 boundFunction.children(), context);

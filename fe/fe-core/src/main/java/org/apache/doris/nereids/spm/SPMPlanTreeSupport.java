@@ -63,14 +63,7 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -2173,14 +2166,19 @@ public final class SPMPlanTreeSupport {
 
     // creator-context expression detection.
 
+    /** Direct supported context functions can be deferred; variables and alias bodies cannot. */
+    static boolean containsUnsupportedCreatorContextExpression(LogicalPlan plan) {
+        return containsCreatorContextExpression(plan, true);
+    }
+
     /**
-     * Whether the tree captures a CREATOR context expression: a session / user variable (@v) or current_user,
-     * session_user, database, connection_id. Such leaves survive
-     * parameterization, the creator-context optimization then resolves them to LITERALS,
-     * and the frozen SQL persists the CREATOR's value - while matching still compares the
-     * ORIGINAL unbound bind tree, so a global baseline (e.g.
-     * SELECT current_user(), k FROM t WHERE k = 1) could match another user's
-     * query and return the creator's identity.
+     * Whether the tree references a statement/session context expression, including
+     * session variables, identity functions and statement clocks. The full detector
+     * remains strict for transitive alias UDF bodies, whose dynamic calls are not
+     * visible in the submitted SQL. Direct supported builtin calls instead use the
+     * unsupported-context detector above and the capture-time preservation policy.
+     * Replay evaluates a preserved call with the caller's own statement context.
+     * The strict detector also remains useful to inspect the original parsed tree.
      *
      * Parameter plan: the parsed (unbound) tree
      * Returns: true when such an expression is found anywhere - every subquery plan
@@ -2188,6 +2186,10 @@ public final class SPMPlanTreeSupport {
      *         out-of-band MATCH_CONDITION are scanned
      */
     public static boolean containsCreatorContextExpression(LogicalPlan plan) {
+        return containsCreatorContextExpression(plan, false);
+    }
+
+    private static boolean containsCreatorContextExpression(LogicalPlan plan, boolean allowDeferred) {
         if (plan == null) {
             return false;
         }
@@ -2197,12 +2199,12 @@ public final class SPMPlanTreeSupport {
                 Optional<Expression> matchCondition =
                         ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
                 if (matchCondition.isPresent()
-                        && containsCreatorContextExpression(matchCondition.get())) {
+                        && containsCreatorContextExpression(matchCondition.get(), true, allowDeferred)) {
                     return true;
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsCreatorContextExpression(expr, false)) {
+                if (containsCreatorContextExpression(expr, false, allowDeferred)) {
                     return true;
                 }
             }
@@ -2212,89 +2214,34 @@ public final class SPMPlanTreeSupport {
 
     /** Whether an expression tree contains a creator-context expression. */
     public static boolean containsCreatorContextExpression(Expression expr) {
-        return containsCreatorContextExpression(expr, true);
+        return containsCreatorContextExpression(expr, true, false);
     }
 
-    private static boolean containsCreatorContextExpression(Expression expr, boolean descendSubqueries) {
-        if (expr instanceof Variable || expr instanceof UnboundVariable
-                || expr instanceof CurrentUser || expr instanceof SessionUser
-                || expr instanceof Database || expr instanceof ConnectionId
-                || expr instanceof CurrentDate || expr instanceof CurrentTime
-                || expr instanceof Now) {
-            // a PARSED "@v" is an UnboundVariable, not the analyzed Variable: the guard
-            // only knew the analyzed shape, so WHERE k = @v slipped through and the
-            // creator-context optimization froze the CREATOR's value into the planSql
-            // of a GLOBAL baseline. The BARE clock keywords
-            // (CURRENT_DATE / CURRENT_TIME / CURRENT_TIMESTAMP / LOCALTIME /
-            // LOCALTIMESTAMP) are not calls at all: the parser builds the bound
-            // CurrentDate / CurrentTime / Now leaves directly
-            // (LogicalPlanBuilder.visitCurrentDate etc.), so the name-based UnboundFunction
-            // check below never saw them and a frozen baseline served the CREATE date for
-            // every later match while the parenthesized forms were rejected.
+    private static boolean containsCreatorContextExpression(Expression expr, boolean descendSubqueries,
+            boolean allowDeferred) {
+        if (expr instanceof Variable || expr instanceof UnboundVariable) {
             return true;
         }
-        if (expr instanceof UnboundFunction) {
-            // the same functions can reach the unbound tree as a plain function call
-            // (e.g. "current_user()" with parentheses parses as UnboundFunction)
-            String name = ((UnboundFunction) expr).getName();
-            if (name != null) {
-                switch (name.toLowerCase(Locale.ROOT)) {
-                    case "current_user":
-                    case "session_user":
-                    case "database":
-                    case "connection_id":
-                    case "user":
-                    case "current_catalog":
-                    case "last_query_id":
-                    case "version":
-                        // user/current_catalog/last_query_id/version are the same
-                        // creator / environment values: freezing them served every other
-                        // session the creator's identity or an id that never repeats.
-                        return true;
-                    case "now":
-                    case "current_timestamp":
-                    case "utc_timestamp":
-                    case "utc_time":
-                    case "utc_date":
-                    case "localtime":
-                    case "localtimestamp":
-                    case "current_date":
-                    case "curdate":
-                    case "current_time":
-                    case "curtime":
-                        // Every clock function is evaluated from the STATEMENT start time
-                        // (see DateTimeAcquire: ConnectContext.getStartTimeInstant) and the
-                        // optimizer folds it into a literal, which the decompiler stores in
-                        // planFrozen SQL: a baseline for SELECT now() AS ts FROM t returned
-                        // the CREATE timestamp on every later matching query, and
-                        // WHERE event_time < now() replayed with a stale cutoff.
-                        return true;
-                    case "unix_timestamp":
-                        // An argument-free unix_timestamp is classified as a statement clock. Calls with
-                        // arguments are not classified as context expressions by this branch.
-                        return expr.arity() == 0;
-                    default:
-                        break;
-                }
-            }
+        if (SPMContextFunctions.isCandidate(expr) && !allowDeferred) {
+            return true;
         }
         if (expr instanceof UnboundStar) {
             // SELECT * REPLACE(f(@v) AS v): the replaced-alias payloads are NOT expression
             // children of the star, so the recursive walk below never reached them and the
             // statement passed the guard. Scan the payloads explicitly.
             for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
-                if (containsCreatorContextExpression(replaced, descendSubqueries)) {
+                if (containsCreatorContextExpression(replaced, descendSubqueries, allowDeferred)) {
                     return true;
                 }
             }
         }
         if (descendSubqueries && expr instanceof SubqueryExpr) {
-            if (containsCreatorContextExpression(((SubqueryExpr) expr).getQueryPlan())) {
+            if (containsCreatorContextExpression(((SubqueryExpr) expr).getQueryPlan(), allowDeferred)) {
                 return true;
             }
         }
         for (Expression child : expr.children()) {
-            if (containsCreatorContextExpression(child, descendSubqueries)) {
+            if (containsCreatorContextExpression(child, descendSubqueries, allowDeferred)) {
                 return true;
             }
         }
@@ -9193,7 +9140,7 @@ public final class SPMPlanTreeSupport {
             return true;
         }
         if (expression instanceof SpmConstVar || expression instanceof SpmConstList
-                || expression.children().isEmpty()) {
+                || SPMContextFunctions.isCandidate(expression) || expression.children().isEmpty()) {
             return false;
         }
         for (Expression child : expression.children()) {
