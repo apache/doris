@@ -37,6 +37,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -5021,6 +5022,385 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
             sp->clear_trace();
             sp->disable_processing();
         }
+    }
+}
+
+TEST(MetaServiceTest, ScanTxnLabel) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 0x0102;
+    constexpr int64_t adjacent_db_id = 0x0103;
+    const std::string escaped_prefix("load\0\1", 6);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto put_label = [&](int64_t db, std::string_view label, const std::vector<int64_t>& ids) {
+        TxnLabelPB label_pb;
+        for (int64_t id : ids) {
+            label_pb.add_txn_ids(id);
+        }
+        txn->atomic_set_ver_value(txn_label_key({mock_instance, db, std::string(label)}),
+                                  label_pb.SerializeAsString());
+    };
+    auto put_info = [&](int64_t db, std::string_view label, int64_t id, TxnStatusPB status) {
+        TxnInfoPB info;
+        info.set_db_id(db);
+        info.set_label(std::string(label));
+        info.set_txn_id(id);
+        info.set_status(status);
+        txn->put(txn_info_key({mock_instance, db, id}), info.SerializeAsString());
+    };
+
+    put_label(db_id, "load", {});
+    put_label(db_id, "load-a", {10, 11, 12});
+    put_info(db_id, "load-a", 10, TXN_STATUS_ABORTED);
+    // Transaction 11 has already been recycled.
+    put_info(db_id, "load-a", 12, TXN_STATUS_VISIBLE);
+    put_label(db_id, "load-b", {13});
+    put_info(db_id, "load-b", 13, TXN_STATUS_VISIBLE);
+    put_label(db_id, "other", {14});
+    put_info(db_id, "other", 14, TXN_STATUS_VISIBLE);
+    put_label(db_id, "missing-a", {99, 100});
+    put_label(db_id, "missing-b", {});
+    put_label(db_id, escaped_prefix, {15});
+    put_info(db_id, escaped_prefix, 15, TXN_STATUS_VISIBLE);
+    put_label(db_id, escaped_prefix + "x", {16});
+    put_info(db_id, escaped_prefix + "x", 16, TXN_STATUS_VISIBLE);
+    put_label(adjacent_db_id, "load-a", {17});
+    put_info(adjacent_db_id, "load-a", 17, TXN_STATUS_VISIBLE);
+    std::vector<int64_t> retry_ids;
+    for (int64_t id = 100; id < 365; ++id) {
+        retry_ids.push_back(id);
+        put_info(adjacent_db_id, "retry-a", id, TXN_STATUS_ABORTED);
+    }
+    put_label(adjacent_db_id, "retry-a", retry_ids);
+    put_label(adjacent_db_id, "retry-b", {365});
+    put_info(adjacent_db_id, "retry-b", 365, TXN_STATUS_VISIBLE);
+    retry_ids.push_back(365);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ScanTxnLabelRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_db_id(db_id);
+    request.set_label_prefix("load-");
+    request.set_limit(10);
+    auto scan = [&] {
+        brpc::Controller cntl;
+        ScanTxnLabelResponse response;
+        meta_service->scan_txn_label(&cntl, &request, &response, nullptr);
+        return response;
+    };
+    auto txn_ids = [](const ScanTxnLabelResponse& response) {
+        std::vector<int64_t> ids;
+        for (const auto& info : response.txn_infos()) {
+            ids.push_back(info.txn_id());
+        }
+        return ids;
+    };
+    auto attempt_cursor = [](int64_t db, std::string_view label, int64_t id) {
+        return txn_label_key({mock_instance, db, std::string(label)}) + '\0' +
+               fmt::format("{:019}", id);
+    };
+
+    auto response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(txn_ids(response), (std::vector<int64_t> {10, 12, 13}));
+    EXPECT_EQ(response.scanned_keys(), 6); // Two labels and four attempted txn info reads.
+    EXPECT_EQ(response.txn_infos(0).status(), TXN_STATUS_ABORTED);
+    EXPECT_FALSE(response.has_next_key());
+
+    const auto load_a_key = txn_label_key({mock_instance, db_id, "load-a"});
+    for (const auto& invalid_cursor :
+         {load_a_key, load_a_key + '\0' + "000000000000000011",
+          load_a_key + '\0' + "9223372036854775808", load_a_key + ":11"}) {
+        request.set_start_key(invalid_cursor);
+        EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    request.clear_start_key();
+
+    request.set_max_scan_keys(-1);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    request.set_max_scan_keys(1);
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {10}));
+    EXPECT_EQ(response.scanned_keys(), 2); // One label and one info read for progress.
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_EQ(response.next_key(), attempt_cursor(db_id, "load-a", 11));
+    request.clear_max_scan_keys();
+
+    request.set_limit(1);
+    for (int64_t id : {10, 12, 13}) {
+        response = scan();
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(txn_ids(response), (std::vector<int64_t> {id}));
+        ASSERT_EQ(response.has_next_key(), id != 13);
+        request.set_start_key(response.next_key());
+    }
+    request.clear_start_key();
+    request.set_limit(2);
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {10, 12}));
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_EQ(response.next_key(), txn_label_key({mock_instance, db_id, "load-a"}) + '\x01');
+    request.set_start_key(response.next_key());
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {13}));
+    EXPECT_FALSE(response.has_next_key());
+
+    // The label named by this well-formed within-label cursor has been recycled.
+    request.set_start_key(attempt_cursor(db_id, "load-aa", 12));
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {13}));
+    EXPECT_FALSE(response.has_next_key());
+
+    request.clear_start_key();
+    request.set_limit(10);
+
+    request.set_label_prefix(escaped_prefix);
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {15, 16}));
+    EXPECT_FALSE(response.has_next_key());
+
+    request.clear_label_prefix();
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {15, 16, 10, 12, 13, 14}));
+    EXPECT_FALSE(response.has_next_key());
+
+    request.set_start_key(txn_label_key({mock_instance, adjacent_db_id, "load-a"}));
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    request.clear_start_key();
+
+    request.set_limit(0);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    request.set_limit(10000);
+    request.set_db_id(-1);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    // The server cap spans more than one 128-attempt batch, but less than this label's history.
+    const auto original_limit = config::max_scan_txn_label_limit;
+    const auto original_duration = config::scan_txn_label_max_duration_ms;
+    config::max_scan_txn_label_limit = 130;
+    DORIS_CLOUD_DEFER {
+        config::max_scan_txn_label_limit = original_limit;
+        config::scan_txn_label_max_duration_ms = original_duration;
+    };
+    request.set_db_id(adjacent_db_id);
+    request.set_label_prefix("retry-");
+    auto* sync_point = SyncPoint::get_instance();
+    std::vector<size_t> batch_sizes;
+    int batches_until_timeout = 0;
+    sync_point->set_call_back("scan_txn_label:batch_get_result", [&](auto&& args) {
+        if (batches_until_timeout > 0 && --batches_until_timeout == 0) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TIMEOUT;
+        }
+    });
+    sync_point->set_call_back("scan_txn_label:after_batch_get", [&](auto&& args) {
+        batch_sizes.push_back(try_any_cast<size_t>(args[0]));
+        if (batch_sizes.size() == 1) {
+            *try_any_cast<std::chrono::steady_clock::time_point*>(args[1]) =
+                    std::chrono::steady_clock::now();
+        }
+    });
+    sync_point->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sync_point->clear_call_back("scan_txn_label:batch_get_result");
+        sync_point->clear_call_back("scan_txn_label:after_batch_get");
+        sync_point->disable_processing();
+    };
+    std::vector<int64_t> paged_ids;
+    for (int expected_rows : {128, 130, 8}) {
+        response = scan();
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        auto ids = txn_ids(response);
+        ASSERT_EQ(ids.size(), expected_rows);
+        paged_ids.insert(paged_ids.end(), ids.begin(), ids.end());
+        ASSERT_EQ(response.has_next_key(), expected_rows != 8);
+        if (response.has_next_key()) {
+            EXPECT_GT(response.next_key(), request.start_key());
+            request.set_start_key(response.next_key());
+        }
+    }
+    EXPECT_EQ(paged_ids, retry_ids);
+    EXPECT_EQ(batch_sizes, (std::vector<size_t> {128, 128, 2, 7, 1}));
+
+    // Even an already expired duration permits one batch from a within-label cursor.
+    request.set_start_key(attempt_cursor(adjacent_db_id, "retry-a", 101));
+    config::scan_txn_label_max_duration_ms = 0;
+    response = scan();
+    config::scan_txn_label_max_duration_ms = original_duration;
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_GT(response.next_key(), request.start_key());
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 1, retry_ids.begin() + 129)));
+
+    batches_until_timeout = 1;
+    EXPECT_EQ(scan().status().code(), cast_as<ErrCategory::READ>(TxnErrorCode::TXN_TIMEOUT));
+    batches_until_timeout = 2;
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 1, retry_ids.begin() + 129)));
+    EXPECT_EQ(response.scanned_keys(), 131); // One label, 128 successful and two failed info reads.
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_GT(response.next_key(), request.start_key());
+    request.set_start_key(response.next_key());
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 129, retry_ids.begin() + 259)));
+
+    request.set_db_id(db_id);
+    request.set_limit(10);
+    request.clear_start_key();
+    const auto original_cap = config::max_scan_txn_label_keys;
+    config::max_scan_txn_label_keys = 1;
+    DORIS_CLOUD_DEFER {
+        config::max_scan_txn_label_keys = original_cap;
+    };
+    request.set_label_prefix("load");
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(response.txn_infos().empty()); // The first label has only a versionstamp.
+    EXPECT_EQ(response.scanned_keys(), 1);
+    ASSERT_TRUE(response.has_next_key());
+    request.set_start_key(response.next_key());
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {15}));
+    EXPECT_TRUE(response.has_next_key());
+
+    // No txn infos remain for these attempts, so both cursor transitions must advance on their own.
+    request.set_label_prefix("missing-");
+    request.set_start_key(attempt_cursor(db_id, "missing-a", 99));
+    for (const auto& expected_cursor :
+         {attempt_cursor(db_id, "missing-a", 100),
+          txn_label_key({mock_instance, db_id, "missing-a"}) + '\x01'}) {
+        response = scan();
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.txn_infos().empty());
+        EXPECT_EQ(response.scanned_keys(), 2);
+        ASSERT_TRUE(response.has_next_key());
+        EXPECT_EQ(response.next_key(), expected_cursor);
+        EXPECT_GT(response.next_key(), request.start_key());
+        request.set_start_key(response.next_key());
+    }
+}
+
+TEST(MetaServiceTest, ScanTxnLabelFinishesAtExactBudget) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 0x0102;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnLabelPB label;
+    for (int64_t id : {10, 11}) {
+        label.add_txn_ids(id);
+        TxnInfoPB info;
+        info.set_txn_id(id);
+        txn->put(txn_info_key({mock_instance, db_id, id}), info.SerializeAsString());
+    }
+    txn->atomic_set_ver_value(txn_label_key({mock_instance, db_id, "exact-a"}),
+                              label.SerializeAsString());
+    txn->atomic_set_ver_value(txn_label_key({mock_instance, db_id, "exact-b"}), "");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ScanTxnLabelRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_db_id(db_id);
+    request.set_label_prefix("exact-");
+    request.set_limit(10);
+    request.set_max_scan_keys(4); // Range limit 3, so two labels leave more() false.
+    brpc::Controller cntl;
+    ScanTxnLabelResponse response;
+    meta_service->scan_txn_label(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.txn_infos_size(), 2);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
+    EXPECT_EQ(response.txn_infos(1).txn_id(), 11);
+    EXPECT_EQ(response.scanned_keys(), 4);
+    EXPECT_FALSE(response.has_next_key());
+}
+
+TEST(MetaServiceTest, ScanTxnLabelResumesAfterSecondRangeGetFails) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 0x0102;
+    constexpr int first_range_size = 1000;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::vector<int64_t> expected_ids;
+    for (int64_t id = 1; id <= first_range_size + 1; ++id) {
+        const auto label = fmt::format("range-{:04}", id);
+        TxnLabelPB label_pb;
+        label_pb.add_txn_ids(id);
+        txn->atomic_set_ver_value(txn_label_key({mock_instance, db_id, label}),
+                                  label_pb.SerializeAsString());
+        TxnInfoPB info;
+        info.set_txn_id(id);
+        txn->put(txn_info_key({mock_instance, db_id, id}), info.SerializeAsString());
+        expected_ids.push_back(id);
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    const auto original_limit = config::max_scan_txn_label_limit;
+    const auto original_cap = config::max_scan_txn_label_keys;
+    const auto original_duration = config::scan_txn_label_max_duration_ms;
+    config::max_scan_txn_label_limit = first_range_size + 1;
+    config::max_scan_txn_label_keys = first_range_size + 1;
+    config::scan_txn_label_max_duration_ms = 60000;
+    DORIS_CLOUD_DEFER {
+        config::max_scan_txn_label_limit = original_limit;
+        config::max_scan_txn_label_keys = original_cap;
+        config::scan_txn_label_max_duration_ms = original_duration;
+    };
+
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sync_point->clear_call_back("scan_txn_label:range_get_result");
+        sync_point->disable_processing();
+    };
+    for (auto failure : {TxnErrorCode::TXN_TIMEOUT, TxnErrorCode::TXN_TOO_OLD}) {
+        SCOPED_TRACE(static_cast<int>(failure));
+        int range_reads = 0;
+        sync_point->set_call_back("scan_txn_label:range_get_result", [&, failure](auto&& args) {
+            if (++range_reads == 2) {
+                *try_any_cast<TxnErrorCode*>(args[0]) = failure;
+            }
+        });
+        ScanTxnLabelRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(db_id);
+        request.set_label_prefix("range-");
+        request.set_limit(first_range_size + 1);
+        // Leave room for a two-key range limit on resume. MemTxnKv sets more() at the limit.
+        request.set_max_scan_keys(2 * (first_range_size + 1) + 1);
+        std::vector<int64_t> ids;
+        for (int page = 0; page < 2; ++page) {
+            brpc::Controller cntl;
+            ScanTxnLabelResponse response;
+            meta_service->scan_txn_label(&cntl, &request, &response, nullptr);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(range_reads, page + 2);
+            EXPECT_EQ(response.scanned_keys(), page == 0 ? 2 * first_range_size : 2);
+            for (const auto& info : response.txn_infos()) {
+                ids.push_back(info.txn_id());
+            }
+            ASSERT_EQ(response.has_next_key(), page == 0);
+            if (response.has_next_key()) {
+                EXPECT_EQ(response.next_key(),
+                          txn_label_key({mock_instance, db_id, "range-1000"}) + '\x01');
+                EXPECT_GT(response.next_key(), request.start_key());
+                request.set_start_key(response.next_key());
+                request.set_max_scan_keys(request.max_scan_keys() - response.scanned_keys());
+            }
+        }
+        EXPECT_EQ(ids, expected_ids);
+        sync_point->clear_call_back("scan_txn_label:range_get_result");
     }
 }
 

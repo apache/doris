@@ -19,6 +19,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -43,6 +44,7 @@
 #include "meta-service/table_stream_metadata_reader.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -5603,6 +5605,245 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     ss << "transaction not found, label=" << label;
     msg = ss.str();
     return;
+}
+
+void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controller,
+                                     const ScanTxnLabelRequest* request,
+                                     ScanTxnLabelResponse* response,
+                                     ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(scan_txn_label, get);
+    if (!request->has_db_id() || request->db_id() < 0 || request->limit() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "a non-negative db_id and a positive limit are required";
+        return;
+    }
+    if (request->max_scan_keys() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "max_scan_keys must be non-negative";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id with cloud_unique_id=" + request->cloud_unique_id();
+        LOG(WARNING) << msg;
+        return;
+    }
+    RPC_RATE_LIMIT(scan_txn_label)
+
+    auto deadline = steady_clock::now() + milliseconds(config::scan_txn_label_max_duration_ms);
+    const int limit = std::min(request->limit(), config::max_scan_txn_label_limit);
+    const int64_t db_id = request->db_id();
+    std::string begin = txn_label_key_prefix({instance_id, db_id, request->label_prefix()});
+    // Valid labels are UTF-8, which never uses 0xff as a raw byte.
+    const std::string end = begin + '\xff';
+    std::string resume_label_key;
+    int64_t resume_txn_id = 0;
+    if (request->has_start_key()) {
+        const auto& start = request->start_key();
+        if (start < begin || start >= end) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "start_key is outside the txn label range";
+            return;
+        }
+        begin = start;
+        // A within-label cursor appends NUL and an ordered txn ID to the label key.
+        const auto db_prefix = txn_label_key_prefix({instance_id, db_id, ""});
+        std::string_view suffix(start);
+        suffix.remove_prefix(db_prefix.size() - 1); // Keep the label's BYTES_TAG for decoding.
+        const bool decoded_label = decode_bytes(&suffix, nullptr) == 0;
+        if (decoded_label && suffix.size() == 20 && suffix.front() == '\0' && suffix[1] >= '0' &&
+            suffix[1] <= '9') {
+            const char* last = suffix.data() + suffix.size();
+            auto [ptr, ec] = std::from_chars(suffix.data() + 1, last, resume_txn_id);
+            if (ec == std::errc() && ptr == last) {
+                begin.resize(start.size() - suffix.size());
+                resume_label_key = begin;
+            }
+        }
+        if (resume_label_key.empty() && !(decoded_label && suffix == "\x01")) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid txn label scan start_key";
+            return;
+        }
+    }
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, db_id=" << db_id << " err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    constexpr int label_page_size = 1000;
+    constexpr int info_batch_size = 128;
+    int labels_left = config::max_scan_txn_label_keys;
+    int attempts_left = labels_left;
+    const int64_t max_scan_keys = request->max_scan_keys() > 0
+                                          ? request->max_scan_keys()
+                                          : std::numeric_limits<int64_t>::max();
+    // MetaServiceProxy retries start a fresh allowance and discard the previous attempt's charges.
+    int64_t scanned_keys = 0;
+    DORIS_CLOUD_DEFER {
+        response->set_scanned_keys(scanned_keys);
+    };
+    bool progressed = false;
+    auto duration_exceeded = [&] { return progressed && steady_clock::now() >= deadline; };
+    auto can_resume = [&](TxnErrorCode read_err) {
+        return progressed &&
+               (read_err == TxnErrorCode::TXN_TOO_OLD || read_err == TxnErrorCode::TXN_TIMEOUT);
+    };
+    auto set_next_attempt = [&](std::string_view key, int64_t id) {
+        std::string next(key);
+        next.push_back('\0');
+        next += fmt::format("{:019}", id);
+        response->set_next_key(std::move(next));
+    };
+    // Encoded label keys cannot prefix one another. This bound sorts after every attempt cursor.
+    auto after_label = [](std::string_view key) { return std::string(key) + '\x01'; };
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        if (duration_exceeded()) {
+            response->set_next_key(std::move(begin));
+            return;
+        }
+        // Reserve an info read when possible. On a within-label resume, fetch that label first.
+        const int range_limit =
+                begin == resume_label_key
+                        ? 1
+                        : std::min<int64_t>(
+                                  {labels_left, label_page_size,
+                                   std::max<int64_t>(1, max_scan_keys - scanned_keys - 1)});
+        err = txn->get(begin, end, &it, true, range_limit);
+        TEST_SYNC_POINT_CALLBACK("scan_txn_label:range_get_result", &err);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (can_resume(err)) {
+                response->set_next_key(std::move(begin));
+                return;
+            }
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to scan txn labels, db_id=" << db_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        scanned_keys += it->size();
+
+        TxnLabelPB label;
+        int next_attempt = 0;
+        std::string_view last_label_key;
+        while (next_attempt < label.txn_ids_size() || it->has_next()) {
+            // With one key left, reading a label may require one extra info attempt to advance.
+            const int batch_limit = std::min<int64_t>(
+                    {info_batch_size, attempts_left, limit - response->txn_infos_size(),
+                     std::max<int64_t>(progressed ? 0 : 1, max_scan_keys - scanned_keys)});
+            if ((batch_limit == 0 && scanned_keys < max_scan_keys) || duration_exceeded()) {
+                if (last_label_key.empty()) {
+                    response->set_next_key(std::move(begin));
+                } else if (next_attempt < label.txn_ids_size()) {
+                    set_next_attempt(last_label_key, label.txn_ids(next_attempt));
+                } else {
+                    response->set_next_key(after_label(last_label_key));
+                }
+                return;
+            }
+
+            std::vector<std::string> info_keys;
+            std::string_view first_attempt_key;
+            int64_t first_attempt_id = 0;
+            // Keep the current label across batches so a heavily retried label cannot overfill one.
+            // A spent read budget still lets us drain fetched labels with no pending attempts.
+            while ((batch_limit == 0 || info_keys.size() < static_cast<size_t>(batch_limit)) &&
+                   !duration_exceeded()) {
+                if (next_attempt < label.txn_ids_size()) {
+                    if (batch_limit == 0) {
+                        set_next_attempt(last_label_key, label.txn_ids(next_attempt));
+                        return;
+                    }
+                    const int64_t id = label.txn_ids(next_attempt++);
+                    if (info_keys.empty()) {
+                        first_attempt_key = last_label_key;
+                        first_attempt_id = id;
+                    }
+                    info_keys.push_back(txn_info_key({instance_id, db_id, id}));
+                    continue;
+                }
+                if (!it->has_next()) {
+                    break;
+                }
+                const auto [key, value] = it->next();
+                last_label_key = key;
+                --labels_left;
+                label.Clear();
+                next_attempt = 0;
+                // A skipped label advances the cursor only if no earlier attempts are queued.
+                if (value.size() <= VERSION_STAMP_LEN) {
+                    progressed |= info_keys.empty();
+                    continue;
+                }
+                if (!label.ParseFromArray(value.data(), value.size() - VERSION_STAMP_LEN)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed txn label, key=" + hex(key);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+
+                // An ID cursor survives removal of earlier attempts by the recycler.
+                auto& ids = *label.mutable_txn_ids();
+                std::sort(ids.begin(), ids.end());
+                if (key == resume_label_key) {
+                    next_attempt =
+                            std::lower_bound(ids.begin(), ids.end(), resume_txn_id) - ids.begin();
+                }
+                progressed |= info_keys.empty() && next_attempt == label.txn_ids_size();
+            }
+
+            if (info_keys.empty()) {
+                continue;
+            }
+            if (duration_exceeded()) {
+                set_next_attempt(first_attempt_key, first_attempt_id);
+                return;
+            }
+            attempts_left -= static_cast<int>(info_keys.size());
+            scanned_keys += info_keys.size();
+            std::vector<std::optional<std::string>> info_values;
+            err = txn->batch_get(&info_values, info_keys, Transaction::BatchGetOptions(true));
+            TEST_SYNC_POINT_CALLBACK("scan_txn_label:batch_get_result", &err);
+            if (err != TxnErrorCode::TXN_OK) {
+                if (can_resume(err)) {
+                    set_next_attempt(first_attempt_key, first_attempt_id);
+                    return;
+                }
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to read txn info, db_id=" << db_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            progressed = true;
+            TEST_SYNC_POINT_CALLBACK("scan_txn_label:after_batch_get", info_keys.size(), &deadline);
+            for (size_t i = 0; i < info_values.size(); ++i) {
+                if (info_values[i].has_value() &&
+                    !response->add_txn_infos()->ParseFromString(*info_values[i])) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed txn info, key=" + hex(info_keys[i]);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
+        }
+        if (it->more()) {
+            begin = after_label(it->last_key());
+        }
+    } while (labels_left > 0 && attempts_left > 0 && scanned_keys < max_scan_keys &&
+             response->txn_infos_size() < limit && it->more());
+
+    if (it->more()) {
+        response->set_next_key(std::move(begin));
+    }
 }
 
 void record_txn_commit_stats(doris::cloud::Transaction* txn, const std::string& instance_id,

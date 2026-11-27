@@ -1213,6 +1213,24 @@ message GetTxnIdResponse {
     optional int64 txn_id = 2;
 }
 
+message ScanTxnLabelRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional string label_prefix = 3;
+    optional int32 limit = 4;
+    optional bytes start_key = 5; // Opaque continuation from the previous page.
+    optional string request_ip = 6;
+    // Positive allowance for label and txn info reads combined. One extra info read may ensure progress.
+    optional int64 max_scan_keys = 7;
+}
+
+message ScanTxnLabelResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TxnInfoPB txn_infos = 2;
+    optional bytes next_key = 3;
+    optional int64 scanned_keys = 4; // Label keys read plus txn info keys attempted.
+}
+
 message BeginSubTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 txn_id = 2;
@@ -2602,6 +2620,7 @@ service MetaService {
     rpc compact_snapshot(CompactSnapshotRequest) returns (CompactSnapshotResponse);
 
     rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
+    rpc scan_txn_label(ScanTxnLabelRequest) returns (ScanTxnLabelResponse);
 };
 
 service RecyclerService {
