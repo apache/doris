@@ -267,17 +267,12 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
         try {
+            publishCoordinator(executor);
             beforeExec();
             executor.updateProfile(false);
             execImpl(executor);
             checkStrictModeAndFilterRatio();
-            for (InsertExecutorListener listener : listeners) {
-                listener.beforeComplete(this, executor, jobId);
-            }
-            onComplete();
-            for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
-            }
+            completeInsert(executor);
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet "need re-plan error" or no scan node in cloud
@@ -300,14 +295,9 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeEmptyInsert(StmtExecutor executor) throws Exception {
         try {
+            publishCoordinator(executor);
             beforeExec();
-            for (InsertExecutorListener listener : listeners) {
-                listener.beforeComplete(this, executor, jobId);
-            }
-            onComplete();
-            for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
-            }
+            completeInsert(executor);
         } catch (Throwable t) {
             onFail(t);
             return;
@@ -316,6 +306,31 @@ public abstract class AbstractInsertExecutor {
             executor.updateProfile(true);
         }
         afterExec(executor);
+    }
+
+    private void publishCoordinator(StmtExecutor executor) throws UserException {
+        executor.setCoord(coordinator);
+        checkInsertStatus(coordinator.getExecStatus());
+    }
+
+    private void completeInsert(StmtExecutor executor) throws Exception {
+        for (InsertExecutorListener listener : listeners) {
+            listener.beforeComplete(this, executor, jobId);
+        }
+        coordinator.beginInsertCommit();
+        // Statement cancellation is retained before it is forwarded to the coordinator.
+        Status pending = executor.getPendingCancelReason();
+        checkInsertStatus(pending != null ? pending : coordinator.getExecStatus());
+        onComplete();
+        for (InsertExecutorListener listener : listeners) {
+            listener.afterComplete(this, executor, jobId);
+        }
+    }
+
+    private static void checkInsertStatus(Status status) throws UserException {
+        if (!status.ok()) {
+            ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT, status.getErrorMsg());
+        }
     }
 
     /**

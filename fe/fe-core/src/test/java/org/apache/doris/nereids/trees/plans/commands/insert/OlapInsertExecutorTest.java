@@ -51,10 +51,13 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Tests for publish-timeout behaviors in {@link OlapInsertExecutor}.
@@ -91,6 +94,8 @@ class OlapInsertExecutorTest {
             OlapInsertExecutor executor = createExecutor(ctx);
             executor.txnId = 10001L;
             executor.executeSingleInsert(stmtExecutor);
+
+            Mockito.verify(stmtExecutor).setCoord(coordinator);
 
             Assertions.assertEquals(TransactionStatus.COMMITTED, executor.txnStatus);
             Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
@@ -223,6 +228,85 @@ class OlapInsertExecutorTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testPendingCoordinatorTimeoutFencesBeforeExecSetup(boolean empty) throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        Mockito.when(coordinator.getExecStatus())
+                .thenReturn(new Status(TStatusCode.TIMEOUT, "timeout before coordinator setup"));
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            AtomicBoolean beforeExecRan = new AtomicBoolean(false);
+            OlapInsertExecutor executor = createExecutorWithBeforeExecProbe(ctx, beforeExecRan);
+            executor.txnId = 10006L;
+
+            if (empty) {
+                executor.executeEmptyInsert(stmtExecutor);
+            } else {
+                executor.executeSingleInsert(stmtExecutor);
+            }
+            Mockito.verify(stmtExecutor).setCoord(coordinator);
+            Mockito.verify(txnMgr).abortTransaction(Mockito.eq(1L), Mockito.eq(10006L),
+                    Mockito.contains("timeout before coordinator setup"));
+
+            // The retained terminal reason is fenced immediately after coordinator publication, before any
+            // executor-specific setup can run or fail with a different error.
+            Assertions.assertFalse(beforeExecRan.get(), "beforeExec must not run after a retained timeout");
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("timeout before coordinator setup"));
+            Mockito.verify(coordinator, Mockito.never()).exec();
+            Mockito.verify(coordinator).close();
+        }
+    }
+
+    @Test
+    void testCancellationAfterLastStatusReadFencesBeforeCommit() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        // execImpl() reads an OK status; the completion handoff then flips it before onComplete() commits,
+        // exactly the window row-level UPDATE/DELETE/MERGE has no command-level listener for.
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        Mockito.when(coordinator.getExecStatus()).thenAnswer(invocation -> cancelled.get()
+                ? new Status(TStatusCode.TIMEOUT, "timeout after last status read")
+                : new Status(TStatusCode.OK, ""));
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10007L;
+            executor.registerListener(new AbstractInsertExecutor.InsertExecutorListener() {
+                @Override
+                public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) {
+                    cancelled.set(true);
+                }
+            });
+
+            Assertions.assertDoesNotThrow(() -> executor.executeSingleInsert(stmtExecutor));
+
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("timeout after last status read"));
+            Mockito.verify(txnMgr).abortTransaction(Mockito.eq(1L), Mockito.eq(10007L), Mockito.anyString());
+        }
+    }
+
     // Build a fresh context per case so insertResult and QueryState do not leak between tests.
     private ConnectContext createExecutorContext() {
         ConnectContext ctx = new ConnectContext();
@@ -300,6 +384,25 @@ class OlapInsertExecutorTest {
 
         return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
                 Optional.empty(), emptyInsert, 0L, needRegister);
+    }
+
+    private OlapInsertExecutor createExecutorWithBeforeExecProbe(ConnectContext ctx, AtomicBoolean beforeExecRan) {
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.getFullName()).thenReturn("test_db");
+        Mockito.when(database.getId()).thenReturn(1L);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn("test_tbl");
+        Mockito.when(table.getId()).thenReturn(2L);
+
+        return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
+                Optional.empty(), false, 0L) {
+            @Override
+            protected void beforeExec() {
+                beforeExecRan.set(true);
+            }
+        };
     }
 
     // Redirect coordinator creation and transaction access to mocks so the test stays deterministic.

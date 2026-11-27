@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -177,6 +179,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -323,6 +326,9 @@ public class Coordinator implements CoordInterface {
     private final ExecutionProfile executionProfile;
 
     private volatile QueueToken queueToken = null;
+
+    // The first external cancellation or insert commit owns the handoff. Status.OK means commit won.
+    private final AtomicReference<Status> insertCommitDecision = new AtomicReference<>();
     private QueryQueue queryQueue = null;
 
     public ExecutionProfile getExecutionProfile() {
@@ -777,6 +783,10 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -795,8 +805,7 @@ public class Coordinator implements CoordInterface {
                     // AllBackendComputeGroup may assocatiate with multiple workload groups
                     queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    queueToken.get(DebugUtil.printId(queryId),
-                            this.queryOptions.getExecutionTimeout() * 1000);
+                    waitForQueueToken(queueToken, queryId, queryOptions.getExecutionTimeout() * 1000);
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
@@ -929,6 +938,9 @@ public class Coordinator implements CoordInterface {
     protected void sendPipelineCtx() throws Exception {
         lock();
         try {
+            if (!queryStatus.ok()) {
+                throw new UserException(queryStatus.getErrorMsg());
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -1413,16 +1425,27 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        if (queueToken != null) {
-            queueToken.cancel();
-        }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
         }
+        insertCommitDecision.compareAndSet(null, cancelReason);
+        Status decision = insertCommitDecision.get();
+        if (decision != Status.OK) {
+            cancelExecution(decision);
+        }
+    }
+
+    /** Claim the right to commit before entering an OLAP or external transaction manager. */
+    public void beginInsertCommit() throws DdlException {
+        insertCommitDecision.compareAndSet(null, Status.OK);
+        Status decision = insertCommitDecision.get();
+        if (decision != Status.OK) {
+            throw new DdlException(decision.getErrorMsg(), ErrorCode.ERR_FAILED_WHEN_INSERT);
+        }
+    }
+
+    protected void cancelExecution(Status cancelReason) {
         lock();
         try {
             if (!queryStatus.ok()) {
@@ -1443,6 +1466,21 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+        if (queueToken != null) {
+            queueToken.cancel();
+        }
+        // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
+        // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
+        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
+        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scannode stop during cancel, query id: {}",
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     public boolean isQueryCancelled() {
@@ -1452,6 +1490,42 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+    }
+
+    protected Status getQueryStatus() {
+        lock();
+        try {
+            return new Status(queryStatus);
+        } finally {
+            unlock();
+        }
+    }
+
+    protected void waitForQueueToken(QueueToken token, TUniqueId id, int timeoutMs) throws UserException {
+        // Both coordinators publish the token before this check. A later cancellation wakes get().
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            token.cancel();
+            throw new UserException(status.getErrorMsg());
+        }
+        try {
+            token.get(DebugUtil.printId(id), timeoutMs);
+        } catch (UserException e) {
+            throw preferTerminalReason(e);
+        }
+    }
+
+    /**
+     * A queue wait can be unblocked by {@code cancel()}, which records the real TIMEOUT/KILL reason on the
+     * coordinator before cancelling the token, while {@link QueueToken#get} can only report a generic
+     * "query is cancelled". Prefer the retained terminal reason when one is present.
+     */
+    protected UserException preferTerminalReason(UserException queueFailure) {
+        Status current = getQueryStatus();
+        if (!current.ok()) {
+            return new UserException(current.getErrorMsg());
+        }
+        return queueFailure;
     }
 
     private void cancelLatch() {
