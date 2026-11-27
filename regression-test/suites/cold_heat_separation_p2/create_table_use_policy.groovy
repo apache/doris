@@ -47,6 +47,16 @@ suite("create_table_use_policy") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
+    // SHOW TABLETS may return replicas in a different order after cooldown.
+    def sampleSameReplica = { rows, initial ->
+        def replica = rows.find { row ->
+            row.TabletId == initial.TabletId && row.ReplicaId == initial.ReplicaId &&
+                    row.BackendId == initial.BackendId
+        }
+        assertTrue(replica != null, "Sampled replica disappeared: tablet=${initial.TabletId}, " +
+                "replica=${initial.ReplicaId}, backend=${initial.BackendId}")
+        fetchDataSize(sizes, replica)
+    }
     def suffix = UUID.randomUUID().hashCode().abs()
     def tableName = "lineitem2${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -196,7 +206,8 @@ suite("create_table_use_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    fetchDataSize(sizes, tablets[0])
+    def initialReplica = tablets[0]
+    fetchDataSize(sizes, initialReplica)
     def LocalDataSize1 = sizes[0]
 
     // 等待10min，show tablets from table, 预期RemoteDataSize 不为0，且等于LocalDataSize1，预期LocalDataSize 为0
@@ -207,7 +218,7 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    fetchDataSize(sizes, tablets[0])
+    sampleSameReplica(tablets, initialReplica)
     def retry = 100
     while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
@@ -215,7 +226,7 @@ suite("create_table_use_policy") {
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        fetchDataSize(sizes, tablets[0])
+        sampleSameReplica(tablets, initialReplica)
     }
     assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
@@ -264,7 +275,8 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    fetchDataSize(sizes, tablets[0])
+    initialReplica = tablets[0]
+    fetchDataSize(sizes, initialReplica)
     LocalDataSize1 = sizes[0]
 
     // 等待10min，show tablets from table, 预期RemoteDataSize 不为0，且等于LocalDataSize1，预期LocalDataSize 为0
@@ -275,7 +287,7 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    fetchDataSize(sizes, tablets[0])
+    sampleSameReplica(tablets, initialReplica)
     retry = 100
     while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
@@ -283,7 +295,7 @@ suite("create_table_use_policy") {
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        fetchDataSize(sizes, tablets[0])
+        sampleSameReplica(tablets, initialReplica)
     }
     assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
