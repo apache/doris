@@ -160,6 +160,25 @@ public class ConstantFunctionArgumentTest {
     }
 
     @Test
+    public void testRoundingScaleMatchesBackendRange() {
+        // No rows are needed. The constant and NULL paths must reject the same scales as BE.
+        for (String function : new String[] {"round", "round_bankers", "truncate", "floor", "ceil",
+                "dround", "dfloor", "dceil"}) {
+            // Analyze both legal endpoints. Do not evaluate a large precision in the FE.
+            for (String scale : new String[] {"-32768", "32767"}) {
+                Assertions.assertDoesNotThrow(() -> analyze("select " + function
+                        + "(cast(1 as double), " + scale + ")", BoundFunction.class));
+            }
+            for (String scale : new String[] {"-32769", "32768", "-18446744073709551616"}) {
+                assertAnalysisError("select " + function + "(cast(1 as double), " + scale + ")",
+                        "Scale argument for function");
+                assertAnalysisError("select " + function + "(null, " + scale + ")",
+                        "Scale argument for function");
+            }
+        }
+    }
+
+    @Test
     public void testScalarFunctionArgumentsAreNotFoldedByAnalysis() {
         // only the rewrite folds an argument whose value the signature does not depend on
         assertFoldedByRewrite("select sha2('abc', 200 + 56)", Sha2.class, 1);

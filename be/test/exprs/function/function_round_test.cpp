@@ -1327,6 +1327,24 @@ TEST(RoundFunctionTest, decimal_rounding_overflow) {
     }
 }
 
+TEST(RoundFunctionTest, float_scale_boundaries) {
+    // SQL promotes FLOAT to DOUBLE. Use the existing direct implementation helper
+    // to cover the FLOAT dispatcher with one row and avoid changing registrations.
+    // A 39-place precision changes 1e-40 even though 10^39 does not fit FLOAT.
+    for (bool constant : {false, true}) {
+        float_checker<FloatTruncateFunction, TYPE_FLOAT>({{1e-40F, 39, 0}}, constant);
+        float_checker<FloatRoundFunction, TYPE_FLOAT>({{1e-40F, 39, 0}}, constant);
+        float_checker<FloatRoundBankersFunction, TYPE_FLOAT>({{1e-40F, 39, 0}}, constant);
+        float_checker<FloatCeilFunction, TYPE_FLOAT>({{1e-40F, 39, 1e-39F}}, constant);
+        float_checker<FloatFloorFunction, TYPE_FLOAT>({{-1e-40F, 39, -1e-39F}}, constant);
+        const auto smallest = std::numeric_limits<float>::denorm_min();
+        float_checker<FloatCeilFunction, TYPE_FLOAT>({{smallest, 46, smallest}}, constant);
+        // Large negative precisions must use the decimal factor, not UINT64_MAX.
+        float_checker<FloatRoundFunction, TYPE_FLOAT>({{1e19F, -20, 0}}, constant);
+        float_checker<FloatCeilFunction, TYPE_FLOAT>({{1e19F, -20, 1e20F}}, constant);
+    }
+}
+
 /// tests for func(Column, Column) with float input
 TEST(RoundFunctionTest, normal_float) {
     float_checker<FloatTruncateFunction, TYPE_FLOAT>(trunc_float32_cases, false);
