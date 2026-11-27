@@ -96,12 +96,14 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
     {
         auto num_rows = 2;
         auto in_block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt64>({1, 2}));
+        const auto batch_bytes = in_block->bytes();
         EXPECT_TRUE(buffer.add_batch(&state, in_block).ok());
         EXPECT_EQ(buffer._instance_rows[ins_id], num_rows);
         EXPECT_EQ(buffer._instance_rows_in_queue.back()[ins_id], num_rows);
         EXPECT_TRUE(buffer._waiting_rpc.empty());
         EXPECT_EQ(buffer._packet_num, 0);
         EXPECT_EQ(buffer._result_batch_queue.size(), 1);
+        EXPECT_EQ(buffer._last_batch_bytes, batch_bytes);
         EXPECT_FALSE(dep->ready());
 
         in_block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt64>({1, 2}));
@@ -111,6 +113,8 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
         EXPECT_TRUE(buffer._waiting_rpc.empty());
         EXPECT_EQ(buffer._packet_num, 0);
         EXPECT_EQ(buffer._result_batch_queue.size(), 1);
+        EXPECT_EQ(buffer._last_batch_bytes, batch_bytes * 2);
+        EXPECT_EQ(buffer._result_batch_queue.back()->rows(), num_rows * 2);
         EXPECT_FALSE(dep->ready());
     }
     {

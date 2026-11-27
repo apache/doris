@@ -143,7 +143,7 @@ suite("test_export_variant_10k_columns", "p0") {
         
         // 5. Validate by S3 TVF
         def s3_tvf_sql = """ s3(
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "${format}",

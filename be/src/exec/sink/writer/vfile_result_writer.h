@@ -121,6 +121,8 @@ private:
     int64_t _current_written_bytes = 0;
     // the suffix idx of export file name, start at 0
     int _file_idx = 0;
+    // The actual name passed to the most recently created file writer.
+    std::string _file_name;
 
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;

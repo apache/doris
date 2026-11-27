@@ -69,6 +69,8 @@ suite("test_export_with_s3", "p2") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
+                assertFalse(json.url[0][0].contains("*"))
+                assertTrue(json.url[0][0].contains("_0."))
                 log.info("outfile_path: ${json.url[0][0]}")
                 return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {
@@ -102,10 +104,11 @@ suite("test_export_with_s3", "p2") {
         """
 
         def outfile_url = waiting_export.call(uuid)
+        assertTrue(outfile_url.endsWith("_0.${file_suffix}"))
 
         // check data correctness
         order_qt_select """ select * from s3(
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}0.${file_suffix}",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${format}",

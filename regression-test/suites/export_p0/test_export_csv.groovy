@@ -118,6 +118,12 @@ suite("test_export_csv", "p0") {
             def res = sql """ show export where label = "${export_label}" """
             logger.info("export state: " + res[0][2])
             if (res[0][2] == "FINISHED") {
+                parseJson(res[0][11]).flatten().each { info ->
+                    assertEquals("1", info.fileNumber)
+                    assertTrue(info.url.startsWith("file:///"))
+                    assertFalse(info.url.contains("*"))
+                    assertTrue(info.url.endsWith("_0.csv") || info.url.endsWith("_0.csv.gz"))
+                }
                 break;
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")

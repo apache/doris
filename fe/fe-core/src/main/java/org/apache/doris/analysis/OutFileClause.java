@@ -66,6 +66,8 @@ public class OutFileClause {
     public static final String TOTAL_ROWS = "TotalRows";
     public static final String FILE_SIZE = "FileSize";
     public static final String URL = "URL";
+    // Attached result info for SHOW EXPORT only; not a SELECT INTO OUTFILE result column.
+    public static final String SINGLE_FILE_URL = "SingleFileURL";
     public static final String WRITE_TIME_SEC = "WriteTimeSec";
     public static final String WRITE_SPEED_KB = "WriteSpeedKB";
 

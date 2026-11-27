@@ -124,6 +124,8 @@ suite("test_export_data_types", "p0") {
                 def json = parseJson(res[0][11])
                 assert json instanceof List
                 assertEquals("1", json.fileNumber[0][0])
+                assertFalse(json.url[0][0].contains("*"))
+                assertTrue(json.url[0][0].contains("_0."))
                 log.info("outfile_path: ${json.url[0][0]}")
                 return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {
@@ -157,7 +159,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load1 """ SELECT * FROM s3(
-                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -192,7 +194,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load2 """ SELECT * FROM s3(
-                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -226,7 +228,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load3 """ SELECT * FROM s3(
-                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -260,7 +262,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load4 """ SELECT * FROM s3(
-                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
@@ -295,7 +297,7 @@ suite("test_export_data_types", "p0") {
         def outfile_url = waiting_export.call(label)
         
         qt_select_load5 """ SELECT * FROM s3(
-                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
+                                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",

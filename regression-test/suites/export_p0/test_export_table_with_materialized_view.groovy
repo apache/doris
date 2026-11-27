@@ -84,6 +84,9 @@ suite("test_export_table_with_materialized_view", "p0") {
                 assert json instanceof List
                 assertEquals(1, json[0].size())
                 assertEquals("100", json[0][0].totalRows)
+                assertEquals("1", json.fileNumber[0][0])
+                assertFalse(json.url[0][0].contains("*"))
+                assertTrue(json.url[0][0].endsWith("_0.parquet"))
                 return json.url[0][0];
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")
@@ -116,7 +119,7 @@ suite("test_export_table_with_materialized_view", "p0") {
         def outfile_url = waiting_export.call(label)
 
         qt_select_load1 """ select * from s3(
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5+bucket.length(), outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",

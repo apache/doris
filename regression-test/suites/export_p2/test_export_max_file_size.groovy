@@ -139,10 +139,11 @@ suite("test_export_max_file_size", "p2,external") {
             assertTrue(fileNum > 1, "Export with max_file_size should produce multiple files, but got ${fileNum}")
 
             def outfile_url = json.url[0][0]
+            assertTrue(outfile_url.endsWith("_*"))
 
             qt_sql_count """ 
                 select count(*) from s3(
-                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.csv",
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.${file_suffix}",
                     "ACCESS_KEY"= "${ak}",
                     "SECRET_KEY" = "${sk}",
                     "format" = "csv",
@@ -155,7 +156,7 @@ suite("test_export_max_file_size", "p2,external") {
             sql """ 
                 insert into ${table_load_name}
                 select * from s3(
-                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.csv",
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length())}.${file_suffix}",
                     "ACCESS_KEY"= "${ak}",
                     "SECRET_KEY" = "${sk}",
                     "format" = "csv",

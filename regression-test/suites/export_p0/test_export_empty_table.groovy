@@ -103,6 +103,7 @@ suite("test_export_empty_table", "p0") {
             def res = sql """ show export where label = "${export_label}" """
             logger.info("export state: " + res[0][2])
             if (res[0][2] == "FINISHED") {
+                assertTrue(parseJson(res[0][11]).flatten().isEmpty())
                 break;
             } else if (res[0][2] == "CANCELLED") {
                 throw new IllegalStateException("""export failed: ${res[0][10]}""")

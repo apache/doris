@@ -74,6 +74,8 @@ suite("test_export_with_parallelism", "p2") {
                 // because parallelism = min(parallelism, tablets_num)
                 for (int idx = 0; idx < parallelism && idx < 3; ++idx) {
                     assertEquals("1", json.fileNumber[idx][0])
+                    assertFalse(json.url[idx][0].contains("*"))
+                    assertTrue(json.url[idx][0].contains("_0."))
                     log.info("outfile_path: ${json.url[idx][0]}")
                     resultUrl.add(json.url[idx][0])
                 }
@@ -110,6 +112,7 @@ suite("test_export_with_parallelism", "p2") {
         """
 
         def outfile_url_list = waiting_export.call(uuid, parallelism)
+        outfile_url_list.each { assertTrue(it.endsWith("_0.${file_suffix}")) }
 
         // create table and insert
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
@@ -135,7 +138,7 @@ suite("test_export_with_parallelism", "p2") {
             // check data correctness
             sql """ insert into ${table_load_name}
                         select * from s3(
-                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url_list.get(j).substring(5 + bucket.length())}.${file_suffix}",
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url_list.get(j).substring(5 + bucket.length())}",
                         "s3.access_key"= "${ak}",
                         "s3.secret_key" = "${sk}",
                         "format" = "${format}",

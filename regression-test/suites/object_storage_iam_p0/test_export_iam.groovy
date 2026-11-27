@@ -92,8 +92,9 @@ suite("test_export_iam") {
 
         def s3Prefix = "s3://${config.bucket}/"
         assertTrue(exportedUrl.startsWith(s3Prefix), "Unexpected export URL: ${exportedUrl}")
+        assertFalse(exportedUrl.contains("*"), "Expected a single exported file: ${exportedUrl}")
         def exportedFile = "${config.scheme}://${config.bucket}/" +
-                "${exportedUrl.substring(s3Prefix.length())}0.csv"
+                "${exportedUrl.substring(s3Prefix.length())}"
         def result = sql """
             SELECT COUNT(*) FROM s3(
                 "uri" = "${exportedFile}",

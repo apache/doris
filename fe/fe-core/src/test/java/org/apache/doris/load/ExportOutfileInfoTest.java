@@ -17,15 +17,56 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public class ExportOutfileInfoTest {
+
+    @Test
+    public void testAttachedFileUrls() {
+        String prefix = "s3://bucket/export/fragment_";
+        Map<String, String> singleFile = new HashMap<>();
+        singleFile.put(OutFileClause.FILE_NUMBER, "1");
+        singleFile.put(OutFileClause.TOTAL_ROWS, "10");
+        singleFile.put(OutFileClause.FILE_SIZE, "100");
+        singleFile.put(OutFileClause.URL, prefix + "*");
+        singleFile.put(OutFileClause.SINGLE_FILE_URL, prefix + "0.csv.gz");
+        singleFile.put(OutFileClause.WRITE_TIME_SEC, "0.001");
+        singleFile.put(OutFileClause.WRITE_SPEED_KB, "97.66");
+
+        Map<String, String> oldBackend = new HashMap<>(singleFile);
+        oldBackend.remove(OutFileClause.SINGLE_FILE_URL);
+        Map<String, String> multipleFiles = new HashMap<>(oldBackend);
+        multipleFiles.put(OutFileClause.FILE_NUMBER, "2");
+        Map<String, String> noFiles = new HashMap<>(oldBackend);
+        noFiles.put(OutFileClause.FILE_NUMBER, "0");
+
+        ExportTaskExecutor executor = new ExportTaskExecutor(Optional.empty(), null);
+        List<OutfileInfo> infos = Deencapsulation.invoke(executor, "getOutFileInfo",
+                Lists.newArrayList(singleFile, oldBackend, multipleFiles, noFiles));
+        Assertions.assertEquals(4, infos.size());
+        Assertions.assertEquals(prefix + "0.csv.gz", infos.get(0).getUrl());
+        for (int i = 1; i < infos.size(); i++) {
+            Assertions.assertEquals(prefix + "*", infos.get(i).getUrl());
+        }
+        Assertions.assertEquals("1", infos.get(0).getFileNumber());
+        Assertions.assertEquals("10", infos.get(0).getTotalRows());
+        Assertions.assertEquals("100", infos.get(0).getFileSize());
+        Assertions.assertEquals("0.001", infos.get(0).getWriteTime());
+        Assertions.assertEquals("97.66", infos.get(0).getWriteSpeed());
+        Assertions.assertEquals(prefix + "*", singleFile.get(OutFileClause.URL));
+        Assertions.assertEquals(6, OutFileClause.RESULT_COL_NAMES.size());
+    }
 
     @Test
     public void testOutfileInfo() throws Exception {
