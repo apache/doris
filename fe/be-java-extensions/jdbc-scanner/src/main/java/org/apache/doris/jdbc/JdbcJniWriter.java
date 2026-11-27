@@ -141,8 +141,9 @@ public class JdbcJniWriter extends JniWriter {
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
             // The transformer only marks itself opened after this method succeeds, so it cannot
-            // clean up a borrowed connection when prepareStatement fails here.
-            closeResources(false, new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl));
+            // clean up a borrowed connection when prepareStatement fails here. A failed borrower
+            // must not close the cache-owned pool, which may serve other active writers.
+            closeResources(false, new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl), false);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -178,10 +179,10 @@ public class JdbcJniWriter extends JniWriter {
 
     @Override
     protected void closeInternal(boolean succeeded) throws IOException {
-        closeResources(succeeded, null);
+        closeResources(succeeded, null, true);
     }
 
-    private void closeResources(boolean succeeded, JdbcIOException failure) throws IOException {
+    private void closeResources(boolean succeeded, JdbcIOException failure, boolean closePool) throws IOException {
         if (transactionActive) {
             // Clear before attempting finalization: a repeated close must never retry commit.
             transactionActive = false;
@@ -232,13 +233,13 @@ public class JdbcJniWriter extends JniWriter {
         }
         if (hikariDataSource != null) {
             try {
-                if (connectionPoolMinSize == 0) {
+                if (closePool && connectionPoolMinSize == 0) {
                     hikariDataSource.close();
                 }
             } catch (RuntimeException e) {
                 failure = closeFailure(failure, "pool close", e);
             } finally {
-                if (connectionPoolMinSize == 0) {
+                if (closePool && connectionPoolMinSize == 0) {
                     JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey(), hikariDataSource);
                 }
                 hikariDataSource = null;
