@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/arrow_parent_nulls.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "format/arrow/arrow_array_normalizer.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -58,8 +59,9 @@ public:
     Status convert_to_arrow_type(const DataTypePtr& origin_type,
                                  std::shared_ptr<arrow::DataType>* result) const override {
         const auto type = remove_nullable(origin_type);
-        // VARIANT output may be UTF-8, but its input SerDe requires the native binary carrier,
-        // including when VARIANT is nested in an ARRAY, MAP, or STRUCT.
+        // The declared Arrow type of a VARIANT is the native binary carrier, though VARIANT
+        // output may be UTF-8. No array is cast to it: input_binding_type() keeps the wire type of
+        // a VARIANT at every nesting depth and its SerDe checks the carrier shape.
         if (type->get_primitive_type() == TYPE_VARIANT) {
             *result = arrow::struct_({arrow::field("metadata", arrow::binary(), false),
                                       arrow::field("value", arrow::binary(), false)});
@@ -426,9 +428,16 @@ Status ArrowStreamReader::_open_next_stream() {
 Status ArrowStreamReader::_prepare_arrays() {
     _arrays.assign(_file_slots.size(), nullptr);
     for (const auto& [id, position] : _request->local_positions) {
-        std::shared_ptr<arrow::Array> array;
-        RETURN_IF_ERROR(normalize_arrow_array(_batch->column(_arrow_positions[id.value()]),
-                                              _arrow_pool.get(), &array));
+        std::shared_ptr<arrow::Array> array = _batch->column(_arrow_positions[id.value()]);
+        // The VARIANT SerDe reads large_binary and dictionary-encoded metadata itself. Decoding
+        // a metadata dictionary here would copy a batch's shared blob, often tens of KB, into
+        // every row and make the SerDe compare it row by row. A VARIANT nested in ARRAY, MAP or
+        // STRUCT is still normalized with its parent, which is correct but decodes the dictionary.
+        if (remove_nullable(_file_slots[id.value()]->type())->get_primitive_type() !=
+                    TYPE_VARIANT ||
+            !DataTypeVariantV2SerDe::is_arrow_input_type(*array->type())) {
+            RETURN_IF_ERROR(normalize_arrow_array(array, _arrow_pool.get(), &array));
+        }
         arrow::compute::ExecContext context(_arrow_pool.get());
         auto binding_result = input_binding_type(array->type(), _arrow_types[id.value()],
                                                  _file_slots[id.value()]->type());

@@ -327,9 +327,13 @@ void VariantMetadataBuilder::seal() {
             variant_minimum_unsigned_width(std::max<uint64_t>(count, strings_size));
     const uint64_t encoded_size =
             1 + offset_width + (static_cast<uint64_t>(count) + 1) * offset_width + strings_size;
-    if (encoded_size > std::numeric_limits<size_t>::max()) {
+    // The header and offsets are part of the metadata a column stores, so the key bytes alone
+    // fitting in uint32 is not enough: two keys of 2^31 and 2^31 - 1 bytes pass the check above
+    // and encode to 2^32 + 16 bytes, which ColumnVariantV2::insert_encoded_batch asserts against.
+    // Untrusted input reaches this through a load, so it must fail the load instead.
+    if (encoded_size > std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant metadata exceeds the addressable output size");
+                        "Variant metadata of {} bytes exceeds the uint32 byte limit", encoded_size);
     }
     _impl->encoded.reserve(static_cast<size_t>(encoded_size));
     const uint8_t header =
