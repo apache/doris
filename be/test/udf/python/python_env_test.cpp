@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/process.hpp>
 #include <csignal>
 #include <filesystem>
 #include <fstream>
@@ -31,6 +32,7 @@
 namespace doris {
 
 namespace fs = std::filesystem;
+namespace bp = boost::process;
 
 static PythonVersion create_fake_python_version_for_pip_list(const std::string& base_path,
                                                              const std::string& script_body,
@@ -188,43 +190,53 @@ TEST_F(PythonEnvTest, ScanFromVenvRootPathNonExistentInterpreter) {
     EXPECT_TRUE(status.to_string().find("Interpreter path not found") != std::string::npos);
 }
 
-TEST_F(PythonEnvTest, ScanFromVenvRootPathCreatesAndValidatesEnvironment) {
-    // One environment is sufficient to test version discovery and creation with literal paths.
-    const std::string root_path = test_dir_ + "/venv 'root' $(printf injected)";
-    const std::string interpreter_path = test_dir_ + "/python '3.11' $(printf injected)";
-    fs::create_directories(root_path);
+TEST_F(PythonEnvTest, ScanFromVenvRootPathUsesConfiguredEnvironment) {
+    bp::ipstream version_output;
+    bp::child version_process("/bin/sh", "-c",
+                              "exec python3 -c 'import sys; print(sys._base_executable); "
+                              "print(\".\".join(map(str, sys.version_info[:3])))'",
+                              bp::std_out > version_output);
+    std::string python;
+    std::string version;
+    std::getline(version_output, python);
+    std::getline(version_output, version);
+    version_process.wait();
+    ASSERT_EQ(version_process.exit_code(), 0);
+    ASSERT_FALSE(python.empty());
+    ASSERT_FALSE(version.empty());
 
-    // Model the two interpreter operations used by the production VENV path: version discovery
-    // and `python -m venv`. The generated environment also answers --version, so the scanner must
-    // complete its normal validation instead of accepting a directory shape alone.
-    {
-        std::ofstream ofs(interpreter_path);
-        ofs << "#!/bin/bash\n";
-        ofs << "if [ \"$1\" = \"--version\" ]; then\n";
-        ofs << "    echo 'Python 3.11.9'\n";
-        ofs << "    exit 0\n";
-        ofs << "fi\n";
-        ofs << "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ] && "
-               "[ \"$3\" = \"--system-site-packages\" ]; then\n";
-        ofs << "    mkdir -p \"$4/bin\" \"$4/lib/python3.11/site-packages\"\n";
-        ofs << "    cp \"$0\" \"$4/bin/python\"\n";
-        ofs << "    exit 0\n";
-        ofs << "fi\n";
-        ofs << "exit 1\n";
-    }
-    fs::permissions(interpreter_path, fs::perms::owner_all);
-
+    const auto root_path = fs::path(test_dir_) / "venv 'root'";
+    fs::create_directory(root_path);
+    const auto env_path = root_path / version;
+    const auto python_path = (env_path / "bin/python3").string();
     std::vector<PythonEnvironment> envs;
-    Status status =
-            PythonEnvironment::scan_from_venv_root_path(root_path, {interpreter_path}, &envs);
+
+    ASSERT_EQ(bp::system(python, "-m", "venv", "--without-pip", env_path.string()), 0);
+    auto status = PythonEnvironment::scan_from_venv_root_path(root_path, {python_path}, &envs);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_EQ(envs.size(), 1);
-    EXPECT_EQ(envs[0].env_name, "python3.11.9");
-    EXPECT_EQ(envs[0].python_version.full_version, "3.11.9");
-    EXPECT_EQ(envs[0].python_version.base_path, root_path + "/python3.11.9");
-    EXPECT_EQ(envs[0].python_version.executable_path, root_path + "/python3.11.9/bin/python");
-    EXPECT_TRUE(fs::is_directory(root_path + "/python3.11.9/lib/python3.11/site-packages"));
+    EXPECT_EQ(envs[0].env_name, version);
+    EXPECT_EQ(envs[0].python_version.full_version, version);
+    EXPECT_EQ(envs[0].python_version.base_path, env_path.string());
+    EXPECT_EQ(envs[0].python_version.executable_path, python_path);
+    EXPECT_FALSE(fs::exists(root_path / ("python" + version)));
+
+    const auto other_root = fs::path(test_dir_) / "venv";
+    fs::create_directory(other_root);
+    envs.clear();
+    status = PythonEnvironment::scan_from_venv_root_path(other_root, {python_path}, &envs);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("is outside root"), std::string::npos);
+    EXPECT_TRUE(fs::is_empty(other_root));
+    EXPECT_TRUE(envs.empty());
+
+    const auto versioned_path = root_path / ("python" + version);
+    ASSERT_EQ(bp::system(python, "-m", "venv", "--without-pip", versioned_path.string()), 0);
+    status = PythonEnvironment::scan_from_venv_root_path(root_path, {python}, &envs);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(envs.size(), 1);
+    EXPECT_EQ(envs[0].python_version.executable_path, (versioned_path / "bin/python").string());
 }
 
 // ============================================================================
