@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -83,6 +84,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
 
             List<String> createTableStmt = Lists.newArrayList();
             Map<String, GeneratedColumnDesc> generatedColumns = new HashMap<>();
+            Map<String, AggStateType> aggStateTypes = new HashMap<>();
             table.readLock();
             try {
                 if (table.isManagedTable()) {
@@ -104,6 +106,9 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 }
 
                 for (Column column : table.getBaseSchema()) {
+                    if (column.getType() instanceof AggStateType) {
+                        aggStateTypes.put(column.getName(), (AggStateType) column.getType());
+                    }
                     if (column.isGeneratedColumn()) {
                         GeneratedColumnDesc desc = new GeneratedColumnDesc(
                                 column.getGeneratedColumnInfo().getExprSql());
@@ -136,6 +141,11 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                     createTableInfo.withTableNameAndIfNotExists(createTableLikeInfo.getTableName(),
                             createTableLikeInfo.isIfNotExists()));
                 for (ColumnDefinition column : createTableInfo.getColumnDefinitions()) {
+                    // The generated DDL omits the nested aggregate's result type.
+                    AggStateType sourceType = aggStateTypes.get(column.getName());
+                    if (sourceType != null) {
+                        column.copyAggStateType(sourceType);
+                    }
                     // The synthetic DDL contains AS (NULL); restore the source before any analysis.
                     column.getGeneratedColumnDesc().ifPresent(desc ->
                             column.setGeneratedColumnDesc(generatedColumns.get(column.getName())));

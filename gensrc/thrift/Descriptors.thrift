@@ -110,6 +110,7 @@ struct TColumn {
   // Dynamic default expression retained separately when default_value is a schema-change
   // backfill literal. New writes must evaluate this expression at write time.
   30: optional string default_value_expr
+  31: optional Types.TTypeDesc agg_state_result_type
 }
 
 struct TSlotDescriptor {

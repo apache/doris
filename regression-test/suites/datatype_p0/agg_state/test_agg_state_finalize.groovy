@@ -91,6 +91,21 @@ suite("test_agg_state_finalize") {
         select var_pop_finalize(variance_state(v)), variance_finalize(var_pop_state(v))
         from agg_finalize_input
     """
+    test {
+        sql "select sum_finalize(any_value_merge(any_value_state(sum_state(cast(1 as int)))))"
+        result([[1L]])
+    }
+    test {
+        sql "select count(array_agg_state(sum_state(cast(1 as int))))"
+        result([[1L]])
+    }
+    test {
+        sql """
+            select sum_finalize(any_value_merge(cast(s as agg_state<any_value(agg_state<sum(int not null)> not null)>)))
+            from (select any_value_state(sum_state(cast(1 as int))) as s) t
+        """
+        result([[1L]])
+    }
     for (def query : ["select sum_finalize(avg_state(1))", "select avg_finalize(sum_state(1))"]) {
         test {
             sql query

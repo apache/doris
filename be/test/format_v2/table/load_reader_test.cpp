@@ -782,7 +782,7 @@ protected:
     void check_count_state(bool variable_binary, int width = 8) {
         set_column_type(make_nullable(std::make_shared<DataTypeAggState>(
                 DataTypes {std::make_shared<DataTypeInt32>()}, false, "count",
-                BeExecVersionManager::get_newest_version())));
+                BeExecVersionManager::get_newest_version(), std::make_shared<DataTypeInt64>())));
         std::unique_ptr<arrow::ArrayBuilder> builder;
         const auto wire_type = variable_binary ? arrow::binary() : arrow::fixed_size_binary(width);
         ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), wire_type, &builder).ok());

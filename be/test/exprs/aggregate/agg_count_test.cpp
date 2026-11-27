@@ -67,7 +67,8 @@ TEST_F(AggregateFunctionCountTest, NullableStateUnionPreservesGroupedStates) {
     for (const auto& input : inputs) {
         SCOPED_TRACE(input.type->get_name());
         auto state_type = std::make_shared<DataTypeAggState>(
-                DataTypes {input.type}, false, "count", BeExecVersionManager::get_newest_version());
+                DataTypes {input.type}, false, "count", BeExecVersionManager::get_newest_version(),
+                std::make_shared<DataTypeInt64>());
         auto nested_function = state_type->get_nested_function();
         auto union_function =
                 AggregateStateUnion::create(nested_function, DataTypes {state_type}, state_type);

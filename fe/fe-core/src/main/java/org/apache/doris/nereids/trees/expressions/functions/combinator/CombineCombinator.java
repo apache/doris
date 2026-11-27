@@ -89,7 +89,8 @@ public class CombineCombinator extends AggregateFunction
                         .collect(ImmutableList.toImmutableList()),
                 arguments.stream().map(ExpressionTrait::nullable)
                         .collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()),
+                nested.getDataType());
     }
 
     @Override

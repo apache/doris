@@ -48,7 +48,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -471,13 +470,8 @@ public abstract class DataType {
             case IPV6: return IPv6Type.INSTANCE;
             case UUID: return UuidType.INSTANCE;
             case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
-            case AGG_STATE: {
-                org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
-                List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
-                        .collect(Collectors.toList());
-                return new AggStateType(catalogType.getFunctionName(), types,
-                        catalogType.getSubTypeNullables(), catalogType.getResultIsNullable());
-            }
+            case AGG_STATE:
+                return AggStateType.fromCatalogAggState((org.apache.doris.catalog.AggStateType) type);
             case DECIMALV2: {
                 ScalarType scalarType = (ScalarType) type;
                 int precision = scalarType.getScalarPrecision();

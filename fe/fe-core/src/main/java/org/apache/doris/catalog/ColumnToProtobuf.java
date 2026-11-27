@@ -21,6 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
+import org.apache.doris.proto.Types;
+import org.apache.doris.thrift.TAggStateSignature;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TStructField;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -62,6 +70,10 @@ public class ColumnToProtobuf {
                 builder.setAggregation(aggState.getFunctionName());
                 builder.setResultIsNullable(aggState.getResultIsNullable());
                 builder.setBeExecVersion(Config.be_exec_version);
+                // Preserve absent signatures in legacy table metadata.
+                if (aggState.getResultType() != null) {
+                    builder.setAggStateResultType(aggStateResultToPb(aggState.getResultType().toThrift()));
+                }
                 if (column.getChildren() != null) {
                     for (Column child : column.getChildren()) {
                         builder.addChildrenColumns(toPb(child, Sets.newHashSet(), Lists.newArrayList()));
@@ -134,6 +146,69 @@ public class ColumnToProtobuf {
         }
 
         return builder.build();
+    }
+
+    private static Types.PTypeDesc aggStateResultToPb(TTypeDesc type) {
+        Types.PTypeDesc.Builder result = Types.PTypeDesc.newBuilder();
+        for (TTypeNode node : type.getTypes()) {
+            Types.PTypeNode.Builder output = Types.PTypeNode.newBuilder().setType(node.type.getValue());
+            if (node.isSetScalarType()) {
+                TScalarType scalar = node.scalar_type;
+                Types.PScalarType.Builder value = Types.PScalarType.newBuilder().setType(scalar.type.getValue());
+                if (scalar.isSetLen()) {
+                    value.setLen(scalar.len);
+                }
+                if (scalar.isSetPrecision()) {
+                    value.setPrecision(scalar.precision);
+                }
+                if (scalar.isSetScale()) {
+                    value.setScale(scalar.scale);
+                }
+                output.setScalarType(value);
+                if (scalar.isSetVariantMaxSubcolumnsCount()) {
+                    output.setVariantMaxSubcolumnsCount(scalar.getVariantMaxSubcolumnsCount());
+                }
+                if (scalar.isSetVariantEnableDocMode()) {
+                    output.setVariantEnableDocMode(scalar.isVariantEnableDocMode());
+                }
+                if (scalar.isSetVariantIsV2()) {
+                    output.setVariantIsV2(scalar.isVariantIsV2());
+                }
+            }
+            if (node.isSetStructFields()) {
+                for (TStructField field : node.struct_fields) {
+                    Types.PStructField.Builder outputField = Types.PStructField.newBuilder()
+                            .setName(field.name).setContainsNull(field.contains_null);
+                    if (field.isSetComment()) {
+                        outputField.setComment(field.comment);
+                    }
+                    output.addStructFields(outputField);
+                }
+            }
+            if (node.isSetContainsNull()) {
+                output.setContainsNull(node.contains_null);
+            }
+            if (node.isSetContainsNulls()) {
+                output.addAllContainsNulls(node.contains_nulls);
+            }
+            if (node.type == TTypeNodeType.AGG_STATE) {
+                TAggStateSignature signature = node.getAggState();
+                // Keep the protobuf node readable by older BEs during rolling upgrades.
+                output.setType(TTypeNodeType.SCALAR.getValue());
+                output.setScalarType(Types.PScalarType.newBuilder().setType(TPrimitiveType.AGG_STATE.getValue()));
+                Types.PAggStateSignature.Builder state = output.getAggStateBuilder()
+                        .setFunctionName(signature.function_name).setBeExecVersion(signature.be_exec_version)
+                        .setResultIsNullable(signature.result_is_nullable);
+                for (TTypeDesc subType : signature.sub_types) {
+                    state.addSubTypes(aggStateResultToPb(subType)).addSubTypeNullables(subType.is_nullable);
+                }
+                if (signature.isSetResultType()) {
+                    state.setResultType(aggStateResultToPb(signature.result_type));
+                }
+            }
+            result.addTypes(output);
+        }
+        return result.build();
     }
 
     public static void addChildren(Column column, OlapFile.ColumnPB.Builder builder) throws DdlException {

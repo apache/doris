@@ -79,6 +79,10 @@ public class ColumnToThrift {
             AggStateType aggState = (AggStateType) column.getType();
             tColumn.setAggregation(aggState.getFunctionName());
             tColumn.setResultIsNullable(aggState.getResultIsNullable());
+            // Preserve absent signatures in legacy table metadata.
+            if (aggState.getResultType() != null) {
+                tColumn.setAggStateResultType(aggState.getResultType().toThrift());
+            }
             if (column.getChildren() != null) {
                 for (Column child : column.getChildren()) {
                     tColumn.addToChildrenColumn(toThrift(child));
