@@ -74,6 +74,10 @@ public class TopnFilter {
             tFilter.putToTargetNodeIdToTargetExpr(scan.getId().asInt(),
                     ExprToThriftVisitor.treeToThrift(legacyTargets.get(scan)));
         }
+        long cacheDigest = TopnConditionCache.computeDigest(this);
+        if (cacheDigest != 0) {
+            tFilter.setConditionCacheDigest(cacheDigest);
+        }
         return tFilter;
     }
 }

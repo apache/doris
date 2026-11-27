@@ -158,8 +158,9 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
         return;
     }
 
-    // Only dispose need column predicate and expr cal in condition cache
-    if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
+    // A TopN scope also covers pure ORDER BY LIMIT and predicates fully evaluated by indexes.
+    if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty() ||
+        !_opts.topn_filter_source_node_ids.empty()) {
         if (_opts.condition_cache_digest) {
             auto* condition_cache = ConditionCache::instance();
             ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
@@ -1031,10 +1032,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     ++it;
                 }
             }
-            _opts.condition_cache_digest =
-                    _common_expr_ctxs_push_down.empty() && !_index_conjuncts_proved_empty
-                            ? 0
-                            : _opts.condition_cache_digest;
+            if (_common_expr_ctxs_push_down.empty() && !_index_conjuncts_proved_empty &&
+                _opts.topn_filter_source_node_ids.empty()) {
+                _opts.condition_cache_digest = 0;
+            }
             _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
             for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
                 bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
@@ -2975,22 +2976,12 @@ Status SegmentIterator::_read_columns_by_rowids(const std::vector<ColumnId>& rea
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
                                                 MutableColumns* mutable_columns,
-                                                bool init_condition_cache,
                                                 bool read_for_predicate) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
 
-    if (init_condition_cache) {
-        DCHECK(_condition_cache);
-        auto& condition_cache = *_condition_cache;
-        for (size_t i = 0; i < select_size; ++i) {
-            rowids[i] = rowid_vector[sel_rowid_idx[i]];
-            condition_cache[rowids[i] / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
-        }
-    } else {
-        for (size_t i = 0; i < select_size; ++i) {
-            rowids[i] = rowid_vector[sel_rowid_idx[i]];
-        }
+    for (size_t i = 0; i < select_size; ++i) {
+        rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
 
     for (auto cid : read_ordinals) {
@@ -3287,7 +3278,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_ordinals, _block_rowids, _sel_rowid_idx.data(),
-                                _selected_size, &_current_columns, false, true));
+                                _selected_size, &_current_columns, true));
                         RETURN_IF_ERROR(_process_columns(_common_expr_ordinals, block));
                     }
 
@@ -3312,24 +3303,24 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
 
         // step4: read deferred output columns
-        if (_selected_size > 0) {
-            if (!_output_ordinals.empty()) {
-                RETURN_IF_ERROR(_read_columns_by_rowids(
-                        _output_ordinals, _block_rowids, _sel_rowid_idx.data(), _selected_size,
-                        &_current_columns, _opts.condition_cache_digest && !_find_condition_cache,
-                        false));
-            } else {
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
-                    auto& condition_cache = *_condition_cache;
-                    for (size_t i = 0; i < _selected_size; ++i) {
-                        auto rowid = _block_rowids[_sel_rowid_idx[i]];
-                        condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
-                    }
-                }
-            }
+        if (_selected_size > 0 && !_output_ordinals.empty()) {
+            RETURN_IF_ERROR(_read_columns_by_rowids(_output_ordinals, _block_rowids,
+                                                    _sel_rowid_idx.data(), _selected_size,
+                                                    &_current_columns));
         }
 
         RETURN_IF_ERROR(_read_lazy_pruned_columns(block));
+    }
+
+    // Record survivors independently of deferred column reads. A pure TopN scan may have no
+    // active row predicate yet, in which case every row read must remain eligible in the cache.
+    if (_opts.condition_cache_digest && !_find_condition_cache) {
+        DCHECK(_condition_cache);
+        const bool use_selection = _is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval;
+        for (size_t i = 0; i < _selected_size; ++i) {
+            auto rowid = _block_rowids[use_selection ? _sel_rowid_idx[i] : i];
+            (*_condition_cache)[rowid / CONDITION_CACHE_OFFSET] = true;
+        }
     }
 
     // step5: output columns

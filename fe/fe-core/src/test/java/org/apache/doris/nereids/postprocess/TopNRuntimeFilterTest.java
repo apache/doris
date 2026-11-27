@@ -67,6 +67,39 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
     }
 
     @Test
+    public void testConditionCacheIdentityInTranslatedPlan() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousCache = connectContext.getSessionVariable().enableConditionCache;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().enableConditionCache = true;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules + ",PRUNE_EMPTY_PARTITION");
+        try {
+            for (String sql : List.of("SELECT k FROM topn_safety ORDER BY k LIMIT 3",
+                    "SELECT k FROM topn_safety WHERE id % 7 = 0 ORDER BY k DESC LIMIT 3 OFFSET 2")) {
+                PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+                    Assertions.assertFalse(planner.getTopnFilters().isEmpty(), sql);
+                    for (TopnFilter filter : planner.getTopnFilters()) {
+                        Assertions.assertTrue(filter.toThrift().isSetConditionCacheDigest(),
+                                filter.legacySortNode.getExplainString());
+                    }
+                });
+            }
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT k, count(*) FROM topn_safety GROUP BY k ORDER BY k LIMIT 3", planner -> {
+                        for (TopnFilter filter : planner.getTopnFilters()) {
+                            Assertions.assertFalse(filter.toThrift().isSetConditionCacheDigest());
+                        }
+                    });
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().enableConditionCache = previousCache;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
     public void testUseTopNRf() {
         String sql = "select * from customer order by c_custkey limit 5";
         PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
