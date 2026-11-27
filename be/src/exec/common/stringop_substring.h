@@ -95,25 +95,30 @@ struct StringOP {
 
     static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
                             int32_t repeat_times) {
-        if (UNLIKELY(repeat_times <= 0)) {
+        if (UNLIKELY(repeat_times <= 0 || src_size == 0)) {
             return;
         }
-        uint8_t* dst_begin = dst;
-        uint8_t* dst_curr = dst;
-        int32_t k = 0;
-        int32_t is_odd = repeat_times & 1;
-        repeat_times >>= 1;
+        const auto count = static_cast<size_t>(repeat_times);
+        if (src_size == 1) {
+            memset(dst, *src, count);
+            return;
+        }
 
-        memcpy(dst_curr, src, src_size);
-        dst_curr += src_size;
-        for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
-            int64_t len = src_size * (1 << k);
-            memcpy(dst_curr, dst_begin, len);
-            dst_curr += len;
-            if (is_odd) {
-                memcpy(dst_curr, dst_begin, len);
-                dst_curr += len;
-            }
+        // Keep reusing a small prefix instead of reading an ever larger part of the output.
+        // For example, a 3-byte pattern builds a 12 KiB block of 4096 whole copies.
+        constexpr size_t max_prefix_size = 16 * 1024;
+        const size_t total_size = src_size * count;
+        memcpy(dst, src, src_size);
+        size_t prefix_size = src_size;
+        while (prefix_size <= max_prefix_size / 2 && prefix_size <= total_size - prefix_size) {
+            memcpy(dst + prefix_size, dst, prefix_size);
+            prefix_size *= 2;
+        }
+        // The prefix contains whole copies, so the tail can also start at its first byte.
+        for (size_t offset = prefix_size; offset < total_size;) {
+            const size_t copy_size = std::min(prefix_size, total_size - offset);
+            memcpy(dst + offset, dst, copy_size);
+            offset += copy_size;
         }
     }
 };
