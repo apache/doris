@@ -1864,13 +1864,16 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE, needForward = true)
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE, needForward = true,
+            checker = "checkRuntimeBloomFilterSize")
     private int runtimeBloomFilterSize = 2097152;
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true,
+            checker = "checkRuntimeBloomFilterSize")
     private int runtimeBloomFilterMinSize = 1048576;
 
-    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true,
+            checker = "checkRuntimeBloomFilterSize")
     private int runtimeBloomFilterMaxSize = 67108864;
 
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
@@ -5031,6 +5034,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getRuntimeBloomFilterSize() {
+        validateRuntimeBloomFilterSizes();
         return runtimeBloomFilterSize;
     }
 
@@ -5039,6 +5043,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getRuntimeBloomFilterMinSize() {
+        validateRuntimeBloomFilterSizes();
         return runtimeBloomFilterMinSize;
     }
 
@@ -5047,11 +5052,36 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getRuntimeBloomFilterMaxSize() {
+        validateRuntimeBloomFilterSizes();
         return runtimeBloomFilterMaxSize;
     }
 
     public void setRuntimeBloomFilterMaxSize(int runtimeBloomFilterMaxSize) {
         this.runtimeBloomFilterMaxSize = runtimeBloomFilterMaxSize;
+    }
+
+    public void checkRuntimeBloomFilterSize(String value) {
+        checkRuntimeBloomFilterSize(Integer.parseInt(value));
+    }
+
+    private static void checkRuntimeBloomFilterSize(int size) {
+        // BlockBloomFilter needs at least two 32-byte buckets; session sizes must fit a positive int.
+        if (size < 64 || (size & (size - 1)) != 0) {
+            throw new InvalidParameterException("Runtime bloom filter size must be a power of two between "
+                    + "64 and 1073741824 bytes, got " + size);
+        }
+    }
+
+    private void validateRuntimeBloomFilterSizes() {
+        // Journal replay restores fields without SET checkers. Check before planning or sending them.
+        checkRuntimeBloomFilterSize(runtimeBloomFilterSize);
+        checkRuntimeBloomFilterSize(runtimeBloomFilterMinSize);
+        checkRuntimeBloomFilterSize(runtimeBloomFilterMaxSize);
+        // Check the pair only when consumed so that SET can adjust the bounds in either order.
+        if (runtimeBloomFilterMinSize > runtimeBloomFilterMaxSize) {
+            throw new InvalidParameterException(RUNTIME_BLOOM_FILTER_MIN_SIZE + " (" + runtimeBloomFilterMinSize
+                    + ") must not exceed " + RUNTIME_BLOOM_FILTER_MAX_SIZE + " (" + runtimeBloomFilterMaxSize + ")");
+        }
     }
 
     public int getRuntimeFilterWaitTimeMs() {
@@ -5874,6 +5904,7 @@ public class SessionVariable implements Serializable, Writable {
      * Used for rest api.
      */
     public TQueryOptions toThrift() {
+        validateRuntimeBloomFilterSizes();
         TQueryOptions tResult = new TQueryOptions();
         // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
         tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
@@ -6308,6 +6339,7 @@ public class SessionVariable implements Serializable, Writable {
      * Get all variables which need to forward along with statement.
      **/
     public Map<String, String> getForwardVariables() {
+        validateRuntimeBloomFilterSizes();
         HashMap<String, String> map = new HashMap<String, String>();
         try {
             Field[] fields = SessionVariable.class.getDeclaredFields();
