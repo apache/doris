@@ -46,7 +46,8 @@ public:
                     const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
                     std::string_view header_type, std::string_view header,
                     std::string_view column_separator, std::string_view line_delimiter,
-                    bool with_bom, TFileCompressType::type compress_type = TFileCompressType::PLAIN,
+                    bool with_bom, bool csv_quote = false,
+                    TFileCompressType::type compress_type = TFileCompressType::PLAIN,
                     const THiveSerDeProperties* hive_serde_properties = nullptr);
 
     ~VCSVTransformer() = default;
@@ -77,6 +78,7 @@ private:
     fmt::memory_buffer _outstream_buffer;
 
     bool _with_bom = false;
+    const bool _csv_quote;
     const TFileCompressType::type _compress_type;
     BlockCompressionCodec* _compress_codec = nullptr;
     const bool _is_text_format; // true: text format, false: csv format

@@ -56,6 +56,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
+    public static final String PROP_CSV_QUOTE = "csv_quote";
 
     public static final String PROP_SKIP_LINES = "skip_lines";
     public static final String PROP_CSV_SCHEMA = "csv_schema";
@@ -78,6 +79,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private byte escape;
     private boolean enableTextValidateUTF8 = true;
     private boolean emptyFieldAsNull;
+    private boolean csvQuote;
 
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
@@ -106,6 +108,10 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
+            csvQuote = parseCsvQuote(getOrDefault(formatProperties, PROP_CSV_QUOTE,
+                    "false", isRemoveOriginProperty));
+            validateCsvQuoteSeparators(csvQuote, columnSeparator, lineDelimiter);
 
             String enclosedString = getOrDefault(formatProperties, PROP_ENCLOSE,
                     "", isRemoveOriginProperty);
@@ -195,6 +201,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         sinkOptions.setColumnSeparator(columnSeparator);
         sinkOptions.setLineDelimiter(lineDelimiter);
         sinkOptions.setCompressionType(compressionType);
+        sinkOptions.setCsvQuote(csvQuote);
     }
 
     // The method `analyzeFileFormatProperties` must have been called once before this method
@@ -245,5 +252,24 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public boolean getEmptyFieldAsNull() {
         return emptyFieldAsNull;
+    }
+
+    public boolean isCsvQuote() {
+        return csvQuote;
+    }
+
+    public static boolean parseCsvQuote(String value) {
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException(PROP_CSV_QUOTE + " must be true or false");
+        }
+        return Boolean.parseBoolean(value);
+    }
+
+    public static void validateCsvQuoteSeparators(
+            boolean csvQuote, String columnSeparator, String lineDelimiter) {
+        if (csvQuote && (columnSeparator.indexOf('"') >= 0 || lineDelimiter.indexOf('"') >= 0)) {
+            throw new AnalysisException(
+                    "column_separator and line_delimiter must not contain double quote when csv_quote is true");
+        }
     }
 }
