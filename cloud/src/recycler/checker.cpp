@@ -46,6 +46,7 @@
 #include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/network_util.h"
 #include "common/rowset_segment_id.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -132,7 +133,7 @@ TxnErrorCode collect_pending_table_stream_drops(
 
 Checker::Checker(std::shared_ptr<TxnKv> txn_kv)
         : txn_kv_(std::move(txn_kv)), resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
-    ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
+    ip_port_ = network_options().host_port(config::brpc_listen_port);
 }
 
 Checker::~Checker() {

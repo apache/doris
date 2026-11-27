@@ -17,6 +17,8 @@
 
 #include "common/network_util.h"
 
+#include <butil/endpoint.h>
+
 #include "common/config.h"
 #include "gtest/gtest.h"
 
@@ -27,15 +29,34 @@ int main(int argc, char** argv) {
 }
 
 TEST(NetWorkUtilTest, GetLocaHostTest) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
     doris::cloud::config::priority_networks = "";
     bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
     doris::cloud::config::enable_loopback_address_for_ms = true;
     // prepare an existed ip for test
     auto ip = doris::cloud::get_local_ip(doris::cloud::config::priority_networks);
+    ASSERT_EQ(ip, butil::my_ip_cstr());
     std::cout << "get ip: " << ip << " from butil::my_ip_cstr()" << std::endl;
 
     { // possible not match CIDR
         doris::cloud::config::priority_networks = "127.0.0.1/8";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+    }
+
+    { // whitespace around the mask separator
+        doris::cloud::config::priority_networks = "127.0.0.1 / 8";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+    }
+
+    { // legacy IPv4 shorthand accepted by inet_aton
+        doris::cloud::config::priority_networks = "127.1 / 8";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+        ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+                  "0.0.0.0");
+    }
+
+    { // IPv4 address without an explicit mask
+        doris::cloud::config::priority_networks = "127.0.0.1";
         ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
     }
 
@@ -48,5 +69,120 @@ TEST(NetWorkUtilTest, GetLocaHostTest) {
         doris::cloud::config::priority_networks = ip + "/16";
         ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), ip);
     }
+    doris::cloud::config::priority_networks = priority_networks_bak;
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
+
+TEST(NetWorkUtilTest, GetIpv6LocalHostTest) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+
+    doris::cloud::config::priority_networks = "::1/128";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "[::0]");
+
+    doris::cloud::config::priority_networks = "fd00:1234:5678::/48";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+
+    doris::cloud::config::priority_networks = priority_networks_bak;
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
+
+TEST(NetWorkUtilTest, GetIpv6CidrTest) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+
+    doris::cloud::config::priority_networks = "::1";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+
+    doris::cloud::config::priority_networks = "::1 / 128";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "[::0]");
+
+    doris::cloud::config::priority_networks = "::1/127";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "[::0]");
+
+    doris::cloud::config::priority_networks = "::2/128";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+
+    doris::cloud::config::priority_networks = priority_networks_bak;
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
+
+TEST(NetWorkUtilTest, GetServiceBindAddressTest) {
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+    ASSERT_EQ(doris::cloud::get_service_bind_address(""), "0.0.0.0");
+    ASSERT_EQ(doris::cloud::get_service_bind_address("127.0.0.1/8"), "0.0.0.0");
+    ASSERT_EQ(doris::cloud::get_service_bind_address("::1/128"), "[::0]");
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
+
+TEST(NetWorkUtilTest, PreferNonLoopbackAddressTest) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+    doris::cloud::config::priority_networks = "";
+    const auto host_ip = doris::cloud::get_local_ip(doris::cloud::config::priority_networks);
+
+    doris::cloud::config::priority_networks = "127.0.0.0/8;" + host_ip + "/32";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), host_ip);
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "0.0.0.0");
+
+    doris::cloud::config::priority_networks = "::1/128;" + host_ip + "/32";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), host_ip);
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "0.0.0.0");
+
+    // The CIDR order must not let a matching loopback address override a non-loopback address.
+    doris::cloud::config::priority_networks = host_ip + "/32;::1/128";
+    ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), host_ip);
+    ASSERT_EQ(doris::cloud::get_service_bind_address(doris::cloud::config::priority_networks),
+              "0.0.0.0");
+
+    doris::cloud::config::priority_networks = priority_networks_bak;
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
+
+TEST(NetWorkUtilTest, GetHostPortTest) {
+    ASSERT_EQ(doris::cloud::get_host_port("10.0.0.1", 5000), "10.0.0.1:5000");
+    ASSERT_EQ(doris::cloud::get_host_port("2001:db8::1", 5000), "[2001:db8::1]:5000");
+    ASSERT_EQ(doris::cloud::get_host_port("ms-1", 5000), "ms-1:5000");
+}
+
+TEST(NetWorkUtilTest, NetworkOptionsCachesSelectedAddress) {
+    auto priority_networks_bak = doris::cloud::config::priority_networks;
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+    doris::cloud::config::priority_networks = "127.0.0.1/8";
+
+    doris::cloud::NetworkOptions options;
+    options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(options.local_ip(), "127.0.0.1");
+    EXPECT_FALSE(options.is_ipv6());
+    EXPECT_EQ(options.bind_address(), "0.0.0.0");
+    EXPECT_EQ(options.host_port(5000), "127.0.0.1:5000");
+
+    // The identity is process-lifetime state. A later config change must not move the listener.
+    doris::cloud::config::priority_networks = "::1/128";
+    options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(options.local_ip(), "127.0.0.1");
+    EXPECT_EQ(options.bind_address(), "0.0.0.0");
+
+    doris::cloud::NetworkOptions ipv6_options;
+    ipv6_options.init(doris::cloud::config::priority_networks);
+    EXPECT_EQ(ipv6_options.local_ip(), "::1");
+    EXPECT_TRUE(ipv6_options.is_ipv6());
+    EXPECT_EQ(ipv6_options.bind_address(), "[::0]");
+    EXPECT_EQ(ipv6_options.host_port(5000), "[::1]:5000");
+
+    doris::cloud::config::priority_networks = priority_networks_bak;
     doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
 }

@@ -109,9 +109,9 @@ void MetaServer::stop() {
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    std::string ip = get_local_ip(config::priority_networks);
+    std::string ip = network_options().local_ip();
     int32_t port = config::brpc_listen_port;
-    std::string id = ip + ":" + std::to_string(port);
+    std::string id = network_options().host_port(port);
     ServiceRegistryPB::Item item;
     item.set_id(id);
     item.set_ip(ip);
