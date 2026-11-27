@@ -2085,6 +2085,36 @@ class FilterEstimationTest {
     }
 
     @Test
+    public void testSkewedEqualityAndInUseRemainingDistribution() {
+        SlotReference slot = new SlotReference("value", IntegerType.INSTANCE);
+        IntegerLiteral hot = new IntegerLiteral(0);
+        IntegerLiteral cold = new IntegerLiteral(2);
+        IntegerLiteral anotherCold = new IntegerLiteral(3);
+        // The zero-frequency entry can come from statistics written with two-decimal precision.
+        ColumnStatistic column = new ColumnStatisticBuilder(1_600).setNdv(5).setNumNulls(320)
+                .setMinValue(0).setMaxValue(4).setHotValues(Map.of(hot, 0.875f, cold, 0.0f)).build();
+        Statistics input = new StatisticsBuilder().setRowCount(1_600).putColumnStatistics(slot, column).build();
+        FilterEstimation estimator = new FilterEstimation();
+
+        Assertions.assertEquals(40, estimator.estimate(new EqualTo(slot, cold), input).getRowCount(), 0.001);
+        Assertions.assertEquals(80,
+                estimator.estimate(new InPredicate(slot, List.of(cold, anotherCold)), input).getRowCount(), 0.001);
+        Assertions.assertEquals(1_160,
+                estimator.estimate(new InPredicate(slot, List.of(hot, cold)), input).getRowCount(), 0.001);
+        Assertions.assertEquals(1_120, estimator.estimate(new EqualTo(slot, hot), input).getRowCount(), 0.001);
+    }
+
+    @Test
+    public void testSkewedEqualityWithAllValuesRecorded() {
+        SlotReference slot = new SlotReference("value", IntegerType.INSTANCE);
+        ColumnStatistic column = new ColumnStatisticBuilder(1_600).setNdv(2).setMinValue(0).setMaxValue(2)
+                .setHotValues(Map.of(new IntegerLiteral(0), 0.75f, new IntegerLiteral(2), 0.25f)).build();
+        Statistics input = new StatisticsBuilder().setRowCount(1_600).putColumnStatistics(slot, column).build();
+        Statistics output = new FilterEstimation().estimate(new EqualTo(slot, new IntegerLiteral(1)), input);
+        Assertions.assertEquals(0, output.getRowCount());
+    }
+
+    @Test
     public void testInPredicateSkew() {
         double rowCount = 1000;
         Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia in (1, 2, 3)");
