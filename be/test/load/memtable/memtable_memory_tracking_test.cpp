@@ -183,8 +183,7 @@ TEST_P(MemTableMemoryTrackingTest, ClusterKeySortMemory) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_memtable->mem_tracker());
-    auto input = _memtable->_input_mutable_block.to_block();
-    ASSERT_TRUE(_memtable->_put_into_output(input).ok());
+    _memtable->_copy_sorted_rows_and_release_input();
     const auto before_sort = _memtable->memory_usage();
     auto sort_tracker = std::make_shared<MemTracker>();
     {

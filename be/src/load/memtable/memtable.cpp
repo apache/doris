@@ -399,20 +399,31 @@ void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlo
         }
     }
 }
-Status MemTable::_put_into_output(Block& in_block) {
+void MemTable::_copy_sorted_rows_and_release_input() {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
+    const size_t num_rows = _input_mutable_block.rows();
+    // Own the remaining input columns here so an exception also releases them.
+    auto input_columns = std::move(_input_mutable_block.mutable_columns());
     DorisVector<uint32_t> row_pos_vec;
-    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-    row_pos_vec.reserve(in_block.rows());
+    DCHECK_LE(num_rows, std::numeric_limits<int>::max());
+    row_pos_vec.reserve(num_rows);
     if (_need_lsn) {
-        _output_allocated_lsns->reserve(_output_allocated_lsns->size() + in_block.rows());
+        _output_allocated_lsns->reserve(_output_allocated_lsns->size() + num_rows);
     }
     for (int i = 0; i < _row_in_blocks->size(); i++) {
         row_pos_vec.emplace_back((*_row_in_blocks)[i]->_row_pos);
         _append_output_allocated_lsn((*_row_in_blocks)[i].get());
     }
-    return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                          row_pos_vec.data() + in_block.rows());
+    const auto* row_begin = row_pos_vec.data();
+    const auto* row_end = row_begin + num_rows;
+    DCHECK_EQ(_output_mutable_block.columns(), input_columns.size());
+    for (size_t i = 0; i < input_columns.size(); ++i) {
+        DCHECK_EQ(_output_mutable_block.get_datatype_by_position(i)->get_name(),
+                  _input_mutable_block.get_datatype_by_position(i)->get_name());
+        _output_mutable_block.get_column_by_position(i)->insert_indices_from(*input_columns[i],
+                                                                             row_begin, row_end);
+        input_columns[i].reset();
+    }
 }
 
 size_t MemTable::_sort() {
@@ -868,8 +879,7 @@ Status MemTable::_to_block(std::unique_ptr<Block>* res) {
                 }
             }
         } else {
-            Block in_block = _input_mutable_block.to_block();
-            RETURN_IF_ERROR(_put_into_output(in_block));
+            _copy_sorted_rows_and_release_input();
         }
     } else {
         (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
