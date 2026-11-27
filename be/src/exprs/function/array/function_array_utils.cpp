@@ -108,12 +108,16 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
             dst.offsets_ptr->push_back(cur);
             continue;
         }
-        Int64 end;
+        Int64 end = off + len;
         if (length_column) {
-            Int64 size = length_column->get_int(row);
-            end = std::max((Int64)off, std::min((Int64)(off + len), start + size));
-        } else {
-            end = off + len;
+            const Int64 size = length_column->get_int(row);
+            // Nonpositive lengths produce an empty array. Do not add them to start.
+            if (size <= 0) {
+                dst.offsets_ptr->push_back(cur);
+                continue;
+            }
+            // Clamp before addition. For [1, 2], position 2 and INT64_MAX length select [2].
+            end = start + std::min(size, end - start);
         }
         for (size_t pos = start; pos < end; ++pos) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[pos]) {

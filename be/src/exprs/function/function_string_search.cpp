@@ -503,7 +503,8 @@ public:
                     }
                 }
             } else {
-                int neg_part_number = -part_number;
+                // INT_MIN has magnitude 2147483648. Keep that value when counting from the end.
+                int64_t neg_part_number = -static_cast<int64_t>(part_number);
                 auto str_str = str.to_string();
                 int32_t offset = str.size;
                 int32_t pre_offset = offset;

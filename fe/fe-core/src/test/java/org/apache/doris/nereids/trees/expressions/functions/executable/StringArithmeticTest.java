@@ -34,6 +34,14 @@ import org.junit.jupiter.api.Test;
 class StringArithmeticTest {
 
     @Test
+    void testSubstringIndexMinimumCount() {
+        // One character without a separator is enough. INT_MIN must select the full string.
+        IntegerLiteral minimum = new IntegerLiteral(Integer.MIN_VALUE);
+        Assertions.assertEquals(new StringLiteral("a"),
+                StringArithmetic.substringIndex(new StringLiteral("a"), new StringLiteral(","), minimum));
+    }
+
+    @Test
     void testFieldMatchesFloatNaN() {
         IntegerLiteral result = (IntegerLiteral) StringArithmetic.fieldFloat(new FloatLiteral(Float.NaN),
                 new FloatLiteral(Float.NaN));
