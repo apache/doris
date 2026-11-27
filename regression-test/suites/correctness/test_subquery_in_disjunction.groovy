@@ -97,22 +97,21 @@ suite("test_subquery_in_disjunction") {
         SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
     """
 
-    // TODO: enable this after DORIS-7051 and DORIS-7052 is fixed
-    // qt_hash_join_with_other_conjuncts5 """
-    //     SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
-    // """
+    qt_hash_join_with_other_conjuncts5 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
 
-    // qt_hash_join_with_other_conjuncts6 """
-    //     SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
-    // """
+    qt_hash_join_with_other_conjuncts6 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
 
-    // qt_hash_join_with_other_conjuncts7 """
-    //     SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
-    // """
+    qt_hash_join_with_other_conjuncts7 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
 
-    // qt_hash_join_with_other_conjuncts8 """
-    //     SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
-    // """
+    qt_hash_join_with_other_conjuncts8 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
 
     qt_same_subquery_in_conjuncts """
         SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 < 10 ORDER BY c1;
@@ -120,6 +119,62 @@ suite("test_subquery_in_disjunction") {
 
     qt_two_subquery_in_one_conjuncts """
         SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 IN (SELECT c2 FROM test_sq_dj2) OR c1 < 10 ORDER BY c1;
+    """
+
+    sql """ DROP TABLE IF EXISTS test_sq_dj_nullable_outer """
+    sql """ DROP TABLE IF EXISTS test_sq_dj_nullable_inner """
+    sql """
+    CREATE TABLE `test_sq_dj_nullable_outer` (
+        `id` int(11) NULL,
+        `a` int(11) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    """
+    sql """
+    CREATE TABLE `test_sq_dj_nullable_inner` (
+        `id` int(11) NULL,
+        `a` int(11) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    """
+    sql """ INSERT INTO test_sq_dj_nullable_outer VALUES (1, 0), (11, NULL) """
+    sql """ INSERT INTO test_sq_dj_nullable_inner VALUES (1, 10) """
+
+    order_qt_not_in_nullable_mark_join """
+        SELECT id, a FROM test_sq_dj_nullable_outer o
+        WHERE o.a NOT IN (
+            SELECT i.a FROM test_sq_dj_nullable_inner i
+            WHERE i.id > o.id AND i.a IS NOT NULL
+        )
+        ORDER BY id;
+    """
+
+    order_qt_not_in_nullable_mark_join_in_disjunction """
+        SELECT id, a FROM test_sq_dj_nullable_outer o
+        WHERE o.a NOT IN (
+            SELECT i.a FROM test_sq_dj_nullable_inner i
+            WHERE i.id > o.id AND i.a IS NOT NULL
+        ) OR o.id IN (1, 11)
+        ORDER BY id;
+    """
+
+    sql """ INSERT INTO test_sq_dj_nullable_inner VALUES (20, NULL) """
+
+    order_qt_not_in_nullable_mark_join_in_disjunction_build_null """
+        SELECT id, a FROM test_sq_dj_nullable_outer o
+        WHERE o.a NOT IN (
+            SELECT i.a FROM test_sq_dj_nullable_inner i
+            WHERE i.id > o.id
+        ) OR o.id IN (1, 11)
+        ORDER BY id;
     """
 
     // test mark join that one probe row matches multiple build rows
