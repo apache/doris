@@ -414,7 +414,8 @@ public class ExecuteCommandTest {
         Mockito.when(scanNode.getTableNameInPlan()).thenReturn("tbl");
         Mockito.when(scanNode.getConjuncts()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
-        ShortCircuitQueryContext cachedPlan = new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+        ShortCircuitQueryContext cachedPlan =
+                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class), "en_US");
         preparedStatement.shortCircuitQueryContext = Optional.of(cachedPlan);
 
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);

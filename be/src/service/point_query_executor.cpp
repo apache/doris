@@ -139,11 +139,13 @@ static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       const TQueryOptions& query_options, const std::string& timezone,
-                      const TabletSchema& schema, size_t block_size) {
+                      const std::string& lc_time_names, const TabletSchema& schema,
+                      size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
     // Python UDF open binds schemas such as timestamp[us, tz=UTC] to this state.
     _runtime_state->set_timezone(timezone);
+    _runtime_state->set_lc_time_names(lc_time_names);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     for (const auto* slot : tuple_desc()->slots()) {
@@ -307,6 +309,12 @@ void PointQueryExecutor::_init_remote_scan_cache_write_limiter() {
     }
 }
 
+bool Reusable::matches_timezone_and_locale(const std::string& timezone,
+                                           const std::string& lc_time_names) const {
+    return _runtime_state->timezone() == timezone &&
+           _runtime_state->lc_time_names() == lc_time_names;
+}
+
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                 PTabletKeyLookupResponse* response) {
     SCOPED_TIMER(&_profile_metrics.init_ns);
@@ -319,11 +327,14 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     const auto& timezone = request->has_time_zone() && !request->time_zone().empty()
                                    ? request->time_zone()
                                    : TimezoneUtils::default_time_zone;
+    const auto& lc_time_names = request->lc_time_names();
     _binary_row_format = request->is_binary_row();
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
-    // SET time_zone='UTC' can reuse a prepared UUID whose cached client uses +08:00.
-    // Rebuild on timezone changes; existing requests retain their original contexts.
-    if (cache_handle != nullptr && cache_handle->runtime_state()->timezone() == timezone) {
+    // SET time_zone or lc_time_names can reuse the same prepared UUID, but expressions
+    // capture these settings at open (e.g. monthname changes from zh_CN to en_US).
+    // Rebuild on changes; existing requests retain their original contexts.
+    if (cache_handle != nullptr &&
+        cache_handle->matches_timezone_and_locale(timezone, lc_time_names)) {
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
     } else {
@@ -367,7 +378,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     &t_query_options));
         }
         RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                           timezone, *_tablet->tablet_schema(), 1));
+                                           timezone, lc_time_names, *_tablet->tablet_schema(), 1));
         if (uuid != 0) {
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         }

@@ -1867,6 +1867,88 @@ TEST(VTimestampFunctionsTest, dayname_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, localized_date_name_capacity) {
+    const std::array<std::array<const char*, 3>, 3> locales {{{"ru_RU", "воскресенье", "сентября"},
+                                                              {"zh_CN", "星期日", "九月"},
+                                                              {"en_US", "Sunday", "September"}}};
+    for (const auto primitive : {TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_TIMESTAMP_NS}) {
+        for (const bool nullable : {false, true}) {
+            const auto type = DataTypeFactory::instance().create_data_type(primitive, nullable);
+            const auto return_type = nullable ? make_nullable(std::make_shared<DataTypeString>())
+                                              : std::make_shared<DataTypeString>();
+            for (const auto& locale : locales) {
+                for (const auto* function : {"dayname", "monthname"}) {
+                    const std::string expected = locale[std::string(function) == "dayname" ? 1 : 2];
+                    for (const size_t rows : {0, 1, 1024}) {
+                        for (const bool constant : {false, true}) {
+                            SCOPED_TRACE(testing::Message()
+                                         << type->get_name() << " " << locale[0] << " " << function
+                                         << " rows=" << rows << " constant=" << constant);
+                            auto column = type->create_column();
+                            for (size_t row = 0; row < (constant ? 1 : rows); ++row) {
+                                if (nullable && !constant && row % 7 == 1) {
+                                    column->insert_default();
+                                } else {
+                                    const std::string date = primitive == TYPE_DATEV2
+                                                                     ? "2026-09-20"
+                                                                     : "2026-09-20 12:34:56";
+                                    ASSERT_TRUE(insert_cell(column, type, date));
+                                }
+                            }
+                            if (constant) {
+                                column = ColumnConst::create(std::move(column), rows);
+                            }
+                            Block block {{std::move(column), type, "date"},
+                                         {nullptr, return_type, "result"}};
+                            auto func = SimpleFunctionFactory::instance().get_function(
+                                    function, {block.get_by_position(0)}, return_type);
+                            ASSERT_NE(func, nullptr);
+                            FunctionUtils utils(return_type, {type}, false);
+                            auto* context = utils.get_fn_ctx();
+                            context->state()->set_lc_time_names(locale[0]);
+                            ASSERT_TRUE(
+                                    func->open(context,
+                                               FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                                            .ok());
+                            ASSERT_TRUE(
+                                    func->open(context,
+                                               FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                                            .ok());
+                            ASSERT_TRUE(func->execute(context, block, {0}, 1, rows).ok());
+                            const auto result = block.get_by_position(1)
+                                                        .column->convert_to_full_column_if_const();
+                            ASSERT_EQ(result->size(), rows);
+                            const auto& strings = assert_cast<const ColumnString&>(
+                                    nullable ? assert_cast<const ColumnNullable&>(*result)
+                                                       .get_nested_column()
+                                             : *result);
+                            size_t offset = 0;
+                            for (size_t row = 0; row < rows; ++row) {
+                                const bool is_null = nullable && !constant && row % 7 == 1;
+                                EXPECT_EQ(result->is_null_at(row), is_null);
+                                if (!is_null) {
+                                    EXPECT_EQ(strings.get_data_at(row).to_string(), expected);
+                                    offset += expected.size();
+                                }
+                                EXPECT_EQ(strings.get_offsets()[row], offset);
+                            }
+                            EXPECT_EQ(strings.get_chars().size(), offset);
+                            ASSERT_TRUE(
+                                    func->close(context,
+                                                FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                                            .ok());
+                            ASSERT_TRUE(
+                                    func->close(context,
+                                                FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                                            .ok());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 TEST(VTimestampFunctionsTest, datetrunc_test) {
     std::string func_name = "date_trunc";
     {

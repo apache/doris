@@ -428,6 +428,7 @@ public class PointQueryExecutor implements CoordInterface {
         // Set timezone for functions like from_unixtime
         requestBuilder.setTimeZone(TimeUtils.getCanonicalTimeZone(
                 ConnectContext.get().getSessionVariable().getTimeZone()));
+        requestBuilder.setLcTimeNames(ConnectContext.get().getSessionVariable().getLcTimeNames());
 
         if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
             requestBuilder.setVersion(snapshotVisibleVersions.get(0));

@@ -22,6 +22,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <map>
 #include <string>
 #include <utility>
@@ -80,6 +81,48 @@ TEST(FoldConstantExecutorTest, LegacyTimeStampNsResult) {
         const auto& result = results.at(std::to_string(i));
         EXPECT_TRUE(result.success());
         EXPECT_EQ(values[i], result.content());
+    }
+}
+
+TEST(FoldConstantExecutorTest, LocalizedDateNames) {
+    const std::array<std::array<const char*, 3>, 3> locales {{{"ru_RU", "воскресенье", "сентября"},
+                                                              {"zh_CN", "星期日", "九月"},
+                                                              {"en_US", "Sunday", "September"}}};
+    for (const auto& locale : locales) {
+        TFoldConstantParams params;
+        params.query_globals.__set_now_string("2026-09-20 00:00:00");
+        params.query_globals.__set_time_zone("UTC");
+        params.query_globals.__set_lc_time_names(locale[0]);
+        // Decode strings directly so FE evaluation cannot hide a missing BE locale.
+        params.__set_is_nereids(false);
+        for (const auto* name : {"dayname", "monthname"}) {
+            TFunctionName function_name;
+            function_name.__set_function_name(name);
+            TFunction function;
+            function.__set_name(function_name);
+            function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            function.__set_arg_types({create_type_desc(TYPE_TIMESTAMP_NS)});
+            function.__set_ret_type(create_type_desc(TYPE_STRING));
+            TExprNode call;
+            call.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            call.__set_type(create_type_desc(TYPE_STRING));
+            call.__set_is_nullable(false);
+            call.__set_num_children(1);
+            call.__set_fn(function);
+            auto expression = timestamp_ns_literal_expr("2026-09-20 12:34:56.123456789");
+            expression.nodes.insert(expression.nodes.begin(), std::move(call));
+            params.expr_map["names"].emplace(name, std::move(expression));
+        }
+        PConstantExprResult response;
+        FoldConstantExecutor executor;
+        const auto status = executor.fold_constant_vexpr(params, &response);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& results = response.expr_result_map().at("names").map();
+        ASSERT_EQ(results.size(), 2);
+        EXPECT_TRUE(results.at("dayname").success());
+        EXPECT_TRUE(results.at("monthname").success());
+        EXPECT_EQ(results.at("dayname").content(), locale[1]);
+        EXPECT_EQ(results.at("monthname").content(), locale[2]);
     }
 }
 

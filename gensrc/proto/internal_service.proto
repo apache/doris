@@ -359,6 +359,8 @@ message PTabletKeyLookupRequest {
     optional bytes query_options = 8;
     // timezone string, e.g. "America/Mexico_City"
     optional string time_zone = 9;
+    // Session locale for expression evaluation, including lightweight requests.
+    optional string lc_time_names = 10;
 }
 
 message PTabletKeyLookupResponse {
