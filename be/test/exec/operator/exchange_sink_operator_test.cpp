@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/operator/operator_helper.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_data_stream_sender.h"
@@ -167,6 +168,54 @@ TEST(ExchangeSinkOperatorTest, test_all_remote) {
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 3)},
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 4)},
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 5)}});
+}
+
+TEST(ExchangeSinkOperatorTest, FlushWideBlocksBeforeReachingRowLimit) {
+    auto [op, ctx, channels] = create_exchange_sink(
+            {{.is_local = false, .fragment_instance_id = create_TUniqueId(1, 1)}});
+    ctx->state._query_options.__set_preferred_block_size_bytes(1024);
+    auto* local_state = static_cast<ExchangeSinkLocalState*>(ctx->state.get_sink_local_state());
+    BlockSerializer serializer(local_state, false);
+    const std::string value(800, 'x');
+    auto input = ColumnHelper::create_block<DataTypeString>({value, value});
+    PBlock serialized_block;
+    bool serialized = false;
+
+    ASSERT_TRUE(serializer.next_serialized_block(&input, &serialized_block, 1, &serialized, false)
+                        .ok());
+    ASSERT_TRUE(serialized);
+    Block received;
+    size_t uncompressed_bytes = 0;
+    int64_t decompression_time = 0;
+    ASSERT_TRUE(
+            received.deserialize(serialized_block, &uncompressed_bytes, &decompression_time).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(input, received));
+    EXPECT_EQ(serializer.get_block()->rows(), 0);
+}
+
+TEST(ExchangeSinkOperatorTest, FlushSmallBufferedBlocksAtEndOfStream) {
+    auto [op, ctx, channels] = create_exchange_sink(
+            {{.is_local = false, .fragment_instance_id = create_TUniqueId(1, 1)}});
+    ctx->state._query_options.__set_preferred_block_size_bytes(1024 * 1024);
+    auto* local_state = static_cast<ExchangeSinkLocalState*>(ctx->state.get_sink_local_state());
+    BlockSerializer serializer(local_state, false);
+    auto input = ColumnHelper::create_block<DataTypeString>({"first", "second"});
+    PBlock serialized_block;
+    bool serialized = false;
+
+    ASSERT_TRUE(serializer.next_serialized_block(&input, &serialized_block, 1, &serialized, false)
+                        .ok());
+    EXPECT_FALSE(serialized);
+    Block empty = input.clone_empty();
+    ASSERT_TRUE(
+            serializer.next_serialized_block(&empty, &serialized_block, 1, &serialized, true).ok());
+    ASSERT_TRUE(serialized);
+    Block received;
+    size_t uncompressed_bytes = 0;
+    int64_t decompression_time = 0;
+    ASSERT_TRUE(
+            received.deserialize(serialized_block, &uncompressed_bytes, &decompression_time).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(input, received));
 }
 
 TEST(ExchangeSinkOperatorTest, shared_writer_scaling_state_is_synchronized) {
