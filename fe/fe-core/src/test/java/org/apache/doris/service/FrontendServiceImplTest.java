@@ -63,6 +63,7 @@ import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTablePartition;
 import org.apache.doris.thrift.TPrivilegeCtrl;
@@ -623,6 +624,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
         TCreatePartitionResult partition = impl.createPartition(request);
 
         Assertions.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
+        Assertions.assertTrue(partition.getNodes().stream().allMatch(TNodeInfo::isSetIsLoadAvailable));
         Partition p20230807 = table.getPartition("p20230807000000");
         Assertions.assertNotNull(p20230807);
     }

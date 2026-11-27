@@ -589,6 +589,9 @@ private:
 
     int _load_required_replicas_num(int64_t tablet_id);
 
+    void _mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                         int64_t tablet_id);
+
     bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
                          const std::unordered_set<int64_t>& need_finish_tablets);
 
@@ -617,6 +620,8 @@ private:
     mutable std::mutex _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
+    // Failure allowance among the destinations selected for this writer.
+    std::unordered_map<int64_t, int> _max_failed_replicas_by_tablet;
     // key is tablet_id, value is error message
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
     Status _intolerable_failure_status = Status::OK();
