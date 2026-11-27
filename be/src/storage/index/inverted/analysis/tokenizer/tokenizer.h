@@ -47,6 +47,7 @@ public:
     // Only use the parameterless reset method
     void reset() override {
         _in = _in_pending;
+        _char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
         _source_byte_offsets.clear();
         _source_byte_end_offsets.clear();
         release_oversized_scratch(_source_byte_offsets);
@@ -74,14 +75,12 @@ public:
 
 protected:
     int32_t correct_source_offset(int32_t offset) const {
-        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
-        return char_filter == nullptr ? offset : char_filter->correct_offset(offset);
+        return _char_filter == nullptr ? offset : _char_filter->correct_offset(offset);
     }
 
     // Correct the offset a term starts at; see DorisCharFilter::correct_start_offset().
     int32_t correct_source_start_offset(int32_t offset) const {
-        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
-        return char_filter == nullptr ? offset : char_filter->correct_start_offset(offset);
+        return _char_filter == nullptr ? offset : _char_filter->correct_start_offset(offset);
     }
 
     void set_source_byte_offsets(std::string_view term, int32_t source_start) {
@@ -96,10 +95,9 @@ protected:
             return;
         }
 
-        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
-        const int32_t corrected_start = char_filter == nullptr
+        const int32_t corrected_start = _char_filter == nullptr
                                                 ? source_start
-                                                : char_filter->correct_start_offset(source_start);
+                                                : _char_filter->correct_start_offset(source_start);
         std::vector<int32_t>& source_offsets = _source_offsets_scratch;
         source_offsets.clear();
         source_offsets.push_back(0);
@@ -112,9 +110,9 @@ protected:
             if (code_point < 0) {
                 return;
             }
-            source_offsets.push_back(char_filter == nullptr
+            source_offsets.push_back(_char_filter == nullptr
                                              ? offset
-                                             : char_filter->correct_offset(source_start + offset) -
+                                             : _char_filter->correct_offset(source_start + offset) -
                                                        corrected_start);
         }
 
@@ -195,6 +193,7 @@ protected:
 
     ReaderPtr _in;
     ReaderPtr _in_pending;
+    const DorisCharFilter* _char_filter = nullptr;
     std::vector<int32_t> _source_byte_offsets;
     std::vector<int32_t> _source_byte_end_offsets;
     std::vector<int32_t> _source_offsets_scratch;
