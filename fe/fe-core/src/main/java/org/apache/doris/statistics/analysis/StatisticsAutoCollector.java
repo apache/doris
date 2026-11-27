@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
@@ -67,6 +68,13 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 StatisticConstants.TASK_QUEUE_CAP, "Auto Analysis Job Executor");
     }
 
+    // Its cycle waits for work, possibly forever, so a handover does not wait for the cycle to end; the loop checks
+    // the fence itself.
+    @Override
+    protected boolean fenceWaitsForCycle() {
+        return false;
+    }
+
     @Override
     protected void runAfterCatalogReady() {
         if (!Env.getCurrentEnv().isMaster()) {
@@ -92,7 +100,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
     }
 
     protected void collect() {
-        while (StatisticsUtil.canCollect()) {
+        while (StatisticsUtil.canCollect() && !ShutdownGate.isMasterWorkFenced()) {
             Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.

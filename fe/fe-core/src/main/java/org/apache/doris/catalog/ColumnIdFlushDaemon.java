@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterLightSchChangeHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
+import org.apache.doris.qe.ShutdownGate;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -68,6 +69,10 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
     private void flush() {
         List<Database> dbs = Env.getCurrentEnv().getInternalCatalog().getDbs();
         for (Database db : dbs) {
+            // A master that hands its mastership over stops between databases.
+            if (ShutdownGate.isMasterWorkFenced()) {
+                return;
+            }
             rwLock.writeLock().lock();
             try {
                 db.getTables()
@@ -80,8 +85,10 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
                 rwLock.writeLock().unlock();
             }
             try {
-                // avoid too often to call be
-                sleep(3000);
+                // avoid too often to call be; a handover does not wait out the pause
+                for (int waitedMs = 0; waitedMs < 3000 && !ShutdownGate.isMasterWorkFenced(); waitedMs += 100) {
+                    sleep(100);
+                }
             } catch (InterruptedException ignore) {
                 // do nothing
             }

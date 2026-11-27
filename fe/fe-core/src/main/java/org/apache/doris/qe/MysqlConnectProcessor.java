@@ -395,6 +395,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         ctx.setCommand(command);
         ctx.setStartTime();
         resolveWorkloadGroupName();
+        if (ShutdownGate.rejectsMysqlCommand(command)) {
+            // Close the connection after the error, so the client's pool reconnects through the load balancer.
+            ctx.getState().setError(ErrorCode.ERR_SERVER_SHUTDOWN, ShutdownGate.REJECT_MESSAGE);
+            ctx.setKilled();
+            return;
+        }
 
         switch (command) {
             case COM_INIT_DB:

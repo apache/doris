@@ -217,6 +217,10 @@ public class TransactionState implements Writable {
     private TxnCoordinator txnCoordinator;
     @SerializedName(value = "txnStatus")
     private TransactionStatus transactionStatus;
+    // True from the moment this FE sets the transaction COMMITTED until its journal entry is durable. The publish
+    // daemon leaves such a transaction alone: a version published for it would outlive a journal entry that a crash
+    // or a mastership handover loses, and the next master would hand the same version to another transaction.
+    private transient volatile boolean commitJournalPending = false;
     @SerializedName(value = "sourceType")
     private LoadJobSourceType sourceType;
     @SerializedName(value = "prepareTime")
@@ -522,6 +526,24 @@ public class TransactionState implements Writable {
 
     public void setLastPublishLogTime(long lastPublishLogTime) {
         this.lastPublishLogTime = lastPublishLogTime;
+    }
+
+    public boolean isCommitJournalPending() {
+        return commitJournalPending;
+    }
+
+    public void setCommitJournalPending(boolean commitJournalPending) {
+        this.commitJournalPending = commitJournalPending;
+    }
+
+    /**
+     * The status a label lookup reports. A COMMITTED transaction whose journal entry is not durable yet is
+     * reported as PREPARE: a crash or a mastership handover can still lose that commit, so a client must not take
+     * its label as finished.
+     */
+    public TransactionStatus getDurableTransactionStatus() {
+        TransactionStatus status = transactionStatus;
+        return commitJournalPending && status == TransactionStatus.COMMITTED ? TransactionStatus.PREPARE : status;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {

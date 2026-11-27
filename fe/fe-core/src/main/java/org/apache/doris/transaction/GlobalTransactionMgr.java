@@ -444,7 +444,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public List<TransactionState> getReadyToPublishTransactions() {
         List<TransactionState> transactionStateList = Lists.newArrayList();
         for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
-            transactionStateList.addAll(dbTransactionMgr.getCommittedTxnList());
+            for (TransactionState transactionState : dbTransactionMgr.getCommittedTxnList()) {
+                if (!transactionState.isCommitJournalPending()) {
+                    transactionStateList.add(transactionState);
+                }
+            }
         }
         return transactionStateList;
     }

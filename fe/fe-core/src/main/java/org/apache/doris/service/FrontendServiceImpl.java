@@ -135,6 +135,7 @@ import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
@@ -1221,6 +1222,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
+        // A master that hands its mastership over runs no forwarded request, journal syncs included: the forwarding
+        // FE gets an error, as from any master that is gone, and its client retries.
+        if (ShutdownGate.isMasterWorkFenced()) {
+            throw new TException("the master frontend is handing its mastership over, retry");
+        }
         Frontend requester = validateForwardRequester(params);
         TMasterOpResult shortcut = handleForwardShortcut(params);
         if (shortcut != null) {
@@ -6199,7 +6205,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TStatus checkMaster() {
         TStatus status = new TStatus(TStatusCode.OK);
-        if (!Env.getCurrentEnv().isMaster()) {
+        // A master that hands its mastership over takes no new master request, such as a transaction begin or
+        // commit: the backends and clients send it again to the new master.
+        if (!Env.getCurrentEnv().isMaster() || ShutdownGate.isMasterWorkFenced()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
         }

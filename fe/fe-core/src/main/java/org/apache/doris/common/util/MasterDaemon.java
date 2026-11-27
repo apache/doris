@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.qe.ShutdownGate;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,7 +56,27 @@ public class MasterDaemon extends Daemon {
             }
         }
 
-        runAfterCatalogReady();
+        // A master that hands its mastership over fences its daemons first and waits for running cycles to end.
+        if (!fenceWaitsForCycle()) {
+            if (!ShutdownGate.isMasterWorkFenced()) {
+                runAfterCatalogReady();
+            }
+            return;
+        }
+        if (!ShutdownGate.enterMasterWork()) {
+            return;
+        }
+        try {
+            runAfterCatalogReady();
+        } finally {
+            ShutdownGate.exitMasterWork();
+        }
+    }
+
+    // Whether a mastership handover waits for a running cycle of this daemon to end. A daemon whose cycle blocks
+    // waiting for work returns false and checks ShutdownGate.isMasterWorkFenced() before it acts on that work.
+    protected boolean fenceWaitsForCycle() {
+        return true;
     }
 
     // override by derived classes

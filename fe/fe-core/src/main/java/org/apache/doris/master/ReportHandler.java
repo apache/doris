@@ -59,6 +59,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.qe.ShutdownGate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
@@ -1686,8 +1687,18 @@ public class ReportHandler extends Daemon {
     protected void runOneCycle() {
         while (true) {
             ReportTask task = takeReportTask();
-            if (task != null) {
+            if (task == null) {
+                continue;
+            }
+            // A master that hands its mastership over drops the reports it has not handled; the backends report
+            // again to the new master.
+            if (!ShutdownGate.enterMasterWork()) {
+                continue;
+            }
+            try {
                 task.exec();
+            } finally {
+                ShutdownGate.exitMasterWork();
             }
         }
     }

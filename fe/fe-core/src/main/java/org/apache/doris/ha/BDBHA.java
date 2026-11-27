@@ -19,6 +19,7 @@ package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.journal.bdbje.BDBEnvironment;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Lists;
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -27,6 +28,7 @@ import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.MasterStateException;
 import com.sleepycat.je.rep.MemberNotFoundException;
+import com.sleepycat.je.rep.NodeState;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationGroup;
 import com.sleepycat.je.rep.ReplicationMutableConfig;
@@ -38,10 +40,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
@@ -152,6 +158,110 @@ public class BDBHA implements HAProtocol {
             replicationGroupAdmin.close();
         }
         return ret;
+    }
+
+    /**
+     * Hands mastership to the first of {@code replicas} that catches up with this master within the timeout,
+     * and returns its node name. Commits on this master keep going while the replicas catch up, block once one of
+     * them is nearly current, and fail after the handover, when this node is a replica.
+     */
+    public String transferMaster(Set<String> replicas, int timeoutSecond) {
+        ReplicatedEnvironment replicatedEnvironment = environment.getReplicatedEnvironment();
+        if (replicatedEnvironment == null) {
+            throw new IllegalStateException("replicated environment is not open");
+        }
+        return replicatedEnvironment.transferMaster(replicas, timeoutSecond, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Waits up to timeoutMs until each of {@code followers} is a replica of {@code master}. Returns whether they
+     * all are.
+     */
+    public boolean waitForReplicasOf(String master, Set<String> followers, long timeoutMs)
+            throws InterruptedException {
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        while (true) {
+            int joined = 0;
+            try {
+                ReplicationGroupAdmin admin = environment.getReplicationGroupAdmin();
+                ReplicationGroup group = admin == null ? null : admin.getGroup();
+                for (String name : followers) {
+                    ReplicationNode node = group == null ? null : group.getMember(name);
+                    if (node == null) {
+                        continue;
+                    }
+                    NodeState state = admin.getNodeState(node, 1000);
+                    if (state.getNodeState() == ReplicatedEnvironment.State.REPLICA
+                            && master.equals(state.getMasterName())) {
+                        joined++;
+                    }
+                }
+            } catch (Exception e) {
+                LOG.debug("failed to read the replication state of {}", followers, e);
+            }
+            if (joined == followers.size()) {
+                return true;
+            }
+            if (System.currentTimeMillis() >= deadlineMs) {
+                return false;
+            }
+            Thread.sleep(100);
+        }
+    }
+
+    /**
+     * Returns the node names of the alive followers other than {@code selfNodeName}: the nodes a master can
+     * hand its mastership to.
+     */
+    public static Set<String> chooseMasterTransferTargets(Collection<Frontend> frontends, String selfNodeName) {
+        Set<String> targets = new TreeSet<>();
+        for (Frontend fe : frontends) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER && fe.isAlive()
+                    && !fe.getNodeName().equals(selfNodeName)) {
+                targets.add(fe.getNodeName());
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * The followers a departing master hands its mastership to: those that answered a heartbeat just now, given as
+     * node name to replayed journal id, and are within maxJournalLag of masterJournalId. Empty unless they form a
+     * majority of all {@code electable} nodes, the departing master included.
+     */
+    public static Set<String> chooseHandoverTargets(int electable, Map<String, Long> replayedJournalIds,
+            long masterJournalId, long maxJournalLag) {
+        Set<String> targets = chooseReadyTransferTargets(replayedJournalIds, masterJournalId, maxJournalLag);
+        if (!keepsQuorumWithout(electable, targets.size())) {
+            LOG.warn("only {} of {} electable frontends besides this one are ready, no quorum without it,"
+                    + " shut down as master", targets.size(), electable);
+            return new TreeSet<>();
+        }
+        return targets;
+    }
+
+    /**
+     * Whether the electable nodes other than the departing master, of which {@code answering} are reachable, still
+     * form a majority of all {@code electable} nodes. Without one, the group can neither elect a master nor
+     * acknowledge its journal commits.
+     */
+    public static boolean keepsQuorumWithout(int electable, int answering) {
+        return answering >= electable / 2 + 1;
+    }
+
+    /**
+     * Returns the followers ready to take mastership over: those that answered a heartbeat just now, given as
+     * node name to replayed journal id, and whose replayed journal id is within maxJournalLag of masterJournalId.
+     */
+    public static Set<String> chooseReadyTransferTargets(Map<String, Long> replayedJournalIds, long masterJournalId,
+            long maxJournalLag) {
+        Set<String> targets = new TreeSet<>();
+        for (Map.Entry<String, Long> entry : replayedJournalIds.entrySet()) {
+            if (masterJournalId - entry.getValue() <= maxJournalLag) {
+                targets.add(entry.getKey());
+            }
+        }
+        return targets;
     }
 
     @Override
