@@ -382,10 +382,9 @@ class JdbcResourceCleanupTest {
     }
 
     @Test
-    void zeroMinimumPoolCleanupRunsAfterBorrowedResourceFailures() throws Exception {
+    void zeroMinimumSharedPoolRemainsOpenAfterBorrowedResourceFailure() throws Exception {
         Resources resources = new Resources();
         resources.failureAt = "prepare";
-        RuntimeException poolFailure = new IllegalStateException("pool close failed");
         int[] poolCloses = {0};
         Map<String, String> params = params();
         params.put("connection_pool_min_size", "0");
@@ -402,9 +401,6 @@ class JdbcResourceCleanupTest {
             @Override
             public void close() {
                 poolCloses[0]++;
-                if (poolCloses[0] == 1) {
-                    throw poolFailure;
-                }
                 super.close();
             }
         };
@@ -412,22 +408,18 @@ class JdbcResourceCleanupTest {
         try {
             IOException error = Assertions.assertThrows(IOException.class, scanner::open);
             Assertions.assertSame(resources.failure, error.getCause());
-            Assertions.assertArrayEquals(new Throwable[] {poolFailure}, error.getCause().getSuppressed());
+            Assertions.assertEquals(0, error.getCause().getSuppressed().length);
             Assertions.assertEquals(1, resources.connectionCloses);
-            Assertions.assertSame(pool, JdbcDataSource.getDataSource().getSource(key));
-            HikariDataSource replacement = new HikariDataSource();
-            JdbcDataSource.getDataSource().putSource(key, replacement);
             scanner.close();
-            Assertions.assertEquals(2, poolCloses[0]);
-            Assertions.assertSame(replacement, JdbcDataSource.getDataSource().getSource(key));
+            Assertions.assertEquals(0, poolCloses[0]);
+            Assertions.assertSame(pool, JdbcDataSource.getDataSource().getSource(key));
         } finally {
             removePool(key);
-            pool.close();
         }
     }
 
     @Test
-    void writerPoolFailureIsSuppressedWithoutRepeatingCommit() throws Exception {
+    void writerDoesNotCloseSharedPoolAfterCleanupFailure() throws Exception {
         Resources resources = new Resources();
         Map<String, String> params = params();
         params.put("connection_pool_min_size", "0");
@@ -436,7 +428,6 @@ class JdbcResourceCleanupTest {
         Method method = writer.getClass().getDeclaredMethod("createCacheKey");
         method.setAccessible(true);
         String key = (String) method.invoke(writer);
-        RuntimeException poolFailure = new IllegalStateException("pool close failed");
         int[] poolCloses = {0};
         HikariDataSource pool = new HikariDataSource() {
             @Override
@@ -447,7 +438,7 @@ class JdbcResourceCleanupTest {
             @Override
             public void close() {
                 poolCloses[0]++;
-                throw poolFailure;
+                super.close();
             }
         };
         JdbcDataSource.getDataSource().putSource(key, pool);
@@ -456,14 +447,15 @@ class JdbcResourceCleanupTest {
             resources.failureAt = "statement.close";
             IOException error = Assertions.assertThrows(IOException.class, writer::close);
             Assertions.assertSame(resources.failure, error.getCause());
-            Assertions.assertArrayEquals(new Throwable[] {poolFailure}, error.getCause().getSuppressed());
+            Assertions.assertEquals(0, error.getCause().getSuppressed().length);
             Assertions.assertSame(error, Assertions.assertThrows(IOException.class, writer::close));
-            Assertions.assertEquals(1, poolCloses[0]);
+            Assertions.assertEquals(0, poolCloses[0]);
+            Assertions.assertSame(pool, JdbcDataSource.getDataSource().getSource(key));
             Assertions.assertEquals(1, resources.commits);
             Assertions.assertEquals(0, resources.rollbacks);
             Assertions.assertEquals(1, resources.connectionCloses);
         } finally {
-            JdbcDataSource.getDataSource().getSourcesMap().remove(key, pool);
+            removePool(key);
         }
     }
 

@@ -100,6 +100,8 @@ public class JdbcJniScanner extends JniScanner {
     // Read state
     private boolean resultSetOpened = false;
     private boolean abortAttempted = false;
+    private boolean connectionAborted = false;
+    private boolean resultSetExhausted = false;
     private List<Object[]> block = null;
     // Per-column replace strings for special type handling (bitmap, hll)
     private String[] replaceStringList;
@@ -172,6 +174,8 @@ public class JdbcJniScanner extends JniScanner {
 
             conn = hikariDataSource.getConnection();
             abortAttempted = false;
+            connectionAborted = false;
+            resultSetExhausted = false;
 
             // Use type handler to create the statement with database-specific settings
             stmt = typeHandler.initializeStatement(conn, querySql, batchSize);
@@ -254,6 +258,7 @@ public class JdbcJniScanner extends JniScanner {
             int curRows = 0;
             while (curRows < batchSize) {
                 if (!resultSet.next()) {
+                    resultSetExhausted = true;
                     break;
                 }
                 for (int col = 0; col < types.length; col++) {
@@ -312,10 +317,22 @@ public class JdbcJniScanner extends JniScanner {
     private Exception closeResources(Exception failure) {
         resultSetOpened = false;
         resultSetMetaData = null;
-        // A streaming abort can fail too; never let it skip the ordinary close steps.
-        if (conn != null && resultSet != null && !abortAttempted) {
+        // isAfterLast() can be false even at EOF for an empty SQLServer result.
+        if (conn != null && resultSet != null && !resultSetExhausted && !abortAttempted) {
             abortAttempted = true;
-            failure = JdbcCleanup.attempt(failure, () -> typeHandler.abortReadConnection(conn, resultSet));
+            failure = JdbcCleanup.attempt(failure, () -> {
+                connectionAborted = typeHandler.abortReadConnection(conn, resultSet);
+                if (connectionAborted) {
+                    // Successful physical abort terminates its statements/results too.
+                    resultSet = null;
+                    stmt = null;
+                }
+            });
+        }
+        if (connectionAborted && conn != null) {
+            // abort() does not end the Hikari borrow. Mark it evicted before proxy close
+            // so Hikari does not report resets on the deliberately closed connection as errors.
+            failure = JdbcCleanup.attempt(failure, () -> hikariDataSource.evictConnection(conn));
         }
         if (resultSet != null) {
             failure = JdbcCleanup.attempt(failure, () -> {
@@ -338,13 +355,7 @@ public class JdbcJniScanner extends JniScanner {
                 stmt = null;
             });
         }
-        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-            failure = JdbcCleanup.attempt(failure, () -> {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey(), hikariDataSource);
-                hikariDataSource = null;
-            });
-        }
+        // The cached pool is shared, even with minimumIdle=0; its owner manages shutdown.
         return failure;
     }
 
@@ -400,8 +411,7 @@ public class JdbcJniScanner extends JniScanner {
                     if (connectionPoolKeepAlive) {
                         ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                     }
-                    hikariDataSource = ds;
-                    JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
+                    hikariDataSource = JdbcDataSource.getDataSource().putSourceIfAbsent(cacheKey, ds);
                     String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
                     LOG.info("JdbcJniScanner: Created connection pool for " + safeJdbcUrl);
                 }

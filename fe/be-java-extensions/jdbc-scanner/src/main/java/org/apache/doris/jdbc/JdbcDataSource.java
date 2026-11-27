@@ -65,6 +65,17 @@ public class JdbcDataSource {
         lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
     }
 
+    // Candidates have not been published or borrowed yet. Only an unpublished loser is ours to close.
+    HikariDataSource putSourceIfAbsent(String cacheKey, HikariDataSource candidate) {
+        HikariDataSource cached = sourcesMap.putIfAbsent(cacheKey, candidate);
+        lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
+        if (cached == null) {
+            return candidate;
+        }
+        candidate.close();
+        return cached;
+    }
+
     public Map<String, HikariDataSource> getSourcesMap() {
         return sourcesMap;
     }

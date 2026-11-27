@@ -212,13 +212,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement = null;
             });
         }
-        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-            failure = JdbcCleanup.attempt(failure, () -> {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey(), hikariDataSource);
-                hikariDataSource = null;
-            });
-        }
+        // The cached pool is shared, even with minimumIdle=0; its owner manages shutdown.
         return failure;
     }
 
@@ -391,8 +385,7 @@ public class JdbcJniWriter extends JniWriter {
                     if (connectionPoolKeepAlive) {
                         ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                     }
-                    hikariDataSource = ds;
-                    JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
+                    hikariDataSource = JdbcDataSource.getDataSource().putSourceIfAbsent(cacheKey, ds);
                     String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
                     LOG.info("JdbcJniWriter: Created connection pool for " + safeJdbcUrl);
                 }
