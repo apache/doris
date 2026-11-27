@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -841,6 +842,26 @@ public class IndexChangeJobTest {
         DropIndexClause clause = (DropIndexClause) dropIndexOp.translateToLegacyAlterClause();
         Assert.assertTrue(clause.hasPartitionSpec());
         Assert.assertEquals(normalPartition.getPartitionNames(), clause.getPartitionNames());
+    }
+
+    @Test
+    public void testDropIndexOnPartitionRejectedInCloudMode() throws Exception {
+        PartitionNamesInfo partition = new PartitionNamesInfo(false, Lists.newArrayList("p1"));
+        DropIndexOp partitionDrop = new DropIndexOp("index1", false, null, true, partition);
+        DropIndexOp tableDrop = new DropIndexOp("index1", false, null, true, null);
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test_cloud_drop_index_on_partition";
+            // Dropping the index from the whole table still works in cloud mode.
+            tableDrop.validate(new ConnectContext());
+            partitionDrop.validate(new ConnectContext());
+            Assert.fail("DROP INDEX ON PARTITION must be rejected in cloud mode");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage(),
+                    e.getMessage().contains("DROP INDEX ON PARTITION is not supported in cloud mode"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 
     @Test
