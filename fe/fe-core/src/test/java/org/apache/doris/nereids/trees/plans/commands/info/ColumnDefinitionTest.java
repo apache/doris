@@ -26,14 +26,19 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
 
@@ -46,6 +51,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 public class ColumnDefinitionTest {
@@ -212,5 +218,30 @@ public class ColumnDefinitionTest {
         ColumnDefinition literal = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
                 Optional.of(new DefaultValue("00112233-4455-6677-8899-aabbccddeeff")), "");
         Assertions.assertFalse(literal.hasUuidDefaultValue());
+    }
+
+    @Test
+    public void testNestedVarbinaryNeedsAllowVarbinary() {
+        DataType vb = VarBinaryType.INSTANCE;
+        List<DataType> nested = ImmutableList.of(ArrayType.of(vb), MapType.of(StringType.INSTANCE, vb),
+                new StructType(ImmutableList.of(new StructField("x", vb, true, ""))));
+        for (DataType type : nested) {
+            ColumnDefinition rejected = new ColumnDefinition("b", type, true);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> validateExternal(rejected));
+            Assertions.assertTrue(error.getMessage().contains("unsupported sub-type"), error.getMessage());
+
+            ColumnDefinition allowed = new ColumnDefinition("b", type, true);
+            allowed.setAllowVarbinary(true);
+            Assertions.assertDoesNotThrow(() -> validateExternal(allowed));
+            Assertions.assertEquals(type, allowed.getType(), "validation must not rewrite the declared type");
+        }
+        // the flag must not skip the other type checks
+        ColumnDefinition badKey = new ColumnDefinition("b", MapType.of(ArrayType.of(vb), vb), true);
+        badKey.setAllowVarbinary(true);
+        Assertions.assertThrows(AnalysisException.class, () -> validateExternal(badKey));
+    }
+
+    private static void validateExternal(ColumnDefinition column) {
+        column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
     }
 }
