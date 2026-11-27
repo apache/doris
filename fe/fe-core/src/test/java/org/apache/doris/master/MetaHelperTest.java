@@ -72,6 +72,7 @@ public class MetaHelperTest {
     }
 
     private File downloadAndComplete(File dir, byte[] image, String md5) throws Exception {
+        File imageDir = dir.getCanonicalFile();
         HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/image", exchange -> {
             exchange.getResponseHeaders().add(MetaHelper.X_IMAGE_SIZE, String.valueOf(image.length));
@@ -86,8 +87,8 @@ public class MetaHelperTest {
         try (MockedStatic<HttpURLUtil> httpUtil = Mockito.mockStatic(HttpURLUtil.class)) {
             httpUtil.when(() -> HttpURLUtil.getConnectionWithNodeIdent(url))
                     .thenAnswer(invocation -> (HttpURLConnection) new URL(url).openConnection());
-            MetaHelper.getRemoteFile(url, 10_000, MetaHelper.getFile("image.1", dir));
-            return MetaHelper.complete("image.1", dir);
+            MetaHelper.getRemoteFile(url, 10_000, MetaHelper.getFile("image.1", imageDir));
+            return MetaHelper.complete("image.1", imageDir);
         } finally {
             server.stop(0);
         }
