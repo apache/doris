@@ -17,6 +17,7 @@
 
 #include "exec/sink/viceberg_merge_sink.h"
 
+#include <arrow/memory_pool.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -40,12 +41,14 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -392,6 +395,39 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
     ASSERT_TRUE(sink->close(Status::OK()).ok());
 }
 
+TEST_F(VIcebergMergeSinkTest, TestStandaloneDeleteRowsExcludeUpdateInternalDelete) {
+    ObjectPool pool;
+    IcebergWriteMockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    TDataSink t_sink = build_sink();
+
+    auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    Block block = build_block_with_ops(
+            {kInsertOperation, kUpdateDeleteOperation, kUpdateInsertOperation, kDeleteOperation});
+    ASSERT_TRUE(sink->write(&state, block).ok());
+
+    EXPECT_EQ(2, sink->_delete_row_count);
+    EXPECT_EQ(2, sink->_insert_row_count);
+    EXPECT_EQ(1, sink->_delete_only_row_count);
+    EXPECT_EQ(3, sink->_insert_row_count + sink->_delete_only_row_count);
+
+    ASSERT_TRUE(sink->close(Status::OK()).ok());
+}
+
 TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     ObjectPool pool;
     IcebergWriteMockRuntimeState state;
@@ -500,28 +536,71 @@ TEST_F(VIcebergMergeSinkTest, TestOldFePlanSkipsCardinalityState) {
     EXPECT_TRUE(sink->_matched_row_positions.empty());
 }
 
-TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
-    ObjectPool pool;
-    IcebergWriteMockRuntimeState state;
-    state.set_be_exec_version(SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION - 1);
+TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeCountsDistinctStandaloneDeletes) {
+    // The Parquet encoders use the Arrow pool for both data and position delete files.
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
 
-    DataTypes types {std::make_shared<DataTypeInt8>(),
-                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
-                                                                 std::make_shared<DataTypeInt64>()},
-                                                      Strings {"file_path", "row_position"}),
-                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
-    MockRowDescriptor row_desc(types, &pool);
+    auto check = [&](const std::vector<int8_t>& first_ops, const std::vector<int8_t>& second_ops,
+                     int64_t expected_data_rows, int64_t expected_positions) {
+        ObjectPool pool;
+        IcebergWriteMockRuntimeState state;
+        state.set_be_exec_version(SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION - 1);
+        DataTypes types {
+                std::make_shared<DataTypeInt8>(),
+                std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                            std::make_shared<DataTypeInt64>()},
+                                                 Strings {"file_path", "row_position"}),
+                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+        MockRowDescriptor row_desc(types, &pool);
+        auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+        const doris::test::ScopedTempDirectory dir("iceberg_merge_distinct_deletes");
+        auto t_sink = build_sink();
+        auto& merge = t_sink.iceberg_merge_sink;
+        merge.__set_output_path(dir.path().string());
+        merge.__set_original_output_path(dir.path().string());
+        merge.__set_table_location(dir.path().string());
+        VIcebergMergeSink sink(t_sink, output_exprs, nullptr, nullptr);
+        ASSERT_TRUE(sink.init_properties(&pool, row_desc).ok());
+        RuntimeProfile profile("rolling_upgrade_iceberg_merge_sink");
+        ASSERT_TRUE(sink.open(&state, &profile).ok());
 
-    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
-    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
-    sink->set_skip_io(true);
+        // Row i in both blocks addresses the same physical position in shared-file.parquet.
+        Block first = build_block_with_ops(first_ops, false);
+        Block second = build_block_with_ops(second_ops, false);
+        ASSERT_TRUE(sink.write(&state, first).ok());
+        ASSERT_TRUE(sink.write(&state, second).ok());
+        EXPECT_TRUE(sink._matched_row_positions.empty());
+        ASSERT_TRUE(sink.close(Status::OK()).ok());
 
-    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
-    RuntimeProfile profile("rolling_upgrade_iceberg_merge_sink");
-    ASSERT_TRUE(sink->open(&state, &profile).ok());
-    Block duplicate = build_block_with_ops({3, 3}, false);
-    ASSERT_TRUE(sink->write(&state, duplicate).ok());
-    EXPECT_TRUE(sink->_matched_row_positions.empty());
+        std::vector<TIcebergCommitData> commits;
+        state.append_iceberg_commit_datas(&commits);
+        int64_t data_rows = 0;
+        int64_t deleted_positions = 0;
+        int64_t standalone_deletes = 0;
+        for (const auto& commit : commits) {
+            if (commit.file_content == TFileContent::DATA) {
+                data_rows += commit.row_count;
+            } else {
+                ASSERT_EQ(TFileContent::POSITION_DELETES, commit.file_content);
+                deleted_positions += commit.row_count;
+                ASSERT_TRUE(commit.__isset.delete_only_rows);
+                standalone_deletes += commit.delete_only_rows;
+            }
+        }
+        EXPECT_EQ(expected_data_rows, data_rows);
+        EXPECT_EQ(expected_positions, deleted_positions);
+        EXPECT_EQ(1, standalone_deletes);
+    };
+
+    // Two deletes of the same target plus one new row affect two rows.
+    check({kDeleteOperation}, {kDeleteOperation, kInsertOperation}, 1, 1);
+    // Positions 20 and 30 each receive DELETE and UPDATE, in opposite orders. Both updates
+    // already count via their replacement data rows. Only position 10 is a standalone delete.
+    check({kDeleteOperation, kUpdateOperation, kDeleteOperation},
+          {kDeleteOperation, kDeleteOperation, kUpdateOperation, kInsertOperation}, 3, 3);
 }
 
 TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly) {

@@ -33,7 +33,6 @@ import org.apache.iceberg.types.Types;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -81,7 +80,6 @@ public class IcebergWriteKnownBugsTest {
     }
 
     @Test
-    @Disabled("Known issue: mixed INSERT and DELETE MERGE actions undercount affected rows.")
     public void mergeCountsBothInsertedAndDeletedRows() throws Exception {
         InMemoryCatalog catalog = catalog();
         Table table = create(catalog);
@@ -91,7 +89,9 @@ public class IcebergWriteKnownBugsTest {
         transaction.beginWrite(session(), "db", "events", new IcebergWriteContext(
                 WriteOperation.MERGE, false, Collections.emptyMap(), Optional.empty()));
         transaction.addCommitData(serialize(fragment(ADDED, 1, TFileContent.DATA)));
-        transaction.addCommitData(serialize(fragment(DELETED, 1, TFileContent.POSITION_DELETES)));
+        TIcebergCommitData delete = fragment(DELETED, 1, TFileContent.POSITION_DELETES);
+        delete.setDeleteOnlyRows(1);
+        transaction.addCommitData(serialize(delete));
         transaction.commit();
         // These actions target disjoint rows; counting both does not double-count an UPDATE pair.
         Assertions.assertEquals(2, transaction.getUpdateCnt());

@@ -17,7 +17,7 @@
 4	Dora	40
 
 -- !parquet_multi_when --
-1
+2
 
 -- !parquet_check_m3 --
 1	Alice_matched	26
@@ -84,7 +84,7 @@
 4	Dora	40
 
 -- !orc_multi_when --
-1
+2
 
 -- !orc_check_m3 --
 1	Alice_matched	26
@@ -132,4 +132,3 @@
 2	UpdatedViaSubquery	\N
 5	UpdatedAfterDrop	200
 6	Frank	100
-

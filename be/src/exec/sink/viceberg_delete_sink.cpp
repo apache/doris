@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exec/sink/sink_common.h"
 #include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exprs/vexpr.h"
 #include "format/table/deletion_vector.h"
@@ -230,6 +231,10 @@ Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
+    return write(block, nullptr);
+}
+
+Status VIcebergDeleteSink::write(const Block& block, const IColumn* unchecked_merge_operations) {
     SCOPED_TIMER(_send_data_timer);
 
     if (block.rows() == 0) {
@@ -243,7 +248,7 @@ Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
     }
 
     // Extract $row_id column and group by file_path
-    RETURN_IF_ERROR(_collect_position_deletes(block, _file_deletions));
+    RETURN_IF_ERROR(_collect_position_deletes(block, _file_deletions, unchecked_merge_operations));
 
     if (_written_rows_counter) {
         COUNTER_UPDATE(_written_rows_counter, block.rows());
@@ -253,6 +258,10 @@ Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
 }
 
 Status VIcebergDeleteSink::close(Status close_status) {
+    return close(std::move(close_status), std::nullopt);
+}
+
+Status VIcebergDeleteSink::close(Status close_status, std::optional<int64_t> delete_only_rows) {
     SCOPED_TIMER(_close_timer);
 
     if (!close_status.ok()) {
@@ -260,6 +269,21 @@ Status VIcebergDeleteSink::close(Status close_status) {
                                     close_status.to_string());
         _cleanup_created_files();
         return close_status;
+    }
+
+    if (!_unchecked_standalone_deletes.empty()) {
+        // Old execution versions accept repeated matches. Count only target positions added by
+        // standalone DELETEs: an UPDATE of the same position already counts through its data row.
+        DORIS_CHECK(delete_only_rows.has_value());
+        int64_t distinct_deletes = 0;
+        for (const auto& [path, standalone] : _unchecked_standalone_deletes) {
+            auto& positions = _file_deletions.at(path).rows_to_delete;
+            const auto update_positions = positions.cardinality();
+            positions |= standalone;
+            distinct_deletes += positions.cardinality() - update_positions;
+        }
+        delete_only_rows = distinct_deletes;
+        _unchecked_standalone_deletes.clear();
     }
 
     Status write_status = Status::OK();
@@ -277,6 +301,12 @@ Status VIcebergDeleteSink::close(Status close_status) {
     if (!write_status.ok()) {
         _cleanup_created_files();
         return write_status;
+    }
+
+    // MERGE supplies its sink-wide action count, including zero for UPDATE-only input. Ordinary
+    // DELETE leaves it unset. Attach it to one item so multiple files do not multiply the count.
+    if (delete_only_rows.has_value() && !_commit_data_list.empty()) {
+        _commit_data_list.front().__set_delete_only_rows(*delete_only_rows);
     }
 
     // Update counters
@@ -349,7 +379,8 @@ int VIcebergDeleteSink::_get_row_id_column_index(const Block& block) {
 }
 
 Status VIcebergDeleteSink::_collect_position_deletes(
-        const Block& block, std::map<std::string, IcebergFileDeletion>& file_deletions) {
+        const Block& block, std::map<std::string, IcebergFileDeletion>& file_deletions,
+        const IColumn* unchecked_merge_operations) {
     // Find row id column
     int row_id_col_idx = _get_row_id_column_index(block);
     if (row_id_col_idx < 0) {
@@ -475,7 +506,14 @@ Status VIcebergDeleteSink::_collect_position_deletes(
                         partition_spec_id, partition_data_json);
             }
         }
-        iter->second.rows_to_delete.add(static_cast<uint64_t>(row_position));
+        // An unchecked MERGE can send the same position in different blocks. Keep its DELETE
+        // positions distinct until all UPDATE positions are known, irrespective of arrival order.
+        if (unchecked_merge_operations &&
+            unchecked_merge_operations->get_int(i) == kDeleteOperation) {
+            _unchecked_standalone_deletes[file_path].add(static_cast<uint64_t>(row_position));
+        } else {
+            iter->second.rows_to_delete.add(static_cast<uint64_t>(row_position));
+        }
     }
 
     return Status::OK();

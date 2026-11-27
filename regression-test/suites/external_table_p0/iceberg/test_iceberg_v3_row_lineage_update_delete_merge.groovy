@@ -340,7 +340,7 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
 
                 def mergeLineageBefore = lineageMap(mergeTable)
                 log.info("Lineage before MERGE on ${mergeTable}: ${mergeLineageBefore}")
-                sql """
+                def mergeResult = sql """
                     merge into ${mergeTable} t
                     using (
                         select 1 as id, 'Penny_u' as name, 31 as age, date '2024-01-01' as dt, 'U' as flag
@@ -357,6 +357,8 @@ suite("test_iceberg_v3_row_lineage_update_delete_merge", "p0,external,iceberg,ex
                     when not matched then insert (id, name, age, dt)
                     values (s.id, s.name, s.age, s.dt)
                 """
+
+                assertEquals("3", mergeResult[0][0].toString())
 
                 // Assert baseline:
                 // 1. MERGE applies DELETE, UPDATE, and INSERT actions in one statement.

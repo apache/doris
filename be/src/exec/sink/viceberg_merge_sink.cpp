@@ -136,6 +136,7 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     bool has_insert = false;
     size_t delete_rows = 0;
     size_t insert_rows = 0;
+    size_t delete_only_rows = 0;
 
     for (size_t i = 0; i < output_block.rows(); ++i) {
         int8_t op = static_cast<int8_t>(op_data->get_int(i));
@@ -148,6 +149,9 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
             delete_filter[i] = 1;
             has_delete = true;
             ++delete_rows;
+            if (op == kDeleteOperation) {
+                ++delete_only_rows;
+            }
         }
         if (insert_op) {
             insert_filter[i] = 1;
@@ -166,6 +170,7 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     _row_count += output_block.rows();
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
+    _delete_only_row_count += delete_only_rows;
 
     // A delete-only plan omits the data writer, which it does not need and which a BE before Variant
     // writes could not open for a Variant target schema. Reject a mismatched FE plan before
@@ -185,7 +190,13 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         std::vector<int> delete_indices {_row_id_idx};
         delete_block.erase_not_in(delete_indices);
         Block::filter_block_internal(&delete_block, delete_filter);
-        RETURN_IF_ERROR(_delete_writer->write(state, delete_block));
+        // An unchecked MERGE can repeat a target position. Only blocks with standalone DELETEs
+        // need to distinguish their actions from UPDATEs in the delete writer.
+        ColumnPtr unchecked_operations;
+        if (!_require_merge_cardinality_check && delete_only_rows != 0) {
+            unchecked_operations = op_data->filter(delete_filter, delete_rows);
+        }
+        RETURN_IF_ERROR(_delete_writer->write(delete_block, unchecked_operations.get()));
     }
 
     if (has_insert && !skip_io) {
@@ -331,7 +342,8 @@ Status VIcebergMergeSink::close(Status close_status) {
         table_status = _table_writer->close(close_status);
     }
     if (_delete_writer) {
-        delete_status = _delete_writer->close(close_status);
+        delete_status =
+                _delete_writer->close(close_status, static_cast<int64_t>(_delete_only_row_count));
     }
 
     if (_written_rows_counter != nullptr) {

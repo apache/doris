@@ -187,6 +187,37 @@ suite("test_iceberg_merge_into_advanced", "p0,external,iceberg,external_docker,e
         def q_check_m3 = "order_qt_${format}_check_m3"
         "${q_check_m3}" """SELECT * FROM ${formatTableName}"""
 
+        // Mixed standalone DELETE and INSERT actions must both contribute to the client row count.
+        String countTableName = "${tableName}_count_${format}"
+        sql """drop table if exists ${countTableName}"""
+        sql """
+            CREATE TABLE ${countTableName} (
+                id INT,
+                name STRING
+            ) ENGINE=iceberg
+            PROPERTIES (
+                "format-version" = "2",
+                "write.format.default" = "${format}",
+                "write.delete.mode" = "merge-on-read",
+                "write.update.mode" = "merge-on-read",
+                "write.merge.mode" = "merge-on-read"
+            )
+        """
+        sql """INSERT INTO ${countTableName} VALUES (1, 'Alice'), (2, 'Bob')"""
+        def mergeCountResult = sql """
+            MERGE INTO ${countTableName} t
+            USING (
+                SELECT 2 AS id, 'delete' AS action, 'unused' AS name
+                UNION ALL
+                SELECT 3 AS id, 'insert' AS action, 'Carol' AS name
+            ) s
+            ON t.id = s.id
+            WHEN MATCHED AND s.action = 'delete' THEN DELETE
+            WHEN NOT MATCHED THEN INSERT (id, name) VALUES (s.id, s.name)
+        """
+        assertEquals("2", mergeCountResult[0][0].toString())
+        sql """drop table if exists ${countTableName}"""
+
         // 5. Schema Evolution test with MERGE INTO
         sql """ALTER TABLE ${formatTableName} ADD COLUMN c_new INT"""
         def q_schema_ev_merge = "qt_${format}_schema_ev_merge"
