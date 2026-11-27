@@ -11493,4 +11493,264 @@ TEST_F(BlockFileCacheTest,
     EXPECT_FALSE(read_stats.from_peer_cache);
 }
 
+TEST_F(BlockFileCacheTest, wait_for_async_removes_blocks_until_dequeued_unlink_completes) {
+    std::string my_cache_path = caches_dir / "wait_async_removes_dequeued" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+    Defer cleanup_dir {[&] {
+        if (fs::exists(my_cache_path)) {
+            fs::remove_all(my_cache_path);
+        }
+    }};
+
+    constexpr size_t block_size = 16;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1024;
+    settings.query_queue_elements = 64;
+    settings.index_queue_size = 1024;
+    settings.index_queue_elements = 64;
+    settings.disposable_queue_size = 1024;
+    settings.disposable_queue_elements = 64;
+    settings.capacity = 1024;
+    settings.max_file_block_size = block_size;
+    settings.max_query_cache_size = 1024;
+
+    int64_t origin_interval = config::file_cache_background_gc_interval_ms;
+    int64_t origin_qps = config::file_cache_remove_block_qps_limit;
+    config::file_cache_background_gc_interval_ms = 20;
+    config::file_cache_remove_block_qps_limit = 1000;
+    Defer restore_cfg {[&] {
+        config::file_cache_background_gc_interval_ms = origin_interval;
+        config::file_cache_remove_block_qps_limit = origin_qps;
+    }};
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    auto write_block = [&](const UInt128Wrapper& h, size_t off, const std::string& payload) {
+        io::ReadStatistics stats;
+        io::CacheContext ctx;
+        ctx.stats = &stats;
+        ctx.cache_type = io::FileCacheType::NORMAL;
+        auto holder = cache.get_or_set(h, off, payload.size(), ctx);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        auto& fb = holder.file_blocks.front();
+        ASSERT_EQ(fb->state(), io::FileBlock::State::EMPTY);
+        ASSERT_EQ(fb->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        ASSERT_TRUE(fb->append(Slice(payload.data(), payload.size())).ok());
+        ASSERT_TRUE(fb->finalize().ok());
+    };
+
+    const auto hash_a = io::BlockFileCache::hash("async_remove_barrier_a");
+    const auto hash_b = io::BlockFileCache::hash("async_remove_barrier_b");
+    write_block(hash_a, 0, std::string(block_size, 'A'));
+    write_block(hash_a, block_size, std::string(block_size, 'B'));
+    write_block(hash_b, 0, std::string(block_size, 'C'));
+
+    std::mutex gate_mtx;
+    std::condition_variable gate_cv;
+    int entered_count = 0;
+    int allowed_count = 0;
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "BlockFileCache::run_background_gc:before_storage_remove",
+            [&](auto&& args) {
+                auto* key = try_any_cast<io::FileCacheKey*>(args[0]);
+                if (key == nullptr || key->hash != hash_a) {
+                    return;
+                }
+                std::unique_lock lk(gate_mtx);
+                int my_turn = ++entered_count;
+                gate_cv.notify_all();
+                gate_cv.wait(lk, [&]() { return allowed_count >= my_turn; });
+            },
+            &guard);
+    sp->enable_processing();
+    Defer disable_sp {[&] {
+        {
+            std::lock_guard lk(gate_mtx);
+            allowed_count = 100;
+        }
+        gate_cv.notify_all();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    // Queue async removals for both blocks of hash_a.
+    cache.remove_if_cached_async(hash_a);
+    EXPECT_TRUE(cache.dump_structure(hash_a).empty());
+    EXPECT_TRUE(cache.has_pending_async_removes(hash_a));
+    // Unrelated hash_b must not be blocked.
+    EXPECT_FALSE(cache.has_pending_async_removes(hash_b));
+    EXPECT_TRUE(cache.wait_for_async_removes(hash_b, std::chrono::milliseconds(50)));
+
+    // Wait until background GC has dequeued the first block of hash_a and paused before unlink.
+    {
+        std::unique_lock lk(gate_mtx);
+        ASSERT_TRUE(gate_cv.wait_for(lk, std::chrono::seconds(5),
+                                     [&]() { return entered_count >= 1; }));
+    }
+    EXPECT_TRUE(cache.has_pending_async_removes(hash_a));
+    // Short timeout must return false while the dequeued unlink has not finished.
+    EXPECT_FALSE(cache.wait_for_async_removes(hash_a, std::chrono::milliseconds(30)));
+
+    std::atomic<bool> waiter_done {false};
+    bool waiter_result = false;
+    std::thread waiter([&]() {
+        waiter_result = cache.wait_for_async_removes(hash_a, std::chrono::seconds(5));
+        waiter_done.store(true, std::memory_order_release);
+    });
+
+    // Release first block unlink; second block pauses before unlink -> waiter must keep blocking.
+    {
+        std::lock_guard lk(gate_mtx);
+        allowed_count = 1;
+    }
+    gate_cv.notify_all();
+    {
+        std::unique_lock lk(gate_mtx);
+        ASSERT_TRUE(gate_cv.wait_for(lk, std::chrono::seconds(5),
+                                     [&]() { return entered_count >= 2; }));
+    }
+    EXPECT_FALSE(waiter_done.load(std::memory_order_acquire));
+    EXPECT_TRUE(cache.has_pending_async_removes(hash_a));
+
+    // Release second block unlink -> waiter must wake and succeed.
+    {
+        std::lock_guard lk(gate_mtx);
+        allowed_count = 2;
+    }
+    gate_cv.notify_all();
+    waiter.join();
+    EXPECT_TRUE(waiter_done.load(std::memory_order_acquire));
+    EXPECT_TRUE(waiter_result);
+    EXPECT_FALSE(cache.has_pending_async_removes(hash_a));
+
+    // Re-seeding hash_a (non-overwrite) after the barrier must survive and remain readable.
+    write_block(hash_a, 0, std::string(block_size, 'Z'));
+    io::ReadStatistics read_stats;
+    io::CacheContext read_ctx;
+    read_ctx.stats = &read_stats;
+    read_ctx.cache_type = io::FileCacheType::NORMAL;
+    auto verify_holder = cache.get_or_set(hash_a, 0, block_size, read_ctx);
+    ASSERT_EQ(verify_holder.file_blocks.size(), 1);
+    ASSERT_EQ(verify_holder.file_blocks.front()->state(), io::FileBlock::State::DOWNLOADED);
+    std::string buf(block_size, '\0');
+    ASSERT_TRUE(verify_holder.file_blocks.front()->read(Slice(buf.data(), buf.size()), 0).ok());
+    EXPECT_EQ(buf, std::string(block_size, 'Z'));
+}
+
+TEST_F(BlockFileCacheTest, wait_for_async_removes_handles_enqueue_fallback_and_shutdown) {
+    std::string my_cache_path = caches_dir / "wait_async_removes_fallback_shutdown" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+    Defer cleanup_dir {[&] {
+        if (fs::exists(my_cache_path)) {
+            fs::remove_all(my_cache_path);
+        }
+    }};
+
+    constexpr size_t block_size = 16;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1024;
+    settings.query_queue_elements = 64;
+    settings.index_queue_size = 1024;
+    settings.index_queue_elements = 64;
+    settings.disposable_queue_size = 1024;
+    settings.disposable_queue_elements = 64;
+    settings.capacity = 1024;
+    settings.max_file_block_size = block_size;
+    settings.max_query_cache_size = 1024;
+
+    int64_t origin_interval = config::file_cache_background_gc_interval_ms;
+    int64_t origin_qps = config::file_cache_remove_block_qps_limit;
+    config::file_cache_background_gc_interval_ms = 20;
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_cfg {[&] {
+        config::file_cache_background_gc_interval_ms = origin_interval;
+        config::file_cache_remove_block_qps_limit = origin_qps;
+    }};
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer disable_sp {[&] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    std::atomic<bool> waiter_started {false};
+    std::atomic<bool> waiter_result {true};
+    std::thread shutdown_waiter;
+    SyncPoint::CallbackGuard dtor_guard;
+    sp->set_call_back(
+            "BlockFileCache::dtor:after_recycle_notify",
+            [&](auto&&) {
+                if (shutdown_waiter.joinable()) {
+                    shutdown_waiter.join();
+                }
+            },
+            &dtor_guard);
+
+    {
+        io::BlockFileCache cache(my_cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+
+        auto write_block = [&](const UInt128Wrapper& h, const std::string& payload) {
+            io::ReadStatistics stats;
+            io::CacheContext ctx;
+            ctx.stats = &stats;
+            ctx.cache_type = io::FileCacheType::NORMAL;
+            auto holder = cache.get_or_set(h, 0, payload.size(), ctx);
+            ASSERT_EQ(holder.file_blocks.size(), 1);
+            auto& fb = holder.file_blocks.front();
+            ASSERT_EQ(fb->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            ASSERT_TRUE(fb->append(Slice(payload.data(), payload.size())).ok());
+            ASSERT_TRUE(fb->finalize().ok());
+        };
+
+        // 1. Force _recycle_keys.enqueue() fallback to sync remove; count must stay balanced.
+        const auto hash_fb = io::BlockFileCache::hash("async_remove_enqueue_fallback");
+        write_block(hash_fb, std::string(block_size, 'F'));
+        {
+            SyncPoint::CallbackGuard fb_guard;
+            sp->set_call_back(
+                    "BlockFileCache::remove:recycle_enqueue_result",
+                    [](auto&& args) { *try_any_cast<bool*>(args[0]) = false; }, &fb_guard);
+            cache.remove_if_cached_async(hash_fb);
+        }
+        EXPECT_TRUE(cache.dump_structure(hash_fb).empty());
+        EXPECT_FALSE(cache.has_pending_async_removes(hash_fb));
+        EXPECT_TRUE(cache.wait_for_async_removes(hash_fb, std::chrono::milliseconds(50)));
+
+        // 2. With qps_limit=0, async remove stays pending; shutdown must wake the waiter cleanly.
+        const auto hash_sd = io::BlockFileCache::hash("async_remove_shutdown_wake");
+        write_block(hash_sd, std::string(block_size, 'S'));
+        cache.remove_if_cached_async(hash_sd);
+        EXPECT_TRUE(cache.has_pending_async_removes(hash_sd));
+        EXPECT_FALSE(cache.wait_for_async_removes(hash_sd, std::chrono::milliseconds(30)));
+
+        shutdown_waiter = std::thread([&, hash_sd]() {
+            waiter_started.store(true, std::memory_order_release);
+            waiter_result.store(cache.wait_for_async_removes(hash_sd, std::chrono::seconds(10)),
+                                std::memory_order_release);
+        });
+        while (!waiter_started.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        // Let the waiter enter wait_until before ~BlockFileCache runs.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    ASSERT_FALSE(shutdown_waiter.joinable());
+    EXPECT_FALSE(waiter_result.load(std::memory_order_acquire));
+}
+
 } // namespace doris::io

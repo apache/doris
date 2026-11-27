@@ -150,5 +150,49 @@ TEST(InflightWriteBufferIndexTest, OldCallbackDoesNotDeleteLaterOwner) {
     EXPECT_EQ(index.lookup(hash, 0), new_entry);
 }
 
+TEST(InflightWriteBufferIndexTest, HasEntriesForHashTracksMultiShardEntriesWithoutLookupMetrics) {
+    InflightWriteBufferIndex index(8, "inflight_index_has_entries_test");
+    const auto hash_a = BlockFileCache::hash("hash_a");
+    const auto hash_b = BlockFileCache::hash("hash_b");
+    const auto hash_c = BlockFileCache::hash("hash_c");
+
+    EXPECT_FALSE(index.has_entries_for_hash(hash_a));
+    EXPECT_FALSE(index.has_entries_for_hash(hash_b));
+
+    std::vector<size_t> offsets_a;
+    std::vector<std::shared_ptr<InflightWriteBufferEntry>> entries_a;
+    for (size_t i = 0; i < 16; ++i) {
+        size_t off = i * 4096;
+        offsets_a.push_back(off);
+        entries_a.push_back(make_entry(off));
+        ASSERT_EQ(index.insert_if_absent(hash_a, off, entries_a.back()), nullptr);
+    }
+    auto entry_b = make_entry(0);
+    ASSERT_EQ(index.insert_if_absent(hash_b, 0, entry_b), nullptr);
+
+    const uint64_t lookup_before = index._lookup_metric->get_value();
+    const uint64_t hit_before = index._hit_metric->get_value();
+    const uint64_t miss_before = index._miss_metric->get_value();
+
+    EXPECT_TRUE(index.has_entries_for_hash(hash_a));
+    EXPECT_TRUE(index.has_entries_for_hash(hash_b));
+    EXPECT_FALSE(index.has_entries_for_hash(hash_c));
+    EXPECT_EQ(index._lookup_metric->get_value(), lookup_before);
+    EXPECT_EQ(index._hit_metric->get_value(), hit_before);
+    EXPECT_EQ(index._miss_metric->get_value(), miss_before);
+
+    for (size_t i = 0; i + 1 < offsets_a.size(); ++i) {
+        ASSERT_TRUE(index.remove_if(hash_a, offsets_a[i], entries_a[i]));
+        EXPECT_TRUE(index.has_entries_for_hash(hash_a));
+    }
+    ASSERT_TRUE(index.remove_if(hash_a, offsets_a.back(), entries_a.back()));
+    EXPECT_FALSE(index.has_entries_for_hash(hash_a));
+    EXPECT_TRUE(index.has_entries_for_hash(hash_b));
+
+    ASSERT_TRUE(index.remove_if(hash_b, 0, entry_b));
+    EXPECT_FALSE(index.has_entries_for_hash(hash_b));
+    EXPECT_EQ(index.count(), 0);
+}
+
 } // namespace
 } // namespace doris::io

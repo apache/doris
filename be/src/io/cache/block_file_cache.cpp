@@ -479,6 +479,7 @@ BlockFileCache::~BlockFileCache() {
         _recycle_closed = true;
     }
     _recycle_cv.notify_all();
+    TEST_SYNC_POINT("BlockFileCache::dtor:after_recycle_notify");
     if (_cache_background_monitor_thread.joinable()) {
         _cache_background_monitor_thread.join();
     }
@@ -2037,7 +2038,11 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 std::lock_guard recycle_lock(_recycle_mtx);
                 ++_pending_async_removes[key.hash];
             }
-            bool ret = _recycle_keys.enqueue(key);
+            bool ret = true;
+            TEST_SYNC_POINT_CALLBACK("BlockFileCache::remove:recycle_enqueue_result", &ret);
+            if (ret) {
+                ret = _recycle_keys.enqueue(key);
+            }
             if (ret) [[likely]] {
                 *_recycle_keys_length_recorder << _recycle_keys.size_approx();
             } else {
@@ -2650,6 +2655,8 @@ void BlockFileCache::run_background_gc() {
 
         while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
             Defer finish_remove {[&]() { _finish_async_remove(key.hash); }};
+            TEST_SYNC_POINT_CALLBACK("BlockFileCache::run_background_gc:before_storage_remove",
+                                     &key);
             int64_t duration_ns = 0;
             Status st;
             {

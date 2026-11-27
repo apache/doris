@@ -345,7 +345,22 @@ public:
         if (it == records_.end() || it->second.empty()) {
             return false;
         }
-        return !it->second.front().filename.starts_with(prefix_dir);
+        const std::string& filename = it->second.front().filename;
+        return !(filename.starts_with(prefix_dir) &&
+                 filename.find('/', prefix_dir.size()) == std::string::npos);
+    }
+
+    std::string find_job_id_by_exact_prefix(const std::string& prefix_dir) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto& [job_id, files] : records_) {
+            for (const auto& file : files) {
+                if (file.filename.starts_with(prefix_dir) &&
+                    file.filename.find('/', prefix_dir.size()) == std::string::npos) {
+                    return job_id;
+                }
+            }
+        }
+        return "";
     }
 
     int64_t get_exist_job_perfile_size_by_prefix(const std::string& file_prefix) {
@@ -2312,6 +2327,23 @@ private:
         return inflight_index != nullptr && inflight_index->has_entries_for_hash(hash);
     }
 
+    // Drain any queued or in-flight async physical removals for `hash` without evicting healthy
+    // resident blocks. Used before non-overwrite seed admission so an older async unlink cannot
+    // delete a newly seeded file at the same storage path.
+    static void wait_for_pending_async_removes_for_key(doris::io::BlockFileCache* cache,
+                                                       const doris::io::UInt128Wrapper& hash,
+                                                       const std::string& key,
+                                                       std::chrono::milliseconds timeout) {
+        if (!cache->has_pending_async_removes(hash)) {
+            return;
+        }
+        if (!cache->wait_for_async_removes(hash, timeout)) {
+            throw std::runtime_error(
+                    "Timed out waiting for pending async physical removals to finish for key " +
+                    key);
+        }
+    }
+
     static void clear_local_cache_for_key(const std::string& key, bool wait_for_cold = true) {
         auto hash = doris::io::BlockFileCache::hash(doris::io::Path(key).filename().native());
         auto* cache = doris::io::FileCacheFactory::instance()->get_by_path(hash);
@@ -2417,6 +2449,9 @@ private:
                     }
                     if (config.overwrite_existing) {
                         clear_local_cache_for_key(key, /*wait_for_cold=*/true);
+                    } else {
+                        wait_for_pending_async_removes_for_key(cache, hash, key,
+                                                               std::chrono::seconds(30));
                     }
 
                     doris::io::ReadStatistics local_stats;
@@ -2439,6 +2474,15 @@ private:
                         const auto deadline = std::chrono::steady_clock::now() + kSeedBlockTimeout;
                         bool range_seeded = false;
                         while (!range_seeded) {
+                            if (cache->has_pending_async_removes(hash)) {
+                                const auto now = std::chrono::steady_clock::now();
+                                const auto rem =
+                                        now < deadline
+                                                ? std::chrono::duration_cast<
+                                                          std::chrono::milliseconds>(deadline - now)
+                                                : std::chrono::milliseconds(0);
+                                wait_for_pending_async_removes_for_key(cache, hash, key, rem);
+                            }
                             bool need_retry = false;
                             bool saw_deleting = false;
                             std::string last_reason;
@@ -2638,7 +2682,7 @@ private:
         if (resolved_source_job_id.empty()) {
             resolved_source_job_id = peer_seed_records.find_source_id_by_prefix(prefix_dir);
             if (resolved_source_job_id.empty()) {
-                resolved_source_job_id = s3_file_records.find_job_id_by_prefix(prefix_dir);
+                resolved_source_job_id = s3_file_records.find_job_id_by_exact_prefix(prefix_dir);
             }
             if (resolved_source_job_id.empty()) {
                 throw std::runtime_error(
