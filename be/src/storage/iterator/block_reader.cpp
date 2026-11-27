@@ -43,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "storage/iterator/direct_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -62,11 +63,21 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
+BlockReader::BlockReader() = default;
+
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
         delete[] _agg_places[i];
     }
+}
+
+void BlockReader::update_profile(RuntimeProfile* profile) {
+    if (_direct_iter != nullptr) {
+        _direct_iter->update_profile(profile);
+        return;
+    }
+    _vcollect_iter.update_profile(profile);
 }
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
@@ -518,6 +529,43 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
+bool BlockReader::_uses_direct_iter(const ReaderParams& read_params) const {
+    // A key TopN and a changelog MIN_DELTA or DETAIL scan are the queries that ask for key order.
+    return config::enable_new_block_iterator &&
+           read_params.reader_type == ReaderType::READER_QUERY &&
+           _tablet_schema->keys_type() == KeysType::DUP_KEYS && !read_params.read_orderby_key;
+}
+
+Status BlockReader::_init_direct_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
+                     << ", tablet_id:" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << int(read_params.reader_type)
+                     << ", version:" << read_params.version;
+        return res;
+    }
+
+    std::vector<RowsetReaderSharedPtr> rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+    for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+        RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+        // A pushed-down LIMIT is a row budget of every segment, applied after its filters.
+        if (_reader_context.general_read_limit > 0) {
+            rs_split.rs_reader->set_topn_limit(
+                    static_cast<size_t>(_reader_context.general_read_limit));
+        }
+        rs_readers.push_back(rs_split.rs_reader);
+    }
+    _direct_iter = std::make_unique<DirectIterator>(std::move(rs_readers), _read_schema, &_stats);
+    return _direct_iter->init();
+}
+
 Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     if (_eof) {
         return Status::OK();
@@ -598,7 +646,11 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    auto status = _init_collect_iter(read_params);
+    // With config::enable_new_block_iterator on, a DUP_KEYS query that does not ask for key order
+    // reads through DirectIterator; every other read goes through VCollectIterator.
+    const bool uses_direct_iter = _uses_direct_iter(read_params);
+    auto status =
+            uses_direct_iter ? _init_direct_iter(read_params) : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -619,6 +671,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return Status::OK();
     }
 
+    if (uses_direct_iter) {
+        _next_block_func = &BlockReader::_direct_iter_next_block;
+        return Status::OK();
+    }
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
@@ -649,6 +705,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func == &BlockReader::_unique_key_next_block && _delete_sign_available;
 
     return Status::OK();
+}
+
+Status BlockReader::_direct_iter_next_block(Block* block, bool* eof) {
+    return _direct_iter->next_block(block, eof);
 }
 
 Status BlockReader::_direct_next_block(Block* block, bool* eof) {
