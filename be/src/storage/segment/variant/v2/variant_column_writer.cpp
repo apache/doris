@@ -27,8 +27,10 @@
 #include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
+#include "io/fs/file_writer.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "storage/segment/variant/variant_writer_helpers.h"
@@ -197,9 +199,25 @@ Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& 
         RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
                 tablet_column, writer.get(), converter, current_column_id, path_column.type,
                 path_column.column, path_column.rowids, _num_rows));
-        _subcolumn_indexes.push_back(std::move(indexes));
-        _subcolumn_opts.push_back(opts);
-        _subcolumn_writers.push_back(std::move(writer));
+        // Drain this path before the next writer allocates its page and index builders.
+        RETURN_IF_ERROR(writer->finish());
+        RETURN_IF_ERROR(writer->write_data());
+        const uint64_t index_start = _opts.file_writer->bytes_appended();
+        RETURN_IF_ERROR(writer->write_ordinal_index());
+        if (opts.need_zone_map) {
+            RETURN_IF_ERROR(writer->write_zone_map());
+        }
+        if (opts.need_bloom_filter) {
+            RETURN_IF_ERROR(writer->write_bloom_filter_index());
+        }
+        const uint64_t index_size = _opts.file_writer->bytes_appended() - index_start;
+        if (index_size != 0 && _opts.early_index_ranges != nullptr) {
+            _opts.early_index_ranges->push_back({index_start, index_size});
+        }
+        if (opts.need_inverted_index) {
+            // Finalize the column index while the segment still owns its files for packing.
+            RETURN_IF_ERROR(writer->write_inverted_index());
+        }
     }
     return Status::OK();
 }
@@ -260,19 +278,9 @@ Status VariantV2ColumnWriter::finalize() {
     return Status::OK();
 }
 
-Status VariantV2ColumnWriter::_for_each_column_writer(
-        const std::function<Status(ColumnWriter*)>& function) {
-    DORIS_CHECK(_root_writer != nullptr);
-    RETURN_IF_ERROR(function(_root_writer.get()));
-    for (auto& writer : _subcolumn_writers) {
-        RETURN_IF_ERROR(function(writer.get()));
-    }
-    return Status::OK();
-}
-
 Status VariantV2ColumnWriter::finish() {
     RETURN_IF_ERROR(finalize());
-    RETURN_IF_ERROR(_for_each_column_writer([](ColumnWriter* writer) { return writer->finish(); }));
+    RETURN_IF_ERROR(_root_writer->finish());
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->finish());
     }
@@ -281,8 +289,7 @@ Status VariantV2ColumnWriter::finish() {
 
 Status VariantV2ColumnWriter::write_data() {
     RETURN_IF_ERROR(finalize());
-    RETURN_IF_ERROR(
-            _for_each_column_writer([](ColumnWriter* writer) { return writer->write_data(); }));
+    RETURN_IF_ERROR(_root_writer->write_data());
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->write_data());
     }
@@ -291,8 +298,7 @@ Status VariantV2ColumnWriter::write_data() {
 
 Status VariantV2ColumnWriter::write_ordinal_index() {
     DORIS_CHECK(_is_finalized);
-    RETURN_IF_ERROR(_for_each_column_writer(
-            [](ColumnWriter* writer) { return writer->write_ordinal_index(); }));
+    RETURN_IF_ERROR(_root_writer->write_ordinal_index());
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->write_ordinal_index());
     }
@@ -301,11 +307,6 @@ Status VariantV2ColumnWriter::write_ordinal_index() {
 
 Status VariantV2ColumnWriter::write_zone_map() {
     DORIS_CHECK(_is_finalized);
-    for (size_t index = 0; index < _subcolumn_writers.size(); ++index) {
-        if (_subcolumn_opts[index].need_zone_map) {
-            RETURN_IF_ERROR(_subcolumn_writers[index]->write_zone_map());
-        }
-    }
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->write_zone_map());
     }
@@ -314,11 +315,6 @@ Status VariantV2ColumnWriter::write_zone_map() {
 
 Status VariantV2ColumnWriter::write_inverted_index() {
     DORIS_CHECK(_is_finalized);
-    for (size_t index = 0; index < _subcolumn_writers.size(); ++index) {
-        if (_subcolumn_opts[index].need_inverted_index) {
-            RETURN_IF_ERROR(_subcolumn_writers[index]->write_inverted_index());
-        }
-    }
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->write_inverted_index());
     }
@@ -327,11 +323,6 @@ Status VariantV2ColumnWriter::write_inverted_index() {
 
 Status VariantV2ColumnWriter::write_bloom_filter_index() {
     DORIS_CHECK(_is_finalized);
-    for (size_t index = 0; index < _subcolumn_writers.size(); ++index) {
-        if (_subcolumn_opts[index].need_bloom_filter) {
-            RETURN_IF_ERROR(_subcolumn_writers[index]->write_bloom_filter_index());
-        }
-    }
     if (_binary_writer != nullptr) {
         RETURN_IF_ERROR(_binary_writer->write_bloom_filter_index());
     }
@@ -348,9 +339,6 @@ uint64_t VariantV2ColumnWriter::estimate_buffer_size() {
         return _outer_nulls->byte_size() + _shredder->byte_size();
     }
     uint64_t size = _root_writer->estimate_buffer_size();
-    for (const auto& writer : _subcolumn_writers) {
-        size += writer->estimate_buffer_size();
-    }
     if (_binary_writer != nullptr) {
         size += _binary_writer->estimate_buffer_size();
     }
