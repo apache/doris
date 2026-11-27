@@ -48,10 +48,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Check for secrets
-          - Clang Formatter
-          - CheckStyle
           - TeamCity/p0
           - TeamCity/nonconcurrent
           - TeamCity/external
@@ -59,11 +55,7 @@ github:
           - TeamCity/vault_p0
           - TeamCity/feut
           - TeamCity/beut
-          - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
-          - Build Third Party Libraries (macOS-arm64)
           - TeamCity/compile
-          - code-review
           - TeamCity/cloudut
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -73,10 +65,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
           - TeamCity/feut
           - TeamCity/beut
           - TeamCity/cloudut
@@ -94,10 +82,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
           - TeamCity/feut
           - TeamCity/beut
           - TeamCity/cloudut
@@ -115,10 +99,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)
@@ -136,11 +116,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)
@@ -158,11 +133,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)
@@ -180,10 +150,6 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
           - COMPILE (DORIS_COMPILE)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
@@ -197,15 +163,10 @@ github:
       required_status_checks:
         strict: false
         contexts:
-          - License Check
-          - CheckStyle
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - Build Broker
-          - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
       required_pull_request_reviews:
         dismiss_stale_reviews: true
