@@ -318,7 +318,10 @@ class DeltaLakeSystemTablesTest {
                 }
                 var view = meta.getSysTableHandle(session, base, k.systemTable.name()).orElseThrow();
                 var provider = connector.getScanPlanProvider(view);
-                Assertions.assertEquals(k != DeltaLakeTableKind.HISTORY, provider.supportsSystemTableTimeTravel());
+                Assertions.assertEquals(k != DeltaLakeTableKind.HISTORY && k != DeltaLakeTableKind.CHANGES,
+                        provider.supportsSystemTableTimeTravel());
+                Assertions.assertEquals(k == DeltaLakeTableKind.CHANGES,
+                        provider.supportsSystemTableIncrementalRead(k.systemTable.name()));
                 Assertions.assertFalse(provider.canServeMetadataOnlyCount(session, view, Optional.empty()));
                 var old = (DeltaLakeTableHandle) meta.applySnapshot(session, view, basePin);
                 Assertions.assertEquals(k, old.kind());

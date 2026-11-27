@@ -797,8 +797,7 @@ protected:
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
         const auto block_position = request->local_positions.at(row_position_column_id);
-        auto append_predicate = [&](auto& deleted_rows) {
-            auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+        auto append_predicate = [&](std::shared_ptr<DeletePredicate> delete_predicate) {
             delete_predicate->add_child(VSlotRef::create_shared(
                     cast_set<int>(block_position.value()), cast_set<int>(block_position.value()),
                     -1, std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
@@ -806,10 +805,11 @@ protected:
                     VExprContext::create_shared(std::move(delete_predicate)));
         };
         if (_delete_rows != nullptr && !_delete_rows->empty()) {
-            append_predicate(*_delete_rows);
+            append_predicate(std::make_shared<DeletePredicate>(*_delete_rows));
         }
         if (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) {
-            append_predicate(*_deletion_vector);
+            append_predicate(std::make_shared<DeletePredicate>(*_deletion_vector,
+                                                               _deletion_vector_keep_only));
         }
         return Status::OK();
     }
@@ -1167,7 +1167,7 @@ protected:
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
-        if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
+        if (_deletion_vector_keep_only || (_delete_rows != nullptr && !_delete_rows->empty()) ||
             (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
             return false;
         }
@@ -2299,6 +2299,9 @@ protected:
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
     std::shared_ptr<DeletionVector> _deletion_vector;
+    bool _deletion_vector_keep_only = false;
+    Status _load_deletion_vector(const SplitReadOptions& options, const DeleteFileDesc& desc,
+                                 std::shared_ptr<DeletionVector>* result);
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;

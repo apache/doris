@@ -70,14 +70,16 @@ final class DeltaLakeFilesSystemTable extends DeltaLakeSnapshotSystemTable {
     @Override
     public ConnectorSplitSource streamSplits(ConnectorSession session, DeltaLakeRuntime runtime,
             DeltaLakeTableHandle handle, ConnectorScanRequest request, boolean countOnly) {
-        return new Source(session, runtime, handle, request, projectedColumns(handle, request, countOnly), "stream");
+        return new Source(session, runtime, handle, request,
+                projectedColumns(runtime, handle, request, countOnly), "stream");
     }
 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, DeltaLakeRuntime runtime,
             DeltaLakeTableHandle handle, ConnectorScanRequest request) {
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (Source source = new Source(session, runtime, handle, request, projectedColumns(handle, request), "sync")) {
+        try (Source source = new Source(session, runtime, handle, request,
+                projectedColumns(runtime, handle, request), "sync")) {
             while (source.hasNext()) {
                 ranges.add(source.next());
             }

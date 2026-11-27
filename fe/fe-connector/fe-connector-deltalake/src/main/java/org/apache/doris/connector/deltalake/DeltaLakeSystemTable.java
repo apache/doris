@@ -39,7 +39,7 @@ import java.util.TreeSet;
 interface DeltaLakeSystemTable {
     String name();
 
-    ConnectorTableSchema schema(DeltaLakeTableHandle handle);
+    ConnectorTableSchema schema(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle);
 
     boolean supportsTimeTravel();
 
@@ -84,12 +84,12 @@ interface DeltaLakeSystemTable {
         };
     }
 
-    default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeTableHandle handle,
+    default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle,
             ConnectorScanRequest request) {
-        return projectedColumns(handle, request, request.isCountPushdown());
+        return projectedColumns(runtime, handle, request, request.isCountPushdown());
     }
 
-    default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeTableHandle handle,
+    default List<TDeltaLakeSysTableColumn> projectedColumns(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle,
             ConnectorScanRequest request, boolean countOnly) {
         Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         // A pure COUNT(*) may carry an arbitrary minimum-width slot in its scan tuple.
@@ -97,7 +97,7 @@ interface DeltaLakeSystemTable {
             request.getColumns().forEach(column -> names.add(((NamedColumnHandle) column).getName()));
         }
         request.getFilter().ifPresent(filter -> addFilterColumns(filter, names));
-        List<ConnectorColumn> schema = schema(handle).getColumns();
+        List<ConnectorColumn> schema = schema(runtime, handle).getColumns();
         List<TDeltaLakeSysTableColumn> columns = new ArrayList<>(names.size());
         for (int i = 0; i < schema.size(); i++) {
             String name = schema.get(i).getName();

@@ -92,6 +92,14 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     }
 
     @Test
+    void rejectsTableChangesOnAnOrdinaryOlapTableAtBindTime() {
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("select * from table_changes('table'='db1.t','start_version'='0')"));
+        Assertions.assertTrue(error.getMessage().contains("does not support incremental $changes"), error.getMessage());
+    }
+
+    @Test
     void rejectIncrementalReadWithoutChangelog() {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(connectContext)

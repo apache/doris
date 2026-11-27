@@ -160,6 +160,10 @@ final class DeltaKernelCompat {
         return staged;
     }
 
+    static boolean changeDataFeedEnabled(Snapshot snapshot) {
+        return TableConfig.CHANGE_DATA_FEED_ENABLED.fromMetadata(snapshot.getMetadata());
+    }
+
     static OptionalLong historyIctStart(Snapshot snapshot) {
         var metadata = snapshot.getMetadata();
         if (!TableConfig.IN_COMMIT_TIMESTAMPS_ENABLED.fromMetadata(metadata)) {
@@ -328,6 +332,23 @@ final class DeltaKernelCompat {
 
     static Optional<TDeltaLakeDeletionVectorDesc> deletionVector(Row file, String tablePath) {
         DeletionVectorDescriptor dv = InternalScanFileUtils.getDeletionVectorDescriptorFromRow(file);
+        return encodeDeletionVector(dv, tablePath);
+    }
+
+    static Optional<TDeltaLakeDeletionVectorDesc> actionDeletionVector(Row row, String tablePath) {
+        return encodeDeletionVector(DeletionVectorDescriptor.fromRow(row), tablePath);
+    }
+
+    static StructType deletionVectorSchema() {
+        return DeletionVectorDescriptor.READ_SCHEMA;
+    }
+
+    static String dataPath(String tablePath, String encodedPath) {
+        return new Path(new Path(tablePath), new Path(java.net.URI.create(encodedPath))).toString();
+    }
+
+    private static Optional<TDeltaLakeDeletionVectorDesc> encodeDeletionVector(DeletionVectorDescriptor dv,
+            String tablePath) {
         if (dv == null || dv.getCardinality() == 0) {
             return Optional.empty();
         }

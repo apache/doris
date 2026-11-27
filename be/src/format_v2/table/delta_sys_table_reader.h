@@ -25,6 +25,9 @@
 
 namespace doris::format::deltalake {
 
+Status delta_timestamp_field(int64_t millis, const cctz::time_zone& zone, bool with_timezone,
+                             Field* value);
+
 // The scan range owns the rows for the lifetime of the reader. No file is opened.
 class DeltaSysTableReader final : public FileReader {
 public:

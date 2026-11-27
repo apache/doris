@@ -85,6 +85,16 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         return kind.systemTable != null && kind.systemTable.supportsTimeTravel();
     }
 
+    @Override
+    public boolean ignorePartitionPruneShortCircuit() {
+        return kind == DeltaLakeTableKind.CHANGES;
+    }
+
+    @Override
+    public boolean supportsSystemTableIncrementalRead(String name) {
+        return kind == DeltaLakeTableKind.CHANGES && kind.systemTable.name().equalsIgnoreCase(name);
+    }
+
     private record ScanFilter(Optional<Predicate> kernelPredicate,
             java.util.function.Predicate<Map<String, String>> partitionPredicate) {
     }
@@ -478,7 +488,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         return runtime.execute(() -> {
             DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
-            if (delta.kind().systemTable != null) {
+            if (delta.kind().systemTable != null && delta.kind() != DeltaLakeTableKind.CHANGES) {
                 String name = delta.kind().systemTable.name();
                 return Map.of(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet",
                         ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake " + name + " reads",
@@ -489,8 +499,13 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> properties = new HashMap<>();
             properties.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet");
             properties.put("deltalake.snapshot_version", String.valueOf(snapshot.getVersion()));
-            long files = knownFileCount(session, delta, snapshot).value;
-            properties.put("deltalake.total_files", files < 0 ? "unknown" : Long.toString(files));
+            if (delta.kind() == DeltaLakeTableKind.CHANGES) {
+                properties.put("deltalake.cdf.start_version", Long.toString(delta.cdf().start()));
+                properties.put("deltalake.system_table", "changes");
+            } else {
+                long files = knownFileCount(session, delta, snapshot).value;
+                properties.put("deltalake.total_files", files < 0 ? "unknown" : Long.toString(files));
+            }
             TDeltaLakeColumnMappingMode mode = DeltaLakeSchemaBuilder.columnMappingMode(snapshot);
             if (mode != TDeltaLakeColumnMappingMode.NONE) {
                 properties.put(SCHEMA_MAPPING, DeltaLakeSchemaBuilder.encodeMapping(snapshot.getSchema(), mode));
@@ -519,13 +534,30 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         if (tableFormatParams == null || !tableFormatParams.isSetDeltalakeParams()) {
             return List.of();
         }
-        TDeltaLakeDeletionVectorDesc dv = tableFormatParams.getDeltalakeParams().getDeletionVector();
-        return dv != null && dv.isSetPath() ? List.of(dv.getPath()) : List.of();
+        TDeltaLakeFileDesc delta = tableFormatParams.getDeltalakeParams();
+        List<String> paths = new ArrayList<>(2);
+        TDeltaLakeDeletionVectorDesc primary = delta.getDeletionVector();
+        if (primary != null && primary.isSetPath()) {
+            paths.add(primary.getPath());
+        }
+        if (delta.isSetCdf() && delta.getCdf().isSetBaseDeletionVector()) {
+            String base = delta.getCdf().getBaseDeletionVector().getPath();
+            if (base != null && !paths.contains(base)) {
+                paths.add(base);
+            }
+        }
+        return paths;
     }
 
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> properties) {
         String systemTable = properties.get("deltalake.system_table");
+        if (properties.containsKey("deltalake.cdf.start_version")) {
+            output.append(prefix).append("Delta changes from version ")
+                    .append(properties.get("deltalake.cdf.start_version")).append(" through version ")
+                    .append(properties.get("deltalake.snapshot_version")).append('\n');
+            return;
+        }
         if (systemTable != null) {
             DeltaLakeSystemTable view = DeltaLakeTableKind.systemTableNamed(systemTable).orElseThrow().systemTable;
             output.append(prefix).append("Delta ").append(systemTable)
@@ -558,7 +590,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 .filter(values -> !values.isEmpty()).distinct().count());
     }
 
-    private static long targetSplitSize(ConnectorSession session) {
+    static long targetSplitSize(ConnectorSession session) {
         String value = session == null ? null : session.getProperty("file_split_size", String.class);
         long configured = value == null || value.isEmpty() ? 0 : Long.parseLong(value);
         return configured > 0 ? configured : DEFAULT_SPLIT_SIZE;

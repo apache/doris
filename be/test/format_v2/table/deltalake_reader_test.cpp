@@ -268,6 +268,107 @@ protected:
     std::vector<ColumnDefinition> columns {table_column(0, "id")};
 };
 
+TEST_F(DeltaReaderTest, ChangeFeedKeepsBothDirectionsOfVectorDifferencesAndPreservesCachedBitmaps) {
+    deltalake::DeltaReader reader;
+    ASSERT_TRUE(init(&reader).ok());
+    for (const auto& [primary, base, expected] :
+         std::vector<std::tuple<size_t, int, std::vector<std::optional<int64_t>>>> {
+                 {1, -1, {0, 7}},
+                 {2, 1, {14}},
+                 {1, 2, {}},
+                 {0, 0, {}},
+                 {2, 0, {7, 14}},
+                 {2, -1, {0, 7, 14}}}) {
+        auto params = table_params(inline_dv(primary));
+        TDeltaLakeCdfDesc cdf;
+        cdf.__set_commit_version(15);
+        cdf.__set_commit_timestamp_millis(0);
+        cdf.__set_constant_change_type("delete");
+        cdf.__set_row_filter_mode(TDeltaLakeCdfRowFilterMode::KEEP_DELETION_VECTOR_DIFF);
+        if (base >= 0) {
+            cdf.__set_base_deletion_vector(inline_dv(base));
+        }
+        params.deltalake_params.__set_cdf(cdf);
+        auto options = split(params);
+        options.all_runtime_filters_applied = true;
+        if (expected.empty()) {
+            options.current_range.__set_path("/missing-cdf-file-should-never-be-opened");
+        }
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        EXPECT_EQ(reader.current_split_pruned(), expected.empty());
+        EXPECT_FALSE(reader._supports_aggregate_pushdown(TPushAggOp::COUNT));
+        EXPECT_FALSE(reader._supports_aggregate_pushdown(TPushAggOp::MINMAX));
+        EXPECT_FALSE(reader._should_enable_condition_cache(FileScanRequest {}));
+        if (!expected.empty()) {
+            std::vector<std::optional<int64_t>> ids;
+            read(&reader, &ids);
+            EXPECT_EQ(ids, expected);
+        }
+    }
+    ASSERT_TRUE(reader.prepare_split(split(table_params(inline_dv(2)))).ok());
+    std::vector<std::optional<int64_t>> ordinary;
+    read(&reader, &ordinary);
+    EXPECT_EQ(ordinary.size(), 47);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(DeltaReaderTest, PhysicalChangeTypeUsesItsLiteralNameInEveryMappingMode) {
+    columns = {typed_column(-1, "_change_type", std::make_shared<DataTypeString>())};
+    for (auto mode : {TDeltaLakeColumnMappingMode::NONE, TDeltaLakeColumnMappingMode::NAME,
+                      TDeltaLakeColumnMappingMode::ID}) {
+        SCOPED_TRACE(mode);
+        scan_params.__set_deltalake_column_mapping_mode(mode);
+        scan_params.__set_current_schema_id(42);
+        scan_params.__set_history_schema_info(
+                {schema(42, {schema_field("some_physical_name", 1)})});
+        deltalake::DeltaReader reader;
+        ASSERT_TRUE(init(&reader).ok());
+        auto params = table_params(std::nullopt, 42);
+        TDeltaLakeCdfDesc cdf;
+        cdf.__set_commit_version(2);
+        cdf.__set_commit_timestamp_millis(0);
+        params.deltalake_params.__set_cdf(cdf);
+        ASSERT_TRUE(reader.prepare_split(split(params, "spark-cdf-update.parquet")).ok());
+        std::vector<std::vector<std::string>> rows;
+        read_strings(&reader, &rows);
+        std::ranges::sort(rows);
+        EXPECT_EQ(rows, (std::vector<std::vector<std::string>> {{"update_postimage"},
+                                                                {"update_preimage"}}));
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST_F(DeltaReaderTest, ChangeFeedConstantsUseSessionZoneOnlyForWallClockTimestamps) {
+    auto& factory = DataTypeFactory::instance();
+    for (auto type : {TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ}) {
+        for (const auto* zone : {"UTC", "America/Los_Angeles"}) {
+            state.set_timezone(zone);
+            columns = {typed_column(-1, "_commit_timestamp",
+                                    factory.create_data_type(type, false, 0, 6)),
+                       typed_column(-1, "_commit_version", std::make_shared<DataTypeInt64>()),
+                       typed_column(-1, "_change_type", std::make_shared<DataTypeString>())};
+            deltalake::DeltaReader reader;
+            ASSERT_TRUE(init(&reader).ok());
+            auto params = table_params();
+            TDeltaLakeCdfDesc cdf;
+            cdf.__set_commit_version(19);
+            cdf.__set_commit_timestamp_millis(-1);
+            cdf.__set_constant_change_type("insert");
+            params.deltalake_params.__set_cdf(cdf);
+            ASSERT_TRUE(reader.prepare_split(split(params)).ok());
+            std::vector<std::vector<std::string>> rows;
+            read_strings(&reader, &rows);
+            ASSERT_EQ(50, rows.size());
+            bool local = type == TYPE_DATETIMEV2 && std::string_view(zone) == "America/Los_Angeles";
+            EXPECT_EQ(rows[0][0].substr(0, 26),
+                      local ? "1969-12-31 15:59:59.999000" : "1969-12-31 23:59:59.999000");
+            EXPECT_EQ(rows[0][1], "19");
+            EXPECT_EQ(rows[0][2], "insert");
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+}
+
 TEST_F(DeltaReaderTest, ReadsSparkDataWithPartitionAndNoDeletionVector) {
     columns.push_back(table_column(1, "partition"));
     columns.back().is_partition_key = true;
@@ -547,6 +648,24 @@ TEST_F(DeltaReaderTest, DeletionVectorsUseFileGlobalPositionsAcrossByteRanges) {
     }
     EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheMissCount")->value(), 2);
     EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheHitCount")->value(), 10);
+    auto changes = table_params(inline_dv(2));
+    TDeltaLakeCdfDesc cdf;
+    cdf.__set_commit_version(3);
+    cdf.__set_commit_timestamp_millis(1000);
+    cdf.__set_constant_change_type("delete");
+    cdf.__set_base_deletion_vector(inline_dv(0));
+    cdf.__set_row_filter_mode(TDeltaLakeCdfRowFilterMode::KEEP_DELETION_VECTOR_DIFF);
+    changes.deltalake_params.__set_cdf(cdf);
+    std::vector<std::optional<int64_t>> changed_ids;
+    for (int group = 0; group < metadata->num_row_groups(); ++group) {
+        const auto chunk = metadata->RowGroup(group)->ColumnChunk(0);
+        auto options = split(changes, path.c_str());
+        options.current_range.__set_start_offset(chunk->data_page_offset());
+        options.current_range.__set_size(chunk->total_compressed_size());
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        read(&reader, &changed_ids);
+    }
+    EXPECT_EQ(changed_ids, (std::vector<std::optional<int64_t>> {7, 14}));
     ASSERT_TRUE(reader.close().ok());
 }
 

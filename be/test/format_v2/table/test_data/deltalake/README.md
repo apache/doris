@@ -60,3 +60,11 @@ removes its first row, leaving the object with `a=3`.
 | --- | --- |
 | `variant-plain.parquet` | `f25259445c30f899a34f33c887e595f031cf64bbbe02c1f6578660d611843ff6` |
 | `variant-shredded.parquet` | `4fb844ac57b3a82cf04d5f526d37223d73fc3eef00af26bea914a40ed6107de5` |
+
+## Change data file
+
+Spark 4.0.1 with Delta 4.4.1 produced `spark-cdf-update.parquet` by updating
+`p` from `before` to `after` on a row with `id=1` in a change-feed table
+using ID column mapping. The data columns have physical names and field IDs.
+Both update images use the literal Parquet column `_change_type` without a
+field ID. The file's SHA-256 is `3b4c9eb1ca5c143b4a0a5983256db0fcc642f36884e2344a28bcc5593d15b02e`.

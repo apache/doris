@@ -177,6 +177,7 @@ struct TableColumnMapperOptions {
     bool enable_row_lineage_virtual_columns = false;
     bool enable_iceberg_metadata_virtual_columns = false;
     bool enable_paimon_metadata_virtual_columns = false;
+    bool delta_change_feed = false;
     // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
     // behavior, which rounds when reducing DATETIMEV2 scale.
     bool truncate_datetimev2_precision_for_paimon = false;

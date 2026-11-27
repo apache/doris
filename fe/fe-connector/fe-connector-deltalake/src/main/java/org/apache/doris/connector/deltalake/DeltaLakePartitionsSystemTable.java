@@ -55,7 +55,7 @@ final class DeltaLakePartitionsSystemTable extends DeltaLakeSnapshotSystemTable 
         if (snapshot.getPartitionColumnNames().isEmpty()) {
             return List.of();
         }
-        List<TDeltaLakeSysTableColumn> columns = projectedColumns(handle, request);
+        List<TDeltaLakeSysTableColumn> columns = projectedColumns(runtime, handle, request);
         boolean needRecords = DeltaLakeSystemTableRows.needs(columns, "record_count");
         boolean needSize = DeltaLakeSystemTableRows.needs(columns, "total_size");
         boolean needDeleted = DeltaLakeSystemTableRows.needs(columns, "deleted_record_count");

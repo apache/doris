@@ -30,6 +30,7 @@ public:
 protected:
     Status create_file_reader(std::unique_ptr<FileReader>* reader) override;
     TableColumnMappingMode mapping_mode() const override;
+    void configure_mapper_options(TableColumnMapperOptions* options) const override;
     bool _should_enable_condition_cache(const FileScanRequest& file_request) const override;
     Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) override;
     Status customize_file_scan_request(FileScanRequest* file_request) override;
@@ -37,6 +38,8 @@ protected:
                                        bool* has_delete_file) override;
 
 private:
+    static Status describe_deletion_vector(const TDeltaLakeDeletionVectorDesc& dv,
+                                           DeleteFileDesc* desc);
     int64_t _split_schema_id = -1;
     std::vector<LocalColumnIndex> _variant_schema_overrides;
 };

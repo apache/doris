@@ -50,7 +50,7 @@ abstract class DeltaLakeSnapshotSystemTable implements DeltaLakeSystemTable {
     }
 
     @Override
-    public final ConnectorTableSchema schema(DeltaLakeTableHandle handle) {
+    public final ConnectorTableSchema schema(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle) {
         return new ConnectorTableSchema(handle.getTable() + "$" + name, columns, "deltalake", Map.of());
     }
 

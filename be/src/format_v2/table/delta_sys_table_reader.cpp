@@ -35,9 +35,8 @@
 #include "util/string_util.h"
 
 namespace doris::format::deltalake {
-namespace {
-
-Status timestamp_field(int64_t millis, Field* value) {
+Status delta_timestamp_field(int64_t millis, const cctz::time_zone& zone, bool with_timezone,
+                             Field* value) {
     // C++ rounds integer division towards zero. Normalize the remainder so -1 ms is
     // 1969-12-31 23:59:59.999000 UTC rather than a negative fractional second.
     int64_t seconds = millis / 1000;
@@ -47,7 +46,7 @@ Status timestamp_field(int64_t millis, Field* value) {
         remainder += 1000;
     }
     const cctz::time_point<cctz::seconds> instant {cctz::seconds(seconds)};
-    const auto civil = cctz::convert(instant, cctz::utc_time_zone());
+    const auto civil = cctz::convert(instant, with_timezone ? cctz::utc_time_zone() : zone);
     if (civil.year() < 0 || civil.year() > 9999) {
         return Status::DataQualityError("Delta system table timestamp {} is out of range", millis);
     }
@@ -56,9 +55,12 @@ Status timestamp_field(int64_t millis, Field* value) {
                            cast_set<uint8_t>(civil.day()), cast_set<uint8_t>(civil.hour()),
                            cast_set<uint8_t>(civil.minute()), cast_set<uint8_t>(civil.second()),
                            cast_set<uint32_t>(remainder * 1000));
-    *value = Field::create_field<TYPE_TIMESTAMPTZ>(utc);
+    *value = with_timezone ? Field::create_field<TYPE_TIMESTAMPTZ>(utc)
+                           : Field::create_field<TYPE_DATETIMEV2>(utc.utc_dt());
     return Status::OK();
 }
+
+namespace {
 
 Status decode_cell(const TDeltaLakeSysTableField& cell, const DataTypePtr& type, Field* value) {
     const auto& set = cell.__isset;
@@ -111,7 +113,7 @@ Status decode_cell(const TDeltaLakeSysTableField& cell, const DataTypePtr& type,
         break;
     case TYPE_TIMESTAMPTZ:
         if (set.timestamp_millis) {
-            return timestamp_field(cell.timestamp_millis, value);
+            return delta_timestamp_field(cell.timestamp_millis, cctz::utc_time_zone(), true, value);
         }
         break;
     case TYPE_ARRAY:

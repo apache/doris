@@ -31,6 +31,7 @@ from pyspark.sql import SparkSession
 
 parser = argparse.ArgumentParser(description=__doc__)
 mode = parser.add_mutually_exclusive_group()
+mode.add_argument("--cdf", action="store_true", help="Prepare a managed change feed with an unbackfilled commit")
 mode.add_argument("--history", action="store_true", help="Prepare uc_managed_history for the version-as-of suite")
 mode.add_argument("--time-travel-edges", type=Path, metavar="NEW_DIR",
                   help="Prepare the dedicated UC and local filesystem time-travel regression fixtures")
@@ -92,6 +93,22 @@ def hold_numbered_copies(name, versions, wait_for_writer):
     return log
 
 
+def prepare_cdf():
+    name = "uc_managed_cdf"
+    table = f"doris_delta.m1.{name}"
+    spark.sql(f"DROP TABLE IF EXISTS {table}")
+    spark.sql(f"""CREATE TABLE {table} (id INT, p INT) USING DELTA PARTITIONED BY (p)
+              TBLPROPERTIES ('delta.enableChangeDataFeed'='true')""")
+    spark.sql(f"INSERT INTO {table} VALUES (11,10),(21,20)")
+    spark.sql(f"UPDATE {table} SET id=12 WHERE id=11")
+    end = spark.sql(f"DESCRIBE HISTORY {table} LIMIT 1").first().version
+    log = hold_numbered_copies(name, [end], wait_for_writer=True)
+    result = spark.sql(f"""SELECT id,p,_change_type,_commit_version,unix_millis(_commit_timestamp)
+                       FROM table_changes('{table}',0,{end}) ORDER BY _commit_version,id,_change_type""")
+    (log.parent / "_doris_cdf_reference.json").write_text(
+        json.dumps([list(row) for row in result.collect()]), encoding="utf-8")
+
+
 def prepare_history():
     name = "uc_managed_history"
     table = f"doris_delta.m1.{name}"
@@ -136,9 +153,12 @@ try:
         detail = spark.sql(f"DESCRIBE DETAIL {table}").first()
         target = urlparse(detail.location)
         assert target.scheme == "file" and Path(unquote(target.path)).resolve() == location
+    elif args.cdf:
+        prepare_cdf()
     elif args.history:
         prepare_history()
     else:
+        prepare_cdf()
         seed_table("uc_managed")
         hold_numbered_copies("uc_managed", [3], wait_for_writer=False)
         result = spark.sql("SELECT id, label FROM doris_delta.m1.uc_managed ORDER BY id").collect()

@@ -548,10 +548,25 @@ struct TDeltaLakeSysTableBatch {
     2: optional list<TDeltaLakeSysTableRow> rows
 }
 
+enum TDeltaLakeCdfRowFilterMode {
+    EXCLUDE_DELETION_VECTOR = 0,
+    KEEP_DELETION_VECTOR_DIFF = 1
+}
+
+struct TDeltaLakeCdfDesc {
+    1: optional i64 commit_version
+    2: optional i64 commit_timestamp_millis
+    // Absent for change data files, which contain a physical _change_type column.
+    3: optional string constant_change_type
+    4: optional TDeltaLakeCdfRowFilterMode row_filter_mode
+    5: optional TDeltaLakeDeletionVectorDesc base_deletion_vector
+}
+
 struct TDeltaLakeFileDesc {
     1: optional i64 schema_id
     2: optional TDeltaLakeDeletionVectorDesc deletion_vector
     3: optional TDeltaLakeSysTableBatch sys_table_batch
+    4: optional TDeltaLakeCdfDesc cdf
 }
 
 // Deprecated: the associated external table read support has been removed.

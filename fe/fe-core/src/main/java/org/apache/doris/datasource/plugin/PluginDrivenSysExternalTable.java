@@ -377,7 +377,7 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
      * <p>Package-private + overridable so {@link #resolveScanPin} stays unit-testable without a live
      * connector, the same reason {@code PluginDrivenScanNode}'s capability questions are.
      */
-    boolean selectorSupported(Optional<TableScanParams> scanParams) {
+    public boolean selectorSupported(Optional<TableScanParams> scanParams) {
         String bareName = sysTableName == null ? "" : sysTableName.toLowerCase(Locale.ROOT);
         if (!scanParams.isPresent()) {
             return askScanProvider(ConnectorScanPlanProvider::supportsSystemTableTimeTravel);

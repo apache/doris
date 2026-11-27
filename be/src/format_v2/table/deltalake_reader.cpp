@@ -67,6 +67,43 @@ Status DeltaReader::prepare_split(const SplitReadOptions& options) {
         options.current_range.table_format_params.deltalake_params.__isset.sys_table_batch) {
         return Status::OK();
     }
+    const auto& delta = options.current_range.table_format_params.deltalake_params;
+    if (delta.__isset.cdf) {
+        const auto& cdf = delta.cdf;
+        DORIS_CHECK(cdf.__isset.commit_version && cdf.__isset.commit_timestamp_millis);
+        _partition_values.emplace("_commit_version",
+                                  Field::create_field<TYPE_BIGINT>(cdf.commit_version));
+        if (cdf.__isset.constant_change_type) {
+            _partition_values.emplace("_change_type",
+                                      Field::create_field<TYPE_STRING>(cdf.constant_change_type));
+        }
+        for (const auto& column : _projected_columns) {
+            if (iequal(column.name, "_commit_timestamp")) {
+                Field timestamp;
+                RETURN_IF_ERROR(delta_timestamp_field(
+                        cdf.commit_timestamp_millis, _runtime_state->timezone_obj(),
+                        remove_nullable(column.type)->get_primitive_type() == TYPE_TIMESTAMPTZ,
+                        &timestamp));
+                _partition_values.emplace(column.name, std::move(timestamp));
+            }
+        }
+    }
+    if (delta.__isset.cdf &&
+        delta.cdf.row_filter_mode == TDeltaLakeCdfRowFilterMode::KEEP_DELETION_VECTOR_DIFF) {
+        DORIS_CHECK(_deletion_vector != nullptr);
+        if (delta.cdf.__isset.base_deletion_vector) {
+            DeleteFileDesc desc {.fs_name = options.current_range.fs_name};
+            RETURN_IF_ERROR(describe_deletion_vector(delta.cdf.base_deletion_vector, &desc));
+            std::shared_ptr<DeletionVector> base;
+            RETURN_IF_ERROR(_load_deletion_vector(options, desc, &base));
+            _deletion_vector = std::make_shared<DeletionVector>(*_deletion_vector - *base);
+        }
+        _deletion_vector_keep_only = true;
+        if (_deletion_vector->isEmpty()) {
+            _current_split_pruned = true;
+            return Status::OK();
+        }
+    }
     // Delta commits replace data files instead of mutating them. A file may acquire a new DV,
     // but its Parquet bytes (and therefore its page-cache identity) remain unchanged.
     mark_current_data_file_immutable();
@@ -88,7 +125,8 @@ TableColumnMappingMode DeltaReader::mapping_mode() const {
 
 bool DeltaReader::_should_enable_condition_cache(const FileScanRequest& file_request) const {
     // System table splits have virtual paths and no persistent file row offsets.
-    return !_current_file_range_desc.table_format_params.deltalake_params.__isset.sys_table_batch &&
+    const auto& delta = _current_file_range_desc.table_format_params.deltalake_params;
+    return !delta.__isset.sys_table_batch && !delta.__isset.cdf &&
            TableReader::_should_enable_condition_cache(file_request);
 }
 
@@ -131,7 +169,13 @@ Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_sch
             // A file containing ID 3 has no value for ID 7, even if both have the same name.
             // Spark rejects an entirely untagged footer when the scan requests a field by ID.
             if (!std::ranges::any_of(*file_schema, has_data_field_id) &&
-                std::ranges::any_of(_projected_columns, [](const auto& column) {
+                std::ranges::any_of(_projected_columns, [&](const auto& column) {
+                    if (_current_file_range_desc.table_format_params.deltalake_params.__isset.cdf &&
+                        (iequal(column.name, "_change_type") ||
+                         iequal(column.name, "_commit_version") ||
+                         iequal(column.name, "_commit_timestamp"))) {
+                        return false;
+                    }
                     return !column.is_partition_key && !column.is_synthesized &&
                            has_data_field_id(column);
                 })) {
@@ -159,6 +203,11 @@ Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_sch
                                      &_variant_schema_overrides);
 }
 
+void DeltaReader::configure_mapper_options(TableColumnMapperOptions* options) const {
+    options->delta_change_feed =
+            _current_file_range_desc.table_format_params.deltalake_params.__isset.cdf;
+}
+
 Status DeltaReader::customize_file_scan_request(FileScanRequest* file_request) {
     RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
     file_request->variant_schema_overrides = _variant_schema_overrides;
@@ -174,7 +223,13 @@ Status DeltaReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_de
     if (!params.__isset.deletion_vector) {
         return Status::OK();
     }
-    const auto& dv = params.deletion_vector;
+    RETURN_IF_ERROR(describe_deletion_vector(params.deletion_vector, desc));
+    *has_delete_file = true;
+    return Status::OK();
+}
+
+Status DeltaReader::describe_deletion_vector(const TDeltaLakeDeletionVectorDesc& dv,
+                                             DeleteFileDesc* desc) {
     DORIS_CHECK(dv.__isset.size_in_bytes);
     DORIS_CHECK(dv.__isset.cardinality);
     if (dv.cardinality < 0) {
@@ -206,7 +261,6 @@ Status DeltaReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_de
         desc->key =
                 fmt::format("deltalake_dv_{}#{}#{}", desc->path, desc->start_offset, desc->size);
     }
-    *has_delete_file = true;
     return Status::OK();
 }
 

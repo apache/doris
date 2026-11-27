@@ -24,6 +24,7 @@ import java.util.Optional;
 
 enum DeltaLakeTableKind {
     DATA(null),
+    CHANGES(new DeltaLakeChangesSystemTable()),
     HISTORY(new DeltaLakeHistorySystemTable()),
     DETAIL(new DeltaLakeDetailSystemTable()),
     FILES(new DeltaLakeFilesSystemTable()),

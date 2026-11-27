@@ -67,7 +67,7 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
     }
 
     @Override
-    public ConnectorTableSchema schema(DeltaLakeTableHandle handle) {
+    public ConnectorTableSchema schema(DeltaLakeRuntime runtime, DeltaLakeTableHandle handle) {
         return DeltaLakeHistorySchema.tableSchema(handle.getTable());
     }
 
@@ -86,7 +86,7 @@ final class DeltaLakeHistorySystemTable implements DeltaLakeSystemTable {
         if (bounds.start > bounds.end) {
             return List.of();
         }
-        List<TDeltaLakeSysTableColumn> columns = projectedColumns(handle, request);
+        List<TDeltaLakeSysTableColumn> columns = projectedColumns(runtime, handle, request);
         boolean timestamp = columns.stream().anyMatch(col -> isTimestamp(col.getName()));
         Snapshot snapshot = handle.snapshot(runtime);
         DeltaLakeTableReference reference = handle.reference();

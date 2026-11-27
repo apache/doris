@@ -54,7 +54,7 @@ import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
-    private static final String TABLE_ID = "deltalake.table-id";
+    static final String TABLE_ID = "deltalake.table-id";
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeCatalogProperties properties;
     private final DeltaLakeSnapshotCache snapshots;
@@ -120,7 +120,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
         if (delta.kind().systemTable != null) {
-            return delta.kind().systemTable.schema(delta);
+            return runtime.execute(() -> delta.kind().systemTable.schema(runtime, delta));
         }
         return runtime.execute(() -> DeltaLakeSchemaBuilder.build(delta.getTable(),
                 delta.snapshot(runtime), properties));
@@ -262,6 +262,11 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorTimeTravelSpec spec) {
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.INCREMENTAL) {
+            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+            return Optional.of(runtime.execute(() -> DeltaLakeCdfRange.resolve(session, runtime, delta,
+                    spec.getIncrementalParams()).pin(delta.getTableId())));
+        }
         if (spec.getKind() == ConnectorTimeTravelSpec.Kind.VERSION_REF) {
             throw invalidVersion(spec.getStringValue());
         }
@@ -306,6 +311,13 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
         if (!delta.getTableId().equals(snapshot.getProperties().get(TABLE_ID))) {
             throw new DorisConnectorException("Delta snapshot belongs to another table: " + delta.getPath());
+        }
+        if (snapshot.getProperties().containsKey(DeltaLakeCdfRange.START)) {
+            if (delta.kind() != DeltaLakeTableKind.CHANGES) {
+                throw new DorisConnectorException("Delta Lake data tables do not support @incr; use table_changes");
+            }
+            DeltaLakeCdfRange range = DeltaLakeCdfRange.fromPin(snapshot);
+            return loadVersion(session, delta, snapshot.getSchemaId()).withCdf(range);
         }
         return delta.getVersion() == snapshot.getSnapshotId()
                 ? delta : loadVersion(session, delta, snapshot.getSnapshotId());

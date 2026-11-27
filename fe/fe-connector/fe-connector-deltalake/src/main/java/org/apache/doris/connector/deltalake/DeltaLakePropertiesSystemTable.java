@@ -37,7 +37,7 @@ final class DeltaLakePropertiesSystemTable extends DeltaLakeSnapshotSystemTable 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, DeltaLakeRuntime runtime,
             DeltaLakeTableHandle handle, ConnectorScanRequest request) {
-        List<TDeltaLakeSysTableColumn> columns = projectedColumns(handle, request);
+        List<TDeltaLakeSysTableColumn> columns = projectedColumns(runtime, handle, request);
         var rows = handle.snapshot(runtime).getTableProperties().entrySet().stream()
                 .sorted(Map.Entry.comparingByKey()).map(entry -> DeltaLakeSystemTableRows.row(columns,
                         col -> DeltaLakeSystemTableRows.text(col.equals("key") ? entry.getKey() : entry.getValue())));

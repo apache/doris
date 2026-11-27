@@ -779,7 +779,7 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = std::make_unique<format::hudi::HudiHybridReader>();
-    } else if (table_format == "deltalake") {
+    } else if (table_format == "deltalake" || table_format == "deltalake_cdf") {
         *reader = std::make_unique<format::deltalake::DeltaReader>();
     } else if (table_format == "fluss") {
         *reader = std::make_unique<format::fluss::FlussHybridReader>();

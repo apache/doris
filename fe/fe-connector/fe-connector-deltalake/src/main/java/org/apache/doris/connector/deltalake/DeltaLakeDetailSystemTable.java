@@ -57,7 +57,7 @@ final class DeltaLakeDetailSystemTable extends DeltaLakeSnapshotSystemTable {
     public List<ConnectorScanRange> planScan(ConnectorSession session, DeltaLakeRuntime runtime,
             DeltaLakeTableHandle handle, ConnectorScanRequest request) {
         Snapshot snapshot = handle.snapshot(runtime);
-        List<TDeltaLakeSysTableColumn> columns = projectedColumns(handle, request);
+        List<TDeltaLakeSysTableColumn> columns = projectedColumns(runtime, handle, request);
         DeltaKernelCompat.FileTotals totals = DeltaLakeSystemTableRows.needs(columns, "numFiles")
                 || DeltaLakeSystemTableRows.needs(columns, "sizeInBytes")
                 ? totals(runtime, handle, snapshot, request) : null;

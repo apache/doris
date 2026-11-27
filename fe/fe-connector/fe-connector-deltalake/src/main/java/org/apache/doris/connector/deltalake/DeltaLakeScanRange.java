@@ -167,7 +167,8 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
 
     @Override
     public String getTableFormatType() {
-        return "deltalake";
+        // An older BE must reject CDF splits instead of silently treating them as ordinary data.
+        return descriptor.isSetCdf() ? "deltalake_cdf" : "deltalake";
     }
 
     @Override

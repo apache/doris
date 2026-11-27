@@ -41,8 +41,8 @@ DeletePredicate::DeletePredicate(const std::vector<int64_t>& deleted_rows)
     _data_type = std::make_shared<DataTypeBool>();
 }
 
-DeletePredicate::DeletePredicate(const roaring::Roaring64Map& deletion_vector)
-        : VExpr(), _deletion_vector(&deletion_vector) {
+DeletePredicate::DeletePredicate(const roaring::Roaring64Map& deletion_vector, bool invert)
+        : VExpr(), _invert(invert), _deletion_vector(&deletion_vector) {
     _node_type = TExprNodeType::PREDICATE;
     _opcode = TExprOpcode::DELETE;
     _data_type = std::make_shared<DataTypeBool>();
@@ -91,7 +91,7 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
     const auto& row_ids =
             assert_cast<const ColumnInt64&>(*block->get_by_position(slot).column).get_data();
     const auto count = row_ids.size();
-    auto res_col = ColumnBool::create(count, 0);
+    auto res_col = ColumnBool::create(count, _invert);
     if ((_deleted_rows == nullptr || _deleted_rows->empty()) &&
         (_deletion_vector == nullptr || _deletion_vector->isEmpty())) {
         block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
@@ -112,7 +112,7 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
             const auto row = cast_set<int64_t>(*it);
             if (const auto row_it = std::ranges::lower_bound(row_ids, row);
                 row_it != row_ids.end() && *row_it == row) {
-                res_col->get_data()[row_it - row_ids.begin()] = true;
+                res_col->get_data()[row_it - row_ids.begin()] = !_invert;
             }
             ++it;
         }

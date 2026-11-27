@@ -41,6 +41,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     private final long version;
     private final DeltaLakeTableKind kind;
     private final transient Snapshot snapshot;
+    private final DeltaLakeCdfRange cdf;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
         this(database, table, DeltaLakeTableReference.filesystem(snapshot.getPath()), snapshot);
@@ -53,6 +54,12 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
             long version, Snapshot snapshot, DeltaLakeTableKind kind) {
+        this(database, table, reference, tableId, version, snapshot, kind, null);
+    }
+
+    private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
+            long version, Snapshot snapshot, DeltaLakeTableKind kind, DeltaLakeCdfRange cdf) {
+        this.cdf = cdf;
         this.database = database;
         this.table = table;
         this.reference = reference;
@@ -66,11 +73,23 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     DeltaLakeTableHandle withoutSnapshot() {
         DeltaLakeTableReference coordinates =
                 new DeltaLakeTableReference(reference.path, reference.registrationId, reference.managed);
-        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, kind);
+        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null, kind, cdf);
     }
 
     DeltaLakeTableHandle asSystemTable(DeltaLakeTableKind systemTableKind) {
-        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, systemTableKind);
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, systemTableKind, cdf);
+    }
+
+    DeltaLakeCdfRange cdf() {
+        if (cdf == null) {
+            throw new DorisConnectorException("Delta $changes requires @incr with a start boundary"
+                    + " and does not support FOR VERSION/TIME AS OF");
+        }
+        return cdf;
+    }
+
+    DeltaLakeTableHandle withCdf(DeltaLakeCdfRange range) {
+        return new DeltaLakeTableHandle(database, table, reference, tableId, version, snapshot, kind, range);
     }
 
     DeltaLakeTableKind kind() {
@@ -137,7 +156,7 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
         return wrap(target);
     }
 
-    private Snapshot loadLatest(DeltaLakeRuntime runtime, Engine engine) {
+    Snapshot loadLatest(DeltaLakeRuntime runtime, Engine engine) {
         Snapshot latest = reference.load(engine, runtime.resolver, database, table, Optional.empty());
         verifyTableId(latest);
         return latest;

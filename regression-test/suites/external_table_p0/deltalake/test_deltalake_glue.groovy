@@ -127,7 +127,7 @@ suite("test_deltalake_glue", "p0,external,deltalake,external_docker") {
             write("drop table if exists delta_glue_p0.events")
             write("""create table delta_glue_p0.events(id bigint,label string,p string) using delta partitioned by(p)
                 location '${changes}' tblproperties('delta.columnMapping.mode'='name','delta.enableDeletionVectors'='true',
-                'delta.enableInCommitTimestamps'='true','stage'='before')""")
+                'delta.enableInCommitTimestamps'='true','delta.enableChangeDataFeed'='true','stage'='before')""")
             write("""insert into delta_glue_p0.events select /*+ COALESCE(1) */ * from values
                 (1L,'one','a'),(2L,'removed','a'),(3L,'three','b') as t(id,label,p)""")
             def history = spark.createStatement().withCloseable { stmt ->
@@ -147,6 +147,14 @@ suite("test_deltalake_glue", "p0,external,deltalake,external_docker") {
             qt_existing_dv 'select count(*) from test_deltalake_glue.glue_db.deleted'
 
             write("delete from delta_glue_p0.events where id=2")
+            String cdfFields = "id,label,p,_change_type,_commit_version"
+            String feed = "table_changes('table'='test_deltalake_glue.glue_db.events','start_version'='1','end_version'='2')"
+            String ordering = "order by _commit_version,id,_change_type"
+            sql "refresh table test_deltalake_glue.glue_db.events"
+            assertSparkDorisResultEquals(write("select ${cdfFields},unix_millis(_commit_timestamp) "
+                    + "from table_changes('delta_glue_p0.events',1,2) ${ordering}")[0],
+                    sql("select ${cdfFields},millisecond_timestamp(cast(_commit_timestamp as datetimev2(6))) "
+                            + "from ${feed} ${ordering}"))
             write("alter table delta_glue_p0.events rename column label to note")
             write("alter table delta_glue_p0.events set tblproperties ('stage'='after')")
             write("insert into delta_glue_p0.events values (4L,'four','a')")

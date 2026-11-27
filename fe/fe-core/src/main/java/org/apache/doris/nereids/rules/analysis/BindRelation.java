@@ -124,6 +124,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.TableChangesTableValuedFunction;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
@@ -147,11 +148,39 @@ import java.util.stream.Collectors;
 /**
  * Rule to bind relations in query plan.
  */
-public class BindRelation extends OneAnalysisRuleFactory {
+public class BindRelation implements AnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(StatementContext.class);
 
     @Override
-    public Rule build() {
+    public List<Rule> buildRules() {
+        return ImmutableList.of(bindUnboundRelation(), unboundTVFRelation()
+                .when(tvf -> TableChangesTableValuedFunction.NAME.equalsIgnoreCase(tvf.getFunctionName()))
+                .thenApply(ctx -> {
+                    ConnectContext connection = ctx.cascadesContext.getConnectContext();
+                    TableChangesTableValuedFunction changes = new TableChangesTableValuedFunction(
+                            ctx.root.getProperties().getMap(), connection);
+                    changes.checkAuth(connection);
+                    TableIf base = ctx.cascadesContext.getStatementContext()
+                            .getAndCacheTable(changes.baseName(), TableFrom.QUERY, Optional.empty());
+                    UnboundRelation relation = new UnboundRelation(ctx.root.getRelationId(), changes.changesName(),
+                            ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                            Optional.empty(), changes.scanParams(), Optional.empty());
+                    LogicalFileScan scan = handleMetaTable(base, relation, changes.changesName(), ctx.cascadesContext)
+                            .filter(LogicalFileScan.class::isInstance).map(LogicalFileScan.class::cast)
+                            .orElseThrow(() -> new AnalysisException("Table does not support incremental $changes: "
+                                    + changes.baseName()));
+                    if (!(scan.getTable() instanceof PluginDrivenSysExternalTable)
+                            || !((PluginDrivenSysExternalTable) scan.getTable())
+                                    .selectorSupported(Optional.of(changes.scanParams()))) {
+                        throw new AnalysisException("Table does not support incremental $changes: "
+                                + changes.baseName());
+                    }
+                    scan.getLogicalProperties().getOutput();
+                    return new LogicalCheckPolicy<>(scan);
+                }).toRule(RuleType.BINDING_TABLE_CHANGES));
+    }
+
+    private Rule bindUnboundRelation() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
             if (!(plan instanceof Unbound) && plan instanceof Relation) {
@@ -727,6 +756,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
                 Optional<TableScanParams> scanParams = Optional.ofNullable(unboundRelation.getScanParams());
                 StatementContext statementContext = cascadesContext.getStatementContext();
+                if (scanParams.map(TableScanParams::incrementalRead).orElse(false)) {
+                    // SQL cache tracks the source table, but not a system relation's two range boundaries.
+                    statementContext.getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
+                }
                 ((PluginDrivenSysExternalTable) sysExternalTable).resolveScanPin(
                         tableSnapshot, scanParams, () -> {
                             // System and plain aliases must enter the same latest-fence map regardless

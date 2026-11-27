@@ -40,6 +40,7 @@ import java.util.concurrent.Callable;
 
 /** Lazily built plugin resources; constructing catalog properties never opens storage or contacts a catalog. */
 final class DeltaLakeRuntime implements AutoCloseable {
+    final DeltaLakeCatalogProperties properties;
     final Engine engine;
     final DeltaLakeTableResolver resolver;
     final ConnectorContext storageContext;
@@ -50,6 +51,7 @@ final class DeltaLakeRuntime implements AutoCloseable {
     private final Cache<Snapshot, Set<String>> normalizedPartitionColumns = Caffeine.newBuilder().weakKeys().build();
 
     DeltaLakeRuntime(DeltaLakeCatalogProperties properties, ConnectorContext context) {
+        this.properties = properties;
         HmsConfHelper.initializeHadoopConfigDir(context);
         Configuration configuration = storageConfiguration(properties.getRaw(), context);
         HadoopAuthenticator storageAuth = storageAuthenticator(configuration);

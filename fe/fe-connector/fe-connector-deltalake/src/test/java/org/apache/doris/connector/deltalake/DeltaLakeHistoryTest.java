@@ -71,7 +71,7 @@ class DeltaLakeHistoryTest {
 
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(null)) {
             ConnectorTableHandle base = metadata.getTableHandle(null, "db", "table").orElseThrow();
-            Assertions.assertEquals(List.of("history", "detail", "files", "properties", "partitions"),
+            Assertions.assertEquals(List.of("changes", "history", "detail", "files", "properties", "partitions"),
                     metadata.listSupportedSysTables(null, base));
             Assertions.assertTrue(metadata.getSysTableHandle(null, base, "unknown").isEmpty());
             ConnectorTableHandle history = metadata.getSysTableHandle(null, base, "HISTORY").orElseThrow();
