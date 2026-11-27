@@ -28,22 +28,26 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
-import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 public class EncryptSQLTest extends ParserTestBase {
 
@@ -735,7 +739,70 @@ public class EncryptSQLTest extends ParserTestBase {
                     .replace(second,
                             "\"uri\" = \"s3://bucket/other.csv\", \"format\" = \"csv\", \"s3.secret_key\" = \"*XXX\"");
         }
-        Assertions.assertEquals(expected, BaseViewInfo.rewriteSql(replacements, sql));
+        Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, preserveFormatting));
+    }
+
+    private static Stream<Arguments> logPropertyValues() {
+        return Stream.of(
+                Arguments.of("driver_url", "https://example.invalid/driver.jar?token=fixture-token&mode=read",
+                        "https://example.invalid/driver.jar?token=*XXX&mode=read"),
+                Arguments.of("uri", "https://reader:fixture-password@example.invalid/path?region=east",
+                        "https://example.invalid/path?region=east"),
+                Arguments.of("comment", "https://example.invalid/path?%74oken=fixture-token&mode=read",
+                        "https://example.invalid/path?%74oken=*XXX&mode=read"),
+                Arguments.of("endpoint", "https://example.invalid/path?X-Amz-Signature=fixture-signature", "*XXX"),
+                Arguments.of("uri", "https://example.invalid/path?sig=fixture-sas&se=2030", "*XXX"),
+                Arguments.of("custom", "jdbc:fixture://example.invalid/db;password=fixture-password", "*XXX"),
+                Arguments.of("uri", "https://example.invalid/path?token=%GG", "*XXX"),
+                Arguments.of("warehouse", "abfss://container@account.dfs.core.windows.net/path?token=fixture-token",
+                        "abfss://container@account.dfs.core.windows.net/path?token=*XXX"),
+                Arguments.of("uri", "https://example.invalid/path?mode=read", "https://example.invalid/path?mode=read"),
+                Arguments.of("comment", "keep\\path and \"quotes\"", "keep\\path and \"quotes\""));
+    }
+
+    @ParameterizedTest
+    @MethodSource("logPropertyValues")
+    public void testLogMaskingUsesValuePolicy(String key, String value, String redacted) {
+        long originalMode = ctx.getSessionVariable().getSqlMode();
+        try {
+            for (boolean noBackslashEscapes : List.of(false, true)) {
+                ctx.getSessionVariable().setSqlMode(noBackslashEscapes
+                        ? originalMode | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+                        : originalMode & ~SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+                for (String prefix : List.of("/* layout */", "/* 😀😀 layout */")) {
+                    for (String command : List.of("CREATE CATALOG masked_catalog PROPERTIES",
+                            "ALTER CATALOG masked_catalog SET PROPERTIES")) {
+                        String beforeValue = prefix + "\r\n" + command + " (\n\t'" + key + "' /* keep */ = ";
+                        String suffix = ",\n\t'untouched' = 'plain-value'\n);";
+                        String sql = beforeValue + SqlLiteralUtils.quoteStringLiteral(value) + suffix;
+                        String expected = beforeValue + SqlLiteralUtils.quoteStringLiteral(redacted) + suffix;
+                        Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, true));
+                    }
+                }
+            }
+        } finally {
+            ctx.getSessionVariable().setSqlMode(originalMode);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLogUrlMaskingPreservesSingleQuotesAndUntouchedEscapes(boolean noBackslashEscapes) {
+        long originalMode = ctx.getSessionVariable().getSqlMode();
+        try {
+            ctx.getSessionVariable().setSqlMode(noBackslashEscapes
+                    ? originalMode | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+                    : originalMode & ~SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            String sql = "/* 😀 */\r\nALTER CATALOG masked_catalog SET PROPERTIES (\n"
+                    + "  'driver_url' /* download */ = 'https://example.invalid/it''s.jar?token=fixture-token&mode=read',\n"
+                    + "  'uri' = 'https://reader:fixture-userinfo@example.invalid/data?token=second-token',\n"
+                    + "  'comment' = 'keep\\path and doubled ''quote'''\n)";
+            String expected = sql.replace("token=fixture-token", "token=*XXX")
+                    .replace("reader:fixture-userinfo@", "").replace("token=second-token", "token=*XXX");
+            Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, true));
+        } finally {
+            ctx.getSessionVariable().setSqlMode(originalMode);
+        }
     }
 
     private void assertLogMasking(String sql, String expected) {

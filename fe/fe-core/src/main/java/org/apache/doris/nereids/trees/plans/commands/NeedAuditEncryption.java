@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 
+import java.util.Map;
 import java.util.TreeMap;
 
 /**
@@ -44,6 +44,15 @@ public interface NeedAuditEncryption {
         TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
         NereidsParser parser = new NereidsParser();
         parser.parseForEncryption(sql, indexInSqlToString, preserveFormatting);
-        return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
+        // parseForEncryption already returns UTF-16 offsets. Applying the view rewriter's
+        // code-point conversion again shifts masks after supplementary characters such as emoji.
+        StringBuilder result = new StringBuilder(sql.length());
+        int offset = 0;
+        for (Map.Entry<Pair<Integer, Integer>, String> entry : indexInSqlToString.entrySet()) {
+            Pair<Integer, Integer> range = entry.getKey();
+            result.append(sql, offset, range.first).append(entry.getValue());
+            offset = range.second + 1;
+        }
+        return result.append(sql, offset, sql.length()).toString();
     }
 }

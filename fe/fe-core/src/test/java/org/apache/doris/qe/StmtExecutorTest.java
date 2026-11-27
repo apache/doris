@@ -1655,6 +1655,36 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testCatalogFailureLogsRedactUrlValuesAtInfoAndDebug() throws Exception {
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        try {
+            for (String prefix : List.of("/* logging */", "/* 😀😀 logging */")) {
+                // A missing catalog fails before any URL can be consumed by a connector.
+                String sql = prefix + "\nALTER CATALOG missing_url_mask_catalog SET PROPERTIES (\n"
+                        + " 'driver_url' = 'https://example.invalid/driver.jar?token=fixture-download-token&mode=read',\n"
+                        + " 'uri' = 'https://reader:fixture-userinfo@example.invalid/data?token=fixture-url-token'\n)";
+                String expected = sql.replace("token=fixture-download-token", "token=*XXX")
+                        .replace("reader:fixture-userinfo@", "").replace("token=fixture-url-token", "token=*XXX");
+                try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+                    connectContext.getState().reset();
+                    new StmtExecutor(connectContext, sql).execute();
+                    Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+                    for (Level level : List.of(Level.INFO, Level.DEBUG)) {
+                        Assertions.assertTrue(appender.contains(level, expected), level.toString());
+                        for (String secret : List.of("fixture-download-token", "fixture-userinfo", "fixture-url-token")) {
+                            Assertions.assertFalse(appender.contains(level, secret), secret);
+                        }
+                    }
+                }
+            }
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+            connectContext.getState().reset();
+        }
+    }
+
+    @Test
     public void testAlterResourceSuccessLogDoesNotPrintResourceObject() throws Exception {
         String resourceName = newAiResourceName();
         createResource(buildCreateAiResourceSql(resourceName, AI_RESOURCE_LOG_SECRET));
