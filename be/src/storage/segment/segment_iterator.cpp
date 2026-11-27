@@ -3740,6 +3740,17 @@ void SegmentIterator::_calculate_common_expr_index_exec_status() {
         }
         _common_expr_to_slotref_map[root_expr_ctx.get()] = std::unordered_map<ColumnId, VExpr*>();
 
+        // A conjunct that is a column, or a cast of one, reads the column itself and no index
+        // answers it, so the column keeps its data even when the index answers every other
+        // conjunct on it. The walk below records slots by the parent they sit under, which a
+        // root has none of.
+        if (const auto root_column = VExpr::expr_without_cast(root_expr);
+            root_column->is_slot_ref()) {
+            const auto* slot_ref = assert_cast<const VSlotRef*>(root_column.get());
+            _common_expr_index_exec_status[cast_set<ColumnId>(slot_ref->column_id())]
+                                          [root_expr.get()] = false;
+        }
+
         std::stack<VExprSPtr> stack;
         stack.emplace(root_expr);
 
