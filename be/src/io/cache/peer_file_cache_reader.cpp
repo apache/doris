@@ -61,8 +61,8 @@ int64_t now_steady_ms() {
 
 struct PeerConnectionHealth {
     int32_t consecutive_failures = 0;
-    std::chrono::steady_clock::time_point circuit_open_until;
-    std::chrono::steady_clock::time_point last_update_time;
+    int64_t circuit_open_until_ms = 0;
+    int64_t last_update_time_ms = 0;
     bool probe_in_flight = false;
 };
 
@@ -72,15 +72,17 @@ std::unordered_map<std::string, PeerConnectionHealth> peer_connection_health;
 
 // Every true result must be paired with exactly one finish_peer_connection_attempt() call.
 // Use Defer at the call site so every return path completes the attempt.
-bool peer_connection_circuit_allows(const std::string& address) {
+bool peer_connection_circuit_allows(const std::string& resolved_addr) {
     std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
-    auto it = peer_connection_health.find(address);
-    if (it == peer_connection_health.end() ||
-        it->second.circuit_open_until == std::chrono::steady_clock::time_point {}) {
+    auto it = peer_connection_health.find(resolved_addr);
+    if (it == peer_connection_health.end()) {
         return true;
     }
-    auto& health = it->second;
-    if (std::chrono::steady_clock::now() < health.circuit_open_until || health.probe_in_flight) {
+    auto& [addr, health] = *it;
+    if (health.circuit_open_until_ms == 0) {
+        return true;
+    }
+    if (now_steady_ms() < health.circuit_open_until_ms || health.probe_in_flight) {
         return false;
     }
     health.probe_in_flight = true;
@@ -94,59 +96,64 @@ struct PeerShardedStubs {
     std::atomic<int64_t> last_access_time_ms {0};
 };
 
-// Keyed by stable endpoint `host:port` (before DNS resolution) so DNS IP rotation replaces
-// the old IP's pool immediately, while idle pools are bounded by kMaxCachedPeerAddressPools
-// and reclaimed periodically by PeerFileCacheReader::evict_idle_connections().
+// Keyed by pre-DNS `raw_host_port` (`host:port`) so DNS IP rotation replaces the old IP's pool
+// immediately, while idle pools are bounded by kMaxCachedPeerAddressPools and reclaimed
+// periodically by PeerFileCacheReader::evict_idle_connections().
 bthread::Mutex peer_stub_cache_mutex;
 std::unordered_map<std::string, std::shared_ptr<PeerShardedStubs>> peer_stub_cache;
 
-void evict_peer_stubs_by_key(const std::string& peer_key) {
-    // Destroy evicted channels outside peer_stub_cache_mutex.
-    std::shared_ptr<PeerShardedStubs> retired;
-    {
-        std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
-        auto it = peer_stub_cache.find(peer_key);
-        if (it != peer_stub_cache.end()) {
-            retired = std::move(it->second);
-            peer_stub_cache.erase(it);
-        }
-    }
-}
-
-void evict_peer_stubs_by_resolved_addr(const std::string& resolved_addr) {
+template <typename Pred>
+size_t evict_peer_stub_pools_if(Pred&& pred) {
     // Destroy evicted channels outside peer_stub_cache_mutex.
     std::vector<std::shared_ptr<PeerShardedStubs>> retired;
     {
         std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
         for (auto it = peer_stub_cache.begin(); it != peer_stub_cache.end();) {
-            if (it->second && it->second->resolved_addr == resolved_addr) {
-                retired.push_back(std::move(it->second));
+            auto& [raw_host_port, pool] = *it;
+            if (pred(raw_host_port, pool)) {
+                retired.push_back(std::move(pool));
                 it = peer_stub_cache.erase(it);
             } else {
                 ++it;
             }
         }
     }
+    return retired.size();
 }
 
-void evict_peer_stub_slot(const std::string& peer_key, size_t slot,
+void evict_peer_stub_slot(const std::string& raw_host_port, size_t slot,
                           const std::shared_ptr<PBackendService_Stub>& failed_stub) {
     // Destroy evicted channel outside peer_stub_cache_mutex.
     std::shared_ptr<PBackendService_Stub> retired;
     {
         std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
-        auto it = peer_stub_cache.find(peer_key);
-        if (it == peer_stub_cache.end() || !it->second || slot >= it->second->stubs.size()) {
+        auto it = peer_stub_cache.find(raw_host_port);
+        if (it == peer_stub_cache.end()) {
             return;
         }
-        if (it->second->stubs[slot] == failed_stub) {
-            retired = std::move(it->second->stubs[slot]);
+        auto& [key, pool] = *it;
+        DCHECK(pool);
+        // The pool may have been rebuilt with a smaller size after this slot was handed out.
+        if (slot >= pool->stubs.size()) {
+            return;
+        }
+        if (pool->stubs[slot] == failed_stub) {
+            retired = std::move(pool->stubs[slot]);
         }
     }
 }
 
+std::shared_ptr<PeerShardedStubs> make_peer_stub_pool(const std::string& resolved_addr,
+                                                      size_t pool_size, int64_t now_ms) {
+    auto pool = std::make_shared<PeerShardedStubs>();
+    pool->resolved_addr = resolved_addr;
+    pool->stubs.resize(pool_size);
+    pool->last_access_time_ms.store(now_ms, std::memory_order_relaxed);
+    return pool;
+}
+
 std::pair<std::shared_ptr<PBackendService_Stub>, size_t> get_or_create_sharded_peer_stub(
-        const std::string& peer_key, const std::string& resolved_addr) {
+        const std::string& raw_host_port, const std::string& resolved_addr) {
     const size_t pool_size =
             static_cast<size_t>(std::max(1, config::peer_read_brpc_connection_pool_size));
     const int64_t now_ms = now_steady_ms();
@@ -157,15 +164,15 @@ std::pair<std::shared_ptr<PBackendService_Stub>, size_t> get_or_create_sharded_p
         std::vector<std::shared_ptr<PeerShardedStubs>> retired_entries;
         std::shared_ptr<PBackendService_Stub> retired_stub;
         std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
-        auto it = peer_stub_cache.find(peer_key);
+        auto it = peer_stub_cache.find(raw_host_port);
         if (it == peer_stub_cache.end()) {
             while (peer_stub_cache.size() >= kMaxCachedPeerAddressPools) {
                 auto oldest_it = peer_stub_cache.begin();
                 int64_t oldest_ts =
                         oldest_it->second->last_access_time_ms.load(std::memory_order_relaxed);
                 for (auto cur = std::next(oldest_it); cur != peer_stub_cache.end(); ++cur) {
-                    const int64_t ts =
-                            cur->second->last_access_time_ms.load(std::memory_order_relaxed);
+                    const auto& [key, pool] = *cur;
+                    const int64_t ts = pool->last_access_time_ms.load(std::memory_order_relaxed);
                     if (ts < oldest_ts) {
                         oldest_ts = ts;
                         oldest_it = cur;
@@ -174,21 +181,17 @@ std::pair<std::shared_ptr<PBackendService_Stub>, size_t> get_or_create_sharded_p
                 retired_entries.push_back(std::move(oldest_it->second));
                 peer_stub_cache.erase(oldest_it);
             }
-            auto fresh = std::make_shared<PeerShardedStubs>();
-            fresh->resolved_addr = resolved_addr;
-            fresh->stubs.resize(pool_size);
-            fresh->last_access_time_ms.store(now_ms, std::memory_order_relaxed);
-            it = peer_stub_cache.emplace(peer_key, std::move(fresh)).first;
-        } else if (!it->second || it->second->resolved_addr != resolved_addr ||
-                   it->second->stubs.size() != pool_size) {
-            if (it->second) {
-                retired_entries.push_back(std::move(it->second));
+            it = peer_stub_cache
+                         .emplace(raw_host_port,
+                                  make_peer_stub_pool(resolved_addr, pool_size, now_ms))
+                         .first;
+        } else {
+            auto& [key, pool] = *it;
+            DCHECK(pool);
+            if (pool->resolved_addr != resolved_addr || pool->stubs.size() != pool_size) {
+                retired_entries.push_back(std::move(pool));
+                pool = make_peer_stub_pool(resolved_addr, pool_size, now_ms);
             }
-            auto fresh = std::make_shared<PeerShardedStubs>();
-            fresh->resolved_addr = resolved_addr;
-            fresh->stubs.resize(pool_size);
-            fresh->last_access_time_ms.store(now_ms, std::memory_order_relaxed);
-            it->second = std::move(fresh);
         }
 
         entry = it->second;
@@ -214,7 +217,7 @@ std::pair<std::shared_ptr<PBackendService_Stub>, size_t> get_or_create_sharded_p
     std::shared_ptr<PBackendService_Stub> retired_stub;
     {
         std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
-        auto it = peer_stub_cache.find(peer_key);
+        auto it = peer_stub_cache.find(raw_host_port);
         if (it == peer_stub_cache.end() || it->second != entry || slot >= entry->stubs.size()) {
             return {stub, slot};
         }
@@ -238,40 +241,43 @@ enum class PeerAttemptOutcome {
 };
 
 // Completes an attempt admitted by peer_connection_circuit_allows().
-void finish_peer_connection_attempt(const std::string& address, PeerAttemptOutcome outcome) {
+void finish_peer_connection_attempt(const std::string& resolved_addr, PeerAttemptOutcome outcome) {
     bool circuit_opened = false;
     {
         std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
         if (outcome == PeerAttemptOutcome::SUCCEEDED) {
-            peer_connection_health.erase(address);
+            peer_connection_health.erase(resolved_addr);
             return;
         }
+        const int64_t now_ms = now_steady_ms();
         if (outcome == PeerAttemptOutcome::BACKPRESSURED) {
             // Server-side single-socket backpressure (EOVERCROWDED / E1011) indicates transient
             // congestion on a live peer rather than an unreachable host. Do not count it toward
             // the address circuit breaker or evict healthy sharded connections; only release any
             // in-flight recovery probe slot.
-            auto it = peer_connection_health.find(address);
+            auto it = peer_connection_health.find(resolved_addr);
             if (it != peer_connection_health.end()) {
-                it->second.probe_in_flight = false;
-                it->second.last_update_time = std::chrono::steady_clock::now();
+                auto& [addr, health] = *it;
+                health.probe_in_flight = false;
+                health.last_update_time_ms = now_ms;
             }
             return;
         }
-        const auto now = std::chrono::steady_clock::now();
-        auto& health = peer_connection_health[address];
+        auto& health = peer_connection_health[resolved_addr];
         health.probe_in_flight = false;
-        health.last_update_time = now;
+        health.last_update_time_ms = now_ms;
         ++health.consecutive_failures;
         if (health.consecutive_failures >= std::max(1, config::cache_peer_read_failure_threshold)) {
-            health.circuit_open_until =
-                    now +
-                    std::chrono::seconds(std::max(0, config::cache_peer_read_circuit_open_seconds));
+            health.circuit_open_until_ms =
+                    now_ms +
+                    std::max<int64_t>(0, config::cache_peer_read_circuit_open_seconds) * 1000;
             circuit_opened = true;
         }
     }
     if (circuit_opened) {
-        evict_peer_stubs_by_resolved_addr(address);
+        evict_peer_stub_pools_if([&](const auto&, const auto& pool) {
+            return pool->resolved_addr == resolved_addr;
+        });
     }
 }
 
@@ -387,43 +393,20 @@ PeerFileCacheReader::~PeerFileCacheReader() {
 
 size_t PeerFileCacheReader::evict_idle_connections(int64_t max_idle_ms) {
     const int64_t now_ms = now_steady_ms();
-    std::vector<std::shared_ptr<PeerShardedStubs>> retired;
-    {
-        std::unique_lock<bthread::Mutex> lock(peer_stub_cache_mutex);
-        for (auto it = peer_stub_cache.begin(); it != peer_stub_cache.end();) {
-            const int64_t last_ms =
-                    it->second ? it->second->last_access_time_ms.load(std::memory_order_relaxed)
-                               : 0;
-            if (!it->second || max_idle_ms <= 0 || (now_ms - last_ms) >= max_idle_ms) {
-                if (it->second) {
-                    retired.push_back(std::move(it->second));
-                }
-                it = peer_stub_cache.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-    const size_t evicted_count = retired.size();
-    retired.clear();
+    const size_t evicted_count = evict_peer_stub_pools_if([&](const auto&, const auto& pool) {
+        const int64_t last_ms = pool->last_access_time_ms.load(std::memory_order_relaxed);
+        return max_idle_ms <= 0 || (now_ms - last_ms) >= max_idle_ms;
+    });
 
-    const auto now = std::chrono::steady_clock::now();
-    {
-        std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
-        for (auto it = peer_connection_health.begin(); it != peer_connection_health.end();) {
-            const auto& health = it->second;
-            const int64_t idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                            now - health.last_update_time)
-                                            .count();
-            const bool cooldown_elapsed =
-                    health.circuit_open_until == std::chrono::steady_clock::time_point {} ||
-                    now >= health.circuit_open_until;
-            if (!health.probe_in_flight && cooldown_elapsed &&
-                (max_idle_ms <= 0 || idle_ms >= max_idle_ms)) {
-                it = peer_connection_health.erase(it);
-            } else {
-                ++it;
-            }
+    std::unique_lock<bthread::Mutex> lock(peer_connection_health_mutex);
+    for (auto it = peer_connection_health.begin(); it != peer_connection_health.end();) {
+        const auto& [addr, health] = *it;
+        const bool cooldown_elapsed = now_ms >= health.circuit_open_until_ms;
+        if (!health.probe_in_flight && cooldown_elapsed &&
+            (max_idle_ms <= 0 || (now_ms - health.last_update_time_ms) >= max_idle_ms)) {
+            it = peer_connection_health.erase(it);
+        } else {
+            ++it;
         }
     }
     return evicted_count;
@@ -480,7 +463,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ra
 
     std::string realhost = _host;
     int port = _port;
-    const std::string peer_key = get_host_port(_host, port);
+    const std::string raw_host_port = get_host_port(_host, port);
 
     auto* dns_cache = ExecEnv::GetInstance()->dns_cache();
     if (dns_cache == nullptr) {
@@ -489,24 +472,25 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ra
         Status status = dns_cache->get(_host, &realhost);
         if (!status.ok()) {
             // Hostname is no longer resolvable; drop any cached pool bound to its stale IP.
-            evict_peer_stubs_by_key(peer_key);
+            evict_peer_stub_pools_if(
+                    [&](const auto& key, const auto&) { return key == raw_host_port; });
             peer_cache_reader_failed_counter << 1;
             LOG(WARNING) << "failed to get ip from host " << _host << ": " << status.to_string();
             return Status::InternalError<false>("failed to get ip from host {}", _host);
         }
     }
-    std::string brpc_addr = get_host_port(realhost, port);
-    if (!peer_connection_circuit_allows(brpc_addr)) {
-        return Status::RpcError<false>("Peer connection circuit is open for {}", brpc_addr);
+    const std::string resolved_addr = get_host_port(realhost, port);
+    if (!peer_connection_circuit_allows(resolved_addr)) {
+        return Status::RpcError<false>("Peer connection circuit is open for {}", resolved_addr);
     }
     PeerAttemptOutcome attempt_outcome = PeerAttemptOutcome::FAILED;
     Defer finish_connection_attempt {
-            [&] { finish_peer_connection_attempt(brpc_addr, attempt_outcome); }};
-    auto [brpc_stub, stub_slot] = get_or_create_sharded_peer_stub(peer_key, brpc_addr);
+            [&] { finish_peer_connection_attempt(resolved_addr, attempt_outcome); }};
+    auto [brpc_stub, stub_slot] = get_or_create_sharded_peer_stub(raw_host_port, resolved_addr);
     if (!brpc_stub) {
         peer_cache_reader_failed_counter << 1;
-        LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
-        return Status::RpcError<false>("Address {} is wrong", brpc_addr);
+        LOG(WARNING) << "failed to get brpc stub " << resolved_addr;
+        return Status::RpcError<false>("Address {} is wrong", resolved_addr);
     }
 
     size_t filled = 0;
@@ -537,7 +521,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ra
         }
         if (cntl.ErrorCode() == brpc::EEOF || cntl.ErrorCode() == EHOSTDOWN ||
             cntl.ErrorCode() == ECONNRESET || cntl.ErrorCode() == ECONNREFUSED) {
-            evict_peer_stub_slot(peer_key, stub_slot, brpc_stub);
+            evict_peer_stub_slot(raw_host_port, stub_slot, brpc_stub);
         }
         return Status::RpcError<false>(cntl.ErrorText());
     }
