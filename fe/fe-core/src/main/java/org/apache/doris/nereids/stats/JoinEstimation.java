@@ -36,6 +36,7 @@ import org.apache.doris.statistics.model.StatisticsBuilder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,62 +112,65 @@ public class JoinEstimation {
 
     private static boolean joinConditionContainsUnknownColumnStats(Statistics leftStats,
             Statistics rightStats, Join join) {
-        for (Expression expr : join.getEqualPredicates()) {
-            for (Slot slot : expr.getInputSlots()) {
-                ColumnStatistic colStats = leftStats.findColumnStatistics(slot);
-                if (colStats == null) {
-                    colStats = rightStats.findColumnStatistics(slot);
-                }
-                if (colStats == null || colStats.isUnKnown) {
-                    return true;
-                }
+        return join.getEqualPredicates().stream()
+                .anyMatch(predicate -> equalityHasUnknownInputStats(leftStats, rightStats, predicate));
+    }
+
+    private static boolean equalityHasUnknownInputStats(Statistics leftStats, Statistics rightStats,
+            EqualPredicate predicate) {
+        for (Slot slot : predicate.getInputSlots()) {
+            ColumnStatistic columnStats = leftStats.findColumnStatistics(slot);
+            if (columnStats == null) {
+                columnStats = rightStats.findColumnStatistics(slot);
+            }
+            if (columnStats == null || columnStats.isUnKnown) {
+                return true;
             }
         }
         return false;
     }
 
-    private static Statistics estimateInnerJoinWithEqualPredicate(Statistics leftStats,
-            Statistics rightStats, Join join) {
-        /*
-         * When we estimate filter A=B,
-         * if any side of equation, A or B, is almost unique, the confidence level of estimation is high.
-         * But is both sides are not unique, the confidence level is very low.
-         * The equations, whose confidence level is low, are called unTrustEquation.
-         * In order to avoid error propagation, for unTrustEquations, we only use the biggest selectivity.
-         */
+    private static Optional<Statistics> estimateInnerJoinWithEqualPredicate(Statistics leftStats,
+            Statistics rightStats, List<EqualPredicate> equalPredicates, boolean allowPartialStats) {
         List<Double> unTrustEqualRatio = Lists.newArrayList();
-        List<EqualPredicate> unTrustableCondition = Lists.newArrayList();
+        List<EqualPredicate> trustableConditions = Lists.newArrayList();
         boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
         double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
         double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
-        List<EqualPredicate> trustableConditions = join.getEqualPredicates().stream()
-                .map(expression -> (EqualPredicate) expression)
-                .filter(
-                        expression -> {
-                            // since ndv is not accurate, if ndv/rowcount < TRUSTABLE_UNIQ_THRESHOLD,
-                            // this column is regarded as unique.
-                            EqualPredicate equal = normalizeEqualPredJoinCondition(expression, rightStats);
-                            ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
-                            ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
-                            boolean trustable = eqRightColStats.ndv / rightStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD
-                                    || eqLeftColStats.ndv / leftStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD;
-                            if (!trustable) {
-                                double rNdv = StatsMathUtil.nonZeroDivisor(eqRightColStats.ndv);
-                                double lNdv = StatsMathUtil.nonZeroDivisor(eqLeftColStats.ndv);
-                                if (leftBigger) {
-                                    unTrustEqualRatio.add((rightStatsRowCount / rNdv)
-                                            * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / lNdv);
-                                } else {
-                                    unTrustEqualRatio.add((leftStatsRowCount / lNdv)
-                                            * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / rNdv);
-                                }
-                                unTrustableCondition.add(equal);
-                            }
-                            return trustable;
-                        }
-                ).collect(Collectors.toList());
+        for (EqualPredicate predicate : equalPredicates) {
+            // With no evidence of additional filtering, treat the unknown equality as correlated.
+            if (equalityHasUnknownInputStats(leftStats, rightStats, predicate)) {
+                if (!allowPartialStats) {
+                    return Optional.empty();
+                }
+                continue;
+            }
+            EqualPredicate equal = normalizeEqualPredJoinCondition(predicate, rightStats);
+            ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
+            ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
+            if (eqLeftColStats.isUnKnown || eqRightColStats.isUnKnown) {
+                if (!allowPartialStats) {
+                    return Optional.empty();
+                }
+                continue;
+            }
+            // A nearly unique key provides a high-confidence equality estimate.
+            if (eqRightColStats.ndv / rightStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD
+                    || eqLeftColStats.ndv / leftStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD) {
+                trustableConditions.add(equal);
+            } else {
+                double rightNdv = StatsMathUtil.nonZeroDivisor(eqRightColStats.ndv);
+                double leftNdv = StatsMathUtil.nonZeroDivisor(eqLeftColStats.ndv);
+                double commonNdv = Math.min(eqLeftColStats.ndv, eqRightColStats.ndv);
+                unTrustEqualRatio.add(leftBigger
+                        ? (rightStatsRowCount / rightNdv) * commonNdv / leftNdv
+                        : (leftStatsRowCount / leftNdv) * commonNdv / rightNdv);
+            }
+        }
+        if (trustableConditions.isEmpty() && unTrustEqualRatio.isEmpty()) {
+            return Optional.empty();
+        }
 
-        Statistics innerJoinStats;
         Statistics crossJoinStats = new StatisticsBuilder()
                 .setRowCount(Math.max(1, leftStats.getRowCount()) * Math.max(1, rightStats.getRowCount()))
                 .putColumnStatistics(leftStats.columnStatistics())
@@ -190,21 +194,16 @@ public class JoinEstimation {
             }
             outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
             outputRowCount = outputRowCount * Math.pow(UNTRUSTABLE_CONDITION_SELECTIVITY_LINEAR_FACTOR,
-                    unTrustableCondition.size());
+                    unTrustEqualRatio.size());
         } else {
             outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            Optional<Double> ratio = unTrustEqualRatio.stream().min(Double::compareTo);
-            if (ratio.isPresent()) {
-                outputRowCount = Math.max(1, outputRowCount * ratio.get());
-                if (shouldDecayRemainingUntrustConditions()) {
-                    outputRowCount = Math.max(1, outputRowCount * Math.pow(
-                            UNTRUSTABLE_CONDITION_SELECTIVITY_LINEAR_FACTOR,
-                            Math.max(0, unTrustableCondition.size() - 1)));
-                }
+            outputRowCount = Math.max(1, outputRowCount * Collections.min(unTrustEqualRatio));
+            if (shouldDecayRemainingUntrustConditions()) {
+                outputRowCount = Math.max(1, outputRowCount * Math.pow(
+                        UNTRUSTABLE_CONDITION_SELECTIVITY_LINEAR_FACTOR, unTrustEqualRatio.size() - 1));
             }
         }
-        innerJoinStats = crossJoinStats.withRowCountAndEnforceValid(outputRowCount);
-        return innerJoinStats;
+        return Optional.of(crossJoinStats.withRowCountAndEnforceValid(outputRowCount));
     }
 
     private static Statistics estimateInnerJoinWithoutEqualPredicate(Statistics leftStats,
@@ -258,21 +257,20 @@ public class JoinEstimation {
 
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join,
             double expansion) {
-        if (joinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
-            double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
-            rowCount = Math.max(1, rowCount);
-            return new StatisticsBuilder()
-                .setRowCount(rowCount)
-                .putColumnStatistics(leftStats.columnStatistics())
-                .putColumnStatistics(rightStats.columnStatistics())
-                .build();
-        }
-
+        List<EqualPredicate> equalPredicates = join.getEqualPredicates();
         Statistics innerJoinStats;
-        if (join.getEqualPredicates().isEmpty()) {
+        if (equalPredicates.isEmpty()) {
             innerJoinStats = estimateInnerJoinWithoutEqualPredicate(leftStats, rightStats, join);
         } else {
-            innerJoinStats = estimateInnerJoinWithEqualPredicate(leftStats, rightStats, join);
+            // Preserve the special join estimators' all-or-nothing fallback.
+            JoinType joinType = join.getJoinType();
+            boolean allowPartialStats = joinType.isInnerJoin() || joinType.isOuterJoin();
+            Optional<Statistics> estimate = estimateInnerJoinWithEqualPredicate(
+                    leftStats, rightStats, equalPredicates, allowPartialStats);
+            if (estimate.isEmpty()) {
+                return estimateJoinWithUnknownEqualities(leftStats, rightStats);
+            }
+            innerJoinStats = estimate.get();
         }
 
         if (expansion != 1.0) {
@@ -291,6 +289,14 @@ public class JoinEstimation {
             }
         }
         return innerJoinStats;
+    }
+
+    private static Statistics estimateJoinWithUnknownEqualities(Statistics leftStats, Statistics rightStats) {
+        return new StatisticsBuilder()
+                .setRowCount(Math.max(1, Math.max(leftStats.getRowCount(), rightStats.getRowCount())))
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
     }
 
     private static double estimateJoinConditionSel(Statistics crossJoinStats, Expression joinCond) {
