@@ -267,36 +267,12 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
         try {
-            // Every statement-owned insert coordinator is published at the common execution boundary.
-            // Cancellation retained during planning is replayed before any executor-specific setup or dispatch.
-            executor.setCoord(coordinator);
-            // Publication synchronously replays any cancellation retained during planning. Fence on that
-            // terminal status before executor-specific setup runs, so a later setup failure cannot mask the
-            // original timeout/cancel reason.
-            Status execStatus = coordinator.getExecStatus();
-            if (!execStatus.ok()) {
-                throw new UserException(execStatus.getErrorMsg());
-            }
-            // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
+            publishCoordinator(executor);
             beforeExec();
             executor.updateProfile(false);
             execImpl(executor);
             checkStrictModeAndFilterRatio();
-            for (InsertExecutorListener listener : listeners) {
-                listener.beforeComplete(this, executor, jobId);
-            }
-            // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
-            // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
-            // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
-            // cancellation listener of its own.
-            Status preCommitStatus = coordinator.getExecStatus();
-            if (!preCommitStatus.ok()) {
-                throw new UserException(preCommitStatus.getErrorMsg());
-            }
-            onComplete();
-            for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
-            }
+            completeInsert(executor);
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet "need re-plan error" or no scan node in cloud
@@ -319,14 +295,9 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeEmptyInsert(StmtExecutor executor) throws Exception {
         try {
+            publishCoordinator(executor);
             beforeExec();
-            for (InsertExecutorListener listener : listeners) {
-                listener.beforeComplete(this, executor, jobId);
-            }
-            onComplete();
-            for (InsertExecutorListener listener : listeners) {
-                listener.afterComplete(this, executor, jobId);
-            }
+            completeInsert(executor);
         } catch (Throwable t) {
             onFail(t);
             return;
@@ -335,6 +306,31 @@ public abstract class AbstractInsertExecutor {
             executor.updateProfile(true);
         }
         afterExec(executor);
+    }
+
+    private void publishCoordinator(StmtExecutor executor) throws UserException {
+        executor.setCoord(coordinator);
+        checkInsertStatus(coordinator.getExecStatus());
+    }
+
+    private void completeInsert(StmtExecutor executor) throws Exception {
+        for (InsertExecutorListener listener : listeners) {
+            listener.beforeComplete(this, executor, jobId);
+        }
+        coordinator.beginInsertCommit();
+        // Statement cancellation is retained before it is forwarded to the coordinator.
+        Status pending = executor.getPendingCancelReason();
+        checkInsertStatus(pending != null ? pending : coordinator.getExecStatus());
+        onComplete();
+        for (InsertExecutorListener listener : listeners) {
+            listener.afterComplete(this, executor, jobId);
+        }
+    }
+
+    private static void checkInsertStatus(Status status) throws UserException {
+        if (!status.ok()) {
+            ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT, status.getErrorMsg());
+        }
     }
 
     /**

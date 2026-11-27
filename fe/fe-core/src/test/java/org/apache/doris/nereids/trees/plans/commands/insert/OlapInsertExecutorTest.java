@@ -51,6 +51,8 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -226,8 +228,9 @@ class OlapInsertExecutorTest {
         }
     }
 
-    @Test
-    void testPendingCoordinatorTimeoutFencesBeforeExecSetup() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testPendingCoordinatorTimeoutFencesBeforeExecSetup(boolean empty) throws Exception {
         ConnectContext ctx = createExecutorContext();
         Coordinator coordinator = createCoordinator();
         Mockito.when(coordinator.getExecStatus())
@@ -247,7 +250,14 @@ class OlapInsertExecutorTest {
             OlapInsertExecutor executor = createExecutorWithBeforeExecProbe(ctx, beforeExecRan);
             executor.txnId = 10006L;
 
-            Assertions.assertDoesNotThrow(() -> executor.executeSingleInsert(stmtExecutor));
+            if (empty) {
+                executor.executeEmptyInsert(stmtExecutor);
+            } else {
+                executor.executeSingleInsert(stmtExecutor);
+            }
+            Mockito.verify(stmtExecutor).setCoord(coordinator);
+            Mockito.verify(txnMgr).abortTransaction(Mockito.eq(1L), Mockito.eq(10006L),
+                    Mockito.contains("timeout before coordinator setup"));
 
             // The retained terminal reason is fenced immediately after coordinator publication, before any
             // executor-specific setup can run or fail with a different error.

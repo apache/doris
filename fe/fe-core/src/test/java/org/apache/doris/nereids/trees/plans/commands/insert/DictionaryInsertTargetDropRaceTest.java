@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -34,6 +36,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -157,9 +160,17 @@ class DictionaryInsertTargetDropRaceTest extends TestWithFeService {
         Deencapsulation.setField(executor, "coordinator", coordinator);
         Deencapsulation.setField(executor, "labelName", "dictionary_cancel_test");
 
-        Assertions.assertDoesNotThrow(() -> executor.onFail(new UserException("dictionary insert timeout")));
+        Assertions.assertDoesNotThrow(() -> executor.onFail(new UserException("dictionary setup failed")));
+        Assertions.assertTrue(ctx.getState().getErrorMessage().contains("dictionary setup failed"));
+        ctx.getState().reset();
+
+        Mockito.when(coordinator.getExecStatus()).thenReturn(
+                new Status(TStatusCode.TIMEOUT, "dictionary insert timeout"));
+        StmtExecutor stmtExecutor = Mockito.mock(StmtExecutor.class);
+        Assertions.assertDoesNotThrow(() -> executor.executeSingleInsert(stmtExecutor));
 
         Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_FAILED_WHEN_INSERT, ctx.getState().getErrorCode());
         Assertions.assertTrue(ctx.getState().getErrorMessage().contains("dictionary insert timeout"));
     }
 
