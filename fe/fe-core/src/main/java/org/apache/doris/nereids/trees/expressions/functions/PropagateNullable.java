@@ -26,7 +26,7 @@ import java.util.List;
  *
  * e.g. `substring(null, 1)` is nullable, `substring('abc', 1)` is not nullable.
  */
-public interface PropagateNullable extends ComputeNullable {
+public interface PropagateNullable extends ComputeNullable, NullPropagating {
     @Override
     default boolean nullable() {
         for (Expression child : children()) {

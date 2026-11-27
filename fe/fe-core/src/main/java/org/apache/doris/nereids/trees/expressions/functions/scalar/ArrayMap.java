@@ -72,6 +72,13 @@ public class ArrayMap extends ScalarFunction
     }
 
     @Override
+    public List<Expression> getNullPropagatingArguments() {
+        return ((Lambda) getArgument(0)).getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
     public boolean nullable() {
         return ((Lambda) children.get(0)).getLambdaArguments().stream()
             .map(ArrayItemReference::getArrayExpression)
