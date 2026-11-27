@@ -3678,20 +3678,19 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                 std::string value;
                 err = txn->get(key, &value);
                 if (err == TxnErrorCode::TXN_OK && !version.ParseFromString(value)) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = fmt::format("malformed partition version, tablet_id={}", idx.tablet_id());
-                    return;
+                    err = TxnErrorCode::TXN_INVALID_DATA;
                 }
             }
             if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get row-count version, err={}, tablet_id={}", err,
-                                  idx.tablet_id());
-                return;
+                // The statistics were already read successfully. Omit only the optional coverage.
+                LOG(WARNING) << "failed to get row-count version, err=" << err
+                             << ", tablet_id=" << idx.tablet_id()
+                             << ", instance_id=" << instance_id;
+            } else {
+                // A new partition starts at version 1. Do not count pending lazy versions here.
+                tablet_stats->set_row_count_partition_version(
+                        version.has_version() ? version.version() : 1);
             }
-            // A new partition starts at version 1. Do not count pending lazy versions here.
-            tablet_stats->set_row_count_partition_version(version.has_version() ? version.version()
-                                                                                : 1);
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
