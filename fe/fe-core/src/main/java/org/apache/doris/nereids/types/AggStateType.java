@@ -168,6 +168,11 @@ public class AggStateType extends DataType {
     }
 
     @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return subTypes.stream().allMatch(subType -> subType.allowsKeyUse(keyUse));
+    }
+
+    @Override
     public Optional<Expression> zeroValue() {
         return Optional.empty();
     }

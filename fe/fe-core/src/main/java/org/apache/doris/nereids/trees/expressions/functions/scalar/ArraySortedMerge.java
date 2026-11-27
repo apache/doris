@@ -103,6 +103,7 @@ public class ArraySortedMerge extends ScalarFunction
                     + " requires both arrays to have the same element type, but got "
                     + left.getItemType().toSql() + " and " + right.getItemType().toSql());
         }
+        left.getItemType().checkKeyUse(DataType.KeyUse.ORDERING, getName());
         if (!lambda.getRetType().equals(left.getItemType())) {
             throw new AnalysisException(getName()
                     + " requires the merge lambda to return the element type "

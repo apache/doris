@@ -70,7 +70,7 @@ public class NullIf extends ScalarFunction
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
         }
-        if (commonType.isPresent()) {
+        if (commonType.isPresent() && commonType.get().allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
             return FunctionSignature.ret(commonType.get()).varArgs(commonType.get());
         } else {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());

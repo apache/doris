@@ -362,7 +362,8 @@ public class ColumnDefinition {
                 && !type.isJsonType()
                 && !type.isVariantType()
                 && !type.isMapType()
-                && !type.isStructType();
+                && !type.isStructType()
+                && !type.isFileType();
     }
 
     private void checkKeyColumnType(boolean isOlap) {
@@ -438,6 +439,10 @@ public class ColumnDefinition {
         }
         // nested VARBINARY is not a supported sub-type, so check the rest of the type without it
         (allowVarbinary ? maskVarBinary(type) : type).validateDataType();
+        if (type.typeContainsFile()) {
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql() + " for column '" + name
+                    + "': FILE and types containing FILE cannot be used as table columns");
+        }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {

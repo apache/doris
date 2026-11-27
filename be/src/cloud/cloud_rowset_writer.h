@@ -32,6 +32,13 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    // Local rowsets (intermediate rowsets of sorting schema change) are written to the root of
+    // file cache paths. Remove the files of local rowsets left in `dir` by previous BE processes,
+    // i.e. whose rowset ids are not generated with `backend_uid`. Returns the number of removed
+    // files.
+    static size_t remove_stale_local_rowset_files(const std::string& dir,
+                                                  const UniqueId& backend_uid);
+
 private:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false,
                               std::vector<int64_t>* completed_segment_ids = nullptr) override;

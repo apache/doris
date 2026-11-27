@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
@@ -61,6 +62,17 @@ public class InSubquery extends SubqueryExpr implements UnaryExpression {
     @Override
     public DataType getDataType() throws UnboundException {
         return BooleanType.INSTANCE;
+    }
+
+    @Override
+    protected TypeCheckResult checkInputDataTypesInternal() {
+        for (Expression operand : ImmutableList.of(getCompareExpr(), getSubqueryOutput())) {
+            DataType type = operand.getDataType();
+            if (!type.allowsKeyUse(DataType.KeyUse.GROUP_EQUALITY)) {
+                return new TypeCheckResult(false, "IN does not support type " + type.toSql());
+            }
+        }
+        return TypeCheckResult.SUCCESS;
     }
 
     @Override

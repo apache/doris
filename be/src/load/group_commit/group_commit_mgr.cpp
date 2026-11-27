@@ -680,6 +680,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     Status ::InternalError(msg));
         });
     }
+    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st", {
+        st = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_st");
+    });
+    // PUBLISH_TIMEOUT means the transaction committed but is not visible yet.
+    const bool txn_succeeded =
+            st.ok() && (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>());
     std::shared_ptr<LoadBlockQueue> load_block_queue;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -694,6 +700,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             // notify sync mode loads
             {
                 std::unique_lock l2(load_block_queue->mutex);
+                if (!txn_succeeded && load_block_queue->status.ok()) {
+                    load_block_queue->status = st.ok() ? result_status : st;
+                }
                 load_block_queue->process_finish = true;
                 for (auto dep : load_block_queue->dependencies) {
                     dep->set_always_ready();
@@ -706,14 +715,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         LOG(WARNING) << "finish group commit can not find load block queue, label=" << label
                      << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);
     }
-    // status: exec_plan_fragment result
-    // st: commit txn rpc status
-    // result_status: commit txn result
-    DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_st", {
-        st = Status::InternalError("LoadBlockQueue._finish_group_commit_load.err_st");
-    });
-    if (status.ok() && st.ok() &&
-        (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
+    if (status.ok() && txn_succeeded) {
         if (!config::group_commit_wait_replay_wal_finish) {
             auto delete_st = _exec_env->wal_mgr()->delete_wal(table_id, txn_id);
             if (!delete_st.ok()) {

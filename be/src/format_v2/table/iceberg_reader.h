@@ -97,13 +97,14 @@ protected:
     // Iceberg's positional fallback matches an ID-less Parquet file by physical ordinals, so the
     // same table column can bind a different file column when the table's
     // `schema.name-mapping.default` is added or removed without touching the data file. The
-    // condition cache key covers the file identity and the table-level predicate digest only, so it
-    // cannot tell those bindings apart; keep such splits out of the cache (neither read nor
-    // written) instead of reusing a verdict produced by the other binding.
-    bool _should_enable_condition_cache(
+    // localized predicate still names the same physical ordinal; neither digest represents the
+    // changed table-field binding. Keep these splits out of the cache entirely.
+    std::optional<uint64_t> _condition_cache_localized_digest(
             const format::FileScanRequest& file_request) const override {
-        return !_positional_id_fallback &&
-               format::TableReader::_should_enable_condition_cache(file_request);
+        if (_positional_id_fallback) {
+            return std::nullopt;
+        }
+        return format::TableReader::_condition_cache_localized_digest(file_request);
     }
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {

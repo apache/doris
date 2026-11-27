@@ -24,6 +24,10 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/mock_vexpr.h"
@@ -33,7 +37,10 @@
 #include "exprs/table_function/vexplode_v2.h"
 #include "exprs/table_function/vjson_each.h"
 #include "exprs/table_function/vstack.h"
+#include "exprs/vectorized_fn_call.h"
+#include "runtime/runtime_state.h"
 #include "testutil/any_type.h"
+#include "testutil/desc_tbl_builder.h"
 #include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -85,6 +92,92 @@ private:
     std::vector<std::shared_ptr<MockVExpr>> _children;
     std::vector<int> _column_ids;
 };
+
+TEST_F(TableFunctionTest, ExplodeFilePreparesThroughVExpr) {
+    const DataTypePtr text = make_nullable(std::make_shared<DataTypeString>());
+    const DataTypePtr bigint = make_nullable(std::make_shared<DataTypeInt64>());
+    const DataTypePtr inline_bytes = make_nullable(std::make_shared<DataTypeVarbinary>());
+    const auto output_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {text, bigint, bigint, text, text, inline_bytes},
+            Strings {"uri", "offset", "size", "content_type", "checksum", "inline"}));
+
+    for (const auto* name : {"explode_file", "explode_file_outer"}) {
+        SCOPED_TRACE(name);
+        for (const bool nullable : {false, true}) {
+            SCOPED_TRACE(nullable);
+            DataTypePtr input_type = std::make_shared<DataTypeFile>();
+            if (nullable) input_type = make_nullable(input_type);
+            ObjectPool pool;
+            DescriptorTblBuilder builder(&pool);
+            builder.declare_tuple() << std::make_tuple(input_type, std::string("f"));
+            auto* descriptors = builder.build();
+            auto* tuple = const_cast<TupleDescriptor*>(descriptors->get_tuple_descriptor(0));
+            RuntimeState state;
+            state.set_desc_tbl(descriptors);
+
+            TFunction function;
+            TFunctionName function_name;
+            function_name.__set_function_name(name);
+            function.__set_name(function_name);
+            function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            function.__set_arg_types({input_type->to_thrift()});
+            function.__set_ret_type(output_type->to_thrift());
+            function.__set_scalar_fn(TScalarFunction());
+            TExprNode call;
+            call.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            call.__set_type(output_type->to_thrift());
+            call.__set_is_nullable(true);
+            call.__set_num_children(1);
+            call.__set_fn(function);
+
+            TSlotRef slot_ref;
+            slot_ref.__set_slot_id(tuple->slots()[0]->id());
+            slot_ref.__set_tuple_id(tuple->id());
+            TExprNode slot;
+            slot.__set_node_type(TExprNodeType::SLOT_REF);
+            slot.__set_type(input_type->to_thrift());
+            slot.__set_is_nullable(nullable);
+            slot.__set_num_children(0);
+            slot.__set_slot_ref(slot_ref);
+            slot.__set_label("f");
+            TExpr tree;
+            tree.__set_nodes({call, slot});
+
+            // Real expression preparation resolves the scalar placeholder before the
+            // lateral-view operator can use the separately registered table function.
+            VExprContextSPtr context;
+            auto status = VExpr::create_expr_tree(tree, context);
+            ASSERT_TRUE(status.ok()) << status;
+            status = context->prepare(&state, RowDescriptor(tuple));
+            ASSERT_TRUE(status.ok()) << status;
+            auto* prepared = dynamic_cast<VectorizedFnCall*>(context->root().get());
+            ASSERT_NE(prepared, nullptr);
+            ASSERT_NE(prepared->_function, nullptr);
+            EXPECT_TRUE(prepared->_function->get_return_type()->equals(*output_type));
+
+            // Inspect the implementation's inferred signature separately from the FE plan type.
+            const auto executable = prepared->_function->prepare(nullptr, Block {}, {}, 0);
+            const auto* implementation = dynamic_cast<const IFunction*>(executable.get());
+            ASSERT_NE(implementation, nullptr);
+            const auto inferred_type = implementation->get_return_type(
+                    ColumnsWithTypeAndName {{nullptr, input_type, "f"}});
+            ASSERT_TRUE(inferred_type->is_nullable());
+            const auto* structure =
+                    check_and_get_data_type<DataTypeStruct>(remove_nullable(inferred_type).get());
+            ASSERT_NE(structure, nullptr);
+            ASSERT_EQ(structure->get_elements().size(), 6);
+            EXPECT_EQ(structure->get_element_names(),
+                      (Strings {"uri", "offset", "size", "content_type", "checksum", "inline"}));
+            const auto& inline_type = structure->get_element(5);
+            ASSERT_TRUE(inline_type->is_nullable());
+            EXPECT_EQ(remove_nullable(inline_type)->get_primitive_type(), TYPE_VARBINARY);
+            EXPECT_TRUE(inferred_type->equals(*output_type));
+            status = context->open(&state);
+            ASSERT_TRUE(status.ok()) << status;
+            context->close();
+        }
+    }
+}
 
 TEST_F(TableFunctionTest, vexplode_outer) {
     init_expr_context(1);
