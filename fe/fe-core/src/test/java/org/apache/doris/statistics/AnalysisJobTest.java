@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import mockit.Mock;
@@ -26,11 +27,14 @@ import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AnalysisJobTest {
@@ -239,6 +243,25 @@ public class AnalysisJobTest {
         Assertions.assertEquals(0, job.queryFinished.size());
         Assertions.assertEquals(0, job.buf.size());
         Assertions.assertEquals("a48a05f7d2f079b74481e2909a7fa79b", job.stmtExecutor.getContext().getSqlHash());
+    }
+
+    @Test
+    public void testTaskFailedClearsSharedPartitionUpdateRows() {
+        ConcurrentMap<Long, Long> partitionRows = new ConcurrentHashMap<>();
+        partitionRows.put(1L, 10L);
+        partitionRows.put(2L, 20L);
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(partitionRows)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisJob job = Mockito.spy(new AnalysisJob(jobInfo, Collections.singletonList(task)));
+        job.analysisManager = Mockito.mock(AnalysisManager.class);
+        Mockito.doNothing().when(job).deregisterJob();
+
+        job.taskFailed(task, "boom");
+        Assertions.assertTrue(partitionRows.isEmpty(),
+                "taskFailed must clear the shared partitionUpdateRows map after cancelling tasks");
     }
 
 }
