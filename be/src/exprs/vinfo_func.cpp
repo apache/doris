@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
@@ -56,7 +57,8 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
 Status VInfoFunc::execute_column_impl(VExprContext* context, const Block* block,
                                       const Selector* selector, size_t count,
                                       ColumnPtr& result_column) const {
-    result_column = _column_ptr->clone_resized(count);
+    const auto& constant = assert_cast<const ColumnConst&>(*_column_ptr);
+    result_column = ColumnConst::create(constant.get_data_column_ptr(), count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }

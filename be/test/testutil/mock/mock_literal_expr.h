@@ -41,13 +41,11 @@ public:
     MockLiteral(ColumnWithTypeAndName data) {
         _data_type = data.type;
         _column_ptr = data.column;
-        _expr_name = data.name;
-        if (!check_and_get_column<ColumnConst>(data.column.get())) {
-            _mock_const_expr_col =
-                    std::make_shared<ConstantExprResult>(ColumnConst::create(data.column, 1));
-        } else {
-            _mock_const_expr_col = std::make_shared<ConstantExprResult>(data.column);
+        if (!check_and_get_column<ColumnConst>(_column_ptr.get())) {
+            _column_ptr = ColumnConst::create(_column_ptr, 1);
         }
+        _expr_name = data.name;
+        _mock_const_expr_col = std::make_shared<ConstantExprResult>(_column_ptr);
     }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {

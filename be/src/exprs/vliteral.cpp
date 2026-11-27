@@ -29,6 +29,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_const.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_decimal.h"
@@ -69,7 +70,8 @@ Status VLiteral::execute_column_impl(VExprContext* context, const Block* block,
                                      const Selector* selector, size_t count,
                                      ColumnPtr& result_column) const {
     DCHECK(selector == nullptr || selector->size() == count);
-    result_column = _column_ptr->clone_resized(count);
+    const auto& constant = assert_cast<const ColumnConst&>(*_column_ptr);
+    result_column = ColumnConst::create(constant.get_data_column_ptr(), count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }

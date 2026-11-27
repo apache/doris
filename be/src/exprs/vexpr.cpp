@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -74,6 +75,16 @@
 #include "storage/segment/column_reader.h"
 
 namespace doris {
+
+uint32_t VExpr::insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+    if (const auto* constant = check_and_get_column<ColumnConst>(elem.column.get())) {
+        elem.column = ColumnConst::create(constant->get_data_column_ptr(), size);
+    } else if (elem.column->size() != size) {
+        elem.column = elem.column->clone_resized(size);
+    }
+    block->insert(std::move(elem));
+    return block->columns() - 1;
+}
 
 class RowDescriptor;
 class RuntimeState;
