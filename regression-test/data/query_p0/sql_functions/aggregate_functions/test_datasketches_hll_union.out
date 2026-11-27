@@ -25,7 +25,7 @@ true	true	false
 u_str	text	Yes	false	\N	
 
 -- !desc_varchar_view --
-u_varchar	varchar(65533)	Yes	false	\N	
+u_varchar	text	Yes	false	\N	
 
 -- !varbinary_non_null --
 true

@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_datasketches_hll_union") {
-    sql "set enable_agg_state=true"
 
     // sk = new HllSketch(8, HLL_8); for (int i = 0; i < 7; i++) sk.update(i);
     def sk1Base64 = "AgEHCAMIBwjL18IEK/L7BoYv+Q11gWYHgbxdBntl5gj8LUIK"
@@ -187,7 +186,7 @@ suite("test_datasketches_hll_union") {
         ) b
     """
 
-    // 6) Illegal parameters and corrupted input
+    // 6) Illegal parameters, DISTINCT, deferred constants, AGG_STATE, and corrupted input
     test {
         sql """SELECT datasketches_hll_union(from_base64('AA=='))"""
         exception "CORRUPTION"
@@ -201,11 +200,86 @@ suite("test_datasketches_hll_union") {
         exception "requires lg_max_k to be between 7 and 21"
     }
     test {
+        sql """SELECT datasketches_hll_union(sk, 4294967308) FROM test_datasketches_hll_union_tbl"""
+        exception "requires lg_max_k to be between 7 and 21"
+    }
+    test {
         sql """SELECT datasketches_hll_union(sk, 8, 'HLL_5') FROM test_datasketches_hll_union_tbl"""
         exception "requires tgt_type to be one of HLL_4, HLL_6, HLL_8"
     }
     test {
         sql """SELECT datasketches_hll_union(sk, id) FROM test_datasketches_hll_union_tbl"""
         exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(sk, NULL) FROM test_datasketches_hll_union_tbl"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(sk, CAST(NULL AS INT)) FROM test_datasketches_hll_union_tbl"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(sk, 8, CAST(NULL AS VARCHAR)) FROM test_datasketches_hll_union_tbl"""
+        exception "requires tgt_type to be a constant string"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(DISTINCT sk) FROM test_datasketches_hll_union_tbl"""
+        exception "does not support DISTINCT"
+    }
+    test {
+        sql """SELECT ds_hll_union(DISTINCT sk, 8, 'HLL_6') FROM test_datasketches_hll_union_tbl"""
+        exception "does not support DISTINCT"
+    }
+
+    sql "SET enable_fold_constant_by_be = false"
+    test {
+        sql """SELECT datasketches_hll_union(sk, crc32('')) FROM test_datasketches_hll_union_tbl"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(sk, 8, regexp_extract_or_null('abc', '(z)', 1)) FROM test_datasketches_hll_union_tbl"""
+        exception "requires tgt_type to be a constant string"
+    }
+    test {
+        sql """SELECT datasketches_hll_union(sk, 8, regexp_extract_or_null('abc', '(z)', 1)) FROM test_datasketches_hll_union_empty_tbl"""
+        exception "requires tgt_type to be a constant string"
+    }
+    test {
+        sql """SELECT grp, datasketches_hll_union(sk, crc32('')) FROM test_datasketches_hll_union_tbl WHERE grp = 2 GROUP BY grp"""
+        exception "requires lg_max_k to be a constant integer"
+    }
+    sql "SET enable_fold_constant_by_be = true"
+
+    sql "SET enable_agg_state = true"
+    test {
+        sql """
+            CREATE TABLE test_ds_hll_union_agg_state_ddl (
+                k INT,
+                s AGG_STATE<datasketches_hll_union(STRING)> GENERIC
+            ) AGGREGATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        exception "does not support AGG_STATE"
+    }
+    test {
+        sql """
+            CREATE TABLE test_ds_hll_union_alias_agg_state_ddl (
+                k INT,
+                s AGG_STATE<ds_hll_union(STRING)> GENERIC
+            ) AGGREGATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        exception "does not support AGG_STATE"
+    }
+    test {
+        sql """SELECT datasketches_hll_union_state(sk) FROM test_datasketches_hll_union_tbl"""
+        exception "Can not found function"
+    }
+    test {
+        sql """SELECT ds_hll_union_state(sk) FROM test_datasketches_hll_union_tbl"""
+        exception "Can not found function"
     }
 }

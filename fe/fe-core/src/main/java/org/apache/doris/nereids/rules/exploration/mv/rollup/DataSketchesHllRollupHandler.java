@@ -34,6 +34,12 @@ import javax.annotation.Nullable;
  * Handles MV rollups targeting {@link DataSketchesHllUnion} for both
  * {@link DataSketchesHllUnionAgg} and cascading {@link DataSketchesHllUnion},
  * verifying first-argument equality and lg_max_k precision bounds (Kq_eff <= Kmv_eff).
+ *
+ * <p>Note: matching DataSketches HLL merge semantics in distributed two-phase aggregation,
+ * rolling up dense pre-aggregated sketches switches from HIP to composite estimation and does not
+ * guarantee bit-for-bit identical estimates or compact sketch bytes compared with single-stage
+ * execution over raw sparse sketches; it preserves the {@code lg_max_k} precision cap and logical
+ * sketch equivalence for subsequent union/estimation.
  */
 public class DataSketchesHllRollupHandler extends AggFunctionRollUpHandler {
 

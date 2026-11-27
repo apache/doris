@@ -189,4 +189,49 @@ suite("datasketches_hll_union_roll_up") {
     sql "sync"
     mv_rewrite_fail(hourlyAggQuery, "mv_ds_hll_union_agg_reject")
     sql "DROP MATERIALIZED VIEW IF EXISTS mv_ds_hll_union_agg_reject"
+
+    // 5) VARCHAR base column derives STRING MTMV output column and rolls up without truncation
+    sql "DROP TABLE IF EXISTS ds_hll_mv_varchar_events"
+    sql """
+        CREATE TABLE ds_hll_mv_varchar_events (
+            event_ts DATETIME NOT NULL,
+            k INT NOT NULL,
+            sk VARCHAR(65533)
+        )
+        DUPLICATE KEY(event_ts, k)
+        DISTRIBUTED BY HASH(k) BUCKETS 2
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO ds_hll_mv_varchar_events
+        SELECT event_ts, k, CAST(sk AS VARCHAR(65533)) FROM ds_hll_mv_events
+    """
+    sql "analyze table ds_hll_mv_varchar_events with sync"
+
+    def mvVarcharSql = """
+        SELECT
+            date_trunc(event_ts, 'hour') AS hour_ts,
+            date_trunc(event_ts, 'minute') AS min_ts,
+            k,
+            datasketches_hll_union(sk) AS sk_union
+        FROM ds_hll_mv_varchar_events
+        GROUP BY date_trunc(event_ts, 'hour'), date_trunc(event_ts, 'minute'), k
+    """
+    def varcharAggQuery = """
+        SELECT
+            date_trunc(event_ts, 'hour') AS hour_ts,
+            k,
+            CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) AS uv
+        FROM ds_hll_mv_varchar_events
+        GROUP BY date_trunc(event_ts, 'hour'), k
+        ORDER BY hour_ts, k
+    """
+    sql "SET enable_materialized_view_rewrite = false"
+    order_qt_varchar_agg_before "${varcharAggQuery}"
+    sql "SET enable_materialized_view_rewrite = true"
+    createMvAndAnalyze("mv_ds_hll_varchar_min", mvVarcharSql)
+    order_qt_desc_mv_varchar "DESC mv_ds_hll_varchar_min"
+    mv_rewrite_success(varcharAggQuery, "mv_ds_hll_varchar_min")
+    order_qt_varchar_agg_after "${varcharAggQuery}"
+    sql "DROP MATERIALIZED VIEW IF EXISTS mv_ds_hll_varchar_min"
 }

@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
@@ -116,9 +117,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Builtin aggregate functions.
@@ -129,6 +132,7 @@ import java.util.Map;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions;
     public final Map<String, Boolean> aggFuncNameNullableMap;
+    public final Set<String> notSupportAggStateFuncNames;
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
@@ -233,13 +237,20 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
 
         ImmutableMap.Builder<String, Boolean> aggFuncNameNullableMapBuilder
                 = ImmutableSortedMap.<String, Boolean>orderedBy(String.CASE_INSENSITIVE_ORDER);
+        ImmutableSortedSet.Builder<String> notSupportAggStateBuilder
+                = ImmutableSortedSet.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (AggregateFunc aggregateFunc : aggregateFunctions) {
+            boolean notSupportAggState = NotSupportAggState.class.isAssignableFrom(aggregateFunc.functionClass);
             for (String name : aggregateFunc.names) {
                 boolean resultNullable = !(NotNullableAggregateFunction.class
                         .isAssignableFrom(aggregateFunc.functionClass));
                 aggFuncNameNullableMapBuilder.put(name, resultNullable);
+                if (notSupportAggState) {
+                    notSupportAggStateBuilder.add(name);
+                }
             }
         }
         aggFuncNameNullableMap = aggFuncNameNullableMapBuilder.build();
+        notSupportAggStateFuncNames = notSupportAggStateBuilder.build();
     }
 }

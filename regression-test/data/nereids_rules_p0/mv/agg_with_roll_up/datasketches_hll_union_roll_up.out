@@ -35,3 +35,21 @@
 2026-11-26T11:00	1	10
 2026-11-26T11:00	3	0
 
+-- !varchar_agg_before --
+2026-11-26T10:00	1	17
+2026-11-26T10:00	2	7
+2026-11-26T11:00	1	10
+2026-11-26T11:00	3	0
+
+-- !desc_mv_varchar --
+hour_ts	datetime	No	true	\N	
+k	int	No	true	\N	
+min_ts	datetime	No	true	\N	
+sk_union	text	Yes	false	\N	NONE
+
+-- !varchar_agg_after --
+2026-11-26T10:00	1	17
+2026-11-26T10:00	2	7
+2026-11-26T11:00	1	10
+2026-11-26T11:00	3	0
+

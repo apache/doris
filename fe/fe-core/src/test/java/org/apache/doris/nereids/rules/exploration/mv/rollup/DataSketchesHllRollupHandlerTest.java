@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -128,5 +129,20 @@ class DataSketchesHllRollupHandlerTest {
         Assertions.assertEquals(
                 ImmutableList.of(MV_SLOT, new IntegerLiteral(10), new StringLiteral("HLL_8")),
                 rolledUpUnion.getArguments());
+
+        // Base column of VARCHAR rolls up onto MV STRING column and rebinds arg0 signature to STRING
+        SlotReference varcharSketch = SlotReference.of("varchar_sk", VarcharType.SYSTEM_DEFAULT);
+        DataSketchesHllUnion mvVarcharBase = new DataSketchesHllUnion(
+                varcharSketch, new IntegerLiteral(12), new StringLiteral("HLL_4"));
+        DataSketchesHllUnionAgg varcharAgg = new DataSketchesHllUnionAgg(varcharSketch, new IntegerLiteral(8));
+        Assertions.assertTrue(canRollup(varcharAgg, mvVarcharBase));
+        DataSketchesHllUnionAgg rolledVarcharAgg = (DataSketchesHllUnionAgg) doRollup(varcharAgg, mvVarcharBase);
+        Assertions.assertEquals(StringType.INSTANCE, rolledVarcharAgg.getSignature().argumentsTypes.get(0));
+
+        DataSketchesHllUnion varcharUnion = new DataSketchesHllUnion(varcharSketch, new IntegerLiteral(8));
+        Assertions.assertTrue(canRollup(varcharUnion, mvVarcharBase));
+        DataSketchesHllUnion rolledVarcharUnion = (DataSketchesHllUnion) doRollup(varcharUnion, mvVarcharBase);
+        Assertions.assertEquals(StringType.INSTANCE, rolledVarcharUnion.getSignature().argumentsTypes.get(0));
+        Assertions.assertEquals(StringType.INSTANCE, rolledVarcharUnion.getDataType());
     }
 }

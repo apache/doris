@@ -47,22 +47,30 @@ import java.util.stream.Collectors;
  * AggregateFunction 'datasketches_hll_union'.
  *
  * <p>datasketches_hll_union(sketch [, lg_max_k [, tgt_type]]) unions serialized Apache DataSketches
- * HLL sketches and returns a serialized compact sketch matching the first argument's type.
+ * HLL sketches and returns a serialized compact sketch whose type is STRING (for STRING/VARCHAR
+ * inputs) or VARBINARY (for VARBINARY inputs), avoiding both implicit casts on VARCHAR inputs and
+ * VARCHAR length truncation after merging.
+ *
+ * <p>Rolling up dense pre-aggregated sketches via {@link DataSketchesHllRollupHandler} preserves
+ * {@code lg_max_k} precision bounds and logical sketch equivalence, matching distributed two-phase
+ * aggregation (dense merges use the composite estimator rather than HIP and therefore do not
+ * guarantee bit-identical compact bytes compared with single-stage execution).
  */
 public class DataSketchesHllUnion extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, RollUpTrait, NullIgnoringAggregateFunction {
+        implements ExplicitlyCastableSignature, RollUpTrait, NullIgnoringAggregateFunction,
+        NotSupportAggState {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarBinaryType.INSTANCE).args(VarBinaryType.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(StringType.INSTANCE)
                     .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
             FunctionSignature.ret(VarBinaryType.INSTANCE).args(VarBinaryType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE)
                     .args(StringType.INSTANCE, IntegerType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(StringType.INSTANCE)
                     .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarBinaryType.INSTANCE)
                     .args(VarBinaryType.INSTANCE, IntegerType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
@@ -89,33 +97,33 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
 
     /** constructor with 1 argument and distinct flag. */
     public DataSketchesHllUnion(boolean distinct, Expression arg) {
-        this(false, false, arg);
+        this(distinct, false, arg);
     }
 
     /** constructor with 2 arguments and distinct flag. */
     public DataSketchesHllUnion(boolean distinct, Expression arg0, Expression arg1) {
-        this(false, false, arg0, arg1);
+        this(distinct, false, arg0, arg1);
     }
 
     /** constructor with 3 arguments and distinct flag. */
     public DataSketchesHllUnion(boolean distinct, Expression arg0, Expression arg1, Expression arg2) {
-        this(false, false, arg0, arg1, arg2);
+        this(distinct, false, arg0, arg1, arg2);
     }
 
     /** constructor with 1 argument, distinct, and alwaysNullable flag. */
     public DataSketchesHllUnion(boolean distinct, boolean alwaysNullable, Expression arg) {
-        super("datasketches_hll_union", false, alwaysNullable, arg);
+        super("datasketches_hll_union", distinct, alwaysNullable, arg);
     }
 
     /** constructor with 2 arguments, distinct, and alwaysNullable flag. */
     public DataSketchesHllUnion(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1) {
-        super("datasketches_hll_union", false, alwaysNullable, arg0, arg1);
+        super("datasketches_hll_union", distinct, alwaysNullable, arg0, arg1);
     }
 
     /** constructor with 3 arguments, distinct, and alwaysNullable flag. */
     public DataSketchesHllUnion(
             boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1, Expression arg2) {
-        super("datasketches_hll_union", false, alwaysNullable, arg0, arg1, arg2);
+        super("datasketches_hll_union", distinct, alwaysNullable, arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature. */
@@ -125,6 +133,9 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (isDistinct()) {
+            throw new AnalysisException(getName() + " does not support DISTINCT: " + toSql());
+        }
         DataType inputType = getArgumentType(0);
         if (!(inputType.isStringLikeType() || inputType.isVarBinaryType() || inputType.isNullType())) {
             throw new AnalysisException(getName()
@@ -140,20 +151,21 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
+        if (isDistinct()) {
+            throw new AnalysisException(getName() + " does not support DISTINCT: " + toSql());
+        }
         if (arity() >= 2) {
-            checkLgMaxK(getArgument(1));
+            checkLgMaxK(ExpressionUtils.foldConstantArgument(getArgument(1)));
         }
         if (arity() == 3) {
-            checkTgtType(getArgument(2));
+            checkTgtType(ExpressionUtils.foldConstantArgument(getArgument(2)));
         }
     }
 
     private void checkLgMaxK(Expression lgMaxK) {
-        if (!lgMaxK.isConstant() || !lgMaxK.getDataType().isIntegralType()) {
+        if (!lgMaxK.isConstant() || !lgMaxK.getDataType().isIntegralType()
+                || !(lgMaxK instanceof Literal)) {
             throw new AnalysisException(getName() + " requires lg_max_k to be a constant integer: " + toSql());
-        }
-        if (!(lgMaxK instanceof Literal)) {
-            return;
         }
         if (!(lgMaxK instanceof IntegerLikeLiteral)) {
             throw new AnalysisException(getName() + " requires lg_max_k to be a constant integer: " + toSql());
@@ -167,11 +179,9 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
     }
 
     private void checkTgtType(Expression tgtType) {
-        if (!tgtType.isConstant() || !tgtType.getDataType().isStringLikeType()) {
+        if (!tgtType.isConstant() || !tgtType.getDataType().isStringLikeType()
+                || !(tgtType instanceof Literal)) {
             throw new AnalysisException(getName() + " requires tgt_type to be a constant string: " + toSql());
-        }
-        if (!(tgtType instanceof Literal)) {
-            return;
         }
         if (!(tgtType instanceof StringLikeLiteral)) {
             throw new AnalysisException(getName() + " requires tgt_type to be a constant string: " + toSql());
@@ -191,17 +201,24 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         DataType input = getArgumentType(0);
-        DataType output = input.isVarBinaryType() ? VarBinaryType.INSTANCE
-                : input.isVarcharType() ? VarcharType.SYSTEM_DEFAULT : StringType.INSTANCE;
         return SIGNATURES.stream()
-                .filter(signature -> signature.returnType.equals(output))
+                .filter(signature -> {
+                    DataType sigArg0 = signature.argumentsTypes.get(0);
+                    if (input.isVarBinaryType()) {
+                        return sigArg0.isVarBinaryType();
+                    }
+                    if (input.isVarcharType()) {
+                        return sigArg0.isVarcharType();
+                    }
+                    return sigArg0.isStringType();
+                })
                 .collect(Collectors.toList());
     }
 
     @Override
     public DataSketchesHllUnion withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
-        return new DataSketchesHllUnion(getFunctionParams(false, children));
+        return new DataSketchesHllUnion(getFunctionParams(distinct, children));
     }
 
     @Override
@@ -216,12 +233,15 @@ public class DataSketchesHllUnion extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        ImmutableList.Builder<Expression> children = ImmutableList.builder();
-        children.add(param);
-        for (int i = 1; i < arity(); i++) {
-            children.add(getArgument(i));
+        // Construct fresh expressions rather than reusing originSignature, because rolling up a
+        // VARCHAR base query onto a STRING MV column must rebind the first argument's signature.
+        if (arity() == 1) {
+            return new DataSketchesHllUnion(false, alwaysNullable, param);
         }
-        return new DataSketchesHllUnion(getFunctionParams(false, children.build()));
+        if (arity() == 2) {
+            return new DataSketchesHllUnion(false, alwaysNullable, param, getArgument(1));
+        }
+        return new DataSketchesHllUnion(false, alwaysNullable, param, getArgument(1), getArgument(2));
     }
 
     @Override

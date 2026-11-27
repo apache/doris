@@ -5406,6 +5406,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .map(dt -> dt.second)
                     .collect(ImmutableList.toImmutableList());
             String functionName = ctx.functionNameIdentifier().getText();
+            if (BuiltinAggregateFunctions.INSTANCE.notSupportAggStateFuncNames.contains(functionName)) {
+                throw new ParseException("Aggregate function '" + functionName + "' does not support AGG_STATE", ctx);
+            }
             if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.containsKey(functionName)) {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
