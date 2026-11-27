@@ -632,7 +632,8 @@ final class IcebergPartitionUtils {
                     }
                     return toEpochNanos(timestampNs);
                 case TIMESTAMP:
-                    return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
+                    Instant instant = parseTimestamp(valueStr, (TimestampType) icebergType, zone);
+                    return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
                 case DECIMAL:
                     return new BigDecimal(valueStr);
                 default:
@@ -666,7 +667,7 @@ final class IcebergPartitionUtils {
         return valueStr;
     }
 
-    private static long parseTimestampToMicros(String valueStr, TimestampType timestampType, ZoneId sessionZone) {
+    static Instant parseTimestamp(String valueStr, TimestampType timestampType, ZoneId sessionZone) {
         java.time.temporal.TemporalAccessor parsed = TIMESTAMP_PARTITION_FORMAT.parse(valueStr.replace('T', ' '));
         LocalDateTime ldt = LocalDateTime.from(parsed);
         ZoneId explicitZone = parsed.query(java.time.temporal.TemporalQueries.zone());
@@ -676,8 +677,7 @@ final class IcebergPartitionUtils {
         // Shift a local time in a gap forward by the gap length. Keep its fraction.
         // In New York, 2021-03-14 02:30:00.123456 becomes 03:30:00.123456-04:00.
         // The overwrite filter and the written rows must both use 07:30:00.123456 UTC.
-        Instant instant = ldt.atZone(zone).toInstant();
-        return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+        return ldt.atZone(zone).toInstant();
     }
 
     /**

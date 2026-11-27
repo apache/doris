@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -62,6 +63,8 @@ public class DefaultValue {
 
     public static DefaultValue E_NUM_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.E), E_NUM);
     private final String value;
+    // Preserve the SQL source for catalogs that reparse defaults. Iceberg ADD consumes the decoded value.
+    private String stringLiteralSql;
     // used for column which defaultValue is an expression.
     private final DefaultValueExprDef defaultValueExprDef;
 
@@ -83,6 +86,20 @@ public class DefaultValue {
     public DefaultValue(String value, String exprName, Long precision) {
         this.value = value;
         this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
+    }
+
+    public static DefaultValue fromStringLiteral(String sql) {
+        DefaultValue literal = new DefaultValue(SqlLiteralUtils.parseStringLiteral(sql));
+        literal.stringLiteralSql = sql;
+        return literal;
+    }
+
+    DefaultValue decodedLiteral() {
+        return stringLiteralSql == null ? this : new DefaultValue(value);
+    }
+
+    String getLiteralSql() {
+        return stringLiteralSql == null ? SqlLiteralUtils.quoteStringLiteral(value) : stringLiteralSql;
     }
 
     /**
@@ -162,7 +179,7 @@ public class DefaultValue {
         } else if (isUuidFunction(UUID_V7)) {
             return UUIDUtils.uuidV7().toString();
         }
-        return value;
+        return getValue();
     }
 
     /** Get a schema-change backfill value using the target type's serialization. */
@@ -192,7 +209,7 @@ public class DefaultValue {
      * get string value of a default value expression.
      */
     public String getValue() {
-        return value;
+        return stringLiteralSql == null ? value : stringLiteralSql.substring(1, stringLiteralSql.length() - 1);
     }
 
     public DefaultValueExprDef getDefaultValueExprDef() {
@@ -205,7 +222,9 @@ public class DefaultValue {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DEFAULT ");
-        if (value != null) {
+        if (stringLiteralSql != null) {
+            sb.append(stringLiteralSql);
+        } else if (value != null) {
             sb.append('"').append(value).append('"');
         } else {
             sb.append("NULL");

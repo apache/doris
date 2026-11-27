@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DefaultValueExprDef;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -28,16 +30,23 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -49,16 +58,22 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * column definition
  * TODO: complex types will not work, we will support them later.
  */
 public class ColumnDefinition {
+    private static final Pattern COMPACT_DATETIME_FRACTION =
+            Pattern.compile("^([0-9]{8}T?[0-9]{6})([0-9]{1,6})(.*)$");
+
     private final String name;
     private DataType type;
     private boolean isKey;
@@ -300,7 +315,7 @@ public class ColumnDefinition {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
-                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
+                        sb.append("DEFAULT ").append(defaultValue.get().getLiteralSql())
                                 .append(" ");
                     }
                 } else if (type.isBitmapType()) {
@@ -401,7 +416,7 @@ public class ColumnDefinition {
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType, boolean isSystemGeneratedTable) {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
-                isSystemGeneratedTable);
+                isSystemGeneratedTable, false);
     }
 
     /**
@@ -409,11 +424,28 @@ public class ColumnDefinition {
      */
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false, false);
+    }
+
+    /** Iceberg ADD stores typed constants. Other tables retain the catalog's SQL-source defaults. */
+    public void validateForAddColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean icebergAddDefault) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, nestedColumn, false,
+                icebergAddDefault);
+    }
+
+    private static String normalizeCompactDateTimeFraction(String value) {
+        Matcher matcher = COMPACT_DATETIME_FRACTION.matcher(value.trim());
+        // The DEFAULT validator also accepts compact fractional seconds without a decimal point.
+        if (matcher.matches()) {
+            return matcher.group(1) + "." + matcher.group(2) + matcher.group(3);
+        }
+        return value;
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable) {
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable,
+            boolean icebergAddDefault) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -535,6 +567,9 @@ public class ColumnDefinition {
             }
         }
 
+        if (icebergAddDefault) {
+            defaultValue = defaultValue.map(DefaultValue::decodedLiteral);
+        }
         // check default value
         if (type.isHllType()) {
             if (defaultValue.isPresent()) {
@@ -567,14 +602,38 @@ public class ColumnDefinition {
                 && defaultValue.get().getValue() != null
                 && type.toCatalogDataType().isScalarType()) {
             try {
-                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
-                        defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
-                if (!isOlap && type.isTimeStampNsType()
-                        && defaultValue.get().getDefaultValueExprDef() == null) {
-                    // Connectors receive civil SQL defaults, not numeric epoch carriers. Normalize
-                    // with the same parser as validation so compact dates cannot become epoch nanos.
-                    defaultValue = Optional.of(new DefaultValue(
-                            new TimeStampNsLiteral(defaultValue.get().getValue()).getStringValue()));
+                DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
+                String value = defaultValue.get().getValue();
+                boolean icebergLiteral = icebergAddDefault && exprDef == null;
+                if (icebergLiteral && type.isDecimalV3Type()) {
+                    // Check the significant digits against the column type before formatting at its declared scale.
+                    BigDecimal decimal = new BigDecimal(value).stripTrailingZeros();
+                    DecimalV3Literal literal = new DecimalV3Literal((DecimalV3Type) type, decimal);
+                    defaultValue = Optional.of(new DefaultValue(literal.getStringValue()));
+                } else if (!(icebergLiteral && type.isTimeStampTzType())) {
+                    // The Iceberg TIMESTAMPTZ parser below validates named zones and the rounding guard.
+                    ColumnDef.validateDefaultValue(type.toCatalogDataType(), value, exprDef);
+                }
+                if (!isOlap && type.isTimeStampNsType() && exprDef == null) {
+                    // All connectors receive civil SQL defaults for nanosecond timestamps.
+                    defaultValue = Optional.of(new DefaultValue(new TimeStampNsLiteral(value).getStringValue()));
+                } else if (icebergLiteral && type.isDateLikeType()) {
+                    // Preserve SQL literal time-zone and rounding semantics for civil temporal defaults.
+                    if (type.isDateTimeV2Type() || type.isTimeStampTzType()) {
+                        value = normalizeCompactDateTimeFraction(value);
+                    }
+                    if (type.isTimeStampTzType()) {
+                        value = TimestampTzLiteral.normalizeAddColumnDefault((TimeStampTzType) type, value);
+                    } else if (type.isDateTimeV2Type()) {
+                        value = new DateTimeV2Literal((DateTimeV2Type) type, value).getStringValue();
+                    } else {
+                        value = Literal.fromLegacyLiteral(
+                                DateLiteralUtils.createLiteral(value, type.toCatalogDataType()),
+                                type.toCatalogDataType()).getStringValue();
+                    }
+                    defaultValue = Optional.of(new DefaultValue(value));
+                } else if (icebergLiteral && type.isUuidType()) {
+                    defaultValue = Optional.of(new DefaultValue(new UuidLiteral(value).getStringValue()));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);

@@ -96,6 +96,7 @@ import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.ExpressionUtil;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.StrictMetricsEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
@@ -110,7 +111,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1386,15 +1390,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /**
      * Adds a column, mirroring legacy {@code IcebergMetadataOps.addColumn}/{@code addOneColumn}: the neutral
      * column is turned into an iceberg type + parsed DEFAULT literal PURELY (outside auth), then committed
-     * through the seam at {@code position} ({@code null} = append at the end). A non-nullable column cannot be
-     * added to an existing iceberg table (legacy parity).
+     * through the seam at {@code position} ({@code null} = append at the end). A required addition needs a
+     * non-null default and a format-version 3 table, checked against the table loaded by the seam.
      */
     @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorColumn column, ConnectorColumnPosition position) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         rejectReservedMetadataColumn(column.getName());
-        IcebergColumnChange change = toAddColumnChange(column);
+        IcebergColumnChange change = toAddColumnChange(session, column);
         try {
             executeAuthenticated(() -> {
                 catalogOps.addColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
@@ -1414,7 +1418,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         List<IcebergColumnChange> changes = new ArrayList<>(columns.size());
         for (ConnectorColumn column : columns) {
             rejectReservedMetadataColumn(column.getName());
-            changes.add(toAddColumnChange(column));
+            changes.add(toAddColumnChange(session, column));
         }
         try {
             executeAuthenticated(() -> {
@@ -1594,8 +1598,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Adds a nested field at {@code path}, mirroring legacy {@code IcebergMetadataOps.addColumn(ColumnPath,...)}:
-     * a new nested field must be nullable; the parent must resolve to a struct and the leaf must not collide with
-     * an existing sibling (checked in the seam against the loaded schema). A single-part path degrades to the flat
+     * the parent must resolve to a struct and the leaf must not collide with an existing sibling (checked in the
+     * seam against the loaded schema). Required fields need a non-null default on a v3 table, just like top-level
+     * additions. A single-part path degrades to the flat
      * {@link #addColumn(ConnectorSession, ConnectorTableHandle, ConnectorColumn, ConnectorColumnPosition)}.
      */
     @Override
@@ -1607,16 +1612,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateCommonColumnInfo(column);
-        if (column.getDefaultValue() != null) {
-            throw new DorisConnectorException(
-                    "DEFAULT and ON UPDATE are not supported for Iceberg nested ADD COLUMN: " + path.getFullPath());
-        }
-        if (!column.isNullable()) {
-            throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
-        }
         Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
-                column.getComment(), null, column.isNullable());
+                column.getComment(), parseAddColumnDefault(session, column, icebergType), column.isNullable());
         try {
             executeAuthenticated(() -> {
                 catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
@@ -1879,19 +1877,59 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Builds the iceberg {@code ADD COLUMN} artifacts from a neutral column, mirroring legacy
-     * {@code addOneColumn}: reject aggregated / auto-inc columns and a non-nullable add, build the iceberg
+     * {@code addOneColumn}: reject aggregated / auto-inc columns, build the iceberg
      * type, parse the DEFAULT literal. Pure (no remote call); runs outside the auth context.
      */
-    private IcebergColumnChange toAddColumnChange(ConnectorColumn column) {
+    private IcebergColumnChange toAddColumnChange(ConnectorSession session, ConnectorColumn column) {
         validateCommonColumnInfo(column);
-        if (!column.isNullable()) {
-            throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
-                    + column.getName());
-        }
         Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         return new IcebergColumnChange(column.getName(), icebergType, column.getComment(),
-                IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType),
-                column.isNullable());
+                parseAddColumnDefault(session, column, icebergType), column.isNullable());
+    }
+
+    private static Literal<?> parseAddColumnDefault(ConnectorSession session,
+            ConnectorColumn column, Type icebergType) {
+        String value = column.getDefaultValue();
+        if (value == null) {
+            if (!column.isNullable()) {
+                throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
+                        + column.getName() + " without a non-null default");
+            }
+            return null;
+        }
+        ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
+        if (icebergType.typeId() != Type.TypeID.TIMESTAMP) {
+            return IcebergSchemaBuilder.parseDefaultLiteral(value, icebergType, sessionZone);
+        }
+
+        Types.TimestampType timestampType = (Types.TimestampType) icebergType;
+        Instant instant;
+        if (value.matches("[+-]?[0-9]+")) {
+            long micros = Long.parseLong(value);
+            instant = Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
+                    Math.floorMod(micros, 1_000_000L) * 1000L);
+        } else {
+            try {
+                instant = IcebergPartitionUtils.parseTimestamp(value, timestampType, sessionZone);
+            } catch (DateTimeException e) {
+                throw new IllegalArgumentException("Invalid Iceberg timestamp default for column "
+                        + column.getName() + ": " + value, e);
+            }
+        }
+        long unit = 1000L;
+        if (timestampType.shouldAdjustToUTC()) {
+            int scale = column.getType().getPrecision();
+            unit = scale >= 0 && scale < 6 ? (long) Math.pow(10, 9 - scale) : 1000L;
+            // Round once, after zone resolution, including the carry across a DST transition.
+            instant = instant.plusNanos(unit / 2);
+        }
+        int year = instant.atOffset(ZoneOffset.UTC).getYear();
+        if (year < 1 || year > 9999) {
+            throw new IllegalArgumentException("Iceberg timestamp default for column " + column.getName()
+                    + " is outside the supported " + (timestampType.shouldAdjustToUTC() ? "UTC " : "")
+                    + "range 0001-9999: " + value);
+        }
+        return Literal.of(instant.getEpochSecond() * 1_000_000L + instant.getNano() / unit * (unit / 1000L));
     }
 
     /** Rejects aggregated / auto-increment columns on iceberg, mirroring legacy {@code validateCommonColumnInfo}. */

@@ -24,9 +24,13 @@ import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
@@ -35,6 +39,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TColumn;
 
 import com.google.common.collect.ImmutableList;
@@ -61,6 +66,159 @@ public class ColumnDefinitionTest {
     }
 
     @Test
+    public void testIcebergAddChecksDecimalDefaultsAtDeclaredScale() {
+        DecimalV3Type type = DecimalV3Type.createDecimalV3Type(10, 2);
+        for (String[] pair : new String[][] {{"1.500", "1.50"}, {"-99999999.9900", "-99999999.99"},
+                {"1e2", "100.00"}, {"0.0000", "0.00"}}) {
+            ColumnDefinition column = new ColumnDefinition("d", type, false, null, false,
+                    Optional.of(new DefaultValue(pair[0])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(pair[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+        for (String value : new String[] {"1.001", "100000000", "1e999"}) {
+            ColumnDefinition column = new ColumnDefinition("d", type, false, null, false,
+                    Optional.of(new DefaultValue(value)), "");
+            Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column), value);
+        }
+        ColumnDefinition otherConnector = new ColumnDefinition("d", type, false, null, false,
+                Optional.of(new DefaultValue("1.500")), "");
+        Assertions.assertThrows(AnalysisException.class, () -> otherConnector.validateForAddColumn(
+                false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false, false));
+    }
+
+    @Test
+    public void testCivilTemporalDefaultsAreNormalizedForIcebergAdd() {
+        DataType[] types = {DateV2Type.INSTANCE, DateTimeV2Type.of(6), DateTimeV2Type.of(6), DateTimeV2Type.of(3)};
+        String[] inputs = {"20240102", "20240102030405", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.123999"};
+        String[] expected = {"2024-01-02", "2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.124"};
+        for (int i = 0; i < types.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("added", types[i],
+                    false, null, false, Optional.of(new DefaultValue(inputs[i])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testIcebergAddRetainsUnqualifiedZonedDefaults() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            String[] zones = {"Asia/Shanghai", "UTC"};
+            String expected = "2024-01-02 03:04:05.123456";
+            for (int i = 0; i < zones.length; i++) {
+                context.getSessionVariable().setTimeZone(zones[i]);
+                ColumnDefinition column = new ColumnDefinition("added", TimeStampTzType.of(6),
+                        false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123456")), "");
+                validateIcebergAdd(column);
+                Assertions.assertEquals(expected, column.translateToCatalogStyle().getDefaultValue());
+                Assertions.assertEquals(expected,
+                        column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testIcebergAddRetainsCivilPrecisionUntilZoneBinding() {
+        String[] values = {"20240102030405", "20240102030405.123456", "2024-01-02 03:04:05.123999",
+                "2024-01-02 03:04:05.123999+08:00", "2021-10-31 02:59:59.9994999CET",
+                "2021-10-31 02:59:59.9994999", "2021-10-31 02:59:59.9996CET"};
+        String[] expected = {"2024-01-02 03:04:05.000000", "2024-01-02 03:04:05.123456",
+                "2024-01-02 03:04:05.123999",
+                "2024-01-01 19:04:05.124+00:00", "2021-10-31 00:59:59.999+00:00",
+                "2021-10-31 02:59:59.9994999", "2021-10-31 01:00:00.000+00:00"};
+        for (int i = 0; i < values.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue(values[i])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testIcebergAddAcceptsNamedZonesAndDorisAliases() {
+        String[] zones = {"Asia/Shanghai", "America/New_York", "CST"};
+        String[] expected = {"2024-01-01 19:04:05.124+00:00", "2024-01-02 08:04:05.124+00:00",
+                "2024-01-01 19:04:05.124+00:00"};
+        for (int i = 0; i < zones.length; i++) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue("2024-01-02 03:04:05.123999 " + zones[i])), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals(expected[i], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    @Test
+    public void testZonedAddRejectsInvalidDatesTimesAndZones() {
+        for (String value : new String[] {"2021-02-30 02:59:59.9994999Asia/Shanghai",
+                "2021-10-31 02:59:59.9994999America/Unknown", "2024-01-02 03:04:05+18:01",
+                "2024-01-02 25:04:05CST", "2024-01-02 03:04:05.xCST"}) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampTzType.of(3),
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column));
+        }
+    }
+
+    @Test
+    public void testIcebergAddChecksCurrentTimestampPrecision() {
+        TimeStampTzType type = TimeStampTzType.of(3);
+        DefaultValue expression = DefaultValue.currentTimeStampDefaultValueWithPrecision(4L, type);
+        ColumnDefinition column = new ColumnDefinition("ts", type, false, null, false, Optional.of(expression), "");
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class, () -> validateIcebergAdd(column));
+        Assertions.assertTrue(error.getMessage().contains("can not be greater than type precision"), error.getMessage());
+    }
+
+    @Test
+    public void testUndottedCompactDefaultsMatchDottedPrecisionAndZones() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("UTC");
+            DataType[] types = {DateTimeV2Type.of(6), DateTimeV2Type.of(3),
+                    TimeStampTzType.of(6), TimeStampTzType.of(3)};
+            String[][] spellings = {
+                    {"20240102T0304051", "20240102T030405.1"},
+                    {"20240102030405123", "20240102030405.123"},
+                    {"20240102T030405123999", "20240102T030405.123999"},
+                    {"20240102030405123999", "20240102030405.123999"},
+                    {"20240102T030405123999+08:00", "20240102T030405.123999+08:00"},
+                    {"20240102030405123999+08:00", "20240102030405.123999+08:00"},
+                    {"20240102T030405123999CET", "20240102T030405.123999CET"},
+                    {"20240102030405123999CET", "20240102030405.123999CET"}
+            };
+            for (DataType type : types) {
+                for (String[] spelling : spellings) {
+                    ColumnDefinition compact = new ColumnDefinition("ts", type,
+                            false, null, false, Optional.of(new DefaultValue(spelling[0])), "");
+                    ColumnDefinition dotted = new ColumnDefinition("ts", type,
+                            false, null, false, Optional.of(new DefaultValue(spelling[1])), "");
+                    validateIcebergAdd(compact);
+                    validateIcebergAdd(dotted);
+                    Column actual = compact.translateToCatalogStyleForSchemaChange();
+                    Assertions.assertEquals(dotted.translateToCatalogStyleForSchemaChange().getDefaultValue(),
+                            actual.getDefaultValue(), type + ": " + spelling[0]);
+                    Assertions.assertEquals(type.toCatalogDataType(), actual.getType());
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testTimestampNsDefaultsAreNormalizedForExternalDdl() {
         String[][] values = {
                 {"20240102", "2024-01-02 00:00:00.000000000"},
@@ -74,6 +232,45 @@ public class ColumnDefinitionTest {
             Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
             Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
         }
+    }
+
+    @Test
+    public void testTimestampNsDefaultPreservesNamedZoneGapSemantics() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+00:00");
+            String value = "2027-03-28 02:30:00.123456789CET";
+            ColumnDefinition column = new ColumnDefinition("ns", TimeStampNsType.INSTANCE,
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals("2027-03-28 01:30:00.123456789",
+                    column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(new TimeStampNsLiteral(value).getStringValue(),
+                    column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testCompactUuidDefaultIsCanonicalized() {
+        for (String value : new String[] {"00112233445566778899aabbccddeeff",
+                "00112233-4455-6677-8899-aabbccddeeff"}) {
+            ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE,
+                    false, null, false, Optional.of(new DefaultValue(value)), "");
+            validateIcebergAdd(column);
+            Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
+                    column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
+    }
+
+    private static void validateIcebergAdd(ColumnDefinition column) {
+        column.validateForAddColumn(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS, false, true);
     }
 
     @Test

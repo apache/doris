@@ -37,10 +37,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalQueries;
 import java.util.Objects;
 
 /**
@@ -75,6 +79,29 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
         roundMicroSecond(dateType.getScale());
+    }
+
+    /** Canonicalize explicit ADD defaults in UTC and preserve unqualified fractions until the session zone is bound. */
+    public static String normalizeAddColumnDefault(TimeStampTzType type, String value) {
+        TemporalAccessor parsed = parseDateTime(value, TimeStampTzType.MAX_SCALE + 1,
+                TimeZoneParser.Usage.TIMESTAMPTZ).get();
+        LocalTime time = parsed.query(TemporalQueries.localTime());
+        LocalDateTime local = LocalDate.from(parsed).atTime(time == null ? LocalTime.MIDNIGHT : time);
+        ZoneId zone = parsed.query(TemporalQueries.zone());
+        int scale = TimeStampTzType.MAX_SCALE;
+        if (zone != null) {
+            // Bind the explicit zone before rounding. Keep the declared scale in the catalog text.
+            local = toUtc(local, zone);
+            scale = type.getScale();
+            long unit = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+            local = local.plusNanos(unit / 2);
+        } else if (local.getNano() % 1000 != 0) {
+            // The connector needs the guard digit to round an unqualified ADD default after zone binding.
+            scale++;
+        }
+        return DateUtils.formatDateTime(local.getYear(), local.getMonthValue(), local.getDayOfMonth(),
+                local.getHour(), local.getMinute(), local.getSecond(), local.getNano(), scale)
+                + (zone == null ? "" : "+00:00");
     }
 
     /**

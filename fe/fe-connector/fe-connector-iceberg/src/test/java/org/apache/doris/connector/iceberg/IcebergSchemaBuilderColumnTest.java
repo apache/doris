@@ -95,6 +95,42 @@ public class IcebergSchemaBuilderColumnTest {
     }
 
     @Test
+    public void testParseBooleanDefaultSpellings() {
+        for (String value : new String[] {"1", "true", "TRUE", " 1 ", " true ", " TRUE "}) {
+            Assertions.assertEquals(true,
+                    IcebergSchemaBuilder.parseDefaultLiteral(value, Types.BooleanType.get()).value());
+        }
+        for (String value : new String[] {"0", "false", "FALSE", " 0 ", " false ", " FALSE "}) {
+            Assertions.assertEquals(false,
+                    IcebergSchemaBuilder.parseDefaultLiteral(value, Types.BooleanType.get()).value());
+        }
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergSchemaBuilder.parseDefaultLiteral("invalid", Types.BooleanType.get()));
+    }
+
+    @Test
+    public void testParseTemporalDefaultsAndEpochValues() {
+        Assertions.assertEquals(19724,
+                IcebergSchemaBuilder.parseDefaultLiteral("2024-01-02", Types.DateType.get()).value());
+        Assertions.assertEquals(19724,
+                IcebergSchemaBuilder.parseDefaultLiteral("19724", Types.DateType.get()).value());
+        Assertions.assertEquals(11045123456L,
+                IcebergSchemaBuilder.parseDefaultLiteral("03:04:05.123456", Types.TimeType.get()).value());
+        Assertions.assertEquals(11045123456L,
+                IcebergSchemaBuilder.parseDefaultLiteral("11045123456", Types.TimeType.get()).value());
+        Assertions.assertEquals(1704164645123456L, IcebergSchemaBuilder.parseDefaultLiteral(
+                "2024-01-02 03:04:05.123456", Types.TimestampType.withoutZone()).value());
+        Assertions.assertEquals(1704164645123456L, IcebergSchemaBuilder.parseDefaultLiteral(
+                "1704164645123456", Types.TimestampType.withoutZone()).value());
+        Assertions.assertEquals(1704135845123456L, IcebergSchemaBuilder.parseDefaultLiteral(
+                "2024-01-02 03:04:05.123456+08:00", Types.TimestampType.withZone()).value());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergSchemaBuilder.parseDefaultLiteral("2024-02-30", Types.DateType.get()));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> IcebergSchemaBuilder.parseDefaultLiteral(
+                "not-a-timestamp", Types.TimestampType.withoutZone()));
+    }
+
+    @Test
     public void testParseDefaultLiteralBadValueFailsLoud() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergSchemaBuilder.parseDefaultLiteral("not-a-number", Types.IntegerType.get()));

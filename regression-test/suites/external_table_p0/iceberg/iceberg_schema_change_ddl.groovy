@@ -84,14 +84,14 @@ suite("iceberg_schema_change_ddl", "p0,external") {
     // Test 2: ADD COLUMN - basic type
     test {
         sql """ ALTER TABLE iceberg_ddl_test ADD COLUMN email STRING not null DEFAULT 'N/A'; """
-        exception "can't add a non-nullable column to an Iceberg table"
+        exception "format-version 3"
     }
     sql """ ALTER TABLE ${table_name} ADD COLUMN email STRING """
     // not support initial default value for new column
     // This will throw an exception in Iceberg v2, but is allowed in v3
     test {
         sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING DEFAULT 'N/A' COMMENT 'User phone number' """
-        exception "Invalid initial default for phone: non-null default (N/A) is not supported until v3"
+        exception "format-version 3"
     }
     // Add column with comment and set position after age
     sql """ ALTER TABLE ${table_name} ADD COLUMN phone STRING COMMENT 'User phone number' after age """
