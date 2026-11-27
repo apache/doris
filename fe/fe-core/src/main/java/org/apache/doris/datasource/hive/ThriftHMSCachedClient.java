@@ -102,7 +102,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     /** Maximum partition names sent by one getPartitionsByNames RPC; a `hive.` catalog property. */
     public static final String PARTITION_BATCH_SIZE_KEY = "hive.hms_partitions_batch_size_per_rpc";
-    public static final int DEFAULT_PARTITION_BATCH_SIZE = 5000;
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         this(hiveConf, poolSize, executionAuthenticator, new DefaultMetaStoreClientProvider());
@@ -117,6 +116,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.clientPool = poolSize == 0 ? null
                 : new GenericObjectPool<>(new ThriftHMSClientFactory(), createPoolConfig(poolSize));
         this.partitionBatchSize = parsePartitionBatchSize(hiveConf);
+    }
+
+    @Override
+    public int getPartitionBatchSize() {
+        return partitionBatchSize;
     }
 
     private static int parsePartitionBatchSize(HiveConf hiveConf) {

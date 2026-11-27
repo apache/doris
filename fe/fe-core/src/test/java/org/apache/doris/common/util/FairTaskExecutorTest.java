@@ -34,6 +34,33 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @Timeout(30)
 class FairTaskExecutorTest {
+    @Test
+    void removingAHelpedTaskReleasesCapacityAndNotifiesOnce() {
+        try (FairTaskExecutor pool = executor(1)) {
+            FairTaskExecutor.Group group = pool.newGroup(1);
+            CountDownLatch running = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            group.execute(() -> {
+                running.countDown();
+                await(release);
+            });
+            await(running);
+            try {
+                FutureTask<Void> helped = new FutureTask<>(() -> null);
+                AtomicInteger notified = new AtomicInteger();
+                Assertions.assertTrue(group.tryExecute(helped, Assertions::fail, null));
+                Assertions.assertFalse(group.tryExecute(() -> { }, Assertions::fail, notified::incrementAndGet));
+                helped.run();
+                group.remove(helped);
+                group.remove(helped);
+                Assertions.assertEquals(0, group.queuedTasks());
+                Assertions.assertEquals(1, notified.get());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
     private FairTaskExecutor executor(int workers) {
         return new FairTaskExecutor(workers, task -> {
             Thread thread = new Thread(task);

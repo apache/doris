@@ -912,6 +912,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 : scanTaskLease.group(false);
     }
 
+    protected Executor getMetadataTaskExecutor() {
+        return scanTaskLease == null
+                ? Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor()
+                : scanTaskLease.group(true);
+    }
+
     protected boolean isScanTaskLeaseClosed() {
         return scanTaskLease != null && scanTaskLease.isClosed();
     }

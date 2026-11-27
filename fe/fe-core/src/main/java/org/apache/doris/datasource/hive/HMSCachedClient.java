@@ -41,6 +41,12 @@ import java.util.function.Function;
  * Currently, we support obtain hive metadata from thrift protocol and JDBC protocol.
  */
 public interface HMSCachedClient {
+    int DEFAULT_PARTITION_BATCH_SIZE = 5000;
+
+    default int getPartitionBatchSize() {
+        return DEFAULT_PARTITION_BATCH_SIZE;
+    }
+
     Database getDatabase(String dbName);
 
     List<String> getAllDatabases();
