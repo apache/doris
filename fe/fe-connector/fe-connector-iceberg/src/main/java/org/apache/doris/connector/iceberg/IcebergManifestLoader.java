@@ -28,10 +28,7 @@ import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.ManifestReaderAccess;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types;
@@ -41,9 +38,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -145,7 +140,7 @@ final class IcebergManifestLoader {
         List<DataFile> dataFiles = new ArrayList<>();
         // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
         try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, io,
-                manifestReadSpecs(manifest, table, io))) {
+                ManifestReaderAccess.readSpecs(manifest, table, io))) {
             if (columns != null) {
                 reader.select(columns);
             }
@@ -160,48 +155,11 @@ final class IcebergManifestLoader {
         return dataFiles;
     }
 
-    /** Recover physical partition types, consulting the header when commit metadata lacks a source. */
-    private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table, FileIO io)
-            throws IOException {
-        PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
-        // Fixed-result transforms (bucket/year/month/day/hour) remain readable without their source
-        // schema. Iceberg resolves their result from UNKNOWN; do not require expired source schemas.
-        boolean missingSource = spec.rawPartitionType().fields().stream()
-                .anyMatch(field -> field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN);
-        if (!missingSource) {
-            return Collections.singletonMap(spec.specId(), spec);
-        }
-        Long commitSnapshotId = manifest.snapshotId();
-        Snapshot commitSnapshot = commitSnapshotId == null ? null : table.snapshot(commitSnapshotId);
-        Schema commitSchema = commitSnapshot == null ? null : table.schemas().get(commitSnapshot.schemaId());
-        if (commitSchema == null
-                || spec.fields().stream().anyMatch(field -> commitSchema.findField(field.sourceId()) == null)) {
-            // A rewrite can retain older physical types while committing after source removal. Recover the
-            // header types so data and delete partitions use the same canonical representation after adaptation.
-            PartitionSpec readable = ManifestReaderAccess.readPartitionSpec(manifest, io);
-            return Collections.singletonMap(readable.specId(), readable);
-        }
-        Map<Integer, Types.NestedField> sources = new LinkedHashMap<>();
-        Set<String> reservedNames = new HashSet<>();
-        spec.fields().forEach(field -> reservedNames.add(field.name()));
-        for (PartitionField field : spec.fields()) {
-            Types.NestedField source = commitSchema.findField(field.sourceId());
-            String name = "source_" + field.sourceId();
-            while (!reservedNames.add(name)) {
-                name += "_";
-            }
-            sources.put(field.sourceId(), Types.NestedField.optional(field.sourceId(), name, source.type()));
-        }
-        PartitionSpec readable = spec.toUnbound().bind(new Schema(
-                new ArrayList<>(sources.values())), true);
-        return Collections.singletonMap(readable.specId(), readable);
-    }
-
     private static List<DeleteFile> loadDeleteFiles(ManifestFile manifest, Table table, FileIO io,
             ReadFilter filter, Runnable checkCancelled) throws IOException {
         List<DeleteFile> deleteFiles = new ArrayList<>();
         try (ManifestReader<DeleteFile> reader =
-                ManifestFiles.readDeleteManifest(manifest, io, manifestReadSpecs(manifest, table, io))) {
+                ManifestFiles.readDeleteManifest(manifest, io, ManifestReaderAccess.readSpecs(manifest, table, io))) {
             for (DeleteFile borrowed : ManifestReaderAccess.liveFiles(reader)) {
                 checkCancelled.run();
                 DeleteFile file = filter == null ? borrowed : filter.adapt(borrowed);

@@ -19,10 +19,12 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
@@ -635,25 +637,34 @@ public class IcebergManifestCacheTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
-    void retainedVariableTypeManifestSurvivesSourceSchemaExpiration(boolean truncate, boolean deletes)
+    @CsvSource({"false, false, 2", "true, false, 2", "false, true, 2", "true, true, 2",
+            "false, false, 4", "true, false, 4", "false, true, 4", "true, true, 4"})
+    void retainedVariableTypeManifestSurvivesSourceSchemaExpiration(boolean truncate, boolean deletes, int version)
             throws Exception {
         Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.StringType.get()),
                 Types.NestedField.optional(2, "payload", Types.StringType.get()));
         PartitionSpec spec = truncate ? PartitionSpec.builderFor(schema).truncate("id", 5).build()
                 : PartitionSpec.builderFor(schema).identity("id").build();
-        Table table = tableWithPartitionValue(schema, spec, "north");
+        Table table = tableWithPartitionValue(schema, spec, "north", version);
         ManifestFile manifest;
         if (deletes) {
             PartitionData partition = new PartitionData(spec.partitionType());
             partition.set(0, "north");
-            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(spec).ofPositionDeletes()
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(spec).ofPositionDeletes()
                     .withPath("/data/delete.parquet").withPartition(partition)
-                    .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+                    .withFileSizeInBytes(100).withRecordCount(1);
+            if (version == 4) {
+                builder.withPath("data/delete.puffin").withFormat(FileFormat.PUFFIN)
+                        .withReferencedDataFile("/data/physical.parquet")
+                        .withContentOffset(4).withContentSizeInBytes(64);
+            }
+            table.newRowDelta().addDeletes(builder.build()).commit();
             manifest = table.currentSnapshot().deleteManifests(table.io()).get(0);
         } else {
             manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         }
+        Assertions.assertEquals(version == 4 ? FileFormat.PARQUET : FileFormat.AVRO,
+                FileFormat.fromFileName(manifest.path()));
         table.updateSpec().removeField(spec.fields().get(0).name()).commit();
         table.updateSchema().deleteColumn("id").commit();
         table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/data/new.parquet")
@@ -760,10 +771,18 @@ public class IcebergManifestCacheTest {
     }
 
     private static Table tableWithPartitionValue(Schema schema, PartitionSpec spec, Object partitionValue) {
+        return tableWithPartitionValue(schema, spec, partitionValue, 2);
+    }
+
+    private static Table tableWithPartitionValue(Schema schema, PartitionSpec spec, Object partitionValue,
+            int version) {
         InMemoryCatalog catalog = new InMemoryCatalog();
-        catalog.initialize("test", Collections.emptyMap());
+        catalog.initialize("test", version == 4
+                ? Collections.singletonMap(CatalogProperties.WAREHOUSE_LOCATION, "file:///warehouse")
+                : Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
-        Table table = catalog.createTable(TableIdentifier.of("db1", "physical"), schema, spec);
+        Table table = catalog.createTable(TableIdentifier.of("db1", "physical"), schema, spec, null,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, Integer.toString(version)));
         PartitionData partition = new PartitionData(spec.partitionType());
         partition.set(0, partitionValue);
         table.newFastAppend().appendFile(DataFiles.builder(spec).withPath("/data/physical.parquet")
@@ -1100,6 +1119,23 @@ public class IcebergManifestCacheTest {
 
             Assertions.assertSame(first, second);
             Assertions.assertEquals(2, first.getDataFiles().size());
+        }
+    }
+
+    @Test
+    public void weightBoundedV4ManifestAccountsForItsTableContext() {
+        Table table = tableWithTwoDataFiles();
+        table.updateLocation().setLocation("s3://example-bucket/" + "nested/".repeat(12000)).commit();
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "4").commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner,
+                    Collections.singletonMap("meta.cache.iceberg.manifest.max-weight", "32KB"));
+            ManifestCacheValue value = cache.getManifestCacheValue(manifest, table);
+            Assertions.assertEquals(2, value.getDataFiles().size());
+            Assertions.assertTrue(value.getSizeEstimate().getBytes() < 32 * 1024,
+                    "The payload alone fits; the V4 key is what exceeds this budget");
+            Assertions.assertEquals(0, cache.size(), "An oversized retained V4 key must reject cache admission");
         }
     }
 

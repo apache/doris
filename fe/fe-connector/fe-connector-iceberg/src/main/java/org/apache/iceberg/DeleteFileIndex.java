@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.doris.connector.iceberg.IcebergV4FileIO;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
@@ -83,6 +84,7 @@ import org.apache.iceberg.util.Tasks;
 public class DeleteFileIndex {
   private static final DeleteFile[] EMPTY_DELETES = new DeleteFile[0];
 
+  private final IcebergV4FileIO pathResolver;
   private final EqualityDeletes globalDeletes;
   private final PartitionMap<EqualityDeletes> eqDeletesByPartition;
   private final PartitionMap<PositionDeletes> posDeletesByPartition;
@@ -99,7 +101,9 @@ public class DeleteFileIndex {
       PartitionMap<PositionDeletes> posDeletesByPartition,
       Map<String, PositionDeletes> posDeletesByPath,
       Map<String, DeleteFile> dvByPath,
-      Map<Integer, PartitionSpec> specsById) {
+      Map<Integer, PartitionSpec> specsById,
+      IcebergV4FileIO pathResolver) {
+    this.pathResolver = pathResolver;
     this.globalDeletes = globalDeletes;
     this.eqDeletesByPartition = eqDeletesByPartition;
     this.posDeletesByPartition = posDeletesByPartition;
@@ -215,7 +219,7 @@ public class DeleteFileIndex {
       return EMPTY_DELETES;
     }
 
-    PositionDeletes deletes = posDeletesByPath.get(dataFile.location());
+    PositionDeletes deletes = posDeletesByPath.get(identity(dataFile, dataFile.location()));
     if (deletes == null) {
       return EMPTY_DELETES;
     }
@@ -227,12 +231,16 @@ public class DeleteFileIndex {
     return matchingDeletes;
   }
 
+  private String identity(ContentFile<?> owner, String path) {
+    return pathResolver == null ? path : pathResolver.contentFileIdentity(owner, path);
+  }
+
   private DeleteFile findDV(long seq, DataFile dataFile) {
     if (dvByPath == null) {
       return null;
     }
 
-    DeleteFile dv = dvByPath.get(dataFile.location());
+    DeleteFile dv = dvByPath.get(identity(dataFile, dataFile.location()));
     if (dv != null) {
       ValidationException.check(
           dv.dataSequenceNumber() >= seq,
@@ -419,6 +427,7 @@ public class DeleteFileIndex {
   // changed to public class.
   public static class Builder {
     private final FileIO io;
+    private IcebergV4FileIO pathResolver;
     private final Set<ManifestFile> deleteManifests;
     private final Iterable<DeleteFile> deleteFiles;
     private long minSequenceNumber = 0L;
@@ -434,6 +443,7 @@ public class DeleteFileIndex {
 
     Builder(FileIO io, Set<ManifestFile> deleteManifests) {
       this.io = io;
+      this.pathResolver = IcebergV4FileIO.find(io);
       this.deleteManifests = Sets.newHashSet(deleteManifests);
       this.deleteFiles = null;
     }
@@ -442,6 +452,16 @@ public class DeleteFileIndex {
       this.io = null;
       this.deleteManifests = null;
       this.deleteFiles = deleteFiles;
+    }
+
+    // Both SDK and cached planning must associate deletes using physical identity before range conversion.
+    public Builder resolveFilePaths(FileIO fileIO) {
+      this.pathResolver = IcebergV4FileIO.find(fileIO);
+      return this;
+    }
+
+    private String identity(ContentFile<?> owner, String path) {
+      return pathResolver == null ? path : pathResolver.contentFileIdentity(owner, path);
     }
 
     Builder afterSequenceNumber(long seq) {
@@ -580,11 +600,12 @@ public class DeleteFileIndex {
           posDeletesByPartition.isEmpty() ? null : posDeletesByPartition,
           posDeletesByPath.isEmpty() ? null : posDeletesByPath,
           dvByPath.isEmpty() ? null : dvByPath,
-          specsById.isEmpty() ? null : specsById);
+          specsById.isEmpty() ? null : specsById,
+          pathResolver);
     }
 
     private void add(Map<String, DeleteFile> dvByPath, DeleteFile dv) {
-      String path = dv.referencedDataFile();
+      String path = identity(dv, dv.referencedDataFile());
       DeleteFile existingDV = dvByPath.putIfAbsent(path, dv);
       if (existingDV != null) {
         throw new ValidationException(
@@ -601,7 +622,7 @@ public class DeleteFileIndex {
 
       PositionDeletes deletes;
       if (path != null) {
-        deletes = deletesByPath.computeIfAbsent(path, ignored -> new PositionDeletes());
+        deletes = deletesByPath.computeIfAbsent(identity(file, path), ignored -> new PositionDeletes());
       } else {
         int specId = file.specId();
         StructLike partition = file.partition();

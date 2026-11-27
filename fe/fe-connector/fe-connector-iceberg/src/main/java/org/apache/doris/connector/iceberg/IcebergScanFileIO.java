@@ -32,13 +32,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** Request-local reads: cancellation never enters a catalog's shared FileIO or Doris manifest-cache loader. */
-final class IcebergScanFileIO implements FileIO {
+final class IcebergScanFileIO implements IcebergV4FileIO.Delegating {
     private final FileIO delegate;
     private final Runnable checkCancelled;
 
     IcebergScanFileIO(FileIO delegate, Runnable checkCancelled) {
         this.delegate = delegate;
         this.checkCancelled = checkCancelled;
+    }
+
+    @Override
+    public FileIO delegate() {
+        return delegate;
     }
 
     @Override

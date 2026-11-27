@@ -90,6 +90,9 @@ under the License.
     <!-- Iceberg package access is required to override ResolvingFileIO.implFromLocation; other checks apply. -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]io[\\/]NativeGcsResolvingFileIO\.java" checks="ImportControl"/>
 
+    <!-- Parquet metadata bridge needs the SDK's package-private InputFile adapter. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]parquet[\\/]ManifestMetadataAccess\.java" checks="ImportControl"/>
+
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
     <suppress files="software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java" checks=".*"/>

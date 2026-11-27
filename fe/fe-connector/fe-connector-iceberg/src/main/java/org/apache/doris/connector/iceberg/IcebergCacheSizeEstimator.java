@@ -246,7 +246,12 @@ final class IcebergCacheSizeEstimator {
     }
 
     static long estimateManifestKey(IcebergManifestEntryKey key) {
-        return add(MANIFEST_KEY_SHALLOW_BYTES, JvmSizeUtils.stringSize(key.getManifestPath()));
+        long bytes = add(MANIFEST_KEY_SHALLOW_BYTES, JvmSizeUtils.stringSize(key.getManifestPath()));
+        // The shallow key size excludes V4's retained table base and boxed inherited descriptor fields.
+        bytes = add(bytes, JvmSizeUtils.stringSize(key.getTableLocation()));
+        bytes = add(bytes, key.getSnapshotId() == null ? 0 : JvmSizeUtils.instanceSize(Long.class));
+        bytes = add(bytes, key.getSequenceNumber() == null ? 0 : JvmSizeUtils.instanceSize(Long.class));
+        return add(bytes, key.getFirstRowId() == null ? 0 : JvmSizeUtils.instanceSize(Long.class));
     }
 
     static long estimateManifestValue(ManifestCacheValue value) {

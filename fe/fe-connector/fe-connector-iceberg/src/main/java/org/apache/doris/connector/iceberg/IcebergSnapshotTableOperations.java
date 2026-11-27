@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.encryption.EncryptionManager;
@@ -30,10 +32,32 @@ final class IcebergSnapshotTableOperations implements TableOperations {
 
     private final TableOperations delegate;
     private final TableMetadata metadata;
+    private final FileIO readIO;
 
     IcebergSnapshotTableOperations(TableOperations delegate, TableMetadata metadata) {
+        this(delegate, metadata, null);
+    }
+
+    IcebergSnapshotTableOperations(TableOperations delegate, TableMetadata metadata, FileIO readIO) {
+        this.readIO = readIO;
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.metadata = Objects.requireNonNull(metadata, "metadata");
+    }
+
+    static Table v4ReadTable(Table table) {
+        if (!(table instanceof BaseTable)) {
+            return table;
+        }
+        BaseTable base = (BaseTable) table;
+        TableOperations operations = base.operations();
+        TableMetadata metadata = operations.current();
+        if (metadata.formatVersion() < 4 || table.io() instanceof IcebergV4FileIO) {
+            return table;
+        }
+        // Freeze the location with its metadata generation, including credential-dependent uncached tables.
+        return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata,
+                new IcebergV4FileIO(table.io(), metadata.location(), metadata)),
+                table.name(), base.reporter(), base.labels());
     }
 
     @Override
@@ -55,7 +79,7 @@ final class IcebergSnapshotTableOperations implements TableOperations {
 
     @Override
     public FileIO io() {
-        FileIO io = delegate.io();
+        FileIO io = readIO != null ? readIO : delegate.io();
         // SDK byte caches hold decrypted manifests, including plaintext file-key metadata. The read view
         // must not leave those bytes in the catalog IO after its encrypted statement has ended.
         return IcebergEncryptionRead.hasEncryptionMetadata(metadata)

@@ -77,8 +77,8 @@ final class IcebergManifestReader implements AutoCloseable {
         try (ReadLease ignored = retain()) {
             boolean privateRead = encryptedTable || manifest.keyMetadata() != null;
             // A statement reader is shared by scans with and without optional EXPLAIN accounting.
-            cache.recordStatementAccess(manifest, statsQueryId, !privateRead);
-            ReadKey key = new ReadKey(manifest);
+            cache.recordStatementAccess(manifest, table, statsQueryId, !privateRead);
+            ReadKey key = new ReadKey(manifest, table);
             CompletableFuture<ManifestCacheValue> elected = new CompletableFuture<>();
             CompletableFuture<ManifestCacheValue> current = inFlight.putIfAbsent(key, elected);
             if (current == null) {
@@ -111,7 +111,7 @@ final class IcebergManifestReader implements AutoCloseable {
     ManifestCacheValue cachedOnly(ManifestFile manifest, String statsQueryId) {
         checkOpen();
         return encryptedTable || manifest.keyMetadata() != null
-                ? null : cache.getCachedManifestValue(manifest, statsQueryId);
+                ? null : cache.getCachedManifestValue(manifest, table, statsQueryId);
     }
 
     synchronized ReadLease retain() {
@@ -189,8 +189,9 @@ final class IcebergManifestReader implements AutoCloseable {
         private final int specId;
         private final ByteBuffer keyMetadata;
 
-        private ReadKey(ManifestFile manifest) {
-            identity = IcebergManifestEntryKey.of(manifest);
+        private ReadKey(ManifestFile manifest, Table table) {
+            // In-flight reads must preserve the same V4 inheritance identity as completed cache entries.
+            identity = IcebergManifestCache.manifestKey(manifest, table);
             length = manifest.length();
             specId = manifest.partitionSpecId();
             ByteBuffer metadata = manifest.keyMetadata();

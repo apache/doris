@@ -214,7 +214,7 @@ final class IcebergStatementScope {
                 () -> {
                     TrackedTable loaded = trackedTable(resourceTracker, loader, cleanupFactory, true);
                     try {
-                        IcebergScanPlanning.rejectServerSideScanPlanning(loaded.table(), dbName + "." + tableName);
+                        loaded.table = snapshotReadTable(loaded.table(), dbName, tableName);
                         return loaded;
                     } catch (RuntimeException | Error failure) {
                         try {
@@ -247,7 +247,7 @@ final class IcebergStatementScope {
 
         private ScopedBorrow(IcebergTableCache.TableLease lease) {
             this.lease = lease;
-            this.table = lease.snapshotReadTable();
+            this.table = IcebergSnapshotTableOperations.v4ReadTable(lease.snapshotReadTable());
         }
 
         @Override
@@ -291,16 +291,19 @@ final class IcebergStatementScope {
         private final Runnable tableCleanup;
         private final boolean statementOwned;
         private final AtomicInteger references = new AtomicInteger(1);
+        // Read owners freeze this view before publication; writable owners retain the mutable table.
+        private Table table;
 
         private TrackedTable(IcebergCatalogResourceTracker.TrackedResource<Table> tracked,
                 Runnable tableCleanup, boolean statementOwned) {
             this.tracked = tracked;
+            this.table = tracked.resource();
             this.tableCleanup = tableCleanup;
             this.statementOwned = statementOwned;
         }
 
         Table table() {
-            return tracked.resource();
+            return table;
         }
 
         TrackedTableLease retainLease() {
@@ -361,9 +364,11 @@ final class IcebergStatementScope {
         BaseTable baseTable = (BaseTable) table;
         TableOperations operations = baseTable.operations();
         TableMetadata metadata = operations.current();
-        // Keep IO, encryption and location behavior from the raw table while pinning only metadata.
-        return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                table.name(), baseTable.reporter(), baseTable.labels());
+        // A shared manifest reader retains this table across scans. Bind V4 provenance here so later
+        // consumers normalize legacy entries using the same resolver that prepared their manifests.
+        return IcebergSnapshotTableOperations.v4ReadTable(new BaseTable(
+                new IcebergSnapshotTableOperations(operations, metadata),
+                table.name(), baseTable.reporter(), baseTable.labels()));
     }
 
     /**

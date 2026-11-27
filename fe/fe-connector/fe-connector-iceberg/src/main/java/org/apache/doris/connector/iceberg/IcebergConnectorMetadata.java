@@ -797,7 +797,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                             value -> IcebergConnector.cachedTableCleanup(value, catalogProps.getFlavor()));
         }
         IcebergEncryptionRead.check(table, catalogProps, context);
-        return table;
+        return IcebergSnapshotTableOperations.v4ReadTable(table);
     }
 
     /**
@@ -2067,6 +2067,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 return;
         }
         Table table = loadTable(session, (IcebergTableHandle) handle);
+        IcebergWriterHelper.validateWriteFormat(table);
         String mode = table.properties().getOrDefault(modeProperty, defaultMode);
         if (RowLevelOperationMode.COPY_ON_WRITE.modeName().equalsIgnoreCase(mode)) {
             throw new DorisConnectorException(String.format(
@@ -2140,6 +2141,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // "must have format version 2 or higher for position deletes"); keep that behavior.
             return OptionalLong.empty();
         }
+        IcebergWriterHelper.validateWriteFormat(table);
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
         IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
         Expression deleteExpr = predicate.isPresent()

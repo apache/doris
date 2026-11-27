@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestReaderAccess;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.util.SerializationUtil;
 
@@ -44,7 +46,8 @@ final class IcebergSystemTableSerialization {
     }
 
     static String serializeToBase64(Object value) {
-        byte[] bytes = SerializationUtil.serializeToBytes(value);
+        Object task = value instanceof FileScanTask ? ManifestReaderAccess.prepareTask((FileScanTask) value) : value;
+        byte[] bytes = SerializationUtil.serializeToBytes(task);
         rewriteSchemaUid(bytes, ICEBERG_1_11_0_SCHEMA_UID, ICEBERG_1_10_1_SCHEMA_UID);
         return new String(Base64.getMimeEncoder().encode(bytes), StandardCharsets.UTF_8);
     }

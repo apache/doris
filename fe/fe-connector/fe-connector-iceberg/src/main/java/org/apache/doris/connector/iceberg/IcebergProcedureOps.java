@@ -36,13 +36,18 @@ import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -201,14 +206,18 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
         // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Function<Table, ConnectorProcedureResult> execute = table -> {
+            Table guarded = fenceProcedureFormat(wrapTableForProcedure(table));
+            IcebergWriterHelper.validateWriteFormat(guarded);
+            return action.execute(guarded, session);
+        };
         ConnectorProcedureResult result;
         if (context == null) {
-            result = ops.withTable(handle.getDbName(), handle.getTableName(), table -> action.execute(table, session));
+            result = ops.withTable(handle.getDbName(), handle.getTableName(), execute);
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        ops.withTable(handle.getDbName(), handle.getTableName(),
-                                table -> action.execute(wrapTableForProcedure(table), session)));
+                        ops.withTable(handle.getDbName(), handle.getTableName(), execute));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -238,6 +247,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         Function<Table, List<RewriteDataGroup>> planTasks = table -> {
+            IcebergWriterHelper.validateWriteFormat(table);
             IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
             return planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
                     ? table : wrapTableForProcedure(table));
@@ -288,7 +298,90 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         TableOperations rawOps = baseTable.operations();
         return new BaseTable(new IcebergAuthenticatedTableOperations(rawOps,
                 IcebergAuthenticatedFileIO.withPrefixOperations(rawOps.io(), auth)),
-                table.name(), baseTable.reporter());
+                table.name(), baseTable.reporter(), baseTable.labels());
+    }
+
+    private Table fenceProcedureFormat(Table table) {
+        if (!(table instanceof BaseTable)) {
+            return table;
+        }
+        BaseTable base = (BaseTable) table;
+        TableOperations ops = base.operations();
+        return new BaseTable(new ProcedureTableOperations(ops, ops.current().formatVersion()),
+                table.name(), base.reporter(), base.labels());
+    }
+
+    private static final class ProcedureTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private final int admittedFormat;
+
+        private ProcedureTableOperations(TableOperations delegate, int admittedFormat) {
+            this.delegate = delegate;
+            this.admittedFormat = admittedFormat;
+        }
+
+        private TableMetadata validate(TableMetadata metadata) {
+            Objects.requireNonNull(metadata, "Procedure table no longer exists");
+            if (metadata.formatVersion() != admittedFormat) {
+                throw new DorisConnectorException("Iceberg table format changed during procedure: admitted "
+                        + admittedFormat + ", found " + metadata.formatVersion());
+            }
+            return metadata;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return validate(delegate.current());
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return validate(delegate.refresh());
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            validate(base);
+            validate(metadata);
+            // A refresh or CAS retry must not let a procedure admitted on V1-V3 publish V4 paths.
+            refresh();
+            IcebergRestSchemaCompatibility.commitWithFormatFence(delegate, base, metadata, admittedFormat);
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
+
+        @Override
+        public TableOperations temp(TableMetadata metadata) {
+            return new ProcedureTableOperations(delegate.temp(validate(metadata)), admittedFormat);
+        }
+
+        @Override
+        public long newSnapshotId() {
+            return delegate.newSnapshotId();
+        }
+
+        @Override
+        public boolean requireStrictCleanup() {
+            return delegate.requireStrictCleanup();
+        }
     }
 
     private <T> T withCatalogLease(Supplier<T> operation) {

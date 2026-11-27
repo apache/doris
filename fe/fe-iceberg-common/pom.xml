@@ -28,9 +28,32 @@ under the License.
     </parent>
     <artifactId>fe-iceberg-common</artifactId>
     <name>Doris Shared Iceberg FileIO</name>
-    <description>Native GCP FileIO factory shared by the FE Iceberg connector and the isolated
-        BE metadata scanner. Its class name is part of serialized Iceberg scan tasks.</description>
+    <description>Serializable FileIO helpers shared by the FE Iceberg connector and the isolated
+        BE metadata scanner. Their class names are part of serialized Iceberg scan tasks.</description>
     <dependencies>
+        <!-- Metadata parser overloads expose JsonNode; both consumers already supply Jackson at runtime. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.2.4</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
