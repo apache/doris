@@ -59,7 +59,7 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     map.get<TYPE_MAP>().push_back(keys);
     map.get<TYPE_MAP>().push_back(values);
 
-    _column_ptr = _data_type->create_column_const(1, map);
+    init_column(map);
     return Status::OK();
 }
 
