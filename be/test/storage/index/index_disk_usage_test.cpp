@@ -710,10 +710,10 @@ TEST_F(IndexDiskUsageCollectorTest, CollectSniiAttributesSparseNormsToTheIndex) 
     };
     auto collect = [&](bool sparse, const std::string& rowset_id) {
         const bool debug_points_were_enabled = config::enable_debug_points;
-        config::enable_debug_points = true;
+        config::enable_debug_points = !sparse;
         DebugPoints::instance()->clear();
-        if (sparse) {
-            DebugPoints::instance()->add("LogicalIndexWriter::finalize_build.sparse_norms");
+        if (!sparse) {
+            DebugPoints::instance()->add("LogicalIndexWriter::build_norms_section.dense_norms");
         }
         auto schema = create_schema();
         std::vector<IndexSpec> specs {

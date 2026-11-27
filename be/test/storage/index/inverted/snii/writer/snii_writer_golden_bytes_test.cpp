@@ -43,6 +43,7 @@
 #include "storage/index/inverted/snii/writer/posting_window_emitter.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -258,6 +259,19 @@ uint64_t golden_digest(const std::string& name, const TabletIndex& meta) {
     return fnv1a64(bytes);
 }
 
+// The digest of the corpus written with dense norms forced, the form every index had before the
+// writer chose between dense and sparse norms.
+uint64_t dense_norms_digest(const std::string& name, const TabletIndex& meta) {
+    const bool debug_points_were_enabled = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+    DebugPoints::instance()->add("LogicalIndexWriter::build_norms_section.dense_norms");
+    const uint64_t digest = golden_digest(name, meta);
+    DebugPoints::instance()->clear();
+    config::enable_debug_points = debug_points_were_enabled;
+    return digest;
+}
+
 // Writes `rows` through the production stack and returns the size of the segment file.
 size_t written_size(const std::string& name, const TabletIndex& meta,
                     const std::vector<std::string>& rows) {
@@ -319,8 +333,12 @@ private:
 // Whole-image digests re-harvested for the protobuf v1 metadata layout. They
 // still pin posting bytes together with every framing, directory, and metadata
 // byte, so future format changes remain explicit.
-constexpr uint64_t kGoldenEnglishPhrase = 0x8157f9dd81c5397cULL;
-constexpr uint64_t kGoldenUnicodePhrase = 0x9e2a4ba4abedaef9ULL;
+// The corpus has 4 NULL rows among 12, so the analyzed indexes now keep sparse norms, and their
+// digests moved. Written with dense norms forced, they keep their earlier digests.
+constexpr uint64_t kGoldenEnglishPhrase = 0x3d26e539492c3b63ULL;
+constexpr uint64_t kGoldenUnicodePhrase = 0x7074a5beaa075dbfULL;
+constexpr uint64_t kGoldenEnglishPhraseDenseNorms = 0x8157f9dd81c5397cULL;
+constexpr uint64_t kGoldenUnicodePhraseDenseNorms = 0x9e2a4ba4abedaef9ULL;
 constexpr uint64_t kGoldenKeywordDocsOnly = 0x27cec04c70573201ULL;
 
 // The default of the knob is part of the written format's behavior: the fixture above pins it to 0
@@ -382,6 +400,10 @@ TEST_F(SniiWriterGoldenBytes, EnglishPhrase) {
     EXPECT_EQ(digest, kGoldenEnglishPhrase)
             << "actual=0x" << std::hex << digest
             << " -- token-path output changed; see file header before re-harvesting";
+    const uint64_t dense_digest = dense_norms_digest("english_phrase_dense", meta);
+    EXPECT_EQ(dense_digest, kGoldenEnglishPhraseDenseNorms)
+            << "actual=0x" << std::hex << dense_digest
+            << " -- dense norms output changed; see file header before re-harvesting";
 }
 
 TEST_F(SniiWriterGoldenBytes, UnicodePhrase) {
@@ -391,6 +413,10 @@ TEST_F(SniiWriterGoldenBytes, UnicodePhrase) {
     EXPECT_EQ(digest, kGoldenUnicodePhrase)
             << "actual=0x" << std::hex << digest
             << " -- token-path output changed; see file header before re-harvesting";
+    const uint64_t dense_digest = dense_norms_digest("unicode_phrase_dense", meta);
+    EXPECT_EQ(dense_digest, kGoldenUnicodePhraseDenseNorms)
+            << "actual=0x" << std::hex << dense_digest
+            << " -- dense norms output changed; see file header before re-harvesting";
 }
 
 TEST_F(SniiWriterGoldenBytes, KeywordDocsOnly) {

@@ -936,9 +936,13 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
 
 Status LogicalIndexWriter::build_norms_section() {
     // Sparse norms drop the bytes of the NULL rows, and store a norm that every row shares once.
-    // Writers keep dense norms; this debug point lets tests choose between the two forms.
-    bool consider_sparse = false;
-    DBUG_EXECUTE_IF("LogicalIndexWriter::finalize_build.sparse_norms", { consider_sparse = true; });
+    // They are kept only when the null bitmap or the bloom filter follows them: a BE that predates
+    // them rewrites a segment by copying it up to the end of the last section it knows, so sparse
+    // norms at the end of an index would be lost. For example, an index whose rows are all empty
+    // and none NULL keeps dense norms. This debug point keeps dense norms for tests.
+    bool consider_sparse = !null_docids_.empty() || !term_hashes_.empty();
+    DBUG_EXECUTE_IF("LogicalIndexWriter::build_norms_section.dense_norms",
+                    { consider_sparse = false; });
     const std::span<const uint32_t> null_docids(null_docids_.data(), null_docids_.size());
     size_t section_size = format::NormsPodWriter::dense_section_size(doc_count_);
     bool constant = false;

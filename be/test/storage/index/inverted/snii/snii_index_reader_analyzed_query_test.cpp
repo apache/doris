@@ -572,10 +572,10 @@ TEST_F(SniiIndexReaderAnalyzedQueryTest, SparseNormsScoreLikeDenseNorms) {
     }
     const auto scores_of = [&](bool sparse, std::string_view name, int64_t* file_size) {
         const bool debug_points_were_enabled = config::enable_debug_points;
-        config::enable_debug_points = true;
+        config::enable_debug_points = !sparse;
         DebugPoints::instance()->clear();
-        if (sparse) {
-            DebugPoints::instance()->add("LogicalIndexWriter::finalize_build.sparse_norms");
+        if (!sparse) {
+            DebugPoints::instance()->add("LogicalIndexWriter::build_norms_section.dense_norms");
         }
         auto reader = open_reader(scored_segment_with_nulls_input(), name, _text_meta,
                                   InvertedIndexReaderType::FULLTEXT);

@@ -29,6 +29,8 @@
 #include <vector>
 
 #include "common/config.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "storage/index/inverted/query/exec/block_doc_set.h"
 #include "storage/index/inverted/query/exec/roaring_docid_sink.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
@@ -429,13 +431,13 @@ TEST_F(SniiScoredSourceTest, EncodedNormsAreReadOnceAndOnlyWhenAsked) {
     EXPECT_EQ(rounds(), read);
 }
 
-// The same corpus written with dense norms and through the writer path that may choose sparse
-// norms. Every non-NULL row holds "alpha" twice and, when even, "beta" once.
+// The same corpus written with dense norms forced and with the writer's own choice of form.
+// Every non-NULL row holds "alpha" twice and, when even, "beta" once.
 class SniiSparseNormsTest : public ::testing::Test {
 protected:
     static constexpr uint32_t kDocCount = 40;
-    static constexpr const char* kSparseNormsPoint =
-            "LogicalIndexWriter::finalize_build.sparse_norms";
+    static constexpr const char* kDenseNormsPoint =
+            "LogicalIndexWriter::build_norms_section.dense_norms";
 
     struct Written {
         MemoryFile file;
@@ -485,15 +487,27 @@ protected:
         return input;
     }
 
-    // Writes `input`, through the writer path that may choose sparse norms when `sparse`, and
-    // opens it for reading.
+    // Rows that all hold no token, none of them NULL: the index has no term, so no bloom filter
+    // section, and every row has the norm of an empty document.
+    static writer::SniiIndexInput corpus_without_terms() {
+        writer::SniiIndexInput input;
+        input.index_id = 12;
+        input.index_suffix = "sparse";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = kDocCount;
+        input.encoded_norms.assign(kDocCount, format::kNullRowNorm);
+        return input;
+    }
+
+    // Writes `input` and opens it for reading. With `sparse`, the writer chooses the form of the
+    // norms with debug points off; without it, the writer is made to keep dense norms.
     static std::unique_ptr<Written> write(const writer::SniiIndexInput& input, bool sparse) {
         auto written = std::make_unique<Written>();
         const bool debug_points_were_enabled = config::enable_debug_points;
-        config::enable_debug_points = true;
+        config::enable_debug_points = !sparse;
         DebugPoints::instance()->clear();
-        if (sparse) {
-            DebugPoints::instance()->add(kSparseNormsPoint);
+        if (!sparse) {
+            DebugPoints::instance()->add(kDenseNormsPoint);
         }
         writer::SniiCompoundWriter compound_writer(&written->file);
         assert_ok(compound_writer.add_logical_index(input));
@@ -605,6 +619,37 @@ TEST_F(SniiSparseNormsTest, IndexWithoutNullRowsStaysDense) {
     EXPECT_EQ(written->index.section_refs().sparse_norms.length, 0U);
 }
 
+// A BE that predates sparse norms rewrites a segment by copying it up to the end of the last section
+// it knows, so sparse norms must never end an index. Without NULL rows and without terms, no null
+// bitmap and no bloom filter follow the norms, so the index keeps dense norms although its rows
+// share one norm.
+TEST_F(SniiSparseNormsTest, NormsThatWouldEndTheIndexStayDense) {
+    const auto written = write(corpus_without_terms(), /*sparse=*/true);
+    const auto& refs = written->index.section_refs();
+    EXPECT_EQ(refs.null_bitmap.length, 0U);
+    EXPECT_EQ(refs.bsbf.length, 0U);
+    EXPECT_NE(refs.norms.length, 0U);
+    EXPECT_EQ(refs.sparse_norms.length, 0U);
+}
+
+// Wherever the writer keeps sparse norms, a section that every BE knows follows them, so the
+// prefix that an older BE copies on a rewrite holds them.
+TEST_F(SniiSparseNormsTest, OlderRewritersCopyTheSparseSection) {
+    const auto check = [](const writer::SniiIndexInput& input) {
+        const auto written = write(input, /*sparse=*/true);
+        const auto& refs = written->index.section_refs();
+        ASSERT_NE(refs.sparse_norms.length, 0U);
+        uint64_t known_end = 0;
+        for (const format::RegionRef& region :
+             {refs.dict_region, refs.posting_region, refs.norms, refs.null_bitmap, refs.bsbf}) {
+            known_end = std::max(known_end, region.offset + region.length);
+        }
+        EXPECT_GE(known_end, refs.sparse_norms.offset + refs.sparse_norms.length);
+    };
+    check(corpus(mostly_null_rows()));
+    check(corpus({}, /*shared_norm=*/true));
+}
+
 // The writer keeps the smaller form, and a tie keeps the dense one, which every reader of norms
 // knows. Both forms frame their payload alike, so the payloads decide: for 40 rows whose norms
 // differ, dense is 1 + 40 bytes and sparse is 3 + (40 - NULL rows) bytes. Two NULL rows tie,
@@ -629,6 +674,24 @@ TEST_F(SniiSparseNormsTest, SharedNormIsStoredOnceWithoutNullRows) {
     EXPECT_EQ(sparse->index.section_refs().sparse_norms.length,
               format::NormsPodWriter::sparse_section_size(kDocCount, kDocCount, true));
     EXPECT_EQ(all_norms(*sparse->source), all_norms(*dense->source));
+}
+
+// Loading sparse norms reads their section and the null bitmap, which are freed once the norms
+// are expanded. They are charged to the loading task only while the load runs; the expanded
+// bytes stay under the searcher cache charge.
+TEST_F(SniiSparseNormsTest, SparseNormsLoadIsChargedWhileItRuns) {
+    const auto sparse = write(corpus(mostly_null_rows()), /*sparse=*/true);
+    const auto& refs = sparse->index.section_refs();
+    ASSERT_NE(refs.sparse_norms.length, 0U);
+    ASSERT_NE(refs.null_bitmap.length, 0U);
+    MemTracker tracker("UT-SniiSparseNormsLoad");
+    {
+        SCOPED_CONSUME_MEM_TRACKER(&tracker);
+        EXPECT_EQ(all_norms(*sparse->source).size(), kDocCount);
+    }
+    EXPECT_GE(tracker.peak_consumption(),
+              static_cast<int64_t>(refs.sparse_norms.length + refs.null_bitmap.length));
+    EXPECT_EQ(tracker.consumption(), 0);
 }
 
 // The corpus read through a metered reader, so the rounds of every open count.
