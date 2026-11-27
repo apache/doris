@@ -1042,6 +1042,7 @@ DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
 // When doing compaction, each segment may take at least 1MB buffer.
 DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
+DEFINE_Int32(segment_lz4_threshold_kb, "0");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");

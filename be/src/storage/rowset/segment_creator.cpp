@@ -18,10 +18,12 @@
 #include "storage/rowset/segment_creator.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <array>
 #include <cerrno> // IWYU pragma: keep
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -57,6 +59,28 @@ using namespace ErrorCode;
 
 namespace {
 
+segment_v2::CompressionTypePB select_flush_compression(size_t input_bytes,
+                                                       const TabletSchema& schema) {
+    using enum segment_v2::CompressionTypePB;
+    constexpr size_t kBytesPerKiB = 1024;
+    if (config::enable_fuzzy_mode) {
+        // Choose once per Segment so all its column writers use a consistent codec.
+        constexpr std::array codecs {NO_COMPRESSION, SNAPPY, LZ4, LZ4F, LZ4HC, ZLIB, ZSTD};
+        static thread_local std::mt19937 generator(std::random_device {}());
+        return codecs[std::uniform_int_distribution<size_t>(0, codecs.size() - 1)(generator)];
+    }
+    if (input_bytes <=
+        static_cast<size_t>(config::segment_compression_threshold_kb) * kBytesPerKiB) {
+        return NO_COMPRESSION;
+    }
+    const auto lz4_threshold_kb = config::segment_lz4_threshold_kb;
+    if (schema.compression_type() == ZSTD && lz4_threshold_kb > 0 &&
+        input_bytes < static_cast<size_t>(lz4_threshold_kb) * kBytesPerKiB) {
+        return LZ4;
+    }
+    return UNKNOWN_COMPRESSION;
+}
+
 segment_v2::TransformExecContext make_transform_exec_context(RowsetWriterContext& context,
                                                              int32_t segment_id) {
     return {.tablet_schema = context.tablet_schema,
@@ -87,11 +111,11 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     }
     Block flush_block(*block);
     const size_t input_rows = flush_block.rows();
-    bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
+    const auto compression = select_flush_compression(flush_block.bytes(), *_context.tablet_schema);
     segment_v2::DerivedColumn derived_column;
     RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
     std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
-    RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
+    RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, compression));
     // write_block pumps the derived column from its generator in small batches
     writer->set_derived_column(std::move(derived_column));
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->write_block(&flush_block, 0, flush_block.rows()));
@@ -143,7 +167,7 @@ Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
 
 Status SegmentFlusher::_create_segment_writer(
         std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int32_t segment_id,
-        bool no_compression) {
+        segment_v2::CompressionTypePB compression) {
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
@@ -157,9 +181,7 @@ Status SegmentFlusher::_create_segment_writer(
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
-    if (no_compression) {
-        writer_options.compression_type = NO_COMPRESSION;
-    }
+    writer_options.compression_type = compression;
 
     RETURN_IF_CATCH_EXCEPTION({
         writer = std::make_unique<segment_v2::VerticalSegmentWriter>(

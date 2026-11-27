@@ -1122,6 +1122,10 @@ DECLARE_mInt32(max_segment_num_per_rowset);
 // segment_compression_threshold_kb.
 DECLARE_mInt32(segment_compression_threshold_kb);
 
+// For single-block flushes on ZSTD tables, prefer LZ4 below this input size in KiB.
+// The no-compression threshold takes precedence. Nonpositive values disable this policy.
+DECLARE_Int32(segment_lz4_threshold_kb);
+
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
 DECLARE_String(delete_bitmap_dynamic_agg_cache_limit);
