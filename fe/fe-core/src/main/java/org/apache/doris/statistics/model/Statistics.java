@@ -102,8 +102,7 @@ public class Statistics {
      * Update by count.
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo);
+        Statistics statistics = withRowCount(rowCount);
         statistics.enforceValid();
         return statistics;
     }
