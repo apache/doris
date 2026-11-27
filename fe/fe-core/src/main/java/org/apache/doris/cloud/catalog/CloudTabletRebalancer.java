@@ -58,6 +58,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongCollection;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +71,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -88,14 +95,22 @@ import java.util.stream.Collectors;
 
 public class CloudTabletRebalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletRebalancer.class);
-    private static final int MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY = 1 << 16;
     private static final Function<Long, Set<Long>> DEFAULT_GLOBAL_TABLET_SET_FACTORY =
-            ignored -> ConcurrentHashMap.newKeySet();
+            ignored -> new LongOpenHashSet();
     private static final DateTimeFormatter STALE_ROUTE_CLEAN_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final CloudTabletRebalancerMetrics rebalancerMetrics;
     private long currentRoundTabletScanCount;
 
+    // be -> tabletIds of the current and the future generation. The inner sets are LongOpenHashSet, which is not
+    // thread-safe, while the snapshot methods below read them from other threads (tablet report, warm up, sync
+    // load). Only the rebalancer daemon thread writes them, so:
+    //   * a set is modified only while holding its own monitor (fillBeToTablets, updateBeToTablets); the lock is
+    //     uncontended while statRouteInfo fills the sets, as they are published by the volatile field write after;
+    //   * other threads copy a set only while holding its monitor (addSnapshotTablets);
+    //   * the rebalancer thread reads them without locking, and size() is read without locking.
+    // Without the lock, a concurrent removal may shift unrelated elements of the open hash table and a copy may
+    // miss them, then the tablet report would drop a tablet that is still in use.
     private volatile ConcurrentHashMap<Long, Set<Long>> beToTabletsGlobal =
             new ConcurrentHashMap<Long, Set<Long>>();
 
@@ -115,16 +130,35 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Set<Long> lastSweptBackends = null;
     private int pendingSweepRounds = 0;
 
-    // partitionId -> indexId -> be -> tabletIds
-    private ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>> partitionToTablets;
+    // Like the global sets, the partition and table level scheduling indexes use primitive fastutil containers:
+    // there is one container per (partition index, backend) and per (table, backend), so the per-container and
+    // per-element overhead of concurrent boxed sets would dominate. Unlike the global sets, which are copied by
+    // other threads and therefore locked (see beToTabletsGlobal), only the rebalancer daemon thread reads or writes
+    // these indexes (statRouteInfo, balanceImpl and the warmup rollback in processFailedWarmupTasks), so their
+    // inner containers are intentionally not thread-safe and are accessed without locking.
+    //
+    // A tablet is added to the partition / table containers only when it is newly added to the global set of the
+    // same generation (see fillBeToTablets), which keeps the partition lists free of duplicates.
 
-    private ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+    // partitionId -> indexId -> be -> tabletIds. A partition index usually has a few tablets per backend, so a
+    // list is smaller than a set and its linear removal is cheap.
+    private ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
+            partitionToTablets;
+
+    private ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
             futurePartitionToTablets;
 
-    // tableId -> be -> tabletIds
-    private ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable;
+    // tableId -> be -> tabletIds. A large table can have many tablets on one backend, so use a hash set to keep
+    // the removal in updateBeToTablets O(1).
+    private ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTable;
 
-    private ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> futureBeToTabletsInTable;
+    private ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> futureBeToTabletsInTable;
+
+    // Most partitions have one materialized index, and a partition index has a few tablets per backend.
+    private static final int PARTITION_INDEX_MAP_INITIAL_CAPACITY = 1;
+    private static final int BACKEND_MAP_INITIAL_CAPACITY = 4;
+    private static final int PARTITION_TABLET_LIST_INITIAL_CAPACITY = 1;
+    private static final int TABLE_TABLET_SET_INITIAL_CAPACITY = 4;
 
     private Map<Long, Long> beToDecommissionedTime = new HashMap<Long, Long>();
 
@@ -258,7 +292,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
         int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
         return computeGroupBalanceType != CloudComputeGroupMeta.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
-               || computeGroupTimeout != CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
+                || computeGroupTimeout != CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
@@ -496,13 +530,17 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private static void addSnapshotTablets(Set<Long> snapshot, Set<Long> tablets) {
         if (tablets != null) {
-            snapshot.addAll(tablets);
+            // see beToTabletsGlobal: the rebalancer thread modifies a published set while holding its monitor
+            synchronized (tablets) {
+                snapshot.addAll(tablets);
+            }
         }
     }
 
+    // The callers only look up tablet ids in the snapshot, a primitive set copies and stores them without boxing.
     @VisibleForTesting
     protected Set<Long> newSnapshotTabletSet(int expectedSize) {
-        return Sets.newHashSetWithExpectedSize(expectedSize);
+        return new LongOpenHashSet(expectedSize);
     }
 
     public int getTabletNumByBackendId(long beId) {
@@ -559,6 +597,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 if (migrated) {
                     statRouteInfo();
                 }
+                holdSchedulingIndexesForDebug();
 
                 indexBalanced = true;
                 tableBalanced = true;
@@ -589,6 +628,37 @@ public class CloudTabletRebalancer extends MasterDaemon {
         } finally {
             rebalancerMetrics.finishRound(metricRound, currentRoundTabletScanCount);
         }
+    }
+
+    /**
+     * Test only: hold the rebalancer thread after the scheduling indexes are built, so that they can be
+     * inspected by jmap. Each add of the debug point holds one round, until the debug point is removed or
+     * the hold time is reached. Do not pass "execute", every check in the loop consumes one execution.
+     *
+     * curl -X POST "http://fe:8030/api/debug_point/add/CloudTabletRebalancer.holdSchedulingIndexes?seconds=1800"
+     * curl -X POST "http://fe:8030/api/debug_point/remove/CloudTabletRebalancer.holdSchedulingIndexes"
+     */
+    private void holdSchedulingIndexesForDebug() {
+        final String debugPointName = "CloudTabletRebalancer.holdSchedulingIndexes";
+        if (!DebugPointUtil.isEnable(debugPointName)) {
+            return;
+        }
+        long holdSeconds = DebugPointUtil.getDebugParamOrDefault(debugPointName, "seconds", 1800L);
+        long start = System.currentTimeMillis();
+        long deadline = start + holdSeconds * 1000L;
+        LOG.info("debug point {} enabled, hold the scheduling indexes for at most {} s",
+                debugPointName, holdSeconds);
+        while (System.currentTimeMillis() < deadline && DebugPointUtil.isEnable(debugPointName)) {
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        // hold only once per add, otherwise the next round would be held again after timeout
+        DebugPointUtil.removeDebugPoint(debugPointName);
+        LOG.info("debug point {} released after {} ms", debugPointName, System.currentTimeMillis() - start);
     }
 
     private void buildClusterToBackendMap() {
@@ -1195,8 +1265,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     public void fillBeToTablets(long be, long tableId, long partId, long indexId, long tabletId,
                                 ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
-                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
-                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTable,
+                                ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                     partToTablets) {
         fillBeToTablets(Long.valueOf(be), Long.valueOf(tableId), Long.valueOf(partId), Long.valueOf(indexId),
                 Long.valueOf(tabletId), globalBeToTablets, beToTabletsInTable, partToTablets);
@@ -1204,8 +1274,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     void fillBeToTablets(Long be, Long tableId, Long partId, Long indexId, Long tabletId,
                                 ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
-                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
-                                ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTable,
+                                ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                     partToTablets) {
         fillBeToTablets(be, tableId, partId, indexId, tabletId, DEFAULT_GLOBAL_TABLET_SET_FACTORY,
                 globalBeToTablets, beToTabletsInTable, partToTablets);
@@ -1214,23 +1284,47 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private void fillBeToTablets(Long be, Long tableId, Long partId, Long indexId, Long tabletId,
                                  Function<Long, Set<Long>> globalTabletSetFactory,
                                  ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
-                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
-                                 ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                 ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTable,
+                                 ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                      partToTablets) {
-        // global
-        globalBeToTablets.computeIfAbsent(be, globalTabletSetFactory).add(tabletId);
+        // global, see beToTabletsGlobal for the lock
+        Set<Long> globalTablets = globalBeToTablets.computeIfAbsent(be, globalTabletSetFactory);
+        boolean added;
+        synchronized (globalTablets) {
+            added = globalTablets.add(tabletId);
+        }
+        if (!added) {
+            // The tablet is already routed to this backend. The partition lists are not idempotent like the sets
+            // they replace, so only add it once to keep them consistent with the global set.
+            return;
+        }
+        long beId = be;
+        long id = tabletId;
 
         // table
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfTable =
-                beToTabletsInTable.computeIfAbsent(tableId, ignored -> new ConcurrentHashMap<>());
-        beToTabletsOfTable.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
+        Long2ObjectOpenHashMap<LongOpenHashSet> beToTabletsOfTable = beToTabletsInTable.computeIfAbsent(tableId,
+                ignored -> new Long2ObjectOpenHashMap<>(BACKEND_MAP_INITIAL_CAPACITY));
+        LongOpenHashSet tabletsOfTable = beToTabletsOfTable.get(beId);
+        if (tabletsOfTable == null) {
+            tabletsOfTable = new LongOpenHashSet(TABLE_TABLET_SET_INITIAL_CAPACITY);
+            beToTabletsOfTable.put(beId, tabletsOfTable);
+        }
+        tabletsOfTable.add(id);
 
         // partition
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets =
-                partToTablets.computeIfAbsent(partId, ignored -> new ConcurrentHashMap<>());
-        ConcurrentHashMap<Long, Set<Long>> beToTabletsOfIndex =
-                indexToTablets.computeIfAbsent(indexId, ignored -> new ConcurrentHashMap<>());
-        beToTabletsOfIndex.computeIfAbsent(be, ignored -> ConcurrentHashMap.newKeySet()).add(tabletId);
+        Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>> indexToTablets = partToTablets.computeIfAbsent(
+                partId, ignored -> new Long2ObjectOpenHashMap<>(PARTITION_INDEX_MAP_INITIAL_CAPACITY));
+        Long2ObjectOpenHashMap<LongArrayList> beToTabletsOfIndex = indexToTablets.get(indexId.longValue());
+        if (beToTabletsOfIndex == null) {
+            beToTabletsOfIndex = new Long2ObjectOpenHashMap<>(BACKEND_MAP_INITIAL_CAPACITY);
+            indexToTablets.put(indexId.longValue(), beToTabletsOfIndex);
+        }
+        LongArrayList tabletsOfIndex = beToTabletsOfIndex.get(beId);
+        if (tabletsOfIndex == null) {
+            tabletsOfIndex = new LongArrayList(PARTITION_TABLET_LIST_INITIAL_CAPACITY);
+            beToTabletsOfIndex.put(beId, tabletsOfIndex);
+        }
+        tabletsOfIndex.add(id);
     }
 
     private Function<Long, Set<Long>> newGlobalTabletSetFactory(Map<Long, Set<Long>> previousBeToTablets) {
@@ -1238,16 +1332,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 ? Collections.emptyMap() : previousBeToTablets;
         return be -> {
             Set<Long> previousTablets = previousRoute.get(be);
-            int initialCapacity = previousTablets == null ? 0
-                    : Math.min(previousTablets.size(), MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY);
+            // An open hash set grows by rehashing the whole table, so size it to the previous round at once.
+            int initialCapacity = previousTablets == null ? 0 : previousTablets.size();
             return newGlobalTabletSet(initialCapacity);
         };
     }
 
     @VisibleForTesting
     protected Set<Long> newGlobalTabletSet(int initialCapacity) {
-        return initialCapacity == 0
-                ? ConcurrentHashMap.newKeySet() : ConcurrentHashMap.newKeySet(initialCapacity);
+        return new LongOpenHashSet(initialCapacity);
     }
 
     private void enqueueWarmupTask(WarmupTabletTask task) {
@@ -1327,24 +1420,19 @@ public class CloudTabletRebalancer extends MasterDaemon {
     public void statRouteInfo() {
         // The previous generation remains live until the temporary global routes are complete, so reuse its
         // per-backend cardinalities as allocation hints without extending its lifetime.
-        Function<Long, Set<Long>> currentGlobalTabletSetFactory =
-                newGlobalTabletSetFactory(beToTabletsGlobal);
-        Function<Long, Set<Long>> futureGlobalTabletSetFactory =
-                newGlobalTabletSetFactory(futureBeToTabletsGlobal);
-        ConcurrentHashMap<Long, Set<Long>> tmpBeToTabletsGlobal = new ConcurrentHashMap<Long, Set<Long>>();
-        ConcurrentHashMap<Long, Set<Long>> tmpFutureBeToTabletsGlobal = new ConcurrentHashMap<Long, Set<Long>>();
-        ConcurrentHashMap<Long, Set<Long>> tmpBeToTabletsGlobalInSecondary
-                = new ConcurrentHashMap<Long, Set<Long>>();
-        ConcurrentHashMap<Long, Set<Long>> tmpBeToColocateTabletsGlobal
-                = new ConcurrentHashMap<Long, Set<Long>>();
+        Function<Long, Set<Long>> currentGlobalTabletSetFactory = newGlobalTabletSetFactory(beToTabletsGlobal);
+        Function<Long, Set<Long>> futureGlobalTabletSetFactory = newGlobalTabletSetFactory(futureBeToTabletsGlobal);
 
-        partitionToTablets = new ConcurrentHashMap<Long,
-            ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>();
-        futurePartitionToTablets =
-                new ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>();
+        ConcurrentHashMap<Long, Set<Long>> tmpBeToTabletsGlobal = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Long, Set<Long>> tmpFutureBeToTabletsGlobal = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Long, Set<Long>> tmpBeToTabletsGlobalInSecondary = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Long, Set<Long>> tmpBeToColocateTabletsGlobal = new ConcurrentHashMap<>();
 
-        beToTabletsInTable = new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>();
-        futureBeToTabletsInTable = new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>();
+        partitionToTablets = new ConcurrentHashMap<>();
+        futurePartitionToTablets = new ConcurrentHashMap<>();
+
+        beToTabletsInTable = new ConcurrentHashMap<>();
+        futureBeToTabletsInTable = new ConcurrentHashMap<>();
 
         // rebuild scheduling caches for this run
         Map<Long, Long> tmpTableActive = new HashMap<>();
@@ -1379,7 +1467,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
                     CloudReplica replica = (CloudReplica) replicas.get(replicaIndex);
                     if (isColocated) {
-                        Long beId = -1L;
+                        Long beId;
                         try {
                             beId = replica.getColocatedBeId(cluster);
                         } catch (ComputeGroupException e) {
@@ -1472,22 +1560,22 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private void balanceInPartition(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos,
                                     ActiveSchedulePhase phase) {
         // balance all partition (prefer active partitions/tables, put internal db at tail)
-        Iterable<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> partitions;
+        Iterable<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> partitions;
         if (Config.enable_cloud_active_tablet_priority_scheduling) {
-            final Comparator<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> cmp =
+            final Comparator<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> cmp =
                     partitionEntryComparator();
             // Phase-aware filtering and ordering.
             // - ACTIVE_ONLY: only non-internal partitions with activeCnt > 0
             // - INACTIVE_ONLY: all remaining partitions (non-internal inactive first, internal last)
             // - ALL: active (TopN first if configured) -> inactive -> internal
-            List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> nonInternalActive =
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> nonInternalActive =
                     new ArrayList<>();
-            List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> nonInternalInactive =
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> nonInternalInactive =
                     new ArrayList<>();
-            List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> internalPartitions =
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> internalPartitions =
                     new ArrayList<>();
 
-            for (Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>> e
+            for (Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>> e
                     : futurePartitionToTablets.entrySet()) {
                 long partId = e.getKey();
                 boolean internal = isInternalDbId(partitionIdToDbId.get(partId));
@@ -1510,7 +1598,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             nonInternalInactive.sort(cmp);
             internalPartitions.sort(cmp);
 
-            List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> ordered =
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> ordered =
                     new ArrayList<>(futurePartitionToTablets.size());
             if (phase == ActiveSchedulePhase.ACTIVE_ONLY) {
                 // In ACTIVE_ONLY phase, schedule all active partitions (already sorted by cmp, most active first)
@@ -1530,21 +1618,21 @@ public class CloudTabletRebalancer extends MasterDaemon {
             partitions = futurePartitionToTablets.entrySet();
         }
 
-        for (Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>> partitionEntry
+        for (Map.Entry<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>> partitionEntry
                 : partitions) {
-            Map<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets = partitionEntry.getValue();
+            Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>> indexToTablets = partitionEntry.getValue();
             // balance all index of a partition
-            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> indexes =
-                    new ArrayList<>(indexToTablets.entrySet());
             // index-level ordering is not critical; keep stable by id
-            indexes.sort(Comparator.comparingLong(Map.Entry::getKey));
-            for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>> entry : indexes) {
+            long[] indexIds = indexToTablets.keySet().toLongArray();
+            Arrays.sort(indexIds);
+            for (long indexId : indexIds) {
                 // balance a index
+                Long2ObjectOpenHashMap<LongArrayList> beToTablets = indexToTablets.get(indexId);
                 // Fast path: this index has no tablets in this cluster, skip to avoid useless balanceImpl work.
-                if (calculateTotalTablets(bes, entry.getValue()) == 0) {
+                if (calculateTotalTablets(bes, beToTablets) == 0) {
                     continue;
                 }
-                balanceImpl(bes, clusterId, entry.getValue(), BalanceType.PARTITION, infos);
+                balanceImpl(bes, clusterId, beToTablets, BalanceType.PARTITION, infos);
             }
         }
     }
@@ -1552,14 +1640,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private void balanceInTable(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos,
                                 ActiveSchedulePhase phase) {
         // balance all tables (prefer active tables/dbs, put internal db at tail)
-        Iterable<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> tables;
+        Iterable<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> tables;
         if (Config.enable_cloud_active_tablet_priority_scheduling) {
-            final Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> cmp = tableEntryComparator();
-            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> nonInternalActive = new ArrayList<>();
-            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> nonInternalInactive = new ArrayList<>();
-            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> internalTables = new ArrayList<>();
+            final Comparator<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> cmp = tableEntryComparator();
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> nonInternalActive = new ArrayList<>();
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> nonInternalInactive = new ArrayList<>();
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> internalTables = new ArrayList<>();
 
-            for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>> e : futureBeToTabletsInTable.entrySet()) {
+            for (Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> e : futureBeToTabletsInTable.entrySet()) {
                 long tableId = e.getKey();
                 boolean internal = isInternalDbId(tableIdToDbId.get(tableId));
                 long activeCnt = tableIdToActiveCount.getOrDefault(tableId, 0L);
@@ -1578,7 +1666,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             nonInternalInactive.sort(cmp);
             internalTables.sort(cmp);
 
-            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> ordered =
+            List<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> ordered =
                     new ArrayList<>(futureBeToTabletsInTable.size());
             if (phase == ActiveSchedulePhase.ACTIVE_ONLY) {
                 ordered.addAll(nonInternalActive);
@@ -1596,7 +1684,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             tables = futureBeToTabletsInTable.entrySet();
         }
 
-        for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>> entry : tables) {
+        for (Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> entry : tables) {
             // Fast path: this table has no tablets in this cluster, skip.
             if (calculateTotalTablets(bes, entry.getValue()) == 0) {
                 continue;
@@ -1625,7 +1713,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return internal;
     }
 
-    private Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> tableEntryComparator() {
+    private Comparator<Map.Entry<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>> tableEntryComparator() {
         return (a, b) -> {
             Long tableIdA = a.getKey();
             Long tableIdB = b.getKey();
@@ -1651,7 +1739,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private Comparator<Map.Entry<Long,
-            ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> partitionEntryComparator() {
+            Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>> partitionEntryComparator() {
         return (a, b) -> {
             Long partIdA = a.getKey();
             Long partIdB = b.getKey();
@@ -1811,9 +1899,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private void updateBeToTablets(Long tabletId, Long srcBe, Long destBe,
                                    ConcurrentHashMap<Long, Set<Long>> globalBeToTablets,
-                                   ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTable,
-                                   ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long,
-                                       Set<Long>>>> partToTablets) {
+                                   ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTable,
+                                   ConcurrentHashMap<Long,
+                                       Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>> partToTablets) {
         TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.warn("tablet {} meta not found in inverted index, skip updateBeToTablets", tabletId);
@@ -1824,27 +1912,34 @@ public class CloudTabletRebalancer extends MasterDaemon {
         Long indexId = tabletMeta.getIndexId();
 
         Set<Long> globalSrcTablets = globalBeToTablets.get(srcBe);
-        if (globalSrcTablets == null || !globalSrcTablets.remove(tabletId)) {
+        boolean removed = false;
+        if (globalSrcTablets != null) {
+            // published set, see beToTabletsGlobal
+            synchronized (globalSrcTablets) {
+                removed = globalSrcTablets.remove(tabletId);
+            }
+        }
+        if (!removed) {
             LOG.debug("skip updateBeToTablets for tablet {}: srcBe {} not in globalBeToTablets", tabletId, srcBe);
             return;
         }
 
-        ConcurrentHashMap<Long, Set<Long>> tableBeMap = beToTabletsInTable.get(tableId);
+        Long2ObjectOpenHashMap<LongOpenHashSet> tableBeMap = beToTabletsInTable.get(tableId);
         if (tableBeMap == null) {
             return;
         }
-        Set<Long> tableSrcTablets = tableBeMap.get(srcBe);
+        LongOpenHashSet tableSrcTablets = tableBeMap.get(srcBe.longValue());
         if (tableSrcTablets != null) {
-            tableSrcTablets.remove(tabletId);
+            tableSrcTablets.remove(tabletId.longValue());
         }
 
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexMap = partToTablets.get(partId);
+        Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>> indexMap = partToTablets.get(partId);
         if (indexMap != null) {
-            ConcurrentHashMap<Long, Set<Long>> beMap = indexMap.get(indexId);
+            Long2ObjectOpenHashMap<LongArrayList> beMap = indexMap.get(indexId.longValue());
             if (beMap != null) {
-                Set<Long> partSrcTablets = beMap.get(srcBe);
+                LongArrayList partSrcTablets = beMap.get(srcBe.longValue());
                 if (partSrcTablets != null) {
-                    partSrcTablets.remove(tabletId);
+                    partSrcTablets.rem(tabletId.longValue());
                 }
             }
         }
@@ -1911,7 +2006,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private boolean getTransferPair(List<Long> bes, Map<Long, Set<Long>> beToTablets, long avgNum,
+    // beToTablets is the global index (Set<Long>), a partition index (LongArrayList) or a table (LongOpenHashSet).
+    private static long tabletNumOf(Map<Long, ? extends Collection<Long>> beToTablets, Long be) {
+        Collection<Long> tablets = beToTablets.get(be);
+        return tablets == null ? 0 : tablets.size();
+    }
+
+    private boolean getTransferPair(List<Long> bes, Map<Long, ? extends Collection<Long>> beToTablets, long avgNum,
                                     TransferPairInfo pairInfo) {
         long srcBe = findSourceBackend(bes, beToTablets);
         long destBe = findDestinationBackend(bes, beToTablets, srcBe);
@@ -1920,8 +2021,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             return false; // No valid backend found
         }
 
-        long minTabletsNum = beToTablets.get(destBe) == null ? 0 : beToTablets.get(destBe).size();
-        long maxTabletsNum = beToTablets.get(srcBe) == null ? 0 : beToTablets.get(srcBe).size();
+        long minTabletsNum = tabletNumOf(beToTablets, destBe);
+        long maxTabletsNum = tabletNumOf(beToTablets, srcBe);
 
         if (!isTransferValid(srcBe, minTabletsNum, maxTabletsNum, avgNum)) {
             return false; // Transfer conditions not met
@@ -1934,12 +2035,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return true;
     }
 
-    private long findSourceBackend(List<Long> bes, Map<Long, Set<Long>> beToTablets) {
+    private long findSourceBackend(List<Long> bes, Map<Long, ? extends Collection<Long>> beToTablets) {
         long srcBe = -1;
         long maxTabletsNum = 0;
 
         for (Long be : bes) {
-            long tabletNum = beToTablets.getOrDefault(be, Collections.emptySet()).size();
+            long tabletNum = tabletNumOf(beToTablets, be);
             Backend backend = cloudSystemInfoService.getBackend(be);
 
             // Check if the backend is decommissioned
@@ -1959,12 +2060,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         return srcBe;
     }
 
-    private long findDestinationBackend(List<Long> bes, Map<Long, Set<Long>> beToTablets, long srcBe) {
+    private long findDestinationBackend(List<Long> bes, Map<Long, ? extends Collection<Long>> beToTablets,
+                                        long srcBe) {
         long minTabletsNum = Long.MAX_VALUE;
         List<Long> candidateBes = new ArrayList<>();
 
         for (Long be : bes) {
-            long tabletNum = beToTablets.getOrDefault(be, Collections.emptySet()).size();
+            long tabletNum = tabletNumOf(beToTablets, be);
             Backend backend = cloudSystemInfoService.getBackend(be);
             if (backend != null && backend.isAlive() && !backend.isDecommissioning()
                     && !backend.isDecommissioned() && !backend.isSmoothUpgradeSrc()) {
@@ -2004,9 +2106,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private boolean isConflict(long srcBe, long destBe, long tabletId, BalanceType balanceType,
-                               ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                               ConcurrentHashMap<Long, Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                    beToTabletsInParts,
-                               ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTables) {
+                               ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>> beToTabletsInTables) {
         if (cloudSystemInfoService.getBackend(srcBe).isDecommissioning()
                 || cloudSystemInfoService.getBackend(srcBe).isDecommissioned()) {
             return false; // If source BE is decommissioned, no conflict
@@ -2028,9 +2130,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private boolean checkGlobalBalanceConflict(long srcBe, long destBe, TabletMeta tabletMeta,
                                                ConcurrentHashMap<Long,
-                                                   ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                                   Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                                    beToTabletsInParts,
-                                               ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>
+                                               ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>
                                                    beToTabletsInTables) {
         long maxBeSize = getTabletSizeInParts(srcBe, tabletMeta, beToTabletsInParts);
         long minBeSize = getTabletSizeInParts(destBe, tabletMeta, beToTabletsInParts);
@@ -2047,7 +2149,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private boolean checkTableBalanceConflict(long srcBe, long destBe, TabletMeta tabletMeta,
                                               ConcurrentHashMap<Long,
-                                                  ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                                  Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                                   beToTabletsInParts) {
         long maxBeSize = getTabletSizeInParts(srcBe, tabletMeta, beToTabletsInParts);
         long minBeSize = getTabletSizeInParts(destBe, tabletMeta, beToTabletsInParts);
@@ -2057,33 +2159,33 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     private long getTabletSizeInParts(long beId, TabletMeta tabletMeta,
                                       ConcurrentHashMap<Long,
-                                          ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>
+                                          Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>>>
                                           beToTabletsInParts) {
-        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexToTablets
+        Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<LongArrayList>> indexToTablets
                 = beToTabletsInParts.get(tabletMeta.getPartitionId());
         if (indexToTablets == null) {
             return 0;
         }
-        ConcurrentHashMap<Long, Set<Long>> beToTablets = indexToTablets.get(tabletMeta.getIndexId());
+        Long2ObjectOpenHashMap<LongArrayList> beToTablets = indexToTablets.get(tabletMeta.getIndexId());
         if (beToTablets == null) {
             return 0;
         }
-        Set<Long> tablets = beToTablets.get(beId);
+        LongArrayList tablets = beToTablets.get(beId);
         return tablets == null ? 0 : tablets.size();
     }
 
     private long getTabletSizeInBes(long beId, TabletMeta tabletMeta,
-                                    ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> beToTabletsInTables) {
-        ConcurrentHashMap<Long, Set<Long>> beToTablets = beToTabletsInTables.get(tabletMeta.getTableId());
+                                    ConcurrentHashMap<Long, Long2ObjectOpenHashMap<LongOpenHashSet>>
+                                        beToTabletsInTables) {
+        Long2ObjectOpenHashMap<LongOpenHashSet> beToTablets = beToTabletsInTables.get(tabletMeta.getTableId());
         if (beToTablets == null) {
             return 0;
         }
-        Set<Long> tablets = beToTablets.get(beId);
+        LongOpenHashSet tablets = beToTablets.get(beId);
         return tablets == null ? 0 : tablets.size();
     }
 
-
-    private void balanceImpl(List<Long> bes, String clusterId, Map<Long, Set<Long>> beToTablets,
+    private void balanceImpl(List<Long> bes, String clusterId, Map<Long, ? extends Collection<Long>> beToTablets,
             BalanceType balanceType, List<UpdateCloudReplicaInfo> infos) {
         if (bes == null || bes.isEmpty() || beToTablets == null || beToTablets.isEmpty()) {
             return;
@@ -2106,7 +2208,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
         LOG.debug("balance type {}, be num {}, total tablets num {}, avg num {}, transfer num {}",
                 currentBalanceType, beNum, totalTabletsNum, avgNum, transferNum);
 
-        final Set<Long> pickedTabletIds = new HashSet<>();
+        // primitive set: reservoirPick checks it for every candidate without boxing
+        final Set<Long> pickedTabletIds = new LongOpenHashSet();
 
         for (int i = 0; i < transferNum; i++) {
             TransferPairInfo pairInfo = new TransferPairInfo();
@@ -2130,8 +2233,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.equals(currentBalanceType))
                     && srcBackend != null && srcBackend.isAlive()) {
                 // direct switch, update fe meta directly, not send preheating task
-                if (isConflict(srcBe, destBe, pickedTabletId, balanceType,
-                        partitionToTablets, beToTabletsInTable)) {
+                if (isConflict(srcBe, destBe, pickedTabletId, balanceType, partitionToTablets, beToTabletsInTable)) {
                     continue;
                 }
                 boolean moved = transferTablet(pickedTabletId, srcBe, destBe, clusterId, balanceType, infos);
@@ -2165,10 +2267,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private long calculateTotalTablets(List<Long> bes, Map<Long, Set<Long>> beToTablets) {
-        return bes.stream()
-                .mapToLong(be -> beToTablets.getOrDefault(be, Collections.emptySet()).size())
-                .sum();
+    private long calculateTotalTablets(List<Long> bes, Map<Long, ? extends Collection<Long>> beToTablets) {
+        long total = 0;
+        for (Long be : bes) {
+            total += tabletNumOf(beToTablets, be);
+        }
+        return total;
     }
 
     private long countActiveBackends(List<Long> bes) {
@@ -2231,7 +2335,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     // Choose non-active (cold) tablet first to re-balance, to reduce impact on hot tablets.
     // Fallback to active/random if no cold tablet is available.
-    private Long pickTabletPreferCold(long srcBe, Set<Long> tabletIds, Set<Long> activeTabletIds,
+    private Long pickTabletPreferCold(long srcBe, Collection<Long> tabletIds, Set<Long> activeTabletIds,
                                         Set<Long> pickedTabletIds) {
         if (tabletIds == null || tabletIds.isEmpty()) {
             return null;
@@ -2251,8 +2355,29 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     // Reservoir sampling to pick one element uniformly at random from candidates,
     // without allocating intermediate collections.
-    private Long reservoirPick(Set<Long> tabletIds, Set<Long> pickedTabletIds,
+    private Long reservoirPick(Collection<Long> tabletIds, Set<Long> pickedTabletIds,
                                  Set<Long> activeTabletIds, boolean requireCold) {
+        if (tabletIds instanceof LongCollection) {
+            // partition / table indexes: iterate the primitive collection without boxing every candidate
+            long chosen = 0L;
+            int seen = 0;
+            LongIterator it = ((LongCollection) tabletIds).iterator();
+            while (it.hasNext()) {
+                long tabletId = it.nextLong();
+                if (containsTablet(pickedTabletIds, tabletId)) {
+                    continue;
+                }
+                if (requireCold && activeTabletIds != null && containsTablet(activeTabletIds, tabletId)) {
+                    continue;
+                }
+                seen++;
+                if (rand.nextInt(seen) == 0) {
+                    chosen = tabletId;
+                }
+            }
+            return seen == 0 ? null : chosen;
+        }
+
         Long chosen = null;
         int seen = 0;
         for (Long tabletId : tabletIds) {
@@ -2268,6 +2393,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
         return chosen;
+    }
+
+    private static boolean containsTablet(Set<Long> tabletIds, long tabletId) {
+        return tabletIds instanceof LongCollection
+                ? ((LongCollection) tabletIds).contains(tabletId) : tabletIds.contains(tabletId);
     }
 
     private boolean preheatAndUpdateTablet(Long pickedTabletId, Long srcBe, Long destBe, String clusterId,
