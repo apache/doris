@@ -293,14 +293,9 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     // `block` is reused below as the per-rowset read buffer. Keep TopN candidates in a
     // separate mutable block with the same schema so stored row positions remain stable.
+    // The block contract guarantees that virtual-column positions are real typed columns;
+    // SegmentIterator may use ColumnNothing only while executing next_batch().
     auto clone_block = block->clone_empty();
-    // Initialize virtual slot columns by schema (avoid runtime type checks).
-    // virtual_column_exprs is keyed by read-schema ordinal == block position.
-    for (const auto& [ordinal, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
-        DORIS_CHECK(ordinal < clone_block.columns());
-        clone_block.get_by_position(ordinal).column =
-                expr_ctx->root()->data_type()->create_column();
-    }
     const size_t clone_block_columns = clone_block.columns();
     MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 

@@ -26,7 +26,6 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_dictionary.h"
-#include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -287,13 +286,10 @@ Block ReadSchema::create_read_block() const {
     for (size_t ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
         const auto& data_type = _read_types[ordinal];
         DORIS_CHECK(data_type != nullptr);
-        MutableColumnPtr column;
-        if (_read_columns[ordinal]->name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX)) {
-            column = ColumnNothing::create(0);
-        } else {
-            column = data_type->create_column();
-        }
-        block.insert({std::move(column), data_type, _read_columns[ordinal]->name()});
+        // ColumnNothing is only an internal SegmentIterator marker. Blocks
+        // returned by ReadSchema must already satisfy the typed-column contract,
+        // including virtual-column positions.
+        block.insert({data_type->create_column(), data_type, _read_columns[ordinal]->name()});
     }
     return block;
 }

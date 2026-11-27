@@ -32,7 +32,6 @@
 
 #include "common/exception.h"
 #include "common/object_pool.h"
-#include "core/column/column_nothing.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
@@ -190,10 +189,8 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
 }
 
 MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
-    if (this->get_virtual_column_expr() != nullptr) {
-        return ColumnNothing::create(0);
-    }
-
+    // Blocks crossing the scanner/storage boundary always carry real typed
+    // columns. ColumnNothing is an internal SegmentIterator marker only.
     return type()->create_column();
 }
 
