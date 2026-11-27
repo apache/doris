@@ -359,4 +359,20 @@ public class PartitionExprUtilTest extends TestWithFeService {
         Assertions.assertTrue(nullRange.lowerEndpoint().isMinValue());
         Assertions.assertEquals("0000-02-01", nullRange.upperEndpoint().getKeys().get(0).getStringValue());
     }
+
+    @Test
+    public void testAutoRangeNullableRejectsTimestampTypes() {
+        for (String type : new String[] {"TIMESTAMP_NS", "TIMESTAMPTZ(6)"}) {
+            Exception e = Assertions.assertThrows(Exception.class, () -> createTable(
+                    "CREATE TABLE test.auto_range_nullable_reject (\n"
+                    + "  k0 " + type + " NULL\n"
+                    + ")\n"
+                    + "DUPLICATE KEY(k0)\n"
+                    + "AUTO PARTITION BY RANGE (date_trunc(k0, 'day')) ()\n"
+                    + "DISTRIBUTED BY HASH(k0) BUCKETS 1\n"
+                    + "PROPERTIES(\"replication_num\"=\"1\");"));
+            Assertions.assertTrue(e.getMessage().contains("AUTO RANGE PARTITION doesn't support NULL column of type"),
+                    type + ": " + e.getMessage());
+        }
+    }
 }

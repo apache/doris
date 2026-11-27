@@ -88,6 +88,21 @@ suite("test_auto_range_partition_nullable") {
     assertEquals(["p20240101000000", "p_before"], partitionNames("auto_range_nullable_lt"))
     assertEquals(1, countIn("auto_range_nullable_lt", "p_before"))
 
+    // NULL support covers the date and datetime types; nullable timestamp_ns and timestamptz stay rejected
+    for (String type : ["timestamp_ns", "timestamptz(6)"]) {
+        test {
+            sql """
+                create table auto_range_nullable_ts (
+                    k0 ${type} null
+                )
+                auto partition by range (date_trunc(k0, 'day')) ()
+                distributed by hash(k0) buckets 1
+                properties("replication_num" = "1");
+            """
+            exception "AUTO RANGE PARTITION doesn't support NULL column of type"
+        }
+    }
+
     // allow_partition_column_nullable still forbids a nullable partition column when it is off
     sql "set allow_partition_column_nullable = false"
     try {

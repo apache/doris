@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -254,12 +255,12 @@ public class PartitionExprUtil {
      * starts at the type's minimum (0000-01-01 for date types). A lower bound equal to MIN_VALUE reaches BE
      * without a start key, which BE reads as "no lower bound", so the NULL rows route to that partition. It is
      * the same partition a row holding the minimum value would create (for example p00000101000000), so the two
-     * never conflict.
+     * never conflict. CREATE TABLE allows a nullable AUTO RANGE PARTITION column only for these date types.
      */
     private static LiteralExpr getNullRangeBegin(Type partitionColumnType) throws AnalysisException {
-        if (partitionColumnType.isTimeStampNs()) {
-            return TimeStampNsLiteral.createMinValue();
-        }
+        Preconditions.checkState(partitionColumnType.isDate() || partitionColumnType.isDateV2()
+                || partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2(),
+                "NULL value of AUTO RANGE PARTITION column type %s", partitionColumnType);
         String minValue = (partitionColumnType.isDate() || partitionColumnType.isDateV2())
                 ? "0000-01-01" : "0000-01-01 00:00:00";
         return DateLiteralUtils.createLiteral(minValue, partitionColumnType);
