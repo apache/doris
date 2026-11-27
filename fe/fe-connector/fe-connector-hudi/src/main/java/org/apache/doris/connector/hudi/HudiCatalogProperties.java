@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -74,7 +75,7 @@ public final class HudiCatalogProperties {
 
     private static final int DEFAULT_HMS_CLIENT_POOL_SIZE = 8;
 
-    @ConnectorProperty(names = {HIVE_METASTORE_URIS, URI},
+    @ConnectorProperty(names = {HIVE_METASTORE_URIS, URI}, required = false,
             description = "Hive Metastore thrift URI; 'uri' is accepted as the short form")
     private String metastoreUri;
 
@@ -99,10 +100,16 @@ public final class HudiCatalogProperties {
     public static HudiCatalogProperties of(Map<String, String> properties) {
         HudiCatalogProperties p = new HudiCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(p, properties);
-        new ParamRules()
-                .require(p.metastoreUri,
-                        "HMS URI ('" + HIVE_METASTORE_URIS + "') is required for Hudi connector")
-                .validate();
+        // DLF uses signed metadata API requests instead of a Hive metastore Thrift URI.
+        if (HmsClientConfig.isDlfMetastore(properties)) {
+            MetaStoreProviders.bindForType(HmsClientConfig.METASTORE_TYPE_HMS,
+                    properties, Collections.emptyMap()).validate();
+        } else {
+            new ParamRules()
+                    .require(p.metastoreUri,
+                            "HMS URI ('" + HIVE_METASTORE_URIS + "') is required for Hudi connector")
+                    .validate();
+        }
         new HmsClientConfig(p.raw, p.hmsClientPoolSize);
         return p;
     }

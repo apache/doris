@@ -18,7 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -57,10 +58,12 @@ public class HiveConnectorPluginAuthenticatorTcclTest {
         }
     }
 
-    @Test
-    public void buildPluginAuthenticatorRunsUnderPluginClassLoaderAndRestores() {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "dlf"})
+    public void buildPluginAuthenticatorRunsUnderPluginClassLoaderAndRestores(String metastoreType) {
         TcclRecordingMap props = new TcclRecordingMap();
         props.put("hive.metastore.uris", "thrift://hms:9083");
+        props.put("hive.metastore.type", metastoreType);
 
         ClassLoader marker = new URLClassLoader(new URL[0], getClass().getClassLoader());
         ClassLoader pluginLoader = HiveConnector.class.getClassLoader();

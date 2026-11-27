@@ -25,12 +25,12 @@ import java.util.Map;
 
 /**
  * Tests {@link HmsClientConfig#removedMetastoreTypeError(Map)} — the rejection of metastore types that have
- * been removed ({@code glue}, {@code dlf}).
+ * been removed ({@code glue}).
  *
- * <p>WHY: both removed types used to be selected by {@code hive.metastore.type} and dispatched to a vendored
- * client. The dispatch they were removed from ends in a plain-HMS fallback, so a removed value that is merely
+ * <p>WHY: the removed type used to be selected by {@code hive.metastore.type} and dispatched to a vendored
+ * client. The former dispatch ends in a plain-HMS fallback, so a removed value that is merely
  * absent from the dispatch does NOT fail — it silently connects to whatever plain HMS is reachable while the
- * user believes they configured Glue/DLF. Nothing else covers this, so without these tests the rejection could
+ * user believes they configured Glue. Nothing else covers this, so without these tests the rejection could
  * be deleted and no test would go red.
  *
  * <p>The tests pin both halves of the contract: every removed type is REJECTED with a message that names it,
@@ -64,18 +64,17 @@ public class HmsClientConfigRemovedTypeTest {
     @Test
     public void removedTypesAreRejectedAndNameWhatWasRemoved() {
         // WHY: the message reaches the user verbatim (the catalog layer unwraps it into a DdlException with no
-        // prefix), so it must be self-contained and say which feature is gone. MUTATION: dropping either
+        // prefix), so it must be self-contained and say which feature is gone. MUTATION: dropping the
         // rejection, or emitting a message that never names the type, leaves an error nobody can act on -> red.
         assertRejected("glue", "AWS Glue");
-        assertRejected("dlf", "DLF 1.0");
     }
 
     @Test
     public void rejectionIsCaseInsensitive() {
-        // WHY: the dispatch these rejections replace matched with equalsIgnoreCase, so "GLUE"/"Dlf" must not
+        // WHY: the dispatch these rejections replace matched with equalsIgnoreCase, so "GLUE" must not
         // slip through into the plain-HMS fallback. MUTATION: a case-sensitive lookup -> red.
         Assertions.assertNotNull(HmsClientConfig.removedMetastoreTypeError(propsWithType("GLUE")));
-        Assertions.assertNotNull(HmsClientConfig.removedMetastoreTypeError(propsWithType("Dlf")));
+        Assertions.assertNull(HmsClientConfig.removedMetastoreTypeError(propsWithType("Dlf")));
     }
 
     @Test
@@ -89,13 +88,12 @@ public class HmsClientConfigRemovedTypeTest {
     }
 
     @Test
-    public void messageAdvertisesOnlyTheSurvivingType() {
-        // WHY: the message tells the user what to switch to. Now that dlf is gone too, advertising it would
-        // send them at a type that is itself rejected. MUTATION: a stale "Supported types: hms, dlf" -> red.
+    public void messageAdvertisesSupportedTypes() {
+        // Both routable backends must be advertised without restoring the removed Glue adapter.
         String error = HmsClientConfig.removedMetastoreTypeError(propsWithType("glue"));
-        Assertions.assertTrue(error.contains("Supported types: " + HmsClientConfig.METASTORE_TYPE_HMS + "."),
-                "message must advertise hms as the only supported type, got: " + error);
-        Assertions.assertFalse(error.contains("dlf"),
-                "message must not advertise the removed dlf type, got: " + error);
+        Assertions.assertTrue(error.contains("Supported types: " + HmsClientConfig.METASTORE_TYPE_HMS + ", dlf."),
+                "message must advertise both supported types, got: " + error);
+        Assertions.assertTrue(error.contains("dlf"),
+                "message must advertise the restored dlf type, got: " + error);
     }
 }

@@ -614,6 +614,9 @@ public class HiveConnector implements Connector {
                     return auth.doAs(callable::call);
                 }
             };
+        } else if (HmsClientConfig.isDlfMetastore(props.getHmsClientProperties())) {
+            // The catalog context may carry HDFS authentication, which is not the DLF API identity.
+            authAction = Callable::call;
         } else {
             authAction = context::executeAuthenticated;
         }
@@ -706,6 +709,10 @@ public class HiveConnector implements Connector {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(HiveConnector.class.getClassLoader());
+            // DLF signs its metadata API requests; storage Kerberos credentials must not trigger an HMS login.
+            if (HmsClientConfig.isDlfMetastore(properties)) {
+                return null;
+            }
             AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
                     HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
             Optional<KerberosAuthSpec> spec = hms.kerberos();

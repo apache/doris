@@ -1195,12 +1195,20 @@ public class ThriftHmsClient implements HmsClient {
         IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
     }
 
-    /** Default provider using RetryingMetaStoreClient over the standard HMS thrift client. */
+    /** Default provider using the client selected by the gateway metastore type. */
     private static class DefaultMetaStoreClientProvider
             implements MetaStoreClientProvider {
         @Override
         public IMetaStoreClient create(HiveConf hiveConf)
                 throws MetaException {
+            if (HmsClientConfig.METASTORE_TYPE_DLF.equalsIgnoreCase(
+                    hiveConf.get(HmsClientConfig.METASTORE_TYPE_KEY))) {
+                // The DLF Hive-3 adapter retains this class name and requires its exact HiveConf ctor.
+                return RetryingMetaStoreClient.getProxy(hiveConf,
+                        new Class<?>[] {HiveConf.class, HiveMetaHookLoader.class, Boolean.class},
+                        new Object[] {hiveConf, DUMMY_HOOK_LOADER, true},
+                        "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient");
+            }
             return RetryingMetaStoreClient.getProxy(
                     hiveConf, DUMMY_HOOK_LOADER,
                     HiveMetaStoreClient.class.getName());

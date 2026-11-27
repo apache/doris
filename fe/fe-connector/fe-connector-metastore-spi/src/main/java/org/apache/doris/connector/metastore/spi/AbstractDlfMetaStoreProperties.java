@@ -45,7 +45,7 @@ public abstract class AbstractDlfMetaStoreProperties extends AbstractMetaStorePr
             description = "DLF session/security token.")
     private String sessionToken = "";
 
-    @ConnectorProperty(names = {"dlf.region"}, required = false,
+    @ConnectorProperty(names = {"dlf.region", "dlf.catalog.region"}, required = false,
             description = "DLF region used to derive the endpoint when it is not set.")
     private String region = "";
 

@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.hms.HmsClientConfig;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -178,7 +179,7 @@ public final class HiveCatalogProperties {
 
     public static HiveCatalogProperties of(Map<String, String> properties) {
         // Before anything else: a catalog naming a removed metastore type must be told so by name. This
-        // has to precede the required-URI rule because a glue/dlf catalog carries no
+        // has to precede the required-URI rule because a glue catalog carries no
         // hive.metastore.uris, and the URI message would shadow the one that explains what happened.
         String removedType = HmsClientConfig.removedMetastoreTypeError(properties);
         if (removedType != null) {
@@ -187,10 +188,17 @@ public final class HiveCatalogProperties {
 
         HiveCatalogProperties p = new HiveCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(p, properties);
-        new ParamRules()
-                .require(p.metastoreUri, "HMS URI ('" + HIVE_METASTORE_URIS + "') is required")
-                .validate();
-        p.hmsClientProperties = withCanonicalMetastoreUri(p.raw, p.metastoreUri);
+        // DLF uses signed metadata API requests instead of a Hive metastore Thrift URI.
+        if (HmsClientConfig.isDlfMetastore(properties)) {
+            MetaStoreProviders.bindForType(HmsClientConfig.METASTORE_TYPE_HMS,
+                    properties, Collections.emptyMap()).validate();
+        } else {
+            new ParamRules()
+                    .require(p.metastoreUri, "HMS URI ('" + HIVE_METASTORE_URIS + "') is required")
+                    .validate();
+        }
+        p.hmsClientProperties = HmsClientConfig.isDlfMetastore(properties)
+                ? p.raw : withCanonicalMetastoreUri(p.raw, p.metastoreUri);
         new HmsClientConfig(p.hmsClientProperties, p.hmsClientPoolSize);
         return p;
     }

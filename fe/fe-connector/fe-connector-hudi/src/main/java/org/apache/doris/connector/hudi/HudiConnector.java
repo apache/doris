@@ -317,9 +317,7 @@ public class HudiConnector implements Connector {
     }
 
     private HmsClient createClient() {
-        // The URI (either spelling) and the pool size were checked when this connector was constructed --
-        // HudiCatalogProperties.of throws for a catalog without a metastore URI, so there is nothing left
-        // to re-check here.
+        // The backend connection facts and pool size were validated when the connector was constructed.
         HmsClientConfig config = buildHmsClientConfig();
         int poolSize = config.getPoolSize();
         LOG.info("Creating Hudi connector HMS client for catalog='{}', uri={}, poolSize={}",
@@ -338,6 +336,9 @@ public class HudiConnector implements Connector {
                     return auth.doAs(callable::call);
                 }
             };
+        } else if (HmsClientConfig.isDlfMetastore(properties)) {
+            // The catalog context may carry HDFS authentication, which is not the DLF API identity.
+            authAction = Callable::call;
         } else {
             authAction = context::executeAuthenticated;
         }
@@ -592,6 +593,10 @@ public class HudiConnector implements Connector {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
+            // DLF signs its metadata API requests; storage Kerberos credentials must not trigger an HMS login.
+            if (HmsClientConfig.isDlfMetastore(properties)) {
+                return null;
+            }
             AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
                     HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
             Optional<KerberosAuthSpec> spec = hms.kerberos();
