@@ -27,8 +27,18 @@ public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
     @SerializedName("s")
     private long snapshotId;
 
+    // Live-entry partition versions can survive file removals. The pinned table snapshot makes those
+    // changes visible to MV refresh and rewrite. Null preserves legacy and whole-table version semantics.
+    @SerializedName("ts")
+    private Long tableSnapshotId;
+
     public MTMVSnapshotIdSnapshot(long snapshotId) {
         this.snapshotId = snapshotId;
+    }
+
+    public MTMVSnapshotIdSnapshot(long snapshotId, long tableSnapshotId) {
+        this(snapshotId);
+        this.tableSnapshotId = tableSnapshotId;
     }
 
     @Override
@@ -45,18 +55,19 @@ public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
             return false;
         }
         MTMVSnapshotIdSnapshot that = (MTMVSnapshotIdSnapshot) o;
-        return snapshotId == that.snapshotId;
+        return snapshotId == that.snapshotId && Objects.equal(tableSnapshotId, that.tableSnapshotId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(snapshotId);
+        return Objects.hashCode(snapshotId, tableSnapshotId);
     }
 
     @Override
     public String toString() {
         return "MTMVSnapshotIdSnapshot{"
                 + "snapshotId=" + snapshotId
+                + ", tableSnapshotId=" + tableSnapshotId
                 + '}';
     }
 }
