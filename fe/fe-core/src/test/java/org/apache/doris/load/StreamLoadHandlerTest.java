@@ -81,7 +81,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             handler.setCloudCluster();
 
             Assert.assertEquals("backend_compute_group",
@@ -153,6 +153,7 @@ public class StreamLoadHandlerTest {
         request.setPasswd("test_password");
         request.setBackendId(backend.getId());
         request.setCloudCluster("header_compute_group");
+        request.setAuthCode(0);
         request.setGroupCommitMode("sync_mode");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -162,7 +163,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             try {
                 handler.setCloudCluster();
                 Assert.fail("group commit should validate compute group privilege");

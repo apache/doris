@@ -178,8 +178,6 @@ public abstract class RoutineLoadJob
     protected long dbId;
     @SerializedName("tbid")
     protected long tableId;
-    // this code is used to verify be task request
-    protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
     protected PartitionNames partitions; // optional
     protected ImportColumnDescs columnDescs; // optional
@@ -313,7 +311,6 @@ public abstract class RoutineLoadJob
         this.name = name;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.authCode = 0;
         this.userIdentity = userIdentity;
 
         if (ConnectContext.get() != null) {
@@ -341,7 +338,6 @@ public abstract class RoutineLoadJob
         this(id, dataSourceType);
         this.name = name;
         this.dbId = dbId;
-        this.authCode = 0;
         this.userIdentity = userIdentity;
         this.isMultiTable = true;
 
@@ -563,10 +559,6 @@ public abstract class RoutineLoadJob
 
     public JobState getState() {
         return state;
-    }
-
-    public long getAuthCode() {
-        return authCode;
     }
 
     public long getEndTimestamp() {
