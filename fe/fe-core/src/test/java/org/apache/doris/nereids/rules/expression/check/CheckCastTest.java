@@ -64,6 +64,38 @@ import java.util.List;
 
 public class CheckCastTest {
     @Test
+    public void testStoredAggStateUpgradeCast() {
+        // Stored SUM states have the same flag-plus-value bytes at versions 19 and 20.
+        // Keep the types distinct, but allow the newer storage reader to consume the old bytes.
+        AggStateType oldSum = new AggStateType("sum", Collections.singletonList(BigIntType.INSTANCE),
+                Collections.singletonList(true), true, 19);
+        AggStateType newSum = new AggStateType("sum", Collections.singletonList(BigIntType.INSTANCE),
+                Collections.singletonList(true), true, 20);
+        Assertions.assertNotEquals(oldSum, newSum);
+        for (boolean strict : new boolean[] {false, true}) {
+            Assertions.assertTrue(CheckCast.check(oldSum, newSum, strict));
+            // The reverse direction is not a general storage contract. For example,
+            // a version 20 Bitmap no-input marker cannot be relabeled for an old reader.
+            Assertions.assertFalse(CheckCast.check(newSum, oldSum, strict));
+            Assertions.assertFalse(CheckCast.check(oldSum,
+                    new AggStateType("max", oldSum.getSubTypes(), oldSum.getSubTypeNullables(), true, 20), strict));
+            Assertions.assertFalse(CheckCast.check(oldSum,
+                    new AggStateType("sum", Collections.singletonList(DoubleType.INSTANCE),
+                            oldSum.getSubTypeNullables(), true, 20), strict));
+            Assertions.assertFalse(CheckCast.check(oldSum,
+                    new AggStateType("sum", oldSum.getSubTypes(), Collections.singletonList(false), true, 20), strict));
+            Assertions.assertFalse(CheckCast.check(oldSum,
+                    new AggStateType("sum", oldSum.getSubTypes(), oldSum.getSubTypeNullables(), false, 20), strict));
+            // Do not infer compatibility for other version transitions from this migration.
+            Assertions.assertFalse(CheckCast.check(
+                    new AggStateType("sum", oldSum.getSubTypes(), oldSum.getSubTypeNullables(), true, 18),
+                    newSum, strict));
+            Assertions.assertFalse(CheckCast.check(oldSum,
+                    new AggStateType("sum", oldSum.getSubTypes(), oldSum.getSubTypeNullables(), true, 21), strict));
+        }
+    }
+
+    @Test
     public void testTimeStampNsCastMatrix() {
         AggStateType aggStateType = new AggStateType("max",
                 Collections.singletonList(TimeStampNsType.INSTANCE),

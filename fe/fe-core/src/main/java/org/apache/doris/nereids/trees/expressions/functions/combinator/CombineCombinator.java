@@ -21,6 +21,7 @@ import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 
@@ -60,14 +62,15 @@ public class CombineCombinator extends AggregateFunction
         super(nested.getName() + AggCombinerFunctionBuilder.COMBINE_SUFFIX, arguments);
         checkArguments(arguments, nested);
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = createReturnType(arguments, nested);
+        this.returnType = createReturnType(arguments, nested, Config.be_exec_version);
     }
 
-    private CombineCombinator(AggregateFunctionParams functionParams, AggregateFunction nested) {
+    private CombineCombinator(AggregateFunctionParams functionParams, AggregateFunction nested,
+            AggStateType returnType) {
         super(functionParams);
         checkArguments(functionParams.arguments, nested);
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = createReturnType(functionParams.arguments, nested);
+        this.returnType = returnType;
     }
 
     private static void checkArguments(List<Expression> arguments, AggregateFunction nested) {
@@ -83,18 +86,20 @@ public class CombineCombinator extends AggregateFunction
         }
     }
 
-    private static AggStateType createReturnType(List<Expression> arguments, AggregateFunction nested) {
+    private static AggStateType createReturnType(List<Expression> arguments, AggregateFunction nested,
+            int beExecVersion) {
         return new AggStateType(nested.getName(),
                 arguments.stream().map(ExpressionTrait::getDataType)
                         .collect(ImmutableList.toImmutableList()),
                 arguments.stream().map(ExpressionTrait::nullable)
                         .collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()), beExecVersion);
     }
 
     @Override
     public CombineCombinator withChildren(List<Expression> children) {
-        return new CombineCombinator(getFunctionParams(children), nested.withChildren(children));
+        return new CombineCombinator(getFunctionParams(children), nested.withChildren(children),
+                createReturnType(children, nested, returnType.getBeExecVersion()));
     }
 
     @Override
@@ -102,7 +107,18 @@ public class CombineCombinator extends AggregateFunction
         if (distinct) {
             throw new AnalysisException(getName() + " doesn't support DISTINCT");
         }
-        return new CombineCombinator(getFunctionParams(false, children), nested.withChildren(children));
+        return new CombineCombinator(getFunctionParams(false, children), nested.withChildren(children),
+                createReturnType(children, nested, returnType.getBeExecVersion()));
+    }
+
+    /** Choose a storage codec before aggregating the raw inputs. */
+    public CombineCombinator withBeExecVersion(int beExecVersion) {
+        // Keep the analyzed argument layout, even if folding made a child non-nullable.
+        // Replace the cached return signature: a version 20 signature must not override
+        // a version 19 sink. Later child/distinct rewrites retain the chosen version.
+        AggStateType target = ((AggStateType) getDataType()).withBeExecVersion(beExecVersion);
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> new CombineCombinator(getFunctionParams(children()), nested, target));
     }
 
     @Override

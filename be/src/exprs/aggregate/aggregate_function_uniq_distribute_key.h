@@ -254,7 +254,7 @@ public:
                 << "size is not equal: " << col.item_size() << " " << sizeof(UInt64);
         size_t old_size = col.size();
         col.resize(old_size + 1);
-        *reinterpret_cast<UInt64*>(col.get_data().data() + old_size) =
+        reinterpret_cast<UInt64*>(col.get_data().data())[old_size] =
                 AggregateFunctionUniqDistributeKey::data(place).set.size();
     }
 

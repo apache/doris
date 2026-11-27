@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -25,12 +26,17 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.insert.FastInsertIntoValuesPlanner;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.StmtExecutor;
@@ -38,6 +44,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class ExplainInsertCommandTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
@@ -163,6 +172,135 @@ public class ExplainInsertCommandTest extends TestWithFeService {
             }
         } finally {
             connectContext.getSessionVariable().enableAggState = enabled;
+        }
+    }
+
+    @Test
+    public void testInsertStateUsesStoredCodecVersion() throws Exception {
+        int version = Config.be_exec_version;
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        connectContext.getSessionVariable().enableAggState = true;
+        try {
+            Config.be_exec_version = 19;
+            createTable("create table old_state_codec (k int, "
+                    + "b agg_state<bitmap_intersect(bitmap null)> generic, "
+                    + "s agg_state<sum(bigint null)> generic) aggregate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 20;
+            // A single row is sufficient. The Bitmap NULL needs the old codec's
+            // empty-state bytes. SUM also checks a nullable numeric state producer.
+            String row = "1, bitmap_intersect_state(cast(null as bitmap)), sum_state(nullable(cast(1 as bigint)))";
+            for (int mode = 0; mode < 3; mode++) {
+                String sql = "insert into old_state_codec "
+                        + (mode == 0 ? "select " + row : "values (" + row + ")");
+                StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql))
+                        .getExplainPlan(connectContext);
+                NereidsPlanner planner = mode == 0 ? new NereidsPlanner(context)
+                        : new FastInsertIntoValuesPlanner(context, true, mode == 2);
+                PhysicalPlan plan = planner.planWithLock(logical, PhysicalProperties.ANY);
+                // Check the producer, not only the sink slots. A cast that changes
+                // only a slot's type would still let version 20 bytes reach storage.
+                List<StateCombinator> states = plan.<Plan>collectToList(node -> true).stream()
+                        .flatMap(node -> node.getExpressions().stream())
+                        .flatMap(expr -> expr.<StateCombinator>collectToList(StateCombinator.class::isInstance).stream())
+                        .collect(Collectors.toList());
+                Assertions.assertEquals(2, states.size());
+                for (StateCombinator state : states) {
+                    Assertions.assertEquals(19, ((AggStateType) state.getDataType()).getBeExecVersion());
+                }
+            }
+        } finally {
+            Config.be_exec_version = version;
+            connectContext.getSessionVariable().enableAggState = enabled;
+        }
+    }
+
+    @Test
+    public void testInsertCombineUsesStoredCodecVersion() throws Exception {
+        int version = Config.be_exec_version;
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        String disabled = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            // Keep the mock scan. An empty-relation rewrite would remove the producer
+            // whose return type must reach the backend with the sink's version.
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled + ",PRUNE_EMPTY_PARTITION");
+            createTable("create table combine_codec_input (k int, v int null) duplicate key(k) "
+                    + "distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 19;
+            createTable("create table combine_codec_sink (k int, a agg_state<avg(int null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 20;
+            // Empty tables are enough to check planning. ORDER BY adds a projection
+            // with the wrapper below LIMIT; that path must also reach the producer.
+            for (String expression : new String[] {"avg_combine(v)", "if(k = 1, avg_combine(v), null)",
+                    "case when k = 1 then avg_combine(v) end",
+                    "coalesce(if(k = 1, avg_combine(v), null), if(k = 2, avg_combine(v), null))"}) {
+                for (String suffix : new String[] {"", " having k >= 0 order by k limit 1"}) {
+                    String sql = "insert into combine_codec_sink select k, " + expression + " "
+                            + "from combine_codec_input group by k" + suffix;
+                    StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                    LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql))
+                            .getExplainPlan(connectContext);
+                    PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
+                    List<CombineCombinator> producers = plan.<Plan>collectToList(node -> true).stream()
+                            .flatMap(node -> node.getExpressions().stream())
+                            .flatMap(expr -> expr.<CombineCombinator>collectToList(
+                                    CombineCombinator.class::isInstance).stream())
+                            .collect(Collectors.toList());
+                    Assertions.assertFalse(producers.isEmpty());
+                    for (CombineCombinator producer : producers) {
+                        Assertions.assertEquals(19, ((AggStateType) producer.getDataType()).getBeExecVersion());
+                    }
+                }
+            }
+        } finally {
+            Config.be_exec_version = version;
+            connectContext.getSessionVariable().enableAggState = enabled;
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled);
+        }
+    }
+
+    @Test
+    public void testInsertStoredStateIntoNewCodec() throws Exception {
+        int version = Config.be_exec_version;
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        String disabled = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            connectContext.getSessionVariable().enableAggState = true;
+            // Mock tables have no rowsets. Keep the scan so the plan still contains
+            // the stored slot and its version cast, rather than an empty relation.
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled + ",PRUNE_EMPTY_PARTITION");
+            Config.be_exec_version = 19;
+            createTable("create table copy_state_old (k int, s agg_state<sum(bigint null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            Config.be_exec_version = 20;
+            createTable("create table copy_state_new (k int, s agg_state<sum(bigint null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            for (String source : new String[] {"select k, s from copy_state_old",
+                    "select k, sum_union(s) from copy_state_old group by k"}) {
+                String sql = "insert into copy_state_new " + source;
+                StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+                LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql))
+                        .getExplainPlan(connectContext);
+                PhysicalPlan plan = new NereidsPlanner(context).planWithLock(logical, PhysicalProperties.ANY);
+                List<Cast> casts = plan.<Plan>collectToList(node -> true).stream()
+                        .flatMap(node -> node.getExpressions().stream())
+                        .flatMap(expr -> expr.<Cast>collectToList(Cast.class::isInstance).stream())
+                        .filter(cast -> cast.getDataType() instanceof AggStateType)
+                        .collect(Collectors.toList());
+                Assertions.assertEquals(1, casts.size());
+                Cast cast = casts.get(0);
+                Assertions.assertInstanceOf(SlotReference.class, cast.child());
+                // The source keeps its stored codec. The sink cast has the new type.
+                Assertions.assertEquals(19, ((AggStateType) cast.child().getDataType()).getBeExecVersion());
+                Assertions.assertEquals(20, ((AggStateType) cast.getDataType()).getBeExecVersion());
+            }
+        } finally {
+            Config.be_exec_version = version;
+            connectContext.getSessionVariable().enableAggState = enabled;
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled);
         }
     }
 

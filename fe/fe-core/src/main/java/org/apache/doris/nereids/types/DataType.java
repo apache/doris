@@ -476,7 +476,8 @@ public abstract class DataType {
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                         .collect(Collectors.toList());
                 return new AggStateType(catalogType.getFunctionName(), types,
-                        catalogType.getSubTypeNullables(), catalogType.getResultIsNullable());
+                        catalogType.getSubTypeNullables(), catalogType.getResultIsNullable(),
+                        catalogType.getBeExecVersion());
             }
             case DECIMALV2: {
                 ScalarType scalarType = (ScalarType) type;

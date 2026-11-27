@@ -74,6 +74,8 @@ public:
     void TearDown() override { unsetenv("AI_TEST_RESULT"); }
 
 protected:
+    void check_streaming_null_rows(int version, bool all_null);
+
     std::unique_ptr<MockRuntimeState> _runtime_state;
     std::shared_ptr<QueryContext> _query_ctx;
     AggregateFunctionSimpleFactory* _factory;
@@ -590,46 +592,93 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
 }
 
 TEST_F(AggregateFunctionAIAggTest, NullableInputCountsUnionWithoutCountingMerge) {
-    for (bool null_v2 : {false, true}) {
-        AggregateFunctionSimpleFactory factory;
-        register_aggregate_function_ai_agg(factory);
-        auto string_type = std::make_shared<DataTypeString>();
-        auto nullable_type = make_nullable(string_type);
-        auto function = factory.get(
-                "ai_agg", {string_type, nullable_type, nullable_type}, nullable_type, true, -1,
-                {.enable_aggregate_function_null_v2 = null_v2, .column_names = {}});
-        ASSERT_NE(function, nullptr);
-        auto statistics = std::make_shared<AIExecutionStatistics>();
-        function->set_query_context(_query_ctx.get());
-        function->set_ai_statistics(statistics);
-        auto resource = ColumnHelper::create_column<DataTypeString>(
-                std::vector<std::string>(4, "mock_resource"));
-        auto text = ColumnHelper::create_nullable_column<DataTypeString>(
-                {"first", "", "", "last"}, std::vector<UInt8> {0, 1, 1, 0});
-        auto task = ColumnHelper::create_nullable_column<DataTypeString>(
-                std::vector<std::string>(4, "summarize"), std::vector<UInt8> {0, 1, 0, 0});
-        const IColumn* columns[] = {resource.get(), text.get(), task.get()};
-        std::vector<char> place(function->size_of_data());
-        function->create(place.data());
-        function->add_batch_single_place(4, place.data(), columns, _arena);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
+    // The second row has two NULL arguments. It must count as one skipped row.
+    // A merge reads existing states and must not count their input rows again.
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_ai_agg(factory);
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_type = make_nullable(string_type);
+    auto function = factory.get("ai_agg", {string_type, nullable_type, nullable_type},
+                                nullable_type, true, 19);
+    ASSERT_NE(function, nullptr);
+    // A version-19 evaluator installs the byte codec before it attaches statistics.
+    function = make_nullable_wire_compatible_function(std::move(function), 19, false);
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    function->set_query_context(_query_ctx.get());
+    function->set_ai_statistics(statistics);
+    auto resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string>(4, "mock_resource"));
+    auto text = ColumnHelper::create_nullable_column<DataTypeString>(
+            {"first", "", "", "last"}, std::vector<UInt8> {0, 1, 1, 0});
+    auto task = ColumnHelper::create_nullable_column<DataTypeString>(
+            std::vector<std::string>(4, "summarize"), std::vector<UInt8> {0, 1, 0, 0});
+    const IColumn* columns[] = {resource.get(), text.get(), task.get()};
+    std::vector<char> place(function->size_of_data());
+    function->create(place.data());
+    function->add_batch_single_place(4, place.data(), columns, _arena);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
 
-        auto serialized = function->create_serialize_column();
-        function->serialize_without_key_to_column(place.data(), *serialized);
-        std::vector<char> merged(function->size_of_data());
-        function->create(merged.data());
-        function->deserialize_and_merge_from_column(merged.data(), *serialized, _arena);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
+    auto serialized = function->create_serialize_column();
+    function->serialize_without_key_to_column(place.data(), *serialized);
+    std::vector<char> merged(function->size_of_data());
+    function->create(merged.data());
+    function->deserialize_and_merge_from_column(merged.data(), *serialized, _arena);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 
-        function->reset(place.data());
-        function->add(place.data(), columns, 1, _arena);
-        function->add(place.data(), columns, 3, _arena);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 6);
-        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
-        function->destroy(merged.data());
-        function->destroy(place.data());
+    function->reset(place.data());
+    function->add(place.data(), columns, 1, _arena);
+    function->add(place.data(), columns, 3, _arena);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 6);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+    function->destroy(merged.data());
+    function->destroy(place.data());
+}
+
+void AggregateFunctionAIAggTest::check_streaming_null_rows(int version, bool all_null) {
+    SCOPED_TRACE(testing::Message() << "version=" << version << " all_null=" << all_null);
+    const int64_t expected_skipped_rows = all_null ? 2 : 1;
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_ai_agg(factory);
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_type = make_nullable(string_type);
+    auto function = factory.get("ai_agg", {string_type, nullable_type, nullable_type},
+                                nullable_type, true, version);
+    ASSERT_NE(function, nullptr);
+    function = make_nullable_wire_compatible_function(std::move(function), version, false);
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    function->set_query_context(_query_ctx.get());
+    function->set_ai_statistics(statistics);
+    auto resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string>(2, "mock_resource"));
+    auto text = ColumnHelper::create_nullable_column<DataTypeString>(
+            {"first", ""}, std::vector<UInt8> {UInt8(all_null), 1});
+    auto task = ColumnHelper::create_nullable_column<DataTypeString>({"summarize", "summarize"},
+                                                                     std::vector<UInt8> {0, 1});
+    const IColumn* columns[] = {resource.get(), text.get(), task.get()};
+    auto serialized = function->create_serialize_column();
+    function->streaming_agg_serialize_to_column(columns, serialized, 2, _arena);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 2);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(),
+              expected_skipped_rows);
+
+    // Merge reads partial states. It must not count input rows or issue a request.
+    AggregateFunctionGuard merged(function.get());
+    function->deserialize_and_merge_from_column(merged.data(), *serialized, _arena);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 2);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(),
+              expected_skipped_rows);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
+}
+
+TEST_F(AggregateFunctionAIAggTest, StreamingCountsNullRowsOnceThroughBothCodecs) {
+    // Two rows are enough for a mixed batch. Both nullable arguments are NULL on row 1,
+    // so the wrapper must count one skipped row, not two. The all-NULL case reuses two rows.
+    for (int version : {19, 20}) {
+        for (bool all_null : {false, true}) {
+            check_streaming_null_rows(version, all_null);
+        }
     }
 }
 

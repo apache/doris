@@ -44,8 +44,16 @@ public class AggStateType extends Type {
     @SerializedName(value = "functionName")
     private String functionName;
 
+    @SerializedName(value = "beExecVersion")
+    private Integer beExecVersion;
+
     public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
             List<Boolean> subTypeNullables) {
+        this(functionName, resultIsNullable, subTypes, subTypeNullables, Config.be_exec_version);
+    }
+
+    public AggStateType(String functionName, Boolean resultIsNullable, List<Type> subTypes,
+            List<Boolean> subTypeNullables, int beExecVersion) {
         Objects.requireNonNull(subTypes, "subTypes should not be null");
         Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null");
         if (subTypes.size() != subTypeNullables.size()) {
@@ -56,6 +64,7 @@ public class AggStateType extends Type {
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
         this.resultIsNullable = resultIsNullable;
+        this.beExecVersion = beExecVersion;
     }
 
     public List<Type> getSubTypes() {
@@ -72,6 +81,18 @@ public class AggStateType extends Type {
 
     public boolean getResultIsNullable() {
         return resultIsNullable;
+    }
+
+    public int getBeExecVersion() {
+        if (beExecVersion == null) {
+            // Old catalog JSON has no codec version. Keep its former version selection
+            // below 20. For example, query version 16 must still select old function codecs.
+            // An upgrade to 20 must not enable new bitmap markers for these old types.
+            return Math.min(Config.be_exec_version, Config.UNIFIED_NULLABLE_AGGREGATION_MIN_BE_EXEC_VERSION - 1);
+        }
+        // New types retain their creation version through replay and query planning.
+        // For example, query version 19 must not replace a stored type's version 20.
+        return beExecVersion;
     }
 
     @Override
@@ -124,7 +145,7 @@ public class AggStateType extends Type {
         container.setSubTypes(types);
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
-        container.setBeExecVersion(Config.be_exec_version);
+        container.setBeExecVersion(getBeExecVersion());
     }
 
     @Override
@@ -133,6 +154,11 @@ public class AggStateType extends Type {
             return false;
         }
         AggStateType other = (AggStateType) o;
+        // Equal argument layouts do not imply equal state codecs. Keep version
+        // differences visible when the planner translates a cast to catalog types.
+        if (getBeExecVersion() != other.getBeExecVersion()) {
+            return false;
+        }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {
             return false;
@@ -146,6 +172,14 @@ public class AggStateType extends Type {
             }
         }
         return true;
+    }
+
+    @Override
+    public int hashCode() {
+        // Old metadata has no version field. Its effective version can change with
+        // the FE config, so do not use it in a hash key. Equal types still have the
+        // same hash; types with different codec versions can share a hash.
+        return Objects.hash(subTypes, subTypeNullables);
     }
 
     public PrimitiveType getPrimitiveType() {

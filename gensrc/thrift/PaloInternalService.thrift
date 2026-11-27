@@ -421,6 +421,8 @@ struct TQueryOptions {
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
   182: optional i32 ivf_nprobe = 32;
+  // Deprecated: retained for pre-version-20 nullable intermediate column compatibility.
+  // New execution always uses V2; never reuse field id 183.
   183: optional bool enable_aggregate_function_null_v2 = false;
 
   184: optional i32 cte_max_recursion_depth;

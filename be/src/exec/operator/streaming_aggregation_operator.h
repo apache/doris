@@ -166,7 +166,6 @@ private:
     MutableColumns _get_keys_hash_table();
 
     PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
 
     std::unique_ptr<Block> _child_block = nullptr;
     bool _child_eos = false;

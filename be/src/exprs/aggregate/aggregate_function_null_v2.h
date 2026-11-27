@@ -22,17 +22,23 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <array>
 #include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
+#include "exprs/aggregate/aggregate_function_legacy_nullable.h"
 
 namespace doris {
 
@@ -56,20 +62,81 @@ protected:
         init_null_count(place, is_window_function);
     }
 
+    // The nested function declares whether zero valid input rows need a distinct marker.
+    // Its valid byte payloads must start with a nonzero byte, because [0] is reserved.
+    // BITMAP_INTERSECT omits its initialization flag from the nested Bitmap payload.
+    // Thus, no input and one empty bitmap would otherwise have the same payload.
+    // For example, merging {1} with no input keeps {1}; merging it with an empty
+    // bitmap produces an empty result. The version-20 format uses [0] for no input.
+    // A real empty bitmap keeps its nested encoding [1, 1, 0].
+    // Nullable results already use the standard validity byte before the payload.
+    // This wrapper needs the special marker only for non-nullable results. Functions
+    // that do not declare this requirement also leave this flag false.
+    static constexpr bool needs_empty_input_state_marker = [] {
+        if constexpr (requires { NestFunction::needs_empty_input_state_marker; }) {
+            return !result_is_nullable && NestFunction::needs_empty_input_state_marker;
+        }
+        return false;
+    }();
+
+    // A nullable result needs a flag to produce SQL NULL. INTERSECT also needs one:
+    // no input must preserve {1}, but an input with an empty bitmap must remove {1}.
+    // Other non-nullable results use the nested empty state and need no prefix.
+    static constexpr bool needs_state_flag = result_is_nullable || needs_empty_input_state_marker;
+
+    // Internal flags: 0 means no valid input; 1 means valid input, including an empty
+    // bitmap. This third value records a decoded [0] marker. It keeps that marker
+    // through old-schema compaction. The internal value 2 is never written to the wire.
+    static constexpr char EMPTY_INPUT_FROM_MARKER = 2;
+
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) {
+        if constexpr (needs_state_flag) {
             place[0] = false;
         }
     }
 
     static void set_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) {
+        if constexpr (needs_state_flag) {
             place[0] = true;
         }
     }
 
     static bool get_flag(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? place[0] : true;
+        if constexpr (needs_state_flag) {
+            return place[0] == 1;
+        }
+        return true;
+    }
+
+    // Read only the validity header. A NULL partial must not replace a valid destination.
+    // Preserve a decoded empty Bitmap marker so old-schema compaction can write it again.
+    bool read_legacy_state_header(AggregateDataPtr place, BufferReadable& buf) const {
+        if constexpr (needs_empty_input_state_marker) {
+            if (*buf.data() == 0) {
+                buf.add_offset(1);
+                if (!get_flag(place)) {
+                    place[0] = EMPTY_INPUT_FROM_MARKER;
+                }
+                return false;
+            }
+        }
+        bool flag = true;
+        if constexpr (result_is_nullable) {
+            buf.read_binary(flag);
+        }
+        if (flag) {
+            set_flag(place);
+        }
+        return flag;
+    }
+
+    void record_streaming_null_inputs(const UInt8* null_map, size_t rows) const {
+        if constexpr (requires { nested_function->record_null_input(rows); }) {
+            // The prepared map is the union of all argument NULL maps. Count each row once.
+            // Valid rows are counted by nested add; merge must not count either kind again.
+            nested_function->record_null_input(std::count_if(
+                    null_map, null_map + rows, [](UInt8 value) { return value != 0; }));
+        }
     }
 
     static void init_null_count(AggregateDataPtr __restrict place,
@@ -99,7 +166,8 @@ protected:
 
 public:
     AggregateFunctionNullBaseInlineV2(IAggregateFunction* nested_function_,
-                                      const DataTypes& arguments, bool is_window_function_)
+                                      const DataTypes& arguments, bool is_window_function_,
+                                      int be_exec_version)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)},
               is_window_function(is_window_function_) {
@@ -115,13 +183,28 @@ public:
             } else {
                 prefix_size = nested_function->align_of_data();
             }
+        } else if constexpr (needs_empty_input_state_marker) {
+            // BITMAP_INTERSECT returns a non-NULL empty bitmap for no input, but its
+            // empty partial must still be distinguishable from an actual empty bitmap.
+            prefix_size = nested_function->align_of_data();
         } else {
             prefix_size = 0;
         }
+        // The serialized type is queried by non-pipeline callers too (AGG_STATE and UT).
+        // Initialize this wrapper from its creator's negotiated version immediately.
+        AggregateFunctionNullBaseInlineV2::set_version(be_exec_version);
+    }
+
+    bool needs_nullable_serialized_column() const {
+        // Ordinary non-nullable results use the nested empty state for NULL input.
+        // INTERSECT needs a separate mark: no input preserves {1}, but an empty bitmap
+        // removes {1}. Older execution versions keep their published native column type.
+        return result_is_nullable || (needs_empty_input_state_marker &&
+                                      this->version >= USE_UNIFIED_NULLABLE_AGGREGATION_VERSION);
     }
 
     MutableColumnPtr create_serialize_column() const override {
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             return ColumnNullable::create(nested_function->create_serialize_column(),
                                           ColumnUInt8::create());
         }
@@ -129,7 +212,7 @@ public:
     }
 
     DataTypePtr get_serialized_type() const override {
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             return make_nullable(nested_function->get_serialized_type());
         }
         return nested_function->get_serialized_type();
@@ -180,6 +263,14 @@ public:
 
     bool is_trivial() const override { return false; }
 
+    bool has_legacy_nullable_state_format() const override { return true; }
+
+    AggregateFunctionPtr create_legacy_nullable_codec(
+            AggregateFunctionPtr function) const override {
+        return std::make_shared<AggregateFunctionLegacyNullableState<Derived>>(
+                std::static_pointer_cast<Derived>(std::move(function)));
+    }
+
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
     size_t align_of_data() const override {
@@ -195,34 +286,58 @@ public:
         if (get_flag(rhs)) {
             set_flag(place);
             nested_function->merge(nested_place(place), nested_place(rhs), arena);
+        } else if constexpr (needs_empty_input_state_marker) {
+            // Keep a decoded no-input marker through compaction of a version-19 column.
+            // A valid destination, including a real empty bitmap, must stay valid.
+            if (rhs[0] == EMPTY_INPUT_FROM_MARKER && !get_flag(place)) {
+                place[0] = EMPTY_INPUT_FROM_MARKER;
+            }
         }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        bool flag = get_flag(place);
+        const bool flag = get_flag(place);
+        if constexpr (needs_empty_input_state_marker) {
+            // Preserve a decoded [0] even when the column's type version is 19. Replacing
+            // it with an empty bitmap would make a later intersection with {1} empty.
+            // A fresh empty state can use [0] only in version 20 or later; old peers need
+            // the legacy bitmap payload. A decoded marker is never a valid state (flag 1).
+            if (place[0] == EMPTY_INPUT_FROM_MARKER ||
+                (!flag && this->version >= USE_UNIFIED_NULLABLE_AGGREGATION_VERSION)) {
+                // Valid Bitmap payloads start with a length byte in [1,9]. Thus [0]
+                // means no input, while [1,1,0] still means a real empty bitmap.
+                buf.write_char(0);
+                return;
+            }
+        }
         if constexpr (result_is_nullable) {
             buf.write_binary(flag);
         }
-        if (flag) {
+        if (flag || !result_is_nullable) {
             nested_function->serialize(nested_place(place), buf);
         }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena& arena) const override {
-        bool flag = true;
-        if constexpr (result_is_nullable) {
-            buf.read_binary(flag);
-        }
-        if (flag) {
-            set_flag(place);
+        if (read_legacy_state_header(place, buf)) {
             nested_function->deserialize(nested_place(place), buf, arena);
+        }
+    }
+
+    void deserialize_and_merge(AggregateDataPtr place, AggregateDataPtr rhs, BufferReadable& buf,
+                               Arena& arena) const override {
+        if (read_legacy_state_header(place, buf)) {
+            // DISTINCT can test membership before copying a key into the destination arena.
+            // Decoding a fresh RHS first would retain another copy of each repeated VARIANT key.
+            nested_function->deserialize_and_merge(nested_place(place), nested_place(rhs), buf,
+                                                   arena);
         }
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
             auto& nested_col = nullable_col.get_nested_column();
             auto& null_map = nullable_col.get_null_map_data();
@@ -236,67 +351,124 @@ public:
             nested_function->serialize_to_column(places, offset + prefix_size, nested_col_ptr,
                                                  num_rows);
         } else {
-            nested_function->serialize_to_column(places, offset, dst, num_rows);
+            nested_function->serialize_to_column(places, offset + prefix_size, dst, num_rows);
         }
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
-        const auto* src_nullable_col = assert_cast<const ColumnNullable*>(columns[0]);
-        const auto* __restrict src_null_map_data = src_nullable_col->get_null_map_data().data();
+        assert_cast<const Derived*>(this)->prepare_streaming_columns(
+                columns, num_rows, [&](const IColumn** nested_columns, const UInt8* null_map) {
+                    streaming_serialize(nested_columns, null_map, dst, num_rows, arena);
+                });
+    }
 
-        size_t nested_size = nested_function->size_of_data();
-        std::vector<AggregateDataPtr> nested_places(num_rows);
-        std::vector<char> places_data(num_rows * nested_size);
-        for (size_t i = 0; i < num_rows; ++i) {
-            nested_places[i] = places_data.data() + i * nested_size;
+    template <typename Serialize>
+    void prepare_streaming_columns(const IColumn** columns, size_t num_rows,
+                                   Serialize&& serialize) const {
+        const auto& column = assert_cast<const ColumnNullable&>(*columns[0]);
+        const IColumn* nested_column = &column.get_nested_column();
+        serialize(&nested_column, column.get_null_map_data().data());
+    }
+
+    void streaming_agg_serialize_to_column_legacy(const IColumn** columns, MutableColumnPtr& dst,
+                                                  size_t num_rows, Arena&) const {
+        if (num_rows == 0) {
+            return;
         }
-
-        if (!nested_function->is_trivial()) {
-            for (int i = 0; i < num_rows; ++i) {
-                try {
-                    nested_function->create(nested_places[i]);
-                } catch (...) {
-                    for (int j = 0; j < i; ++j) {
-                        nested_function->destroy(nested_places[j]);
+        // A hidden NULL array may shift later physical offsets, e.g. [NULL,[1]] vs [[2],[3]].
+        // Normalize visible rows once for both native and historical String output.
+        assert_cast<const Derived*>(this)->prepare_streaming_columns(
+                columns, num_rows, [&](const IColumn** nested_columns, const UInt8* null_map) {
+                    record_streaming_null_inputs(null_map, num_rows);
+                    VectorBufferWriter writer(assert_cast<ColumnString&>(*dst));
+                    AlignedAggregateData storage(this->size_of_data(), this->align_of_data());
+                    auto* place = storage.data();
+                    Arena row_arena;
+                    for (size_t row = 0; row < num_rows; ++row) {
+                        row_arena.clear();
+                        create(place);
+                        DEFER({ destroy(place); });
+                        if (!null_map[row]) {
+                            set_flag(place);
+                            nested_function->add(nested_place(place), nested_columns, row,
+                                                 row_arena);
+                        }
+                        serialize(place, writer);
+                        writer.commit();
                     }
-                    throw;
-                }
-            }
-        }
-        Defer destroy_places = {[&]() {
-            if (!nested_function->is_trivial()) {
-                for (int i = 0; i < num_rows; ++i) {
-                    nested_function->destroy(nested_places[i]);
-                }
-            }
-        }};
-        const IColumn* src_nested_column = &src_nullable_col->get_nested_column();
-        if (src_nullable_col->has_null()) {
-            for (size_t i = 0; i < num_rows; ++i) {
-                if (!src_null_map_data[i]) {
-                    nested_function->add(nested_places[i], &src_nested_column, i, arena);
-                }
-            }
-        } else {
-            nested_function->add_batch(num_rows, nested_places.data(), 0, &src_nested_column, arena,
-                                       false);
-        }
+                });
+    }
 
-        if constexpr (result_is_nullable) {
-            auto& dst_nullable_col = assert_cast<ColumnNullable&>(*dst);
-            MutableColumnPtr nested_col_ptr = dst_nullable_col.get_nested_column().assert_mutable();
-            dst_nullable_col.get_null_map_column().insert_range_from(
-                    src_nullable_col->get_null_map_column(), 0, num_rows);
-            nested_function->serialize_to_column(nested_places, 0, nested_col_ptr, num_rows);
+protected:
+    void streaming_serialize(const IColumn** columns, const UInt8* null_map, MutableColumnPtr& dst,
+                             size_t num_rows, Arena& arena) const {
+        if (num_rows == 0) {
+            return;
+        }
+        record_streaming_null_inputs(null_map, num_rows);
+        MutableColumnPtr nested_dst;
+        ColumnNullable* nullable_dst = nullptr;
+        if (needs_nullable_serialized_column()) {
+            nullable_dst = &assert_cast<ColumnNullable&>(*dst);
+            nested_dst = nullable_dst->get_nested_column().assert_mutable();
+            auto& dst_null_map = nullable_dst->get_null_map_data();
+            dst_null_map.assign(null_map, null_map + num_rows);
         } else {
-            nested_function->serialize_to_column(nested_places, 0, dst, num_rows);
+            nested_dst = std::move(dst);
+        }
+        DEFER({
+            if (!needs_nullable_serialized_column()) {
+                dst = std::move(nested_dst);
+            }
+        });
+        if constexpr (requires(const NestFunction& function) {
+                          function.streaming_agg_serialize_to_column_with_null_map(
+                                  columns, nested_dst, num_rows, null_map);
+                      }) {
+            nested_function->streaming_agg_serialize_to_column_with_null_map(columns, nested_dst,
+                                                                             num_rows, null_map);
+            return;
+        }
+        const bool has_null =
+                std::any_of(null_map, null_map + num_rows, [](UInt8 value) { return value != 0; });
+        if (!has_null) {
+            nested_function->streaming_agg_serialize_to_column(columns, nested_dst, num_rows,
+                                                               arena);
+            return;
+        }
+        // A NULL row has no contribution. A nullable state column can skip its payload.
+        // A bare column needs a serialized empty state; an empty String is not a TOPN state.
+        // Keep only one aligned state alive: wide/string/set states must not grow with batch size.
+        Arena state_arena;
+        Arena row_arena;
+        AggregateDataPtr place = nullptr;
+        for (size_t row = 0; row < num_rows; ++row) {
+            if (needs_nullable_serialized_column()) {
+                if (null_map[row]) {
+                    nested_dst->insert_default();
+                    continue;
+                }
+            }
+            if (place == nullptr) {
+                // An entirely NULL batch with a nullable state column needs no temporary state.
+                place = state_arena.aligned_alloc(nested_function->size_of_data(),
+                                                  nested_function->align_of_data());
+            }
+            row_arena.clear();
+            nested_function->create(place);
+            DEFER({ nested_function->destroy(place); });
+            if (!null_map[row]) {
+                nested_function->add(place, columns, row, row_arena);
+            }
+            nested_function->serialize_without_key_to_column(place, *nested_dst);
         }
     }
 
+public:
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             auto& nullable_col = assert_cast<ColumnNullable&>(to);
             auto& nested_col = nullable_col.get_nested_column();
             auto& null_map = nullable_col.get_null_map_data();
@@ -320,48 +492,128 @@ public:
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
-                                   const size_t num_rows) const override {
-        if constexpr (result_is_nullable) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*column);
-            const auto& nested_col = nullable_col.get_nested_column();
-            const auto* __restrict null_map_data = nullable_col.get_null_map_data().data();
-
-            for (size_t i = 0; i < num_rows; ++i) {
-                *(places[i] + offset) |= (!null_map_data[i]);
-            }
-            nested_function->deserialize_and_merge_vec(places, offset + prefix_size, rhs,
-                                                       &nested_col, arena, num_rows);
-        } else {
-            this->nested_function->deserialize_and_merge_vec(places, offset, rhs, column, arena,
-                                                             num_rows);
-        }
+                                   size_t num_rows) const override {
+        merge_serialized<false>(places, offset, rhs, column, arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
-                                            Arena& arena, const size_t num_rows) const override {
-        if constexpr (result_is_nullable) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*column);
-            const auto& nested_col = nullable_col.get_nested_column();
-            const auto* __restrict null_map_data = nullable_col.get_null_map_data().data();
+                                            Arena& arena, size_t num_rows) const override {
+        merge_serialized<true>(places, offset, rhs, column, arena, num_rows);
+    }
 
-            for (size_t i = 0; i < num_rows; ++i) {
-                if (places[i]) {
-                    *(places[i] + offset) |= (!null_map_data[i]);
-                }
+private:
+    template <bool selected>
+    bool merge_nullable_serialized(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnNullable& nullable,
+                                   Arena& arena, size_t rows) const {
+        const auto& column = nullable.get_nested_column();
+        const auto* null_map = nullable.get_null_map_data().data();
+        const auto mark_valid = [places, offset](size_t row) { set_flag(places[row] + offset); };
+        if constexpr (requires(const NestFunction& function) {
+                          function.template deserialize_and_merge_vec_with_null_map<selected>(
+                                  places, offset, column, null_map, arena, rows, mark_valid);
+                      }) {
+            // Update validity and native payload together, avoiding a second NULL check
+            // and a separate validity pass over the destination states.
+            nested_function->template deserialize_and_merge_vec_with_null_map<selected>(
+                    places, offset + prefix_size, column, null_map, arena, rows, mark_valid);
+            return true;
+        } else if constexpr (std::is_base_of_v<IAggregateFunctionHelper<NestFunction>,
+                                               NestFunction>) {
+            // Some functions, such as ForEachV2, inherit a helper for their parent class.
+            // Do not instantiate a new helper for these subclasses.
+            if constexpr (std::is_same_v<decltype(&NestFunction::deserialize_and_merge_vec),
+                                         decltype(&IAggregateFunctionHelper<
+                                                  NestFunction>::deserialize_and_merge_vec)> &&
+                          std::is_same_v<
+                                  decltype(&NestFunction::deserialize_and_merge_vec_selected),
+                                  decltype(&IAggregateFunctionHelper<
+                                           NestFunction>::deserialize_and_merge_vec_selected)>) {
+                // Both methods must use the default String reader. Check the reader methods,
+                // not the function name or state size, so specialized readers keep their contract.
+                // Read NULL marks in the decode loop. This avoids a second pass and a pointer
+                // array of 32 KiB for a batch of 4,096 rows on a 64-bit system.
+                nested_function->template deserialize_and_merge_string_vec<selected, true>(
+                        places, offset + prefix_size, rhs, column, null_map, arena, rows,
+                        mark_valid);
+                return true;
             }
-            nested_function->deserialize_and_merge_vec_selected(places, offset + prefix_size, rhs,
-                                                                &nested_col, arena, num_rows);
-        } else {
-            this->nested_function->deserialize_and_merge_vec_selected(places, offset, rhs, column,
-                                                                      arena, num_rows);
+        }
+        return false;
+    }
+
+    template <bool selected>
+    void merge_null_serialized(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
+                               const ColumnNullable& nullable, Arena& arena,
+                               size_t num_rows) const {
+        const auto& nested_column = nullable.get_nested_column();
+        const auto& null_map = nullable.get_null_map_data();
+        // Merging an empty bitmap is not equivalent to ignoring a NULL-only partial:
+        // INTERSECT({1,2}, empty) loses the intersection. Never pass such rows to nested.
+        DorisVector<AggregateDataPtr> valid_places(num_rows, nullptr);
+        bool has_selected = false;
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (!null_map[i]) {
+                if constexpr (selected) {
+                    if (!places[i]) {
+                        continue;
+                    }
+                }
+                set_flag(places[i] + offset);
+                valid_places[i] = places[i];
+                has_selected = true;
+            }
+        }
+        if (has_selected) {
+            nested_function->deserialize_and_merge_vec_selected(valid_places.data(),
+                                                                offset + prefix_size, rhs,
+                                                                &nested_column, arena, num_rows);
         }
     }
 
+    template <bool selected>
+    void merge_serialized(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
+                          const IColumn* column, Arena& arena, size_t num_rows) const {
+        if (num_rows == 0) {
+            return;
+        }
+        if (needs_nullable_serialized_column()) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+            const auto& nested_column = nullable.get_nested_column();
+            if (merge_nullable_serialized<selected>(places, offset, rhs, nullable, arena,
+                                                    num_rows)) {
+                return;
+            }
+            if (nullable.has_null()) {
+                merge_null_serialized<selected>(places, offset, rhs, nullable, arena, num_rows);
+                return;
+            }
+            column = &nested_column;
+        }
+        // Unmarked legacy columns represent every row as a valid state, too.
+        for (size_t i = 0; i < num_rows; ++i) {
+            if constexpr (selected) {
+                if (!places[i]) {
+                    continue;
+                }
+            }
+            set_flag(places[i] + offset);
+        }
+        if constexpr (selected) {
+            nested_function->deserialize_and_merge_vec_selected(places, offset + prefix_size, rhs,
+                                                                column, arena, num_rows);
+        } else {
+            nested_function->deserialize_and_merge_vec(places, offset + prefix_size, rhs, column,
+                                                       arena, num_rows);
+        }
+    }
+
+public:
     void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
                                      size_t row, Arena& arena) const override {
         DCHECK_LT(row, column.size());
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             if (!nullable_col.is_null_at(row)) {
                 set_flag(place);
@@ -369,7 +621,8 @@ public:
                         nested_place(place), nullable_col.get_nested_column(), row, arena);
             }
         } else {
-            nested_function->deserialize_from_column_row(place, column, row, arena);
+            set_flag(place);
+            nested_function->deserialize_from_column_row(nested_place(place), column, row, arena);
         }
     }
 
@@ -379,7 +632,7 @@ public:
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
 
-        if constexpr (result_is_nullable) {
+        if (needs_nullable_serialized_column()) {
             const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             const auto& nested_col = nullable_col.get_nested_column();
             const auto& null_map = nullable_col.get_null_map_data();
@@ -392,8 +645,9 @@ public:
                 }
             }
         } else {
-            nested_function->deserialize_and_merge_from_column_range(place, column, begin, end,
-                                                                     arena);
+            set_flag(place);
+            nested_function->deserialize_and_merge_from_column_range(nested_place(place), column,
+                                                                     begin, end, arena);
         }
     }
 
@@ -435,12 +689,14 @@ class AggregateFunctionNullUnaryInlineV2 final
                   NestFuction, result_is_nullable,
                   AggregateFunctionNullUnaryInlineV2<NestFuction, result_is_nullable>> {
 public:
-    AggregateFunctionNullUnaryInlineV2(IAggregateFunction* nested_function_,
-                                       const DataTypes& arguments, bool is_window_function_)
+    AggregateFunctionNullUnaryInlineV2(
+            IAggregateFunction* nested_function_, const DataTypes& arguments,
+            bool is_window_function_,
+            int be_exec_version = BeExecVersionManager::get_newest_version())
             : AggregateFunctionNullBaseInlineV2<
                       NestFuction, result_is_nullable,
                       AggregateFunctionNullUnaryInlineV2<NestFuction, result_is_nullable>>(
-                      nested_function_, arguments, is_window_function_) {}
+                      nested_function_, arguments, is_window_function_, be_exec_version) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
@@ -478,7 +734,7 @@ public:
         }
         return new AggregateFunctionNullUnaryInlineV2<
                 typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
-                f, IAggregateFunction::argument_types, this->is_window_function);
+                f, IAggregateFunction::argument_types, this->is_window_function, this->version);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
@@ -503,7 +759,11 @@ public:
                     this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
                 }
             } else {
-                this->nested_function->add_batch(batch_size, places, place_offset, &nested_column,
+                for (size_t i = 0; i < batch_size; ++i) {
+                    this->set_flag(places[i] + place_offset);
+                }
+                this->nested_function->add_batch(batch_size, places,
+                                                 place_offset + this->prefix_size, &nested_column,
                                                  arena, agg_many);
             }
         }
@@ -519,7 +779,7 @@ public:
             for (size_t i = 0; i < batch_size; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
+        } else if (batch_size > 0) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_single_place(batch_size, this->nested_place(place),
@@ -536,7 +796,7 @@ public:
             for (size_t i = batch_begin; i <= batch_end; ++i) {
                 this->add(place, columns, i, arena);
             }
-        } else {
+        } else if (batch_begin <= batch_end) {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add_batch_range(batch_begin, batch_end,
@@ -658,4 +918,219 @@ public:
     }
 };
 
+template <typename NestFuction, bool result_is_nullable>
+class AggregateFunctionNullVariadicInlineV2 final
+        : public AggregateFunctionNullBaseInlineV2<
+                  NestFuction, result_is_nullable,
+                  AggregateFunctionNullVariadicInlineV2<NestFuction, result_is_nullable>> {
+public:
+    AggregateFunctionNullVariadicInlineV2(
+            IAggregateFunction* nested_function_, const DataTypes& arguments,
+            bool is_window_function_,
+            int be_exec_version = BeExecVersionManager::get_newest_version())
+            : AggregateFunctionNullBaseInlineV2<
+                      NestFuction, result_is_nullable,
+                      AggregateFunctionNullVariadicInlineV2<NestFuction, result_is_nullable>>(
+                      nested_function_, arguments, is_window_function_, be_exec_version),
+              number_of_arguments(arguments.size()) {
+        if (number_of_arguments == 1) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Logical error: single argument is passed to AggregateFunctionNullVariadic");
+        }
+
+        if (number_of_arguments > MAX_ARGS) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Maximum number of arguments for aggregate function with Nullable types is {}",
+                    size_t(MAX_ARGS));
+        }
+
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            is_nullable[i] = arguments[i]->is_nullable();
+        }
+    }
+
+    IAggregateFunction* transmit_to_stable() override {
+        auto f = AggregateFunctionNullBaseInlineV2<
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullVariadicInlineV2<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
+        if (!f) {
+            return nullptr;
+        }
+        return new AggregateFunctionNullVariadicInlineV2<
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
+                f, IAggregateFunction::argument_types, this->is_window_function, this->version);
+    }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena& arena) const override {
+        // Scalar and window range calls reach this method for each row, including NULL rows.
+        // Keep the bounded pointer array on the stack so a rejected row needs no heap allocation.
+        // Every used entry is assigned below before the nested function can read it.
+        std::array<const IColumn*, MAX_ARGS> nested_columns;
+
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                const auto& nullable_col =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
+                if (nullable_col.is_null_at(row_num)) {
+                    /// If at least one column has a null value in the current row,
+                    /// we don't process this row. Count the row once, even if two arguments are NULL.
+                    if constexpr (requires { this->nested_function->record_null_input(1); }) {
+                        this->nested_function->record_null_input(1);
+                    }
+                    return;
+                }
+                nested_columns[i] = &nullable_col.get_nested_column();
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+
+        this->set_flag(place);
+        this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
+                                   arena);
+    }
+
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena& arena, bool /*agg_many*/) const override {
+        add_batch_selected_impl(batch_size, columns, arena,
+                                [&](size_t row) { return places[row] + place_offset; });
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena& arena) const override {
+        add_batch_selected_impl(batch_size, columns, arena, [&](size_t row) {
+            return places[row] == nullptr ? nullptr : places[row] + place_offset;
+        });
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        add_batch_selected_impl(batch_size, columns, arena, [&](size_t) { return place; });
+    }
+
+    template <typename Serialize>
+    void prepare_streaming_columns(const IColumn** columns, size_t num_rows,
+                                   Serialize&& serialize) const {
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
+        NullMap null_map(num_rows, 0);
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                nullable_columns[i] = &assert_cast<const ColumnNullable&>(*columns[i]);
+                nested_columns[i] = &nullable_columns[i]->get_nested_column();
+                const auto& input_null_map = nullable_columns[i]->get_null_map_data();
+                for (size_t row = 0; row < num_rows; ++row) {
+                    null_map[row] |= input_null_map[row];
+                }
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+        Columns prepared_columns;
+        if constexpr (requires(const NestFuction& function) {
+                          function.requires_batch_add_for_streaming();
+                      }) {
+            prepared_columns = this->nested_function->prepare_batch_columns_for_streaming(
+                    num_rows, nested_columns.data(), [&](size_t row) { return !null_map[row]; });
+            if (!prepared_columns.empty()) {
+                for (size_t i = 0; i < number_of_arguments; ++i) {
+                    nested_columns[i] = prepared_columns[i].get();
+                }
+            }
+        }
+        serialize(nested_columns.data(), null_map.data());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns) {
+                          function.check_nullable_input_columns(input_columns);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns);
+        }
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                const auto* nullable_col = check_and_get_column<ColumnNullable>(*columns[i]);
+                if (UNLIKELY(nullable_col == nullptr)) {
+                    throw doris::Exception(Status::InternalError(
+                            "Aggregate function {} argument {} type check failed: Column type {} "
+                            "is not ColumnNullable",
+                            this->get_name(), i, columns[i]->get_name()));
+                }
+                nested_columns[i] = &nullable_col->get_nested_column();
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+        this->nested_function->check_input_columns_type(nested_columns.data());
+    }
+
+private:
+    template <typename GetPlace>
+    void add_batch_selected_impl(size_t batch_size, const IColumn** columns, Arena& arena,
+                                 GetPlace&& get_place) const {
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                nullable_columns[i] =
+                        &assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
+                nested_columns[i] = &nullable_columns[i]->get_nested_column();
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+
+        DorisVector<AggregateDataPtr> nested_places(batch_size, nullptr);
+        size_t skipped_nulls = 0;
+        for (size_t row = 0; row < batch_size; ++row) {
+            AggregateDataPtr place = get_place(row);
+            if (place == nullptr) {
+                continue;
+            }
+            bool has_null = false;
+            for (size_t i = 0; i < number_of_arguments; ++i) {
+                has_null |= nullable_columns[i] != nullptr && nullable_columns[i]->is_null_at(row);
+            }
+            if (!has_null) {
+                this->set_flag(place);
+                nested_places[row] = this->nested_place(place);
+            } else if constexpr (requires { this->nested_function->record_null_input(1); }) {
+                ++skipped_nulls;
+            }
+        }
+        if constexpr (requires { this->nested_function->record_null_input(1); }) {
+            this->nested_function->record_null_input(skipped_nulls);
+        }
+        this->nested_function->add_batch_selected(batch_size, nested_places.data(), 0,
+                                                  nested_columns.data(), arena);
+    }
+
+    // The array length is fixed in the implementation of some aggregate functions.
+    // Therefore we choose 256 as the appropriate maximum length limit.
+    static const size_t MAX_ARGS = 256;
+    size_t number_of_arguments = 0;
+    std::array<char, MAX_ARGS>
+            is_nullable; /// Plain array is better than std::vector due to one indirection less.
+};
+// Stable transfer changes the nested DISTINCT type while preserving the nullable
+// wrapper. The typed legacy codec uses the same mapping as the nullable creator.
+template <typename Nested, bool result_is_nullable>
+struct FunctionStableTransfer<AggregateFunctionNullUnaryInlineV2<Nested, result_is_nullable>> {
+    using FunctionStable = AggregateFunctionNullUnaryInlineV2<
+            typename FunctionStableTransfer<Nested>::FunctionStable, result_is_nullable>;
+};
+
+template <typename Nested, bool result_is_nullable>
+struct FunctionStableTransfer<AggregateFunctionNullVariadicInlineV2<Nested, result_is_nullable>> {
+    using FunctionStable = AggregateFunctionNullVariadicInlineV2<
+            typename FunctionStableTransfer<Nested>::FunctionStable, result_is_nullable>;
+};
 } // namespace doris
