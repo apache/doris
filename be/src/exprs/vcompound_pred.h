@@ -274,7 +274,8 @@ public:
     }
 
     // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): Keep each operator's bitmap and score updates together.
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;
         auto index_context = context->get_index_context();

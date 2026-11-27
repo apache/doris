@@ -57,7 +57,7 @@ public:
         return Status::OK();
     }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t) override {
+    Status evaluate_inverted_index(VExprContext* context, uint32_t) const override {
         auto index_context = context->get_index_context();
         auto query_context = index_context->get_index_query_context();
         for (uint32_t row : _rows) {
@@ -89,7 +89,7 @@ public:
         return Status::OK();
     }
 
-    Status evaluate_inverted_index(VExprContext*, uint32_t) override { return Status::OK(); }
+    Status evaluate_inverted_index(VExprContext*, uint32_t) const override { return Status::OK(); }
 };
 
 std::shared_ptr<VCompoundPred> make_compound(TExprOpcode::type op, VExprSPtr left,

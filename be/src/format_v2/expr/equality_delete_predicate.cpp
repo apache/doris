@@ -119,20 +119,23 @@ Status EqualityDeletePredicate::prepare(RuntimeState* state, const RowDescriptor
 }
 
 Status EqualityDeletePredicate::open(RuntimeState* state, VExprContext* context,
-                                     FunctionContext::FunctionStateScope scope) {
+                                     FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& child : _children) {
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<EqualityDeletePredicate*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
 void EqualityDeletePredicate::close(VExprContext* context,
-                                    FunctionContext::FunctionStateScope scope) {
+                                    FunctionContext::FunctionStateScope scope) const {
     VExpr::close(context, scope);
 }
 

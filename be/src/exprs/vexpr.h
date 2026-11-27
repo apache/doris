@@ -133,15 +133,7 @@ public:
     /// Subclasses overriding this function should call VExpr::Open() to recursively call
     /// Open() on the expr tree
     virtual Status open(RuntimeState* state, VExprContext* context,
-                        FunctionContext::FunctionStateScope scope);
-
-    // before execute, check if expr has been parepared+opened.
-    [[maybe_unused]] Status ready_status() const {
-        if (_prepare_finished && _open_finished) {
-            return Status::OK();
-        }
-        return Status::InternalError(expr_name() + " is not ready when execute");
-    }
+                        FunctionContext::FunctionStateScope scope) const;
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
@@ -245,7 +237,7 @@ public:
     }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
-    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const {
         return Status::OK();
     }
 
@@ -272,9 +264,9 @@ public:
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                    uint32_t segment_num_rows);
+                                    uint32_t segment_num_rows) const;
 
-    virtual size_t estimate_memory(const size_t rows);
+    virtual size_t estimate_memory(const size_t rows) const;
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
@@ -289,7 +281,7 @@ public:
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const;
 
     DataTypePtr& data_type() { return _data_type; }
 
@@ -441,7 +433,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
-            AnnRangeSearchEvaluationResult& result);
+            AnnRangeSearchEvaluationResult& result) const;
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -449,7 +441,7 @@ public:
     // If suitable_for_ann_index is false, the we will do exhausted search.
     virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                           segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-                                          bool& suitable_for_ann_index);
+                                          bool& suitable_for_ann_index) const;
 
     virtual uint64_t get_digest(uint64_t seed) const;
 
@@ -530,7 +522,6 @@ protected:
     bool _prepared = false; // for base class VExpr
     // for concrete classes
     bool _prepare_finished = false;
-    bool _open_finished = false;
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;

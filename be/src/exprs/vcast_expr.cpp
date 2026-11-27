@@ -80,19 +80,22 @@ const DataTypePtr& VCastExpr::get_target_type() const {
 }
 
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
-                              FunctionContext::FunctionStateScope scope) {
+                              FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<VCastExpr*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
-void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) const {
     VExpr::close(context, scope);
 }
 
@@ -108,7 +111,6 @@ Status VCastExpr::execute_cast(RuntimeState* state, const ColumnWithTypeAndName&
 Status VCastExpr::execute_column_impl(VExprContext* context, const Block* block,
                                       const Selector* selector, size_t count,
                                       ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << _open_finished << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();
@@ -143,7 +145,6 @@ DataTypePtr TryCastExpr::original_cast_return_type() const {
 Status TryCastExpr::execute_column_impl(VExprContext* context, const Block* block,
                                         const Selector* selector, size_t count,
                                         ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << _open_finished << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();

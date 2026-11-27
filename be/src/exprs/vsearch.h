@@ -30,7 +30,7 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
 
     // Override to prevent being treated as constant - search expressions must use inverted index
     bool is_constant() const override { return false; }

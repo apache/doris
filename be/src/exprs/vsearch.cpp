@@ -352,7 +352,8 @@ Status VSearchExpr::execute_column_impl(VExprContext* context, const Block* bloc
     return Status::InternalError("SearchExpr should not be executed without inverted index");
 }
 
-Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VSearchExpr::evaluate_inverted_index(VExprContext* context,
+                                            uint32_t segment_num_rows) const {
     if (_search_param.original_dsl.empty()) {
         return prevent_search_row_fallback(Status::InvalidArgument("search DSL is empty"));
     }

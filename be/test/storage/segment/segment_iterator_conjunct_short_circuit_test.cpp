@@ -87,7 +87,8 @@ public:
         return Status::OK();
     }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
         ++_eval_count;
         auto index_context = context->get_index_context();
         if (_kind == ResultKind::kNone) {
@@ -118,7 +119,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>&,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>&, size_t,
             roaring::Roaring&, segment_v2::AnnIndexStats&, bool,
-            AnnRangeSearchEvaluationResult& result) override {
+            AnnRangeSearchEvaluationResult& result) const override {
         ++_ann_eval_count;
         result.executed = false;
         return Status::OK();
@@ -130,8 +131,8 @@ public:
 private:
     std::vector<uint32_t> _rows;
     ResultKind _kind;
-    int _eval_count = 0;
-    int _ann_eval_count = 0;
+    mutable int _eval_count = 0;
+    mutable int _ann_eval_count = 0;
 };
 
 TabletSchemaSPtr make_tablet_schema() {

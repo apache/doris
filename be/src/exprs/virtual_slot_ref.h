@@ -29,7 +29,7 @@ public:
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
@@ -41,14 +41,15 @@ public:
     int column_id() const { return _column_id; }
     int slot_id() const { return _slot_id; }
     bool equals(const VExpr& other) override;
-    size_t estimate_memory(const size_t rows) override { return 0; }
+    size_t estimate_memory(const size_t rows) const override { return 0; }
     void set_column_id(int column_id) { _column_id = column_id; }
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);
     }
     std::shared_ptr<VExpr> get_virtual_column_expr() const { return _virtual_column_expr; }
 
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+    Status evaluate_inverted_index(VExprContext* context,
+                                   uint32_t segment_num_rows) const override {
         return _virtual_column_expr->evaluate_inverted_index(context, segment_num_rows);
     }
 
@@ -109,7 +110,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
-            AnnRangeSearchEvaluationResult& result) override;
+            AnnRangeSearchEvaluationResult& result) const override;
 
 #ifdef BE_TEST
     // Test-only setter methods for unit testing

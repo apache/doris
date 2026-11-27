@@ -437,9 +437,9 @@ TEST(JniTableReaderTest, RefreshedConjunctIsReadyBeforeFilteringOpenScanner) {
 
     auto refreshed = VExprContext::create_shared(
             VSlotRef::create_shared(0, 0, 0, std::make_shared<DataTypeUInt8>(), "filter_column"));
-    ASSERT_FALSE(refreshed->root()->ready_status().ok());
+    ASSERT_FALSE(refreshed->_opened);
     ASSERT_TRUE(reader.refresh_conjuncts({refreshed}).ok());
-    EXPECT_TRUE(refreshed->root()->ready_status().ok());
+    EXPECT_TRUE(refreshed->_opened);
 }
 
 TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {

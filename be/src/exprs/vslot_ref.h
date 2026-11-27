@@ -47,7 +47,7 @@ public:
     void set_column_id(int column_id) { _column_id = column_id; }
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -65,7 +65,7 @@ public:
 
     bool equals(const VExpr& other) override;
 
-    size_t estimate_memory(const size_t rows) override { return 0; }
+    size_t estimate_memory(const size_t rows) const override { return 0; }
 
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);

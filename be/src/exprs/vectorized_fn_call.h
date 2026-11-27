@@ -71,7 +71,7 @@ public:
     Status execute_on_null_map(const uint8_t* null_map, size_t num_values,
                                const DataTypePtr& data_type, int column_id,
                                uint8_t* matches) const override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
@@ -80,8 +80,8 @@ public:
     bool can_evaluate_bloom_filter() const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override;
     const std::string& expr_name() const override;
     std::string function_name() const;
     std::string debug_string() const override;
@@ -106,7 +106,7 @@ public:
     bool can_push_down_to_index() const override;
     bool equals(const VExpr& other) override;
 
-    size_t estimate_memory(const size_t rows) override;
+    size_t estimate_memory(const size_t rows) const override;
 
     Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& runtime,
@@ -114,11 +114,11 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
-            AnnRangeSearchEvaluationResult& result) override;
+            AnnRangeSearchEvaluationResult& result) const override;
 
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                   segment_v2::AnnRangeSearchRuntime& runtime,
-                                  bool& suitable_for_ann_index) override;
+                                  bool& suitable_for_ann_index) const override;
 
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);

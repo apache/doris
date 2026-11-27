@@ -51,8 +51,8 @@ public:
                                size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+                FunctionContext::FunctionStateScope scope) const override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override;
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     const DataTypePtr& get_target_type() const;

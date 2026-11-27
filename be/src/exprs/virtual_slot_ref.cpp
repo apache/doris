@@ -94,11 +94,10 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
 }
 
 Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
-                            FunctionContext::FunctionStateScope scope) {
+                            FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_virtual_column_expr->open(state, context, scope));
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -234,7 +233,7 @@ Status VirtualSlotRef::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap,
         segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
-        AnnRangeSearchEvaluationResult& result) {
+        AnnRangeSearchEvaluationResult& result) const {
     return _virtual_column_expr->evaluate_ann_range_search(
             range_search_runtime, index_iterators, column_iterators, rows_of_segment, row_bitmap,
             ann_index_stats, enable_result_cache, result);

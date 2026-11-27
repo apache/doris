@@ -37,14 +37,13 @@ Status VConditionExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status VConditionExpr::open(RuntimeState* state, VExprContext* context,
-                            FunctionContext::FunctionStateScope scope) {
+                            FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 
-void VConditionExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VConditionExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     VExpr::close(context, scope);
 }
@@ -459,7 +458,6 @@ Status VectorizedIfExpr::_execute_impl_internal(Block& block, const ColumnNumber
 Status VectorizedIfExpr::execute_column_impl(VExprContext* context, const Block* block,
                                              const Selector* selector, size_t count,
                                              ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 3) << "IF expr must have three children";
 
     ColumnPtr cond_column;
@@ -500,7 +498,6 @@ Status VectorizedIfExpr::execute_column_impl(VExprContext* context, const Block*
 Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Block* block,
                                                  const Selector* selector, size_t count,
                                                  ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK_EQ(_children.size(), 2) << "IFNULL expr must have two children";
 
     ColumnPtr first_column;

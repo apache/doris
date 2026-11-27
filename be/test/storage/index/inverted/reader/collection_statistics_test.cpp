@@ -117,11 +117,11 @@ public:
     }
 
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
+                FunctionContext::FunctionStateScope scope) const override {
         return Status::OK();
     }
 
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {}
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override {}
 
     const std::string& expr_name() const override {
         static std::string name = "mock_expr";

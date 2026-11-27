@@ -57,14 +57,13 @@ Status DeletePredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status DeletePredicate::open(RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
+                             FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
-    RETURN_IF_ERROR_OR_PREPARED(VExpr::open(state, context, scope));
-    _open_finished = true;
-    return Status::OK();
+    return VExpr::open(state, context, scope);
 }
 
-void DeletePredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void DeletePredicate::close(VExprContext* context,
+                            FunctionContext::FunctionStateScope scope) const {
     VExpr::close(context, scope);
 }
 

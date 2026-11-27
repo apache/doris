@@ -55,8 +55,7 @@ public:
         return Status::OK();
     }
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
-        _open_finished = true;
+                FunctionContext::FunctionStateScope scope) const override {
         return Status::OK();
     }
     const std::string& expr_name() const override { return _name; }

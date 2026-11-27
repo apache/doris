@@ -46,9 +46,9 @@ public:
                                size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
-    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+                FunctionContext::FunctionStateScope scope) const override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) const override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
     [[nodiscard]] const std::string& get_analyzer_key() const override;

@@ -356,25 +356,30 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
-                              FunctionContext::FunctionStateScope scope) {
+                              FunctionContext::FunctionStateScope scope) const {
     DCHECK(_prepare_finished);
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+        // TODO: Move this initialization to a dedicated non-const fragment open.
+        // This cast is temporary. The original context initializes the mutable tree
+        // before sharing it with clones.
+        auto* self = const_cast<VectorizedFnCall*>(this);
+        RETURN_IF_ERROR(self->VExpr::get_const_col(context, nullptr));
     }
-    _open_finished = true;
     return Status::OK();
 }
 
-void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void VectorizedFnCall::close(VExprContext* context,
+                             FunctionContext::FunctionStateScope scope) const {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
+                                                 uint32_t segment_num_rows) const {
     if (get_num_children() < 1) {
         // score() and similar 0-children virtual column functions don't need
         // inverted index evaluation; return OK to skip gracefully.
@@ -440,7 +445,6 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
             }
         }
     })
-    DCHECK(_open_finished || block == nullptr) << debug_string();
 
     Block temp_block;
     ColumnNumbers args(_children.size());
@@ -479,7 +483,7 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+size_t VectorizedFnCall::estimate_memory(const size_t rows) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         return 0;
     }
@@ -802,7 +806,8 @@ bool VectorizedFnCall::equals(const VExpr& other) {
 
 void VectorizedFnCall::prepare_ann_range_search(
         const doris::VectorSearchUserParams& user_params,
-        segment_v2::AnnRangeSearchRuntime& range_search_runtime, bool& suitable_for_ann_index) {
+        segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+        bool& suitable_for_ann_index) const {
     if (!suitable_for_ann_index) {
         return;
     }
@@ -965,7 +970,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap,
         segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
-        AnnRangeSearchEvaluationResult& evaluation_result) {
+        AnnRangeSearchEvaluationResult& evaluation_result) const {
     evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
