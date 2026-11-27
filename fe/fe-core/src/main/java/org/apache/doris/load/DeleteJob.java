@@ -499,6 +499,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     pushTask.getVersion(),
                     pushTask.getPushType(), pushTask.getTaskType());
         }
+        // Release references to per-replica push tasks and tablet delete infos once the job is done.
+        // Otherwise they stay reachable via TransactionState.callback (which retains this DeleteJob
+        // until the transaction is expired), and high-frequency full-table DELETE would accumulate
+        // them in FE heap until OOM.
+        pushTasks.clear();
+        tabletDeleteInfoMap.clear();
     }
 
     public static class BuildParams {
