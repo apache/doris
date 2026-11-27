@@ -384,6 +384,7 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
+            g_bvar_recycler_instance_recycle_task_active.put({instance_id}, 0);
         }
         if (!config::enable_recycler) {
             LOG(WARNING) << "Skip recycle instance_id=" << instance_id
@@ -415,6 +416,7 @@ void Recycler::recycle_callback() {
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         g_bvar_recycler_instance_recycle_start_ts.put({instance_id}, ctime_ms);
         g_bvar_recycler_instance_recycle_task_status.put({"submitted"}, 1);
+        g_bvar_recycler_instance_recycle_task_active.put({instance_id}, 1);
         ret = instance_recycler->do_recycle();
         // If instance recycler has been aborted, don't finish this job
 
@@ -427,6 +429,7 @@ void Recycler::recycle_callback() {
         }
         {
             std::lock_guard lock(mtx_);
+            g_bvar_recycler_instance_recycle_task_active.put({instance_id}, 0);
             recycling_instance_map_.erase(instance_id);
         }
 
