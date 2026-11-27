@@ -78,7 +78,10 @@ public class ShowCharsetCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (whereClause != null) {
-            return new ShowResultSet(getMetaData(), filterRows(ctx, executor));
+            List<List<String>> rows = filterRows(ctx, executor);
+            // A timeout can arrive while the nested query is releasing its resources.
+            checkCancelled(executor);
+            return new ShowResultSet(getMetaData(), rows);
         }
         List<List<String>> rows = Lists.newArrayList();
         if (likePattern != null && !PatternMatcherWrapper.createMysqlPattern(likePattern, false)
@@ -119,15 +122,19 @@ public class ShowCharsetCommand extends ShowCommand {
             internalContext.setExecutor(internalExecutor);
             executor.setCancelDelegate(internalExecutor::cancel);
             // Publish the delegate before checking for cancellation that arrived before publication.
-            Status cancelReason = executor.getPendingCancelReason();
-            if (cancelReason != null) {
-                throw new UserException(cancelReason.getErrorMsg());
-            }
+            checkCancelled(executor);
             return internalExecutor.executeInternalQuery().stream()
                     .map(ResultRow::getValues)
                     .collect(Collectors.toList());
         } finally {
             executor.clearCancelDelegate();
+        }
+    }
+
+    private static void checkCancelled(StmtExecutor executor) throws UserException {
+        Status reason = executor.getPendingCancelReason();
+        if (reason != null) {
+            throw new UserException(reason.getErrorMsg());
         }
     }
 

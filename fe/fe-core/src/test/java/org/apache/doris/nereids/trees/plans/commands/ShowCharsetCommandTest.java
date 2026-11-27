@@ -25,6 +25,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
@@ -131,6 +132,32 @@ class ShowCharsetCommandTest extends TestWithFeService {
             Assertions.assertSame(timeout, inner.getPendingCancelReason());
         } finally {
             outer.clearCancelDelegate();
+        }
+    }
+
+    @Test
+    void testCancelDuringInternalQueryCleanupDoesNotPublishShowResult() {
+        String sql = "SHOW CHARSET WHERE TRUE";
+        Status timeout = new Status(TStatusCode.TIMEOUT, "timeout before SHOW result delivery");
+        StmtExecutor executor = new StmtExecutor(connectContext, new OriginStatement(sql, 0), true);
+        StatementContext original = connectContext.getStatementContext();
+        connectContext.setStatementContext(new StatementContext(connectContext, executor.getOriginStmt()) {
+            @Override
+            public StatementContext createShowQueryContext(ConnectContext inner) {
+                StatementContext nested = super.createShowQueryContext(inner);
+                // Deliver the timeout after FE evaluation, while the nested statement releases its resources.
+                nested.getOrRegisterStatementResource(this, () -> () -> executor.cancel(timeout, false));
+                return nested;
+            }
+        });
+        try {
+            ShowCharsetCommand command = (ShowCharsetCommand) new NereidsParser().parseSingle(sql);
+            UserException failure = Assertions.assertThrows(UserException.class,
+                    () -> command.run(connectContext, executor));
+            Assertions.assertEquals(timeout.getErrorMsg(), failure.getDetailMessage());
+            Assertions.assertNull(executor.getProxyShowResultSet());
+        } finally {
+            connectContext.setStatementContext(original);
         }
     }
 
