@@ -25,8 +25,11 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
+
+class TFunction;
 
 enum class PythonUDFLoadType : uint8_t { INLINE = 0, MODULE = 1, UNKNOWN = 2 };
 
@@ -41,13 +44,18 @@ struct PythonUDFMeta {
     std::string runtime_version;
     std::string inline_code;
     bool always_nullable = false;
+    bool datetime_naive = false;
+    std::string timezone = TimezoneUtils::default_time_zone;
     DataTypes input_types;
     DataTypePtr return_type;
     PythonUDFLoadType type = PythonUDFLoadType::UNKNOWN;
     PythonClientType client_type = PythonClientType::UNKNOWN;
 
+    static bool uses_naive_datetime(const TFunction& fn);
+
     static Status convert_types_to_schema(const DataTypes& types, const std::string& timezone,
-                                          std::shared_ptr<arrow::Schema>* schema);
+                                          std::shared_ptr<arrow::Schema>* schema,
+                                          bool datetime_naive);
 
     static Status serialize_arrow_schema(const std::shared_ptr<arrow::Schema>& schema,
                                          std::shared_ptr<arrow::Buffer>* out);
