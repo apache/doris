@@ -1691,7 +1691,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
             // path behavior.
             auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
                                           index);
-            if (result.ec != std::errc()) {
+            // N is a distance from the last element. For example, last--1 must not become index 0.
+            if (result.ec != std::errc() || index < 0) {
                 LOG(WARNING) << "Invalid index in JSON path: '" << idx_string << "'";
                 return false;
             }
