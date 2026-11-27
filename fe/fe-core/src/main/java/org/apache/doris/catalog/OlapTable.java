@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile.DeleteBitmapLockVersionPB;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -3367,6 +3368,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
+    }
+
+    public void setDeleteBitmapLockVersion(String version) {
+        getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION, version);
+    }
+
+    // Absence identifies tables whose lock version is still selected by Meta Service configuration.
+    public Optional<String> getDeleteBitmapLockVersion() {
+        return Optional.ofNullable(tableProperty)
+                .map(property -> property.getProperties().get(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION));
+    }
+
+    public Optional<DeleteBitmapLockVersionPB> getDeleteBitmapLockVersionProto() {
+        return getDeleteBitmapLockVersion().map(version ->
+                PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION_V2.equals(version)
+                        ? DeleteBitmapLockVersionPB.DELETE_BITMAP_LOCK_VERSION_V2
+                        : DeleteBitmapLockVersionPB.DELETE_BITMAP_LOCK_VERSION_V1);
     }
 
     public boolean getEnableUniqueKeySkipBitmap() {

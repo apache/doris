@@ -4164,6 +4164,12 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        if (Config.isCloudMode() && !isIvmMtmv) {
+            olapTable.getDeleteBitmapLockVersion().ifPresent(version ->
+                    sb.append(",\n\"").append(PropertyAnalyzer.DELETE_BITMAP_LOCK_VERSION)
+                            .append("\" = \"").append(version).append("\""));
+        }
+
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && olapTable.getEnableUniqueKeySkipBitmap() && !isIvmMtmv) {

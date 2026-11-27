@@ -670,6 +670,11 @@ enum TabletTypePB {
     TABLET_TYPE_MEMORY = 1;
 }
 
+enum DeleteBitmapLockVersionPB {
+    DELETE_BITMAP_LOCK_VERSION_V1 = 0;
+    DELETE_BITMAP_LOCK_VERSION_V2 = 1;
+}
+
 enum TabletRolePB {
     TABLET_ROLE_DATA = 0;
     // ATTN(changelog-rename): formerly "TABLET_ROLE_ROW_BINLOG"
@@ -782,6 +787,8 @@ message TabletMetaPB {
     optional int32 schema_version = 1005; // index_id, schema_version -> schema
     // Immutable format of this tablet's inverted-index files.
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1006;
+    // Absent for legacy tables using the Meta Service lock version configuration.
+    optional DeleteBitmapLockVersionPB delete_bitmap_lock_version = 1007;
 }
 
 message TabletMetaCloudPB {
@@ -845,6 +852,8 @@ message TabletMetaCloudPB {
     optional int32 schema_version = 103; // index_id, schema_version -> schema
     // Immutable format of this tablet's inverted-index files.
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 104;
+    // Absent for legacy tables using the Meta Service lock version configuration.
+    optional DeleteBitmapLockVersionPB delete_bitmap_lock_version = 105;
 }
 
 message OLAPRawDeltaHeaderMessage {

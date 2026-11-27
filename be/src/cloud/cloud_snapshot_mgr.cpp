@@ -141,6 +141,14 @@ Status CloudSnapshotMgr::convert_rowsets(
     out->set_table_id(target_tablet->table_id());
     out->set_partition_id(target_tablet->partition_id());
     out->set_index_id(target_tablet->index_id());
+    // The destination table chooses its lock protocol, including when the backup predates the
+    // table property or is restored into an existing table with a different setting.
+    if (auto version = target_tablet->tablet_meta()->delete_bitmap_lock_version();
+        version.has_value()) {
+        out->set_delete_bitmap_lock_version(*version);
+    } else {
+        out->clear_delete_bitmap_lock_version();
+    }
     PUniqueId* cooldown_meta_id = out->mutable_cooldown_meta_id();
     cooldown_meta_id->set_hi(0);
     cooldown_meta_id->set_lo(0);

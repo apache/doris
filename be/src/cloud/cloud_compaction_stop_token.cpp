@@ -86,7 +86,7 @@ Status CloudCompactionStopToken::do_register() {
     compaction_job->set_expiration(now + config::compaction_timeout_seconds);
     compaction_job->set_lease(now + (config::lease_compaction_interval_seconds * 4));
     cloud::StartTabletJobResponse resp;
-    auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    auto st = _engine.meta_mgr().prepare_tablet_job(*_tablet, job, &resp);
     if (!st.ok()) {
         LOG_WARNING("failed to register compaction stop token")
                 .tag("job_id", _uuid)

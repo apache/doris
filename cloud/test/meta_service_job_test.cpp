@@ -1922,6 +1922,59 @@ TEST(MetaServiceJobTest, StopTokenReplacesStaleStopToken) {
     }
 }
 
+TEST(MetaServiceJobTest, TableDeleteBitmapLockVersionOnAbort) {
+    auto old_white_list = config::delete_bitmap_lock_v2_white_list;
+    config::delete_bitmap_lock_v2_white_list = "";
+    DORIS_CLOUD_DEFER {
+        config::delete_bitmap_lock_v2_white_list = old_white_list;
+    };
+    auto meta_service = get_meta_service();
+    MOCK_GET_INSTANCE_ID(instance_id);
+
+    constexpr int64_t table_id = 501, tablet_id = 504, initiator = 505;
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, 502, 503, tablet_id, true));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    brpc::Controller cntl;
+    StartTabletJobRequest start;
+    auto* job = start.mutable_job();
+    job->mutable_idx()->set_tablet_id(tablet_id);
+    job->set_delete_bitmap_lock_version(DELETE_BITMAP_LOCK_VERSION_V2);
+    auto* compaction = job->add_compaction();
+    compaction->set_id("v2_compaction");
+    compaction->set_initiator("BE1");
+    compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+    compaction->set_base_compaction_cnt(0);
+    compaction->set_cumulative_compaction_cnt(0);
+    compaction->set_expiration(time(nullptr) + 60);
+    compaction->set_lease(time(nullptr) + 60);
+    StartTabletJobResponse start_res;
+    meta_service->start_tablet_job(&cntl, &start, &start_res, nullptr);
+    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK) << start_res.status().msg();
+
+    GetDeleteBitmapUpdateLockRequest lock;
+    lock.set_cloud_unique_id("test_cloud_unique_id");
+    lock.set_table_id(table_id);
+    lock.set_lock_id(COMPACTION_DELETE_BITMAP_LOCK_ID);
+    lock.set_initiator(initiator);
+    lock.set_expiration(60);
+    lock.set_delete_bitmap_lock_version(DELETE_BITMAP_LOCK_VERSION_V2);
+    GetDeleteBitmapUpdateLockResponse lock_res;
+    meta_service->get_delete_bitmap_update_lock(&cntl, &lock, &lock_res, nullptr);
+    ASSERT_EQ(lock_res.status().code(), MetaServiceCode::OK) << lock_res.status().msg();
+    check_job_key(meta_service.get(), instance_id, table_id, initiator, true);
+
+    // A Recycler abort supplies the job identity and initiator. The start record carries the mode.
+    FinishTabletJobRequest abort;
+    abort.set_action(FinishTabletJobRequest::ABORT);
+    abort.mutable_job()->CopyFrom(*job);
+    abort.mutable_job()->clear_delete_bitmap_lock_version();
+    abort.mutable_job()->mutable_compaction(0)->set_delete_bitmap_lock_initiator(initiator);
+    FinishTabletJobResponse abort_res;
+    meta_service->finish_tablet_job(&cntl, &abort, &abort_res, nullptr);
+    ASSERT_EQ(abort_res.status().code(), MetaServiceCode::OK) << abort_res.status().msg();
+    check_job_key(meta_service.get(), instance_id, table_id, initiator, false);
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
@@ -2812,17 +2865,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 2.5 if sc or load succeed，compaction1 remove lock in new way failed
     table_id = 222;
     for (int i = 1; i <= 2; i++) {
-        std::string lock_version = "v1";
-        if (i == 1) {
-            lock_version = "v1";
-        } else {
-            lock_version = "v2";
-        }
+        const auto lock_version =
+                i == 1 ? DeleteBitmapLockVersion::V1 : DeleteBitmapLockVersion::V2;
         // 1 lock key does not exist
         remove_delete_bitmap_lock(meta_service.get(), table_id);
         clear_rowsets(table_id);
         // 2 compaction1 get lock in old/new way
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";
@@ -2835,8 +2884,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         std::srand(std::time(0));
         for (int i = 0; i < 10; i++) {
             int num = std::rand() % 3;
-            std::string use_version = (std::rand() % 2 == 0 ? "v2" : "v1");
-            if (use_version == "v1") {
+            const auto use_version = std::rand() % 2 == 0 ? DeleteBitmapLockVersion::V2
+                                                          : DeleteBitmapLockVersion::V1;
+            if (use_version == DeleteBitmapLockVersion::V1) {
                 config::delete_bitmap_lock_v2_white_list = "";
             } else {
                 config::delete_bitmap_lock_v2_white_list = "*";
@@ -2889,7 +2939,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
             }
         }
         // 4 compaction2 get lock in old/new way
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";
@@ -2897,7 +2947,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2502);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         // 5 if sc or load succeed，compaction1 remove lock in old/new way failed
-        if (lock_version == "v1") {
+        if (lock_version == DeleteBitmapLockVersion::V1) {
             config::delete_bitmap_lock_v2_white_list = "";
         } else {
             config::delete_bitmap_lock_v2_white_list = "*";

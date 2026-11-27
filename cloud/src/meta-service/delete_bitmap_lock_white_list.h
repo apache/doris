@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <chrono>
+#include <iosfwd>
 #include <random>
 #include <set>
 #include <shared_mutex>
@@ -29,14 +32,28 @@
 #include "common/string_util.h"
 
 namespace doris::cloud {
-class DeleteBitmapLockWhiteList;
+enum class DeleteBitmapLockVersion { V1, V2 };
+
+std::ostream& operator<<(std::ostream& os, DeleteBitmapLockVersion version);
+
 class DeleteBitmapLockWhiteList {
 public:
     DeleteBitmapLockWhiteList();
     ~DeleteBitmapLockWhiteList();
     void init();
     void update_white_list(std::string white_list);
-    std::string get_delete_bitmap_lock_version(std::string instance_id);
+    DeleteBitmapLockVersion get_delete_bitmap_lock_version(const std::string& instance_id);
+
+    template <typename LockContext>
+    DeleteBitmapLockVersion get_delete_bitmap_lock_version(const std::string& instance_id,
+                                                           const LockContext& context) {
+        if (context.has_delete_bitmap_lock_version()) {
+            return context.delete_bitmap_lock_version() == DELETE_BITMAP_LOCK_VERSION_V2
+                           ? DeleteBitmapLockVersion::V2
+                           : DeleteBitmapLockVersion::V1;
+        }
+        return get_delete_bitmap_lock_version(instance_id);
+    }
 
 private:
     std::set<std::string> _delete_bitmap_lock_v2_white_list_set;

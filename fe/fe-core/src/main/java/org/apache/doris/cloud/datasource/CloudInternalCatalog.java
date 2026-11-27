@@ -443,7 +443,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.info("create tablets dbId: {} tableId: {} tableName: {} partitionId: {} partitionName: {} "
                     + "indexId: {} vaultId: {}",
                     dbId, tbl.getId(), tbl.getName(), partitionId, partitionName, indexId, tbl.getStorageVaultId());
-            sendCreateTabletsRpc(requestBuilder);
+            sendCreateTabletsRpc(requestBuilder, tbl);
             if (index.getId() != tbl.getBaseIndexId()) {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
@@ -1086,9 +1086,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public Cloud.CreateTabletsResponse
-            sendCreateTabletsRpc(Cloud.CreateTabletsRequest.Builder requestBuilder) throws DdlException  {
+    public Cloud.CreateTabletsResponse sendCreateTabletsRpc(
+            Cloud.CreateTabletsRequest.Builder requestBuilder, OlapTable table) throws DdlException {
         requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        table.getDeleteBitmapLockVersionProto().ifPresent(version -> requestBuilder.getTabletMetasBuilderList()
+                .forEach(tabletMeta -> tabletMeta.setDeleteBitmapLockVersion(version)));
         Cloud.CreateTabletsRequest createTabletsReq = requestBuilder.build();
         Preconditions.checkState(createTabletsReq.hasDbId(), "createTabletsReq must set dbId");
         if (LOG.isDebugEnabled()) {

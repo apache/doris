@@ -90,12 +90,25 @@ suite("test_table_properties") {
     def compression_count = sql """ select count(*) from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME=\"compression\" """;
     assert compression_count.first()[0] == 3;
 
-    qt_select_check_1 """select count(*) from information_schema.table_properties where table_schema=\"${dbName}\"; """
-    qt_select_check_2 """select * from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""
+    qt_select_check_1 """
+        SELECT count(*) FROM information_schema.table_properties
+        WHERE TABLE_SCHEMA = '${dbName}' AND PROPERTY_NAME != 'delete_bitmap_lock_version'
+    """
+    qt_select_check_2 """
+        SELECT * FROM information_schema.table_properties
+        WHERE TABLE_SCHEMA = '${dbName}'
+            AND PROPERTY_NAME NOT IN ('default.replication_allocation', 'delete_bitmap_lock_version')
+        ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, PROPERTY_NAME, PROPERTY_VALUE
+    """
     sql """
         drop table listtable;
     """    
-    qt_select_check_3 """select * from information_schema.table_properties where table_schema=\"${dbName}\" and PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""
+    qt_select_check_3 """
+        SELECT * FROM information_schema.table_properties
+        WHERE TABLE_SCHEMA = '${dbName}'
+            AND PROPERTY_NAME NOT IN ('default.replication_allocation', 'delete_bitmap_lock_version')
+        ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, PROPERTY_NAME, PROPERTY_VALUE
+    """
 
     def user = "table_properties_user"
     sql "DROP USER IF EXISTS ${user}"
