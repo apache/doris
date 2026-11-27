@@ -78,6 +78,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
@@ -1901,9 +1902,11 @@ protected:
         rowset_ctx.tablet_path = _tablet->tablet_path();
 
         TabletColumn column = _tablet_schema->column(0);
+        std::vector<segment_v2::SegmentIndexFileCacheRange> early_index_ranges;
         ColumnWriterOptions opts;
         opts.meta = footer->add_columns();
         opts.index_file_writer = index_file_writer.get();
+        opts.early_index_ranges = &early_index_ranges;
         opts.compression_type = CompressionTypePB::LZ4;
         opts.file_writer = file_writer.get();
         opts.footer = footer;
@@ -1931,8 +1934,18 @@ protected:
 
         RETURN_IF_ERROR(writer->finish());
         RETURN_IF_ERROR(writer->write_data());
-        // The file holds only the data pages of this variant so far.
-        EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
+        // Materialized children already wrote their inline indexes. Count them separately
+        // from the data pages, which still include the released children's bytes.
+        uint64_t early_index_bytes = 0;
+        uint64_t previous_end = 0;
+        for (const auto& range : early_index_ranges) {
+            EXPECT_TRUE(range.is_valid_for(file_writer->bytes_appended()));
+            EXPECT_GE(range.offset, previous_end);
+            previous_end = range.offset + range.size;
+            early_index_bytes += range.size;
+        }
+        EXPECT_EQ(writer->get_total_compressed_data_pages_bytes() + early_index_bytes,
+                  file_writer->bytes_appended());
         RETURN_IF_ERROR(writer->write_ordinal_index());
         RETURN_IF_ERROR(writer->write_zone_map());
         if (index_write_policy == VariantIndexWritePolicy::BLOOM_AND_INVERTED) {

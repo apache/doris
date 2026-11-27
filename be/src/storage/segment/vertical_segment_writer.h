@@ -250,6 +250,7 @@ private:
 
     SegmentFooterPB _footer;
     SegmentIndexFileCacheInfo _index_file_cache_info;
+    std::vector<SegmentIndexFileCacheRange> _early_index_ranges;
     size_t _num_short_key_columns;
 
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;

@@ -84,6 +84,32 @@ Status read_range_to_file_cache(io::FileReaderSPtr reader, uint64_t offset, uint
 
 } // namespace
 
+uint64_t SegmentIndexFileCacheInfo::add_inline_index_ranges(
+        const std::vector<SegmentIndexFileCacheRange>& ranges, uint64_t cache_block_size) {
+    const size_t first = index_ranges.size();
+    uint64_t size = 0;
+    for (const auto& range : ranges) {
+        if (range.empty()) {
+            continue;
+        }
+        size += range.size;
+        if (index_ranges.size() > first) {
+            auto& previous = index_ranges.back();
+            const uint64_t end = previous.offset + previous.size;
+            // A read already fetches the whole cache block. For example, [4, 8) and [12, 16)
+            // need one request with 16-byte blocks. A gap across a block stays untouched.
+            if (end == range.offset ||
+                (cache_block_size != 0 &&
+                 (end - 1) / cache_block_size == range.offset / cache_block_size)) {
+                previous.size = range.offset + range.size - previous.offset;
+                continue;
+            }
+        }
+        index_ranges.push_back(range);
+    }
+    return size;
+}
+
 Status SegmentIndexFileCacheLoader::preload_segment_index_to_file_cache(
         const RowsetWriterContext& context, uint32_t segment_id, const std::string& segment_path,
         const SegmentIndexFileCacheInfo& info) {
