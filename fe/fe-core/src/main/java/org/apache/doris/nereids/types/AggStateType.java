@@ -122,7 +122,7 @@ public class AggStateType extends DataType {
             return this;
         }
         List<DataType> inputs = subTypes.stream()
-                .map(AggStateType::resolveNestedDeclaration)
+                .map(TypeCoercionUtils::resolveAggStateDeclarations)
                 .collect(ImmutableList.toImmutableList());
         AggregateFunction nested = bindNestedAggregate(inputs);
         // SQL declarations can require implicit casts before their signature is saved.
@@ -131,25 +131,6 @@ public class AggStateType extends DataType {
                 nested.children().stream().map(Expression::getDataType).collect(Collectors.toList()),
                 nested.children().stream().map(Expression::nullable).collect(Collectors.toList()),
                 returnNullable, nested.getDataType());
-    }
-
-    private static DataType resolveNestedDeclaration(DataType type) {
-        if (type instanceof AggStateType) {
-            return ((AggStateType) type).resolveDeclaration();
-        }
-        if (type instanceof ArrayType) {
-            return ArrayType.of(resolveNestedDeclaration(((ArrayType) type).getItemType()));
-        }
-        if (type instanceof MapType) {
-            MapType map = (MapType) type;
-            return MapType.of(resolveNestedDeclaration(map.getKeyType()), resolveNestedDeclaration(map.getValueType()));
-        }
-        if (type instanceof StructType) {
-            return new StructType(((StructType) type).getFields().stream()
-                    .map(field -> field.withDataType(resolveNestedDeclaration(field.getDataType())))
-                    .collect(ImmutableList.toImmutableList()));
-        }
-        return type;
     }
 
     static AggStateType fromCatalogAggState(org.apache.doris.catalog.AggStateType catalogType) {

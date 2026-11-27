@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker
 import org.apache.doris.nereids.trees.expressions.literal.format.FloatChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.IntegerChecker;
 import org.apache.doris.nereids.trees.expressions.literal.format.TimeChecker;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -384,6 +385,15 @@ public class TypeCoercionUtils {
      */
     public static DataType replaceCharacterToString(DataType dataType) {
         return replaceSpecifiedType(dataType, CharacterType.class, StringType.INSTANCE);
+    }
+
+    /** Bind aggregate-state declarations before comparing a cast target with its source. */
+    public static DataType resolveAggStateDeclarations(DataType dataType) {
+        if (!hasSpecifiedType(dataType, DataType::isAggStateType)) {
+            return dataType;
+        }
+        return replaceSpecifiedType(dataType, DataType::isAggStateType,
+                type -> ((AggStateType) type).resolveDeclaration());
     }
 
     public static DataType replaceDecimalV2WithDefault(DataType dataType) {
