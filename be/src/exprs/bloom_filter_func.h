@@ -117,6 +117,10 @@ public:
         *len = (int)_bloom_filter->size();
     }
 
+    BloomFilterAdaptor::DataVersion get_data_version() const {
+        return _bloom_filter->data_version();
+    }
+
     bool contain_null() const {
         if (!_bloom_filter) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr");
@@ -216,11 +220,13 @@ public:
     void insert_set(std::shared_ptr<HybridSetBase> set) override {
         OpV2::insert_set(*_bloom_filter, set);
         _bloom_filter->set_contain_null(set->contain_null());
+        _bloom_filter->invalidate_digest();
     }
 
     void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         DCHECK(_bloom_filter != nullptr);
         OpV2::insert_batch(*_bloom_filter, column, start);
+        _bloom_filter->invalidate_digest();
     }
 
     void find_fixed_len(const ColumnPtr& column, uint8_t* results,
