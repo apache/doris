@@ -24,9 +24,9 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-// this class used in ScanNode or MultiCastDataStreamSource
 /**
- * init -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
+ * init (with RF wait dependencies) or register_consumers (without RF waiting)
+ * -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
  */
 class RuntimeFilterConsumerHelper {
 public:
@@ -35,6 +35,11 @@ public:
 
     Status init(RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
                 std::vector<std::shared_ptr<Dependency>>& dependencies, const std::string& name);
+    // Register consumers without creating RF wait dependencies or timers. For example, an
+    // exchange receiver can process blocks immediately and apply filters that arrive later.
+    // Call once during local-state initialization, instead of init(). Both paths require
+    // acquire_runtime_filter() before try_append_late_arrival_runtime_filter().
+    Status register_consumers(RuntimeState* state, bool need_local_merge, int32_t node_id);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
     Status acquire_runtime_filter(RuntimeState* state, VExprContextSPtrs& conjuncts,

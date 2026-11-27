@@ -29,12 +29,7 @@ Status RuntimeFilterConsumerHelper::init(RuntimeState* state, bool need_local_me
                                          int32_t node_id, int32_t operator_id,
                                          std::vector<std::shared_ptr<Dependency>>& dependencies,
                                          const std::string& name) {
-    for (const auto& desc : _runtime_filter_descs) {
-        std::shared_ptr<RuntimeFilterConsumer> filter;
-        RETURN_IF_ERROR(
-                state->register_consumer_runtime_filter(desc, need_local_merge, node_id, &filter));
-        _consumers.emplace_back(filter);
-    }
+    RETURN_IF_ERROR(register_consumers(state, need_local_merge, node_id));
 
     dependencies.resize(_runtime_filter_descs.size());
     std::vector<std::shared_ptr<RuntimeFilterTimer>> runtime_filter_timers(
@@ -59,6 +54,17 @@ Status RuntimeFilterConsumerHelper::init(RuntimeState* state, bool need_local_me
     if (!runtime_filter_timers.empty()) {
         ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
                 std::move(runtime_filter_timers));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterConsumerHelper::register_consumers(RuntimeState* state, bool need_local_merge,
+                                                       int32_t node_id) {
+    for (const auto& desc : _runtime_filter_descs) {
+        std::shared_ptr<RuntimeFilterConsumer> filter;
+        RETURN_IF_ERROR(
+                state->register_consumer_runtime_filter(desc, need_local_merge, node_id, &filter));
+        _consumers.emplace_back(filter);
     }
     return Status::OK();
 }

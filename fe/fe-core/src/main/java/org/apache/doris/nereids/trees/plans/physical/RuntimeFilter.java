@@ -29,6 +29,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,6 +57,9 @@ public class RuntimeFilter {
     private final boolean bloomFilterSizeCalculatedByNdv;
 
     private boolean nonBlocking;
+
+    // Probe expressions at exchanges traversed during pushdown, before rewriting to scan slots.
+    private final Map<Integer, Expression> exchangeTargets = new LinkedHashMap<>();
 
     // Generated once with the runtime filter at its final target scan. Translation only
     // maps this target-scoped metadata to the legacy scan node id.
@@ -190,6 +195,16 @@ public class RuntimeFilter {
         sb.append(ignore).append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->").append(targetExpression.toSql());
         return sb.toString();
+    }
+
+    public Map<Integer, Expression> getExchangeTargets() {
+        return Collections.unmodifiableMap(exchangeTargets);
+    }
+
+    public void addExchangeTargets(Map<Integer, Expression> targets) {
+        // Join equivalence expansion can reach the same receiver with different valid probe
+        // expressions. Any one is sufficient; keep the first rather than adding a duplicate.
+        targets.forEach(exchangeTargets::putIfAbsent);
     }
 
     public boolean isNonBlocking() {

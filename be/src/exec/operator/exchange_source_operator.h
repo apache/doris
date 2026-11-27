@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <set>
 
 #include "exec/operator/operator.h"
@@ -35,6 +36,7 @@ class Block;
 namespace doris {
 
 class ExchangeSourceOperatorX;
+class RuntimeFilterConsumerHelper;
 class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
 
@@ -88,6 +90,11 @@ public:
     RuntimeProfile::Counter* get_data_from_recvr_timer = nullptr;
     RuntimeProfile::Counter* filter_timer = nullptr;
     RuntimeProfile::Counter* create_merger_timer = nullptr;
+
+private:
+    friend class ExchangeSourceOperatorX;
+    std::unique_ptr<RuntimeFilterConsumerHelper> _runtime_filter_consumer_helper;
+    VExprContextSPtrs _runtime_filter_conjuncts;
 };
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
@@ -115,6 +122,10 @@ public:
 
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
+
+    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
+        return _runtime_filter_descs;
+    }
 
     // Instances that bucket-routed senders can address: values of the fragment's
     // bucket_seq_to_instance_idx map. Senders open one channel per destination entry
@@ -168,6 +179,7 @@ private:
     doris::VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
 } // namespace doris
