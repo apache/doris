@@ -78,7 +78,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                         // child changes their evaluation granularity from per joined row to per
                         // input row. Repeated volatile occurrences are materialized later by
                         // AddProjectForVolatileExpression.
-                        if (otherConjunct.containsVolatileExpression()) {
+                        if (otherConjunct.containsVolatileOrNoneMovableExpression()) {
                             remainingOther.add(otherConjunct);
                         } else if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
                                 && allCoveredBy(otherConjunct, join.left().getOutputSet())) {
