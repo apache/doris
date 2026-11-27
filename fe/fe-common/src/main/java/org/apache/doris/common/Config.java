@@ -2709,6 +2709,40 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
+    public static final int MAX_SQL_SCANNER_CONCURRENCY = 256;
+
+    @ConfField(mutable = true, callback = StatisticsScannerConcurrencyConfHandler.class,
+            description = "Maximum scanner concurrency per scan instance for internal tables in statistics SQL. "
+                    + "0 inherits the global max_scanners_concurrency session default.")
+    public static volatile int statistics_sql_max_scanners_concurrency = 1;
+
+    @ConfField(mutable = true, callback = StatisticsScannerConcurrencyConfHandler.class,
+            description = "Maximum scanner concurrency per file scan instance in statistics SQL. "
+                    + "0 inherits the global max_file_scanners_concurrency session default.")
+    public static volatile int statistics_sql_max_file_scanners_concurrency = 1;
+
+    public static class StatisticsScannerConcurrencyConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int concurrency = Integer.parseInt(value.trim());
+            validateStatisticsScannerConcurrency(field.getName(), concurrency);
+            field.setInt(null, concurrency);
+        }
+    }
+
+    public static void validateStatisticsScannerConcurrency() throws ConfigException {
+        validateStatisticsScannerConcurrency("statistics_sql_max_scanners_concurrency",
+                statistics_sql_max_scanners_concurrency);
+        validateStatisticsScannerConcurrency("statistics_sql_max_file_scanners_concurrency",
+                statistics_sql_max_file_scanners_concurrency);
+    }
+
+    private static void validateStatisticsScannerConcurrency(String name, int concurrency) throws ConfigException {
+        if (concurrency < 0 || concurrency > MAX_SQL_SCANNER_CONCURRENCY) {
+            throw new ConfigException(name + " must be between 0 and " + MAX_SQL_SCANNER_CONCURRENCY);
+        }
+    }
+
     @ConfField(mutable = true, masterOnly = true, description = "Used to force the number of replicas of internal "
             + "tables. If this config is greater than zero, the " + "number of replicas specified by the user when "
             + "creating the table will be ignored, and the value " + "set by this parameter will be used. At the same "
