@@ -43,6 +43,8 @@
 namespace doris::cloud {
 namespace {
 
+constexpr char KEYTAB_AUTO_RENEWAL_ENABLED[] = "hadoop.kerberos.keytab.login.autorenewal.enabled";
+
 std::string hdfs_error() {
 #ifdef USE_HADOOP_HDFS
     const char* err_msg = hdfsGetLastExceptionRootCause();
@@ -125,16 +127,7 @@ private:
 #endif
         }
 
-        // set other conf
-        for (const auto& kv : conf.hdfs_confs()) {
-            hdfsBuilderConfSetStr(hdfs_builder_, kv.key().c_str(), kv.value().c_str());
-#ifdef USE_HADOOP_HDFS
-            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
-            if (kv.key() == "java.security.krb5.conf") {
-                hdfsBuilderSetKerb5Conf(hdfs_builder_, kv.value().c_str());
-            }
-#endif
-        }
+        set_hdfs_confs(conf, kerberos_login);
 
         if (kerberos_login) {
             int ret = check_krb_params(conf.hdfs_kerberos_principal(), conf.hdfs_kerberos_keytab());
@@ -143,8 +136,35 @@ private:
             }
         }
 
-        hdfsBuilderConfSetStr(hdfs_builder_, "ipc.client.fallback-to-simple-auth-allowed", "true");
+        set_hdfs_conf("ipc.client.fallback-to-simple-auth-allowed", "true");
         return 0;
+    }
+
+    void set_hdfs_confs(const HdfsBuildConf& conf, bool kerberos_login) {
+        const bool enable_keytab_renewal = kerberos_login && config::kerberos_ccache_path.empty();
+        if (enable_keytab_renewal) {
+            set_hdfs_conf(KEYTAB_AUTO_RENEWAL_ENABLED, "true");
+        }
+        for (const auto& kv : conf.hdfs_confs()) {
+            // libhdfs prepends options and replays them in reverse order. Forwarding
+            // renewal=false before a separate true would leave false effective. Emit
+            // one true for keytab login and skip every incoming copy of this key.
+            if (enable_keytab_renewal && kv.key() == KEYTAB_AUTO_RENEWAL_ENABLED) {
+                continue;
+            }
+            set_hdfs_conf(kv.key().c_str(), kv.value().c_str());
+#ifdef USE_HADOOP_HDFS
+            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
+            if (kv.key() == "java.security.krb5.conf") {
+                hdfsBuilderSetKerb5Conf(hdfs_builder_, kv.value().c_str());
+            }
+#endif
+        }
+    }
+
+    void set_hdfs_conf(const char* key, const char* value) {
+        TEST_SYNC_POINT_CALLBACK("HDFSBuilder::set_hdfs_conf", key, value);
+        hdfsBuilderConfSetStr(hdfs_builder_, key, value);
     }
 
     // returns 0 for success otherwise error
@@ -163,8 +183,7 @@ private:
                          std::string_view hdfs_kerberos_keytab) {
         const auto& ticket_path = config::kerberos_ccache_path;
         if (!ticket_path.empty()) {
-            hdfsBuilderConfSetStr(hdfs_builder_, "hadoop.security.kerberos.ticket.cache.path",
-                                  ticket_path.c_str());
+            set_hdfs_conf("hadoop.security.kerberos.ticket.cache.path", ticket_path.c_str());
             return 0;
         }
 
@@ -174,9 +193,6 @@ private:
             return -1;
         }
 
-        // enable auto-renew thread
-        hdfsBuilderConfSetStr(hdfs_builder_, "hadoop.kerberos.keytab.login.autorenewal.enabled",
-                              "true");
         return 0;
     }
 
