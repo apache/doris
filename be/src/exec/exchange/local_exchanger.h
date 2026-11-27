@@ -91,10 +91,8 @@ public:
                 // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
                 // not used by `sub_total_mem_usage`. So we just pass -1 here.
                 _shared_state->sub_total_mem_usage(_allocated_bytes);
-                if (_shared_state->exchanger->_free_block_limit == 0 ||
-                    _shared_state->exchanger->_free_blocks.size_approx() <
-                            _shared_state->exchanger->_free_block_limit *
-                                    _shared_state->exchanger->_num_sources) {
+                if (_shared_state->exchanger->can_cache_free_block(
+                            _shared_state->exchanger->_free_blocks.size_approx())) {
                     _data_block.clear_column_data();
                     // Free blocks is used to improve memory efficiency. Failure during pushing back
                     // free block will not incur any bad result so just ignore the return value.
@@ -152,6 +150,12 @@ public:
     virtual void finalize();
 
     virtual std::string data_queue_debug_string(int i) = 0;
+
+    bool can_cache_free_block(size_t cached_blocks) const {
+        const int limit = _free_block_limit.load();
+        // Widen before multiplication. For example, 2 sources * 2^30 blocks exceeds int32.
+        return limit == 0 || cached_blocks < static_cast<size_t>(limit) * _num_sources;
+    }
 
     void set_low_memory_mode() {
         _free_block_limit = 0;

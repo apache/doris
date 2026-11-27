@@ -343,4 +343,14 @@ TEST_F(MockRuntimeStateBlockBudgetTest, ConfigOffStillDisablesAdaptiveBytes) {
     EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
 }
 
+TEST(RuntimeStateNumericOptionsTest, UnitConversionsPreserveBoundaries) {
+    RuntimeState state;
+    state._query_options.__set_minimum_operator_memory_required_kb(2097152);
+    EXPECT_EQ(state.minimum_operator_memory_required_bytes(), 2147483648ULL);
+    state._query_options.__set_minimum_operator_memory_required_kb(4194304);
+    EXPECT_EQ(state.minimum_operator_memory_required_bytes(), 4294967296ULL);
+    state._query_options.__set_minimum_operator_memory_required_kb(-1);
+    EXPECT_THROW(state.minimum_operator_memory_required_bytes(), Exception);
+}
+
 } // namespace doris

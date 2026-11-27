@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -2095,6 +2096,50 @@ TEST_F(ScannerContextTest, terminal_eos_skips_context_submission) {
   - Atomic operations and thread safety
   - Memory distribution algorithms
 */
+TEST(MemShareArbitratorBoundaryTest, FullInt64Budget) {
+    // INT64_MAX rounds up when converted to double. No memory allocation is needed;
+    // one reported byte obtains the full budget when it is the only active scanner.
+    const auto maximum = std::numeric_limits<int64_t>::max();
+    auto arbitrator = MemShareArbitrator::create_shared(TUniqueId {}, maximum, 1.0);
+    EXPECT_EQ(arbitrator->mem_limit, maximum);
+    const auto budget = arbitrator->update_mem_bytes(0, 1);
+    EXPECT_EQ(budget, maximum);
+    // Continue through the consumer used by ScannerContext::init. The 64 MiB estimate gives
+    // 137438953471 scanners, so both serial and parallel scans must cap the int result.
+    for (bool serial : {false, true}) {
+        auto limiter = MemLimiter::create_shared(TUniqueId {}, 1, serial, maximum);
+        limiter->update_mem_limit(budget);
+        limiter->reestimated_block_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
+        EXPECT_EQ(limiter->available_scanner_count(0), std::numeric_limits<int>::max());
+    }
+}
+
+TEST(MemLimiterBoundaryTest, ScannerCountFitsInt) {
+    // Only counters are used. No buffers or scanners are allocated for these large budgets.
+    constexpr int64_t int_max = std::numeric_limits<int>::max();
+    auto limiter =
+            MemLimiter::create_shared(TUniqueId {}, 1, false, std::numeric_limits<int64_t>::max());
+    limiter->reestimated_block_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
+    limiter->update_mem_limit((int_max - 1) * DEFAULT_SCANNER_MEM_BYTES);
+    EXPECT_EQ(limiter->available_scanner_count(0), int_max - 1);
+    limiter->update_mem_limit(int_max * DEFAULT_SCANNER_MEM_BYTES);
+    EXPECT_EQ(limiter->available_scanner_count(0), int_max);
+    // This is the first scanner count that cannot fit the return type.
+    limiter->update_mem_limit((int_max + 1) * DEFAULT_SCANNER_MEM_BYTES);
+    EXPECT_EQ(limiter->available_scanner_count(0), int_max);
+}
+
+TEST(MemLimiterBoundaryTest, DistributeBeforeCappingScannerCount) {
+    // A total count above INT_MAX can still give valid per-instance counts. Capping the total
+    // before dividing would give the second instance one scanner less than its fair share.
+    constexpr int64_t budget = 2147483648L * DEFAULT_SCANNER_MEM_BYTES;
+    auto limiter = MemLimiter::create_shared(TUniqueId {}, 2, false, budget);
+    limiter->update_mem_limit(budget);
+    limiter->reestimated_block_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
+    EXPECT_EQ(limiter->available_scanner_count(0), 1073741824);
+    EXPECT_EQ(limiter->available_scanner_count(1), 1073741824);
+}
+
 // ==================== MemShareArbitrator Tests ====================
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_basic) {
     TUniqueId query_id;

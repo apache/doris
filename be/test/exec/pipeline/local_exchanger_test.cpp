@@ -71,6 +71,17 @@ private:
     const int DUMMY_PORT = config::brpc_port;
 };
 
+TEST_F(LocalExchangerTest, FreeBlockLimitUsesWideProduct) {
+    // Two sources and a 2^30 limit overflow an int32 product. Test the count only;
+    // no blocks or rows need to be allocated to reproduce the wrong comparison.
+    auto exchanger = PassthroughExchanger::create_unique(1, 2, 1 << 30);
+    EXPECT_TRUE(exchanger->can_cache_free_block(0));
+    EXPECT_TRUE(exchanger->can_cache_free_block((size_t {1} << 31) - 1));
+    EXPECT_FALSE(exchanger->can_cache_free_block(size_t {1} << 31));
+    auto unlimited = PassthroughExchanger::create_unique(1, 2, 0);
+    EXPECT_TRUE(unlimited->can_cache_free_block(size_t {1} << 31));
+}
+
 TEST_F(LocalExchangerTest, ShuffleExchanger) {
     int num_sink = 4;
     int num_sources = 4;

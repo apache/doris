@@ -885,7 +885,14 @@ public:
 
     size_t minimum_operator_memory_required_bytes() const {
         if (_query_options.__isset.minimum_operator_memory_required_kb) {
-            return _query_options.minimum_operator_memory_required_kb * 1024;
+            const auto kb = _query_options.minimum_operator_memory_required_kb;
+            // An older FE can send a negative value. An unsigned conversion would reserve
+            // almost the entire address space. For positive values, widen before scaling.
+            if (kb < 0) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Negative operator memory limit: {} KiB", kb);
+            }
+            return static_cast<size_t>(kb) * 1024;
         } else {
             // refer other database
             return 4 * 1024 * 1024;
