@@ -124,7 +124,7 @@ TEST_P(DataTypeBitMapTest, SerializeDeserializeTest) {
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
     auto* result =
             dt_bitmap->serialize(*column, buf.get(), BeExecVersionManager::get_newest_version());
-    ASSERT_EQ(result, buf.get() + size);
+    ASSERT_LE(result, buf.get() + size);
 
     auto column2 = dt_bitmap->create_column();
     dt_bitmap->deserialize(buf.get(), &column2, BeExecVersionManager::get_newest_version());

@@ -514,7 +514,7 @@ public:
         std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
         auto* result = _bitmap_type.serialize(*column, buf.get(),
                                               BeExecVersionManager::get_newest_version());
-        ASSERT_EQ(result, buf.get() + size);
+        ASSERT_LE(result, buf.get() + size);
 
         auto column2 = _bitmap_type.create_column();
         _bitmap_type.deserialize(buf.get(), &column2, BeExecVersionManager::get_newest_version());

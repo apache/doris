@@ -23,11 +23,17 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "core/arena.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
+#include "core/value/bitmap_value.h"
+#include "core/value/hll.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
 
@@ -320,6 +326,84 @@ TEST(SingleValueDataColumnTest, CompareCopyAndSerialize) {
     ASSERT_EQ(result->size(), 1);
     EXPECT_EQ((*result)[0],
               Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(1)}));
+}
+
+namespace {
+
+MutableColumnPtr roundtrip_any_value_serialize(const DataTypePtr& type, const IColumn& input) {
+    const int be_exec_version = BeExecVersionManager::get_newest_version();
+    auto agg_func = AggregateFunctionSimpleFactory::instance().get("any_value", {type}, type, false,
+                                                                   be_exec_version);
+    EXPECT_NE(agg_func, nullptr);
+    if (!agg_func) {
+        return nullptr;
+    }
+    agg_func->set_version(be_exec_version);
+
+    Arena arena;
+    auto* src_place = arena.aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    auto* dst_place = arena.aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(src_place);
+    agg_func->create(dst_place);
+
+    const IColumn* columns[1] = {&input};
+    agg_func->add(src_place, columns, 0, arena);
+
+    auto serialized = ColumnString::create();
+    BufferWritable writer(*serialized);
+    agg_func->serialize(src_place, writer);
+    writer.commit();
+
+    BufferReadable reader(serialized->get_data_at(0));
+    agg_func->deserialize(dst_place, reader, arena);
+
+    auto result = type->create_column();
+    agg_func->insert_result_into(dst_place, *result);
+
+    agg_func->destroy(dst_place);
+    agg_func->destroy(src_place);
+    return result;
+}
+
+} // namespace
+
+TEST(SingleValueDataColumnTest, AnyValueSerializeHllSparse) {
+    HyperLogLog hll;
+    for (uint64_t i = 0; i < 200; ++i) {
+        hll.update(i);
+    }
+    std::vector<uint8_t> packed(hll.max_serialized_size());
+    ASSERT_LT(hll.serialize(packed.data()), hll.max_serialized_size());
+
+    auto hll_type = std::make_shared<DataTypeHLL>();
+    auto input = ColumnHLL::create();
+    input->insert_value(hll);
+
+    auto result = roundtrip_any_value_serialize(hll_type, *input);
+    ASSERT_NE(result.get(), nullptr);
+    ASSERT_EQ(result->size(), 1);
+    EXPECT_EQ(assert_cast<const ColumnHLL&>(*result).get_element(0).estimate_cardinality(),
+              hll.estimate_cardinality());
+}
+
+TEST(SingleValueDataColumnTest, AnyValueSerializeUnoptimizedBitmap) {
+    BitmapValue bitmap;
+    for (uint64_t i = 0; i < 1024; ++i) {
+        bitmap.add(i);
+    }
+    BitmapValue compact(bitmap);
+    compact.optimize();
+    ASSERT_GT(bitmap.getSizeInBytes(), compact.getSizeInBytes());
+
+    auto bitmap_type = std::make_shared<DataTypeBitMap>();
+    auto input = ColumnBitmap::create();
+    input->insert_value(bitmap);
+
+    auto result = roundtrip_any_value_serialize(bitmap_type, *input);
+    ASSERT_NE(result.get(), nullptr);
+    ASSERT_EQ(result->size(), 1);
+    EXPECT_EQ(assert_cast<const ColumnBitmap&>(*result).get_element(0).cardinality(),
+              bitmap.cardinality());
 }
 
 } // namespace doris

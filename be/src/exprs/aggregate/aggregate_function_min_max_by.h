@@ -91,7 +91,9 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(value);
+            assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to)
+                    .get_data()
+                    .emplace_back(value);
         } else {
             assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to).insert_default();
         }

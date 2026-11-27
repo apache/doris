@@ -105,6 +105,152 @@ namespace detail {
 
 class Roaring64MapSetBitForwardIterator;
 
+// Read-only compact serialization view over a 32-bit roaring::Roaring.
+// Holds non-owning pointers to `src`'s keys and unchanged containers, allocates temporary
+// converted copies only for containers that shrink (owned by `_owned_temps`), and delegates
+// serialization to CRoaring without mutating `src`.
+class OptimizedRoaringView {
+public:
+    // `src`: immutable 32-bit roaring; `is_v1`: true = portable (v1), false = native (v2).
+    OptimizedRoaringView(const roaring::Roaring& src, bool is_v1) : _src(&src), _is_v1(is_v1) {
+        const auto& ra = src.roaring.high_low_container;
+        if (ra.size <= 0 || (ra.flags & ROARING_FLAG_FROZEN) != 0) {
+            return;
+        }
+
+        // Step 1: convert only containers that shrink; lazily populate prior non-owning slots.
+        const uint32_t n = static_cast<uint32_t>(ra.size);
+        for (uint32_t i = 0; i < n; ++i) {
+            uint8_t orig_type = ra.typecodes[i];
+            const auto* unwrapped =
+                    roaring::internal::container_unwrap_shared(ra.containers[i], &orig_type);
+            uint8_t new_type = orig_type;
+            OwnedContainer converted(_try_convert_container(unwrapped, orig_type, &new_type),
+                                     ContainerDeleter {new_type});
+
+            if (converted && converted.get() != unwrapped && new_type != orig_type) {
+                if (_containers.empty()) {
+                    _containers.resize(n);
+                    _typecodes.resize(n);
+                    for (uint32_t j = 0; j < i; ++j) {
+                        uint8_t prev_type = ra.typecodes[j];
+                        const auto* prev = roaring::internal::container_unwrap_shared(
+                                ra.containers[j], &prev_type);
+                        _containers[j] = const_cast<roaring::internal::container_t*>(prev);
+                        _typecodes[j] = prev_type;
+                    }
+                }
+                _containers[i] = converted.get();
+                _typecodes[i] = new_type;
+                _owned_temps.push_back(std::move(converted));
+            } else {
+                // Release without freeing when CRoaring returns `unwrapped` unchanged (owned by `src`).
+                if (converted.get() == unwrapped) {
+                    (void)converted.release();
+                }
+                if (!_containers.empty()) {
+                    _containers[i] = const_cast<roaring::internal::container_t*>(unwrapped);
+                    _typecodes[i] = orig_type;
+                }
+            }
+        }
+
+        // Step 2: no container shrank, keep `_containers` empty for the direct fast path.
+        if (_containers.empty()) {
+            return;
+        }
+
+        // Step 3: fall back to `src` if run-bitset header overhead makes output exceed `getSizeInBytes`.
+        const auto view = _make_bitmap_view();
+        const size_t opt_size = is_v1 ? roaring::api::roaring_bitmap_portable_size_in_bytes(&view)
+                                      : roaring::api::roaring_bitmap_size_in_bytes(&view);
+        if (opt_size > src.getSizeInBytes(is_v1)) {
+            _containers.clear();
+            _typecodes.clear();
+            _owned_temps.clear();
+        }
+    }
+
+    // Write serialized bytes into `buf` (at least `_src->getSizeInBytes(_is_v1)` bytes); returns bytes written.
+    size_t write(char* buf) const {
+        if (_containers.empty()) {
+            return _src->write(buf, _is_v1);
+        }
+        const auto view = _make_bitmap_view();
+        return _is_v1 ? roaring::api::roaring_bitmap_portable_serialize(&view, buf)
+                      : roaring::api::roaring_bitmap_serialize(&view, buf);
+    }
+
+private:
+    struct ContainerDeleter {
+        uint8_t typecode {0};
+        void operator()(roaring::internal::container_t* p) const {
+            if (p != nullptr) {
+                roaring::internal::container_free(p, typecode);
+            }
+        }
+    };
+    using OwnedContainer = std::unique_ptr<roaring::internal::container_t, ContainerDeleter>;
+
+    // Convert `c` (`orig_type` -> `*new_type`) if ARRAY/BITSET/RUN shrinks; returns nullptr or `c` otherwise.
+    static roaring::internal::container_t* _try_convert_container(
+            const roaring::internal::container_t* c, uint8_t orig_type, uint8_t* new_type) {
+        switch (orig_type) {
+        case ARRAY_CONTAINER_TYPE: {
+            const auto* ac = static_cast<const roaring::internal::array_container_t*>(c);
+            const int32_t n_runs = roaring::internal::array_container_number_of_runs(ac);
+            if (roaring::internal::run_container_serialized_size_in_bytes(n_runs) <
+                roaring::internal::array_container_serialized_size_in_bytes(ac->cardinality)) {
+                *new_type = RUN_CONTAINER_TYPE;
+                return roaring::internal::run_container_from_array(ac);
+            }
+            return nullptr;
+        }
+        case BITSET_CONTAINER_TYPE: {
+            const auto* bc = static_cast<const roaring::internal::bitset_container_t*>(c);
+            const int32_t n_runs = roaring::internal::bitset_container_number_of_runs(
+                    const_cast<roaring::internal::bitset_container_t*>(bc));
+            if (roaring::internal::run_container_serialized_size_in_bytes(n_runs) <
+                roaring::internal::bitset_container_serialized_size_in_bytes()) {
+                return roaring::internal::convert_run_optimize(
+                        roaring::internal::bitset_container_clone(bc), BITSET_CONTAINER_TYPE,
+                        new_type);
+            }
+            return nullptr;
+        }
+        case RUN_CONTAINER_TYPE: {
+            const auto* rc = static_cast<const roaring::internal::run_container_t*>(c);
+            return roaring::internal::convert_run_to_efficient_container(
+                    const_cast<roaring::internal::run_container_t*>(rc), new_type);
+        }
+        default:
+            return nullptr;
+        }
+    }
+
+    // Assemble a stack-allocated roaring_bitmap_t view combining `_src`'s keys with `_containers`
+    // and `_typecodes` (example with 3 containers where only slot 1 shrank):
+    //   view.size       = 3
+    //   view.keys       = src.keys    --> [ 0,      1,      2      ]  (non-owning ptr to src keys)
+    //   view.containers = _containers --> [ orig_0, new_1,  orig_2 ]  (non-owning src ptrs + owned temps)
+    //   view.typecodes  = _typecodes  --> [ ARRAY,  RUN,    ARRAY  ]
+    roaring::api::roaring_bitmap_t _make_bitmap_view() const {
+        roaring::api::roaring_bitmap_t view {};
+        view.high_low_container.size = static_cast<int32_t>(_containers.size());
+        view.high_low_container.allocation_size = static_cast<int32_t>(_containers.size());
+        view.high_low_container.containers =
+                const_cast<roaring::internal::container_t**>(_containers.data());
+        view.high_low_container.keys = _src->roaring.high_low_container.keys;
+        view.high_low_container.typecodes = const_cast<uint8_t*>(_typecodes.data());
+        return view;
+    }
+
+    const roaring::Roaring* _src {nullptr}; // Immutable source bitmap (owns `keys` and original containers)
+    bool _is_v1 {true};                     // Format flag: true = portable (v1), false = native (v2)
+    std::vector<roaring::internal::container_t*> _containers; // Non-owning `_src` ptrs + `_owned_temps` ptrs
+    std::vector<uint8_t> _typecodes;                          // 1: BITSET, 2: ARRAY, 3: RUN
+    std::vector<OwnedContainer> _owned_temps;                 // Owns newly allocated converted containers
+};
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v4.7.2/cpp/roaring/roaring64map.hh
 // What we change includes
 // - a custom serialization format is used inside read()/write()/getSizeInBytes()
@@ -756,8 +902,7 @@ public:
     }
 
     /**
-     * write a bitmap to a char buffer.
-     * Returns how many bytes were written which should be getSizeInBytes().
+     * Write bitmap to `buf` in compact form without mutating it (returns <= getSizeInBytes()).
      */
     size_t write(char* buf, int serialize_version) const {
         bool is_v1 = serialize_version == 1;
@@ -773,7 +918,7 @@ public:
                 roaring::Roaring r;
                 return r.write(buf, is_v1) + 1;
             }
-            return it->second.write(buf, is_v1) + 1;
+            return OptimizedRoaringView(it->second, is_v1).write(buf) + 1;
         }
 
         const char* orig = buf;
@@ -787,7 +932,7 @@ public:
                           encode_fixed32_le((uint8_t*)buf, map_entry.first);
                           buf += sizeof(uint32_t);
                           // push map value Roaring
-                          buf += map_entry.second.write(buf, is_v1);
+                          buf += OptimizedRoaringView(map_entry.second, is_v1).write(buf);
                       });
         return buf - orig;
     }
@@ -798,14 +943,18 @@ public:
      * This function is unsafe in the sense that if you provide bad data,
      * many bytes could be read, possibly causing a buffer overflow. See also readSafe.
      */
-    static Roaring64Map read(const char* buf) {
+    static Roaring64Map read(const char* buf, size_t* bytes_read = nullptr) {
         Roaring64Map result;
+        const char* start = buf;
 
         bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
         bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
         bool is_bitmap64 = BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf;
         if (is_bitmap32) {
             roaring::Roaring read = roaring::Roaring::read(buf + 1, is_v1);
+            if (bytes_read != nullptr) {
+                *bytes_read = 1 + read.getSizeInBytes(is_v1);
+            }
             result.emplaceOrInsert(0, std::move(read));
             return result;
         }
@@ -825,9 +974,13 @@ public:
             buf += sizeof(uint32_t);
             // read map value Roaring
             roaring::Roaring read_var = roaring::Roaring::read(buf, is_v1);
-            // forward buffer past the last Roaring Bitmap
-            buf += read_var.getSizeInBytes(is_v1);
+            if (lcv + 1 < map_size || bytes_read != nullptr) {
+                buf += read_var.getSizeInBytes(is_v1);
+            }
             result.emplaceOrInsert(key, std::move(read_var));
+        }
+        if (bytes_read != nullptr) {
+            *bytes_read = buf - start;
         }
         return result;
     }
@@ -1306,19 +1459,17 @@ class BitmapValueIterator;
 class BitmapValue {
 public:
     // Construct an empty bitmap.
-    BitmapValue() : _sv(0), _bitmap(nullptr), _type(EMPTY), _is_shared(false) { _set.clear(); }
+    BitmapValue() = default;
 
     // Construct a bitmap with one element.
-    explicit BitmapValue(uint64_t value)
-            : _sv(value), _bitmap(nullptr), _type(SINGLE), _is_shared(false) {}
+    explicit BitmapValue(uint64_t value) : _sv(value), _type(SINGLE) {}
 
     // Construct a bitmap from serialized data.
-    explicit BitmapValue(const char* src) : _is_shared(false) {
+    explicit BitmapValue(const char* src) {
         bool res = deserialize(src);
         DCHECK(res);
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
         switch (other._type) {
@@ -1334,16 +1485,8 @@ public:
             _set = other._set;
             break;
         }
-
-        if (other._type == BITMAP) {
-            _is_shared = true;
-            // should also set other's state to shared, so that other bitmap value will
-            // create a new bitmap when it wants to modify it.
-            other._is_shared = true;
-        }
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
         switch (other._type) {
@@ -1360,12 +1503,9 @@ public:
             _set = std::move(other._set);
             break;
         }
-        _is_shared = other._is_shared;
         other._type = EMPTY;
-        other._is_shared = false;
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator=(const BitmapValue& other) {
         if (this == &other) {
             return *this;
@@ -1384,13 +1524,6 @@ public:
         case SET:
             _set = other._set;
             break;
-        }
-
-        if (other._type == BITMAP) {
-            _is_shared = true;
-            // should also set other's state to shared, so that other bitmap value will
-            // create a new bitmap when it wants to modify it.
-            other._is_shared = true;
         }
         return *this;
     }
@@ -1418,20 +1551,18 @@ public:
             _set = std::move(other._set);
             break;
         }
-        _is_shared = other._is_shared;
         other._type = EMPTY;
-        other._is_shared = false;
         return *this;
     }
 
     // Construct a bitmap from given elements.
     template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-    explicit BitmapValue(const std::vector<T>& bits) : _is_shared(false) {
+    explicit BitmapValue(const std::vector<T>& bits) {
         _type = EMPTY;
         this->add_many(bits.data(), bits.size());
     }
 
-    explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
+    explicit BitmapValue(const std::vector<uint64_t>& bits) {
         _type = EMPTY;
         add_many(bits.data(), bits.size());
     }
@@ -1661,7 +1792,6 @@ public:
     // EMPTY  -> SINGLE
     // EMPTY  -> BITMAP
     // SINGLE -> BITMAP
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator|=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1673,14 +1803,10 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _prepare_bitmap_for_write();
                 _bitmap->add(_sv);
                 _type = BITMAP;
@@ -1810,7 +1936,6 @@ public:
                     _sv = rhs._sv;
                 }
                 _bitmap.reset();
-                _is_shared = false;
                 break;
             case SET:
                 if (!_set.contains(rhs._sv)) {
@@ -1867,7 +1992,6 @@ public:
                 }
                 _type = SET;
                 _bitmap.reset();
-                _is_shared = false;
                 _convert_to_smaller_type();
                 break;
             case SET:
@@ -1891,7 +2015,6 @@ public:
     // SINGLE -> EMPTY
     // BITMAP -> EMPTY
     // BITMAP -> SINGLE
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1929,14 +2052,10 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
                 if (!rhs._bitmap->contains(_sv)) {
@@ -2400,9 +2519,22 @@ public:
         return 0;
     }
 
+    void optimize() {
+        if (_type == BITMAP) {
+            _prepare_bitmap_for_write();
+            _bitmap->runOptimize();
+            _bitmap->shrinkToFit();
+        }
+    }
+
+    // Serialize to `dst`; BITMAP payloads are compressed read-only via OptimizedRoaringView.
+    void write(std::string& dst) const {
+        dst.resize(getSizeInBytes());
+        dst.resize(write_to(dst.data()));
+    }
+
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    // !FIXME: We should rethink the logic here
     size_t getSizeInBytes() const {
         size_t res = 0;
         switch (_type) {
@@ -2417,9 +2549,6 @@ public:
             }
             break;
         case BITMAP:
-            _prepare_bitmap_for_write();
-            _bitmap->runOptimize();
-            _bitmap->shrinkToFit();
             res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);
             break;
         case SET:
@@ -2430,22 +2559,23 @@ public:
         return res;
     }
 
-    // Serialize the bitmap value to dst, which should be large enough.
-    // Client should call `getSizeInBytes` first to get the serialized size.
-    void write_to(char* dst) const {
+    // Serialize to `dst` (at least `getSizeInBytes()` bytes) and return bytes written; BITMAP payloads
+    // are compressed read-only via OptimizedRoaringView without mutating this BitmapValue.
+    size_t write_to(char* dst) const {
         switch (_type) {
         case EMPTY:
             *dst = BitmapTypeCode::EMPTY;
-            break;
+            return 1;
         case SINGLE:
             if (_sv <= std::numeric_limits<uint32_t>::max()) {
                 *(dst++) = BitmapTypeCode::SINGLE32;
                 encode_fixed32_le(reinterpret_cast<uint8_t*>(dst), static_cast<uint32_t>(_sv));
+                return 1 + sizeof(uint32_t);
             } else {
                 *(dst++) = BitmapTypeCode::SINGLE64;
                 encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), _sv);
+                return 1 + sizeof(uint64_t);
             }
-            break;
         case SET:
             DCHECK(config::enable_set_in_bitmap_value);
             *dst = BitmapTypeCode::SET;
@@ -2461,52 +2591,62 @@ public:
                     dst += sizeof(uint64_t);
                 }
             }
-            break;
+            return 2 + sizeof(uint64_t) * _set.size();
         case BITMAP:
-            _bitmap->write(dst, config::bitmap_serialize_version);
-            break;
+            return _bitmap->write(dst, config::bitmap_serialize_version);
         }
+        CHECK(false) << "Invalid BitmapDataType: " << _type;
+        return 0;
     }
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
-    bool deserialize(const char* src) {
+    bool deserialize(const char* src) { return _deserialize(src); }
+
+    // Return the number of bytes consumed from src, or zero on decode failure.
+    size_t deserialize_with_size(const char* src) {
+        size_t consumed = 0;
+        return _deserialize(src, &consumed) ? consumed : 0;
+    }
+
+private:
+    bool _deserialize(const char* src, size_t* bytes_read = nullptr) {
         reset();
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
-            break;
+            if (bytes_read != nullptr) {
+                *bytes_read = 1;
+            }
+            return true;
         case BitmapTypeCode::SINGLE32:
+        case BitmapTypeCode::SINGLE64: {
+            const bool single32 = *src == BitmapTypeCode::SINGLE32;
+            const auto* payload = reinterpret_cast<const uint8_t*>(src + 1);
             _type = SINGLE;
-            _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+            _sv = single32 ? decode_fixed32_le(payload) : decode_fixed64_le(payload);
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.clear();
                 _set.insert(_sv);
             }
-            break;
-        case BitmapTypeCode::SINGLE64:
-            _type = SINGLE;
-            _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
-            if (config::enable_set_in_bitmap_value) {
-                _type = SET;
-                _set.clear();
-                _set.insert(_sv);
+            if (bytes_read != nullptr) {
+                *bytes_read = 1 + (single32 ? sizeof(uint32_t) : sizeof(uint64_t));
             }
-            break;
+            return true;
+        }
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
         case BitmapTypeCode::BITMAP32_V2:
         case BitmapTypeCode::BITMAP64_V2:
             _type = BITMAP;
-            _is_shared = false;
             try {
-                _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+                _bitmap = std::make_shared<detail::Roaring64Map>(
+                        detail::Roaring64Map::read(src, bytes_read));
+                return true;
             } catch (const std::runtime_error& e) {
                 LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
                 return false;
             }
-            break;
         case BitmapTypeCode::SET: {
             _type = SET;
             ++src;
@@ -2520,12 +2660,13 @@ public:
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "bitmap value with duplicated set values, count: {}", count);
             }
-            src += sizeof(uint64_t) * count;
-
             if (!config::enable_set_in_bitmap_value) {
                 _convert_set_to_bitmap();
             }
-            break;
+            if (bytes_read != nullptr) {
+                *bytes_read = 1 + sizeof(count) + sizeof(uint64_t) * count;
+            }
+            return true;
         }
         case BitmapTypeCode::SET_V2: {
             uint32_t size = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
@@ -2539,13 +2680,15 @@ public:
                     std::vector<uint64_t> values(size);
                     decode_fixed64_le_array(values.data(), src, size);
                     _bitmap->addMany(size, values.data());
-                    src += sizeof(uint64_t) * size;
                 }
             } else {
                 _type = SET;
                 _set.read(src, size, true);
             }
-            break;
+            if (bytes_read != nullptr) {
+                *bytes_read = 1 + sizeof(size) + sizeof(uint64_t) * size;
+            }
+            return true;
         }
         default:
             LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
@@ -2553,9 +2696,9 @@ public:
                        << static_cast<int>(*src);
             return false;
         }
-        return true;
     }
 
+public:
     int64_t minimum() const {
         switch (_type) {
         case SINGLE:
@@ -2878,7 +3021,6 @@ public:
         _type = EMPTY;
         _sv = 0;
         _set.clear();
-        _is_shared = false;
         _bitmap = nullptr;
     }
     // Implement an iterator for convenience
@@ -2941,24 +3083,12 @@ private:
         return result;
     }
 
-    void _prepare_bitmap_for_write() const {
+    void _prepare_bitmap_for_write() {
         if (!_bitmap) {
             _bitmap = std::make_shared<detail::Roaring64Map>();
-            _is_shared = false;
-            return;
+        } else if (_bitmap.use_count() > 1) {
+            _bitmap = std::make_shared<detail::Roaring64Map>(*_bitmap);
         }
-
-        if (!_is_shared) {
-            // the state is not shared, not need to check use count any more
-            return;
-        }
-
-        if (_bitmap.use_count() > 1) {
-            auto new_one = std::make_shared<detail::Roaring64Map>();
-            *new_one = *_bitmap;
-            _bitmap = new_one;
-        }
-        _is_shared = false;
     }
 
     // Promote the current SET payload to roaring. Use this only when the caller has already
@@ -2977,13 +3107,10 @@ private:
         BITMAP = 2, // more than one elements
         SET = 3     // elements count less or equal than 32
     };
-    uint64_t _sv = 0; // store the single value when _type == SINGLE
-    // !FIXME: We should rethink the logic about _bitmap and _is_shared
-    mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
+    uint64_t _sv = 0;                              // store the single value when _type == SINGLE
+    std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
     BitmapSmallSet _set;
     BitmapDataType _type {EMPTY};
-    // Indicate whether the state is shared among multi BitmapValue object
-    mutable bool _is_shared = true;
     static constexpr uint64_t SET_TYPE_THRESHOLD = 32;
 };
 

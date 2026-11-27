@@ -168,7 +168,7 @@ public:
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            data[i] = this->data(places[i] + offset).value;
+            data[i] = std::move(this->data(places[i] + offset).value);
         }
     }
 

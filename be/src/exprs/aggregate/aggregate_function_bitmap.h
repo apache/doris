@@ -234,7 +234,7 @@ public:
         auto& col = assert_cast<ColumnBitmap&>(to);
         size_t old_size = col.size();
         col.resize(old_size + 1);
-        col.get_data()[old_size] = std::move(this->data(place).value);
+        col.get_data()[old_size] = this->data(place).value;
     }
 
     [[nodiscard]] MutableColumnPtr create_serialize_column() const override {

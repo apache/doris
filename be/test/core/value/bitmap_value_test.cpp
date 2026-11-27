@@ -28,6 +28,7 @@
 
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/bitmap_intersect.h"
 #include "util/coding.h"
 #include "util/url_coding.h"
 
@@ -211,7 +212,9 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
 
     roaring64_map.write(buffer.get(), 1);
 
-    detail::Roaring64Map bitmap_read = detail::Roaring64Map::read(buffer.get());
+    size_t consumed;
+    detail::Roaring64Map bitmap_read = detail::Roaring64Map::read(buffer.get(), &consumed);
+    EXPECT_EQ(consumed, bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -219,7 +222,8 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
     buffer.reset(new char[bytes]);
 
     roaring64_map.write(buffer.get(), 2);
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::read(buffer.get(), &consumed);
+    EXPECT_EQ(consumed, bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -231,7 +235,8 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
 
     roaring64_map.write(buffer.get(), 1);
 
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::read(buffer.get(), &consumed);
+    EXPECT_EQ(consumed, bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -239,7 +244,8 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
     buffer.reset(new char[bytes]);
 
     roaring64_map.write(buffer.get(), 2);
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::read(buffer.get(), &consumed);
+    EXPECT_EQ(consumed, bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 }
@@ -747,6 +753,170 @@ TEST(BitmapValueTest, write_read) {
     check_bitmap_equal(deserialized, bitmap);
 
     config::enable_set_in_bitmap_value = false;
+}
+
+TEST(BitmapValueTest, serialize_current_representation_and_optimize_on_demand) {
+    BitmapValue bitmap;
+    for (uint64_t i = 0; i < 1024; ++i) {
+        bitmap.add(i);
+        bitmap.add((uint64_t {1} << 40) + i);
+    }
+    const auto* backing = bitmap._bitmap.get();
+    auto optimized = *backing;
+    optimized.runOptimize();
+    optimized.shrinkToFit();
+
+    auto serialize_with_write_to = [](const BitmapValue& value, std::string& dst) {
+        dst.resize(value.getSizeInBytes());
+        const size_t written = value.write_to(dst.data());
+        EXPECT_LE(written, dst.size());
+        dst.resize(written);
+    };
+
+    const auto old_version = config::bitmap_serialize_version;
+    for (int16_t version : {int16_t {1}, int16_t {2}}) {
+        config::bitmap_serialize_version = version;
+        const auto source_size = backing->getSizeInBytes(version);
+        std::string expected(optimized.getSizeInBytes(version), '\0');
+        optimized.write(expected.data(), version);
+        EXPECT_LT(expected.size(), source_size);
+
+        std::string bytes;
+        serialize_with_write_to(bitmap, bytes);
+        EXPECT_EQ(bytes, expected);
+        bitmap.write(bytes);
+        EXPECT_EQ(bytes, expected);
+        EXPECT_EQ(bitmap.getSizeInBytes(), source_size);
+        EXPECT_EQ(bitmap._bitmap.get(), backing);
+        std::string buffer(bitmap.getSizeInBytes(), '\0');
+        EXPECT_EQ(bitmap.write_to(buffer.data()), expected.size());
+        buffer.resize(expected.size());
+        EXPECT_EQ(buffer, expected);
+        EXPECT_EQ(bitmap._bitmap.get(), backing);
+
+        BitmapValue alias(bitmap);
+        alias.optimize();
+        EXPECT_NE(alias._bitmap.get(), backing);
+        serialize_with_write_to(alias, bytes);
+        EXPECT_EQ(bytes, expected);
+        EXPECT_EQ(alias.getSizeInBytes(), expected.size());
+        BitmapValue shared(alias);
+        EXPECT_EQ(shared._bitmap.get(), alias._bitmap.get());
+
+        shared.add(2048);
+        EXPECT_NE(shared._bitmap.get(), alias._bitmap.get());
+        EXPECT_FALSE(alias.contains(2048));
+        shared.optimize();
+
+        EXPECT_EQ(shared.deserialize_with_size(expected.data()), expected.size());
+        EXPECT_EQ(shared.getSizeInBytes(), expected.size());
+        serialize_with_write_to(bitmap, bytes);
+        EXPECT_EQ(bytes, expected);
+
+        BitmapValue solo;
+        for (uint64_t i = 0; i < 1024; ++i) {
+            solo.add(i);
+            solo.add((uint64_t {1} << 40) + i);
+        }
+        const auto* solo_backing = solo._bitmap.get();
+        ASSERT_EQ(solo._bitmap.use_count(), 1);
+        EXPECT_EQ(solo.getSizeInBytes(), source_size);
+        solo.optimize();
+        EXPECT_EQ(solo._bitmap.get(), solo_backing);
+        EXPECT_LT(solo.getSizeInBytes(), source_size);
+        EXPECT_EQ(solo.getSizeInBytes(), expected.size());
+    }
+    config::bitmap_serialize_version = old_version;
+}
+
+TEST(BitmapValueTest, copy_and_mutate_optimized_bitmap) {
+    BitmapValue source;
+    for (uint64_t i = 0; i < 1024; ++i) {
+        source.add(i);
+    }
+    source.optimize();
+    const auto* backing = source._bitmap.get();
+    BitmapValue copied(source), assigned, unioned, xored;
+    assigned = source;
+    unioned |= source;
+    xored ^= source;
+    BitmapValue moved(std::move(copied));
+    copied = std::move(assigned);
+    for (auto* value : {&moved, &copied, &unioned, &xored}) {
+        value->optimize();
+        EXPECT_NE(value->_bitmap.get(), backing);
+    }
+    moved.remove(0);
+    copied |= source;
+    unioned &= source;
+    xored ^= BitmapValue(uint64_t {0});
+    for (const auto* value : {&moved, &copied, &unioned, &xored}) {
+        EXPECT_NE(value->_bitmap.get(), backing);
+    }
+    EXPECT_EQ(source._bitmap.get(), backing);
+    EXPECT_EQ(source.cardinality(), 1024);
+}
+
+TEST(BitmapValueTest, roaring_copy_on_write) {
+    BitmapValue source;
+    for (uint64_t i = 0; i < 64; ++i) {
+        source.add(i);
+    }
+
+    const auto* backing = source._bitmap.get();
+    ASSERT_NE(backing, nullptr);
+    BitmapValue copied(source);
+    BitmapValue assigned;
+    BitmapValue unioned;
+    BitmapValue xored;
+    assigned = source;
+    unioned |= source;
+    xored ^= source;
+
+    for (auto* alias : {&copied, &assigned, &unioned, &xored}) {
+        EXPECT_EQ(alias->_bitmap.get(), backing);
+        alias->remove(0);
+        EXPECT_NE(alias->_bitmap.get(), backing);
+        EXPECT_FALSE(alias->contains(0));
+        EXPECT_TRUE(source.contains(0));
+    }
+
+    source.add(64);
+    EXPECT_EQ(source._bitmap.get(), backing);
+    EXPECT_TRUE(source.contains(64));
+    EXPECT_FALSE(copied.contains(64));
+}
+
+TEST(BitmapValueTest, intersect_count_decodes_consecutive_bitmaps) {
+    detail::Roaring64Map first;
+    for (uint32_t i = 0; i < 1024; ++i) {
+        first.add(i);
+    }
+    // Include a sparse high group as well as the unoptimized low group.
+    first.add(uint64_t {1} << 40);
+    const BitmapValue second(uint64_t {42});
+    auto check = [&]<typename Key>(const Key& a, const Key& b) {
+        using StoredKey =
+                std::conditional_t<std::is_same_v<Key, std::string>, std::string_view, Key>;
+        for (int version : {1, 2}) {
+            std::string state(sizeof(int32_t) + detail::Helper::serialize_size(a) +
+                                      first.getSizeInBytes(version) +
+                                      detail::Helper::serialize_size(b) + second.getSizeInBytes(),
+                              '\0');
+            char* writer = detail::Helper::write_to(int32_t {2}, state.data());
+            writer = detail::Helper::write_to(a, writer);
+            writer += first.write(writer, version);
+            writer = detail::Helper::write_to(b, writer);
+            writer += second.write_to(writer);
+            ASSERT_LT(writer, state.data() + state.size());
+            state.resize(writer - state.data());
+
+            const BitmapIntersect<StoredKey> decoded(state.data());
+            EXPECT_EQ(decoded.intersect_count(), 1);
+        }
+    };
+    check(int32_t {11}, int32_t {12});
+    check(std::string("first"), std::string("second"));
 }
 
 TEST(BitmapValueTest, set_to_string) {
@@ -1351,6 +1521,7 @@ TEST(BitmapValueTest, bitmap_serde) {
                                       11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                                       22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
         BitmapValue bitmap32(bits32);
+        bitmap32.optimize();
         std::string buffer = convert_bitmap_to_string(bitmap32);
         EXPECT_EQ(decode_base64_to_string("DAI7MAAAAQAAIAABAAAAIAA="), buffer);
 
@@ -1363,6 +1534,7 @@ TEST(BitmapValueTest, bitmap_serde) {
                 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, static_cast<uint64_t>(UINT32_MAX) + 1};
         BitmapValue bitmap64(bits64);
+        bitmap64.optimize();
         std::string buffer = convert_bitmap_to_string(bitmap64);
         EXPECT_EQ(decode_base64_to_string("DQIAAAAAAjswAAABAAAfAAEAAAAfAAEAAAABAQAAAAAAAAA="),
                   buffer);
@@ -1471,7 +1643,9 @@ TEST(BitmapValueTest, Roaring64Map) {
     uint32_t expectedsize = r1.getSizeInBytes(1);
     char* serializedbytes = new char[expectedsize];
     r1.write(serializedbytes, 1);
-    Roaring64Map t = Roaring64Map::read(serializedbytes);
+    size_t consumed;
+    Roaring64Map t = Roaring64Map::read(serializedbytes, &consumed);
+    EXPECT_EQ(consumed, expectedsize);
     EXPECT_TRUE(r1 == t);
     delete[] serializedbytes;
 
@@ -1729,7 +1903,7 @@ TEST(BitmapValueTest, deserialize_set_v2_to_bitmap) {
                    0,
                    0};
     BitmapValue bitmap;
-    EXPECT_TRUE(bitmap.deserialize(data));
+    EXPECT_EQ(bitmap.deserialize_with_size(data), sizeof(data));
     EXPECT_EQ(BitmapValue::BITMAP, bitmap._type);
     EXPECT_EQ(2, bitmap.cardinality());
     EXPECT_TRUE(bitmap.contains(7));

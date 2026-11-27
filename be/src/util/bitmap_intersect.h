@@ -112,6 +112,15 @@ inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
 // serialize_size end
 
 template <>
+inline void Helper::read_from<BitmapValue>(const char** src, BitmapValue* result) {
+    size_t consumed = result->deserialize_with_size(*src);
+    if (consumed == 0) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid bitmap in serialized intersection");
+    }
+    *src += consumed;
+}
+
+template <>
 inline void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
     result->from_packed_time(*(int64_t*)(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
@@ -145,6 +154,20 @@ inline void Helper::read_from<std::string>(const char** src, std::string* result
     *src += length;
 }
 // read_from end
+
+template <typename Map>
+void serialize_intersect(const Map& bitmaps, std::string& data) {
+    data.resize(sizeof(int32_t));
+    Helper::write_to(cast_set<int32_t>(bitmaps.size()), data.data());
+    for (const auto& [key, bitmap] : bitmaps) {
+        const size_t start = data.size();
+        const size_t key_size = Helper::serialize_size(key);
+        data.resize(start + key_size + bitmap.getSizeInBytes());
+        char* dst = Helper::write_to(key, data.data() + start);
+        const size_t written = bitmap.write_to(dst);
+        data.resize(start + key_size + written);
+    }
+}
 } // namespace detail
 
 // Calculate the intersection of two or more bitmaps
@@ -214,27 +237,7 @@ public:
         return intersect().cardinality();
     }
 
-    // the serialize size
-    size_t size() {
-        size_t size = 4;
-        for (auto& kv : _bitmaps) {
-            size += detail::Helper::serialize_size(kv.first);
-            size += kv.second.getSizeInBytes();
-        }
-        return size;
-    }
-
-    //must call size() first
-    void serialize(char* dest) {
-        char* writer = dest;
-        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
-        writer += 4;
-        for (auto& kv : _bitmaps) {
-            writer = detail::Helper::write_to(kv.first, writer);
-            kv.second.write_to(writer);
-            writer += kv.second.getSizeInBytes();
-        }
-    }
+    void serialize(std::string& data) const { detail::serialize_intersect(_bitmaps, data); }
 
     void deserialize(const char* src) {
         const char* reader = src;
@@ -243,9 +246,7 @@ public:
         for (int32_t i = 0; i < bitmaps_size; i++) {
             T key;
             detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            detail::Helper::read_from(&reader, &_bitmaps[key]);
         }
     }
 
@@ -313,27 +314,7 @@ public:
         return intersect().cardinality();
     }
 
-    // the serialize size
-    size_t size() {
-        size_t size = 4;
-        for (auto& kv : _bitmaps) {
-            size += detail::Helper::serialize_size(kv.first);
-            size += kv.second.getSizeInBytes();
-        }
-        return size;
-    }
-
-    //must call size() first
-    void serialize(char* dest) {
-        char* writer = dest;
-        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
-        writer += 4;
-        for (auto& kv : _bitmaps) {
-            writer = detail::Helper::write_to(kv.first, writer);
-            kv.second.write_to(writer);
-            writer += kv.second.getSizeInBytes();
-        }
-    }
+    void serialize(std::string& data) const { detail::serialize_intersect(_bitmaps, data); }
 
     void deserialize(const char* src) {
         const char* reader = src;
@@ -342,9 +323,7 @@ public:
         for (int32_t i = 0; i < bitmaps_size; i++) {
             std::string key;
             detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            detail::Helper::read_from(&reader, &_bitmaps[key]);
         }
     }
 

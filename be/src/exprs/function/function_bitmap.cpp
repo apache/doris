@@ -959,34 +959,18 @@ struct BitmapToBase64 {
     static Status vector(const std::vector<BitmapValue>& data, Chars& chars, Offsets& offsets) {
         size_t size = data.size();
         offsets.resize(size);
-        size_t output_char_size = 0;
-        for (size_t i = 0; i < size; ++i) {
-            const BitmapValue& bitmap_val = data[i];
-            auto ser_size = bitmap_val.getSizeInBytes();
-            output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
-        }
-        ColumnString::check_chars_length(output_char_size, size);
-        chars.resize(output_char_size);
-        auto chars_data = chars.data();
-
-        size_t cur_ser_size = 0;
-        size_t last_ser_size = 0;
         std::string ser_buff;
         size_t encoded_offset = 0;
         for (size_t i = 0; i < size; ++i) {
-            const BitmapValue& bitmap_val = data[i];
-            cur_ser_size = bitmap_val.getSizeInBytes();
-            if (cur_ser_size > last_ser_size) {
-                last_ser_size = cur_ser_size;
-                ser_buff.resize(cur_ser_size);
-            }
-            bitmap_val.write_to(ser_buff.data());
-
-            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
-                                        chars_data + encoded_offset);
-            DCHECK(outlen > 0);
-
-            encoded_offset += (int)(4.0 * ceil((double)cur_ser_size / 3.0));
+            data[i].write(ser_buff);
+            const size_t encoded_size = 4 * ((ser_buff.size() + 2) / 3);
+            ColumnString::check_chars_length(encoded_offset + encoded_size, size);
+            chars.resize(encoded_offset + encoded_size);
+            const auto outlen =
+                    base64_encode(reinterpret_cast<const unsigned char*>(ser_buff.data()),
+                                  ser_buff.size(), chars.data() + encoded_offset);
+            DCHECK_EQ(outlen, encoded_size);
+            encoded_offset += encoded_size;
             offsets[i] = cast_set<UInt32>(encoded_offset);
         }
         return Status::OK();
