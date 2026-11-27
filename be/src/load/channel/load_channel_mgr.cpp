@@ -64,6 +64,13 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
+size_t LoadChannelMgr::num_active_channels() {
+    // Construction can release the last QueryContext and block on spill cleanup.
+    // A busy manager counts as pending work so shutdown can still check its deadline.
+    std::unique_lock<std::mutex> lock(_lock, std::try_to_lock);
+    return lock.owns_lock() ? _load_channels.size() : 1;
+}
+
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
@@ -82,6 +89,7 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
+    bool created_channel = false;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _load_channels.find(load_id);
@@ -110,10 +118,21 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                                           params.sender_ip(), params.backend_id(),
                                           params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
+            created_channel = true;
         }
     }
 
-    RETURN_IF_ERROR(channel->open(params));
+    auto status = channel->open(params);
+    if (!status.ok()) {
+        // A malformed duplicate open (e.g. txn_expiration <= 0) must not cancel
+        // an existing receiver. Only clean up a channel registered by this call.
+        if (created_channel) {
+            // TODO: Coordinate concurrent first opens: another request may have
+            // opened this instance successfully before its creator's open fails.
+            RETURN_IF_ERROR(_cancel_load_channel(channel, status));
+        }
+        return status;
+    }
 
     return Status::OK();
 }

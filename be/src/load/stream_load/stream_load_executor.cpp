@@ -110,7 +110,9 @@ Status StreamLoadExecutor::execute_plan_fragment(
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
         }
-        ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+        // A failed submit can unregister this attempt before its tasks finish.
+        // Its late callback must not remove a retry registered with the same ID.
+        ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id, ctx.get());
         ctx->commit_infos = state->tablet_commit_infos();
         ctx->number_total_rows = state->num_rows_load_total();
         ctx->number_loaded_rows = state->num_rows_load_success();

@@ -19,11 +19,18 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+#include <string>
 #include <thread>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablets_channel.h"
+#include "cloud/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -81,6 +88,107 @@ protected:
     std::unique_ptr<FragmentMgr> _fragment_mgr;
     std::unique_ptr<LoadChannelMgr> _mgr;
 };
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownCountsReceiverUntilFinish) {
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+    auto channel = create_channel();
+    EXPECT_EQ(_mgr->num_active_channels(), 1);
+    _mgr->_finish_load_channel(channel);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownDoesNotCountFailedOpen) {
+    const auto previous_cloud_unique_id = config::cloud_unique_id;
+    Defer restore_config {[&] { config::cloud_unique_id = previous_cloud_unique_id; }};
+    config::cloud_unique_id = "load-channel-open-failure-ut";
+
+    PTabletWriterOpenRequest request;
+    *request.mutable_id() = _load_id.to_proto();
+    request.set_txn_expiration(0);
+
+    // Exercise open() after manager registration but before any receiver is accepted.
+    auto status = _mgr->open(request);
+    ASSERT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.msg().find("txn expiration"), std::string::npos);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+    expect_cached_failure(status);
+
+    // The failed load stays cancelled rather than retaining or reopening its receiver.
+    auto retry_status = _mgr->open(request);
+    EXPECT_TRUE(retry_status.is<ErrorCode::CANCELLED>()) << retry_status;
+    EXPECT_EQ(retry_status.msg(), status.msg());
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
+TEST_F(LoadChannelMgrTest, FailedDuplicateOpenPreservesExistingReceiver) {
+    const auto previous_cloud_unique_id = config::cloud_unique_id;
+    Defer restore_config {[&] { config::cloud_unique_id = previous_cloud_unique_id; }};
+    config::cloud_unique_id = "load-channel-duplicate-open-ut";
+
+    CloudStorageEngine engine(EngineOptions {});
+    Defer clear_channels {[&] { _mgr->_load_channels.clear(); }};
+    auto original = create_channel();
+    auto receiver = std::make_shared<CloudTabletsChannel>(
+            engine, TabletsChannelKey(_load_id.to_proto(), 10), _load_id, true, nullptr);
+    receiver->set_load_cancel_status(original->_cancel_status);
+    // Seed an accepted receiver without writers, as in LoadChannelEosTest.
+    receiver->_state = BaseTabletsChannel::kOpened;
+    receiver->_num_remaining_senders = 1;
+    receiver->_closed_senders.Reset(1);
+    receiver->_next_seqs.resize(1);
+    original->_tablets_channels.emplace(10, receiver);
+    original->_opened = true;
+
+    PTabletWriterOpenRequest request;
+    *request.mutable_id() = _load_id.to_proto();
+    request.set_index_id(10);
+    request.set_txn_expiration(0);
+    const auto status = _mgr->open(request);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.msg().find("txn expiration"), std::string::npos);
+    ASSERT_EQ(_mgr->num_active_channels(), 1);
+    EXPECT_EQ(_mgr->_load_channels.at(_load_id), original);
+    EXPECT_FALSE(original->is_cancelled());
+    expect_no_cached_state();
+
+    request.set_txn_expiration(1);
+    request.set_is_adaptive_random_bucket(true);
+    request.add_random_bucket_partitions()->set_partition_id(1);
+    // Also reject a malformed retry inside BaseTabletsChannel::open(), after
+    // the load-level validation, without publishing a shared cancellation.
+    const auto receiver_status = _mgr->open(request);
+    ASSERT_FALSE(receiver_status.ok());
+    EXPECT_NE(receiver_status.msg().find("ordered_tablet_ids is empty"), std::string::npos);
+    ASSERT_EQ(_mgr->num_active_channels(), 1);
+    EXPECT_FALSE(original->is_cancelled());
+    expect_no_cached_state();
+
+    request.set_is_adaptive_random_bucket(false);
+    ASSERT_TRUE(_mgr->open(request).ok());
+    PTabletWriterAddBlockRequest eos;
+    *eos.mutable_id() = _load_id.to_proto();
+    eos.set_index_id(10);
+    eos.set_sender_id(0);
+    eos.set_eos(true);
+    PTabletWriterAddBlockResult response;
+    ASSERT_TRUE(_mgr->add_batch(eos, &response, nullptr).ok());
+    EXPECT_FALSE(original->is_cancelled());
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownCensusDoesNotWaitForManagerLock) {
+    // Model an open() holding the manager lock while QueryContext cleanup stalls.
+    std::unique_lock<std::mutex> manager_lock(_mgr->_lock);
+    std::promise<size_t> census;
+    auto result = census.get_future();
+    std::thread polling([&] { census.set_value(_mgr->num_active_channels()); });
+    auto status = result.wait_for(std::chrono::seconds(5));
+    manager_lock.unlock();
+    polling.join();
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_EQ(result.get(), 1);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
 
 TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     auto channel = create_channel();
