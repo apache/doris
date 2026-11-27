@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -88,6 +89,11 @@ Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values
 }
 
 void AnnIndexColumnWriter::close_on_error() {
+    _release_build_resources();
+}
+
+void AnnIndexColumnWriter::_release_build_resources() {
+    _vector_index.reset();
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
 }
@@ -135,6 +141,7 @@ int64_t AnnIndexColumnWriter::size() const {
 Status AnnIndexColumnWriter::finish() {
     if (_total_rows == 0) {
         LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+        _release_build_resources();
         return _index_file_writer->delete_index(_index_meta);
     }
 
@@ -146,8 +153,7 @@ Status AnnIndexColumnWriter::finish() {
                 "Total data size {} is less than minimum {} rows required for ANN index build. "
                 "Skipping index building for this segment.",
                 _total_rows, effective_min_rows);
-        PODArray<float> empty_buffered_vectors;
-        _buffered_vectors.swap(empty_buffered_vectors);
+        _release_build_resources();
         return _index_file_writer->delete_index(_index_meta);
     }
 
@@ -155,6 +161,10 @@ Status AnnIndexColumnWriter::finish() {
 }
 
 Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effective_min_rows) {
+    // Release the Faiss index and any remaining input buffer after saving, including
+    // on failure, rather than retaining them until this writer is destroyed.
+    Defer release_resources([this] { _release_build_resources(); });
+
     const size_t dim = _vector_index->get_dimension();
     DCHECK(_buffered_vectors.size() % dim == 0);
     const Int64 train_rows = cast_set<Int64>(_buffered_vectors.size() / dim);
@@ -166,8 +176,10 @@ Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effecti
     RETURN_IF_ERROR(_vector_index->add(train_rows, _buffered_vectors.data()));
     // PODArray::clear() keeps the allocated capacity. Swap with an empty array so the
     // full-segment build buffer is released before saving the index.
-    PODArray<float> empty_buffered_vectors;
-    _buffered_vectors.swap(empty_buffered_vectors);
+    {
+        PODArray<float> empty_buffered_vectors;
+        _buffered_vectors.swap(empty_buffered_vectors);
+    }
     return _vector_index->save(_dir.get());
 }
 #include "common/compile_check_end.h"
