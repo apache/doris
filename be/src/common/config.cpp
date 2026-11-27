@@ -2194,6 +2194,18 @@ DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mBool(enable_cloud_random_segment_id, "false");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
+// Number of samples retained explicitly before switching to T-Digest.
+DEFINE_Int32(quantile_state_explicit_num, "2048");
+DEFINE_Validator(quantile_state_explicit_num,
+                 // The explicit sample count is serialized as uint16_t.
+                 [](int32_t value) { return value >= 32 && value <= 65535; });
+
+// Minimum compression used by a default QuantileState and accepted when deserializing it.
+DEFINE_Int32(quantile_state_compression_min, "2048");
+DEFINE_Validator(quantile_state_compression_min,
+                 // Keep the upper bound in sync with QUANTILE_STATE_COMPRESSION_MAX.
+                 [](int32_t value) { return value >= 32 && value <= 10000; });
+
 // clang-format off
 #ifdef BE_TEST
 DEFINE_String(test_s3_ak, "ak");

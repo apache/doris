@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -125,7 +126,7 @@ public:
         float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<TYPE_FLOAT>();
-            if (compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
+            if (compression_arg_val >= config::quantile_state_compression_min &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 compression = compression_arg_val;
             }
