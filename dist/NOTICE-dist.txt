@@ -54,6 +54,15 @@ its NOTICE file:
     Hudson (tjh@cryptsoft.com).
 
 =================================================
+NOTICE file: Lance connector Arrow C Data JNI
+=================================================
+
+The Linux x86_64 Lance connector rebuilds Apache Arrow C Data JNI with
+statically linked libstdc++ and libgcc. These GCC runtime libraries are
+distributed under the GCC Runtime Library Exception:
+https://www.gnu.org/licenses/gcc-exception-3.1.html
+
+=================================================
 NOTICE file: Apache Arrow 7.0.0
 =================================================
 

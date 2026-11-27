@@ -39,8 +39,8 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
     def table_name = "variant_add_multi_var_mulit_indexes"
-    sql "set default_variant_enable_typed_paths_to_sparse = false"
-    sql "set default_variant_enable_doc_mode = false"
+    sql "set debug_variant_enable_typed_paths_to_sparse = false"
+    sql "set debug_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

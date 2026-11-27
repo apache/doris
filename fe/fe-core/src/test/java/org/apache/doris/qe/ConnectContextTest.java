@@ -32,8 +32,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -80,6 +84,23 @@ public class ConnectContextTest {
         Mockito.when(internalCatalog.getName()).thenReturn("internal");
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(internalCatalog);
+    }
+
+    @Test
+    public void testInternalQueryInheritsDelegatedSession() {
+        ConnectContext parent = new ConnectContext();
+        parent.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        SessionContext session = SessionContext.of("test-session",
+                new DelegatedCredential(DelegatedCredential.Type.ID_TOKEN, "test-token"));
+        parent.setSessionContext(session);
+
+        ConnectContext child = parent.createInternalQueryContext();
+        ConnectorSession connectorSession = ConnectorSessionBuilder.from(child)
+                .withUserSessionCapability(true)
+                .build();
+        Assertions.assertEquals(session.getSessionId(), connectorSession.getSessionId());
+        Assertions.assertEquals("test-token", connectorSession.getDelegatedCredential().orElseThrow().getToken());
+        Assertions.assertTrue(ConnectorSessionBuilder.from(child).build().getDelegatedCredential().isEmpty());
     }
 
     @Test

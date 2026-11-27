@@ -74,6 +74,29 @@ import java.util.List;
 public class ConstantFunctionArgumentTest {
 
     @Test
+    public void testSelectedFunctionParameterBounds() {
+        // This negative LARGEINT has low 64 bits equal to 1. Check it before INT coercion.
+        assertAnalysisError("select ngram_search('a', 'a', -18446744073709551615)",
+                "gram_num must be a positive constant");
+        assertAnalysisError("select ngram_search('a', 'a', 2147483648)",
+                "gram_num must be a positive constant");
+        // A NULL bitmap must not remove a known invalid element argument during folding.
+        for (String function : new String[] {"bitmap_contains", "bitmap_remove"}) {
+            assertAnalysisError("select " + function + "(null, -1)", "element must be between 0");
+            assertAnalysisError("select " + function + "(null, -18446744073709551615)",
+                    "element must be between 0");
+            assertAnalysisError("select " + function + "(null, 9223372036854775808)",
+                    "element must be between 0");
+        }
+        // A false event does not make a negative window valid. No input table is needed.
+        assertAnalysisError("select window_funnel_v2(-1, 'default',"
+                + " cast('2024-01-01' as datetime), false)", "window must be a positive integer");
+        // WINDOW_FUNNEL_V2 rejects LARGEINT at its type check, before the value check.
+        assertAnalysisError("select window_funnel_v2(9223372036854775808, 'default',"
+                + " cast('2024-01-01' as datetime), false)", "must be integer");
+    }
+
+    @Test
     public void testPrepareFoldsArgumentsTheSignatureDependsOn() {
         Now now = analyze("select now(1 + 2)", Now.class);
         assertLiteral(now.child(0));

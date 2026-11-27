@@ -220,6 +220,63 @@ TEST(SniiWildcardQueryTest, InvalidUtf8PatternReturnsInvalidArgument) {
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
 
+// W-REQUIRED: a glob that enumerates the whole dictionary names its longest literal run as the
+// text every matching term holds; a glob with a prefix stops where the prefix ends and names none.
+TEST(SniiWildcardQueryTest, AGlobFromTheStartRequiresItsLongestLiteralRun) {
+    const auto required_text = [](std::string_view glob) {
+        index_query::TermPattern pattern;
+        assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kWildcard, glob,
+                                                   &pattern));
+        return pattern.required_text();
+    };
+    EXPECT_EQ(required_text("*cache*"), "cache");
+    EXPECT_EQ(required_text("*ab?cde*"), "cde");
+    EXPECT_EQ(required_text("?ache*"), "ache");
+    EXPECT_EQ(required_text("*ch*ed*"), "ch");
+    EXPECT_EQ(required_text("*猫火*"), "猫火");
+    EXPECT_EQ(required_text("*"), "");
+    EXPECT_EQ(required_text("?*?"), "");
+    EXPECT_EQ(required_text("ca*che*"), "");
+    EXPECT_EQ(required_text("cache"), "");
+}
+
+// W-REQUIRED-SOUND: every term a glob matches holds the glob's required text, so a format that
+// skips the terms without it drops no match. Exhaustive over multi-byte and malformed pieces, which
+// the matcher reads as code points and as bytes.
+TEST(SniiWildcardQueryTest, EveryMatchingTermHoldsTheRequiredText) {
+    const auto concatenations = [](const std::vector<std::string>& pieces, size_t max_pieces) {
+        std::vector<std::string> out {""};
+        size_t level_begin = 0;
+        for (size_t count = 1; count <= max_pieces; ++count) {
+            const size_t level_end = out.size();
+            for (size_t i = level_begin; i < level_end; ++i) {
+                for (const std::string& piece : pieces) {
+                    out.push_back(out[i] + piece);
+                }
+            }
+            level_begin = level_end;
+        }
+        return out;
+    };
+    const std::vector<std::string> globs = concatenations({"a", "b", "猫", "*", "?"}, 4);
+    const std::vector<std::string> terms =
+            concatenations({"a", "b", "猫", std::string("\xff", 1), std::string("\xe7\x8c", 2)}, 4);
+    size_t matches = 0;
+    for (const std::string& glob : globs) {
+        index_query::TermPattern pattern;
+        assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kWildcard, glob,
+                                                   &pattern));
+        for (const std::string& term : terms) {
+            if (pattern.matches(term)) {
+                ++matches;
+                EXPECT_NE(term.find(pattern.required_text()), std::string::npos)
+                        << "glob=\"" << glob << "\" term=\"" << term << "\"";
+            }
+        }
+    }
+    EXPECT_GT(matches, 0U);
+}
+
 // W-CONSEC-STAR: consecutive '*' degrade gracefully.
 TEST(SniiWildcardQueryTest, ConsecutiveStars) {
     index_query::WildcardMatcher matcher("**a**");

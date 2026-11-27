@@ -57,6 +57,17 @@ public:
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
     ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
+#ifdef BE_TEST
+    static bool TEST_can_generate_physical_splits(bool is_load,
+                                                  const TFileScanRangeParams& scan_params,
+                                                  const TFileRangeDesc& range) {
+        return _can_generate_physical_splits(is_load, scan_params, range);
+    }
+    static int TEST_adjust_scanner_count(int requested, int initial_ranges,
+                                         bool can_generate_physical_splits) {
+        return _adjust_scanner_count(requested, initial_ranges, can_generate_physical_splits);
+    }
+#endif
 
 private:
     friend class FileScannerV2;
@@ -67,6 +78,10 @@ private:
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
     bool _push_down_topn(const RuntimePredicate& predicate) override;
+    static bool _can_generate_physical_splits(bool is_load, const TFileScanRangeParams& scan_params,
+                                              const TFileRangeDesc& range);
+    static int _adjust_scanner_count(int requested, int initial_ranges,
+                                     bool can_generate_physical_splits);
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||

@@ -19,6 +19,7 @@
 
 #include <unicode/utf8.h>
 
+#include <cstring>
 #include <utility>
 
 #include "common/exception.h"
@@ -30,31 +31,30 @@ namespace doris::segment_v2 {
 
 namespace {
 
-// Folds the word rune by rune as CharacterUtil::regularizeString() does, except that an invalid
-// byte sequence is kept as it is and decoding goes on after it.
-void regularize_strictly(std::string& token, bool lowercase) {
-    const auto length = static_cast<int32_t>(token.size());
-    std::string normalized;
-    normalized.reserve(token.size());
+// Folds the word rune by rune as CharacterUtil::regularizeInPlace() does, except that an invalid
+// byte sequence is kept as it is and decoding goes on after it; returns the new size. In place: a
+// valid rune is written back in at most the bytes it was read from, so with `lowercase` ＡB
+// (EF BC A1 42) becomes ab in its first two bytes, and an invalid sequence is copied as it is.
+size_t regularize_strictly(char* data, size_t size, bool lowercase) {
+    const auto length = static_cast<int32_t>(size);
+    int32_t out = 0;
     int32_t offset = 0;
     while (offset < length) {
         const int32_t source_start = offset;
         UChar32 codepoint;
-        U8_NEXT(token.c_str(), offset, length, codepoint);
+        U8_NEXT(data, offset, length, codepoint);
         if (codepoint < 0) {
-            normalized.append(token, source_start, offset - source_start);
+            std::memmove(data + out, data + source_start, offset - source_start);
+            out += offset - source_start;
             continue;
         }
         UChar32 regularized = CharacterUtil::regularize(codepoint, false);
         if (lowercase && regularized >= 'A' && regularized <= 'Z') {
             regularized += 'a' - 'A';
         }
-        char encoded[U8_MAX_LENGTH];
-        int32_t encoded_length = 0;
-        U8_APPEND_UNSAFE(encoded, encoded_length, regularized);
-        normalized.append(encoded, encoded_length);
+        U8_APPEND_UNSAFE(data, out, regularized);
     }
-    token = std::move(normalized);
+    return static_cast<size_t>(out);
 }
 
 } // namespace
@@ -67,33 +67,37 @@ IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase)
 }
 
 bool IKTokenizer::next_token(inverted_index::TokenRef& token) {
-    if (buffer_index_ >= tokens_.size()) {
+    if (next_word_ >= words_.size()) {
         return false;
     }
-    std::string& text = tokens_[buffer_index_++];
+    const Word& word = words_[next_word_++];
+    char* text = words_bytes_.data() + word.offset;
     // full-width to half-width, and lowercase
-    if (strict_utf8_) {
-        regularize_strictly(text, lowercase_);
-    } else {
-        CharacterUtil::regularizeString(text, lowercase_);
-    }
-    size_t size = text.size();
+    size_t size = strict_utf8_ ? regularize_strictly(text, word.size, lowercase_)
+                               : CharacterUtil::regularizeInPlace(text, word.size, lowercase_);
     if (size > static_cast<size_t>(inverted_index::MAX_WORD_LEN)) {
-        size = inverted_index::utf8_prefix_at_most(text, inverted_index::MAX_WORD_LEN).first;
+        size = inverted_index::utf8_prefix_at_most({text, size}, inverted_index::MAX_WORD_LEN)
+                       .first;
     }
-    token = {.data = text.data(), .size = static_cast<uint32_t>(size), .position_increment = 1};
+    token = {.data = text, .size = static_cast<uint32_t>(size), .position_increment = 1};
     return true;
 }
 
 void IKTokenizer::on_reset(std::string_view text) {
-    buffer_index_ = 0;
-    tokens_.clear();
-    inverted_index::release_oversized_scratch(tokens_);
+    next_word_ = 0;
+    words_.clear();
+    words_bytes_.clear();
+    inverted_index::release_oversized_scratch(words_);
+    inverted_index::release_oversized_scratch(words_bytes_);
     try {
         ik_segmenter_->reset(text);
         Lexeme lexeme;
-        while (ik_segmenter_->next(lexeme)) {
-            tokens_.push_back(lexeme.getText());
+        std::string_view word;
+        while (ik_segmenter_->next(lexeme, word)) {
+            Word& entry = words_.emplace_back();
+            entry.offset = words_bytes_.size();
+            entry.size = word.size();
+            words_bytes_.append(word);
         }
     } catch (const Exception&) {
         throw;
@@ -105,11 +109,8 @@ void IKTokenizer::on_reset(std::string_view text) {
 }
 
 size_t IKTokenizer::reserved_bytes() const {
-    size_t bytes = tokens_.capacity() * sizeof(std::string) + ik_segmenter_->reserved_bytes();
-    for (const std::string& text : tokens_) {
-        bytes += text.capacity();
-    }
-    return bytes;
+    return words_.capacity() * sizeof(Word) + words_bytes_.capacity() +
+           ik_segmenter_->reserved_bytes();
 }
 
 } // namespace doris::segment_v2

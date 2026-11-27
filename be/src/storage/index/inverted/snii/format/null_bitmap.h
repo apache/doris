@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <vector>
@@ -119,6 +120,10 @@ public:
 
     // Appends decoded docids in ascending order without cloning the bitmap.
     void append_docids(std::vector<uint32_t>& out) const;
+    // Calls fn(begin, end) for each maximal range [begin, end) of non-NULL docids below
+    // doc_count(), in ascending order. With NULL rows {1, 2, 5} of 7 it calls (0, 1), (3, 5) and
+    // (6, 7).
+    void for_each_non_null_run(const std::function<void(uint32_t, uint32_t)>& fn) const;
 
     // Total doc count of the logical index, as recorded by the writer.
     uint32_t doc_count() const { return doc_count_; }

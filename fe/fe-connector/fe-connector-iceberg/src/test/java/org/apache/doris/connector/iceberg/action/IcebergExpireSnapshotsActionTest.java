@@ -41,6 +41,7 @@ import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -116,7 +117,7 @@ public class IcebergExpireSnapshotsActionTest {
     }
 
     @Test
-    public void countsExpiredManifestsAsManifestFiles() {
+    public void countsExpiredManifestsAsManifestFiles() throws IOException {
         // Iceberg names a manifest <commit UUID>-m<N>.avro (SnapshotProducer.newManifestOutputFile), so a "-m-"
         // file name check never matched one and counted every expired manifest as a deleted data file. Removing
         // f1 and then appending f2 leaves the first snapshot's manifest unreferenced by the last snapshot, so
@@ -129,6 +130,7 @@ public class IcebergExpireSnapshotsActionTest {
         ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
 
         Table table = catalog.loadTable(id);
+        table.io().newOutputFile("s3://b/db1/f1.parquet").createOrOverwrite().close();
         Set<String> retained = new HashSet<>();
         for (ManifestFile manifest : table.currentSnapshot().allManifests(table.io())) {
             retained.add(manifest.path());
@@ -153,7 +155,7 @@ public class IcebergExpireSnapshotsActionTest {
     }
 
     @Test
-    public void countsMetadataOfSnapshotsCommittedAfterTheTableWasLoaded() {
+    public void countsMetadataOfSnapshotsCommittedAfterTheTableWasLoaded() throws IOException {
         // The expiration refreshes the table when it commits (RemoveSnapshots.internalApply), so it also expires
         // snapshots that another writer committed after the action loaded the table and built its file kind map.
         // Their manifests and manifest lists are not in the map and must still count as such, not as deleted
@@ -170,6 +172,7 @@ public class IcebergExpireSnapshotsActionTest {
         ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
 
         Table current = catalog.loadTable(id);
+        current.io().newOutputFile("s3://b/db1/f1.parquet").createOrOverwrite().close();
         Set<String> retained = new HashSet<>();
         for (ManifestFile manifest : current.currentSnapshot().allManifests(current.io())) {
             retained.add(manifest.path());
@@ -232,7 +235,7 @@ public class IcebergExpireSnapshotsActionTest {
     }
 
     @Test
-    public void countsAnAvroDataFileNamedLikeAManifestAsADataFile() {
+    public void countsAnAvroDataFileNamedLikeAManifestAsADataFile() throws IOException {
         // The file kind map holds no data files, so every expired data file is classified by its name. An Avro
         // data file whose name ends in -m<N>.avro is still a data file.
         InMemoryCatalog catalog = ActionTestTables.freshCatalog();
@@ -249,6 +252,7 @@ public class IcebergExpireSnapshotsActionTest {
         ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
 
         Table table = catalog.loadTable(id);
+        table.io().newOutputFile(avroDataFile.location()).createOrOverwrite().close();
         Set<String> retained = new HashSet<>();
         for (ManifestFile manifest : table.currentSnapshot().allManifests(table.io())) {
             retained.add(manifest.path());
@@ -333,16 +337,16 @@ public class IcebergExpireSnapshotsActionTest {
     }
 
     @Test
-    public void countsPositionDeletesCommittedAfterTheTableWasLoaded() {
+    public void countsPositionDeletesCommittedAfterTheTableWasLoaded() throws IOException {
         assertLateDeleteClassification(true);
     }
 
     @Test
-    public void countsEqualityDeletesCommittedAfterTheTableWasLoaded() {
+    public void countsEqualityDeletesCommittedAfterTheTableWasLoaded() throws IOException {
         assertLateDeleteClassification(false);
     }
 
-    private static void assertLateDeleteClassification(boolean positionDelete) {
+    private static void assertLateDeleteClassification(boolean positionDelete) throws IOException {
         InMemoryCatalog catalog = ActionTestTables.freshCatalog();
         TableIdentifier id = ActionTestTables.id("late_delete");
         ActionTestTables.createTable(catalog, "late_delete");
@@ -362,6 +366,7 @@ public class IcebergExpireSnapshotsActionTest {
                 .build();
 
         Table writer = catalog.loadTable(id);
+        writer.io().newOutputFile(delete.location()).createOrOverwrite().close();
         writer.newRowDelta().addDeletes(delete).commit();
         writer.newRowDelta().removeDeletes(delete).commit();
         ActionTestTables.appendSnapshot(catalog, "late_delete", "current.parquet", 1L);

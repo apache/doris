@@ -39,7 +39,9 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVJobInfo;
@@ -139,7 +141,11 @@ abstract class IvmDeltaTestBase {
 
     /** Builds a scan for the given table id and name (for delta plan generator tests). */
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
-        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        return buildScanForTable(tableId, tableName, KeysType.DUP_KEYS);
+    }
+
+    protected LogicalOlapScan buildScanForTable(long tableId, String tableName, KeysType keysType) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0, keysType);
         addTestPartition(table);
         enableChangelog(table);
         table.setQualifiedDbName("test_db");
@@ -192,15 +198,15 @@ abstract class IvmDeltaTestBase {
     }
 
     protected void setStreamOffset(OlapTable baseTable, OlapTableStream stream, long offset) {
-        Map<Long, Long> prev = new HashMap<>();
-        Map<Long, Long> next = new HashMap<>();
+        Map<Long, PartitionUpdate> updates = new HashMap<>();
         for (Partition partition : baseTable.getPartitions()) {
-            long partitionId = partition.getId();
-            next.put(partitionId, offset);
+            updates.put(partition.getId(),
+                    new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset)));
         }
         baseTable.writeLock();
         try {
-            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(prev, next), System.currentTimeMillis());
+            stream.unprotectedUpdateStreamUpdate(
+                    new OlapTableStreamUpdate(updates), System.currentTimeMillis());
         } finally {
             baseTable.writeUnlock();
         }

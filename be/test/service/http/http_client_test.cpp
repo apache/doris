@@ -61,6 +61,7 @@
 #include "service/http/utils.h"
 #include "service/http_service.h"
 #include "testutil/http_utils.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
 #include "util/md5.h"
 
@@ -128,6 +129,8 @@ TEST(HttpClientResetTest, ReleasesCopiedPayloadWithoutDestroyingHandle) {
 
 class HttpClientTlsTest : public testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"http_client_tls"};
+
     void SetUp() override {
         {
             std::scoped_lock lock(*config::get_mutable_string_config_lock());
@@ -182,8 +185,8 @@ protected:
         ASSERT_EQ(PEM_write_bio_X509(cert_bio.get(), certificate), 1);
         BUF_MEM* cert_pem = nullptr;
         BIO_get_mem_ptr(cert_bio.get(), &cert_pem);
-        char ca_path[] = "/tmp/doris-http-client-ca-XXXXXX";
-        const int fd = mkstemp(ca_path);
+        std::string ca_path = (scoped_temp_dir_.path() / "ca_XXXXXX").string();
+        const int fd = mkstemp(ca_path.data());
         ASSERT_GE(fd, 0);
         _ca_path = ca_path;
         Defer close_file {[fd] { close(fd); }};
@@ -1128,9 +1131,8 @@ TEST_F(HttpClientTest, enable_http_auth) {
 }
 
 TEST_F(HttpClientTest, batch_download) {
-    char temporary_directory[] = "/tmp/doris-http-batch-XXXXXX";
-    ASSERT_NE(mkdtemp(temporary_directory), nullptr);
-    std::string root_dir(temporary_directory);
+    const doris::test::ScopedTempDirectory temporary_directory("http_batch_download");
+    std::string root_dir = temporary_directory.path().string();
     Defer cleanup([&root_dir] {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(root_dir).ok());
     });

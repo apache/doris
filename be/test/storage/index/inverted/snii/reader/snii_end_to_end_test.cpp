@@ -35,6 +35,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -44,9 +45,10 @@ using namespace doris::snii::writer;
 namespace {
 
 std::string TempPath() {
+    static const doris::test::ScopedTempDirectory temp_dir("snii_end_to_end_test");
     static int counter = 0;
-    return "/tmp/snii_e2e_test_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
-           ".idx";
+    return (temp_dir.path() / "snii_e2e_test_").string() + std::to_string(getpid()) + "_" +
+           std::to_string(counter++) + ".idx";
 }
 
 // Deterministic corpus oracle: term -> set<docid>, and doc -> token sequence.

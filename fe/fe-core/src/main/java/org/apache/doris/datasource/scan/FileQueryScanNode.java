@@ -532,6 +532,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // override it with the actual format carried by an individual split.
         rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
+        setTargetSplitSize(rangeDesc, sessionVariable,
+                !wouldRunSerialOnBe() && supportsBeSplitRefinement(fileSplit));
         rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -541,6 +543,59 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
         return curLocations;
+    }
+
+    protected boolean supportsBeSplitRefinement(FileSplit split) {
+        return true;
+    }
+
+    protected long coarseSplitSizeForBeRefinement() {
+        return isCoarseSplitPlanningEnabled(sessionVariable) && !wouldRunSerialOnBe()
+                ? sessionVariable.getFileSplitSizeOnFe() : -1;
+    }
+
+    protected long selectFeSplitSizeForBe(long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
+        long coarseSize = coarseSplitSizeForBeRefinement();
+        return supportsBeSplit && isColumnarFormat(format) && coarseSize > 0 ? coarseSize : fallbackSize;
+    }
+
+    static void setTargetSplitSize(TFileRangeDesc rangeDesc, SessionVariable sessionVariable) {
+        setTargetSplitSize(rangeDesc, sessionVariable, true);
+    }
+
+    private static void setTargetSplitSize(TFileRangeDesc rangeDesc, SessionVariable sessionVariable,
+            boolean supportsBeSplit) {
+        if (supportsBeSplit && canSetBeSplitTarget(rangeDesc, sessionVariable)) {
+            rangeDesc.setTargetSplitSize(sessionVariable.getFileSplitSizeOnBe());
+        }
+    }
+
+    private boolean wouldRunSerialOnBe() {
+        // Match BE ScanLocalState's external small-LIMIT rule before enlarging FE ranges.
+        return sessionVariable.enableAdaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty()
+                && getLimit() > 0 && getLimit() <= sessionVariable.adaptivePipelineTaskSerialReadOnLimit;
+    }
+
+    static boolean canSetBeSplitTarget(TFileRangeDesc rangeDesc, SessionVariable sessionVariable) {
+        if (!isCoarseSplitPlanningEnabled(sessionVariable) || !rangeDesc.isSetFormatType()
+                || !isColumnarFormat(rangeDesc.getFormatType())) {
+            return false;
+        }
+        return !rangeDesc.isSetTableFormatParams() || !rangeDesc.getTableFormatParams().isSetTableLevelRowCount()
+                || rangeDesc.getTableFormatParams().getTableLevelRowCount() < 0;
+    }
+
+    // These FE planning gates do not authorize BE refinement: an omitted target only disables coalescing.
+    private static boolean isCoarseSplitPlanningEnabled(SessionVariable sessionVariable) {
+        // enable_file_scanner_v2 is a deprecated compatibility variable; all file scans use V2.
+        return sessionVariable.maxFileScannersConcurrency != 1 && sessionVariable.getFileSplitSizeOnFe() > 0
+                && sessionVariable.getFileSplitSizeOnBe() > 0;
+    }
+
+    private static boolean isColumnarFormat(TFileFormatType format) {
+        // PME still has Parquet row groups; a coarse encrypted range needs the same BE coalescing target.
+        return format == TFileFormatType.FORMAT_PARQUET || format == TFileFormatType.FORMAT_PARQUET_PME
+                || format == TFileFormatType.FORMAT_ORC;
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,

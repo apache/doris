@@ -1,0 +1,102 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.adbc;
+
+import org.apache.doris.connector.spi.DorisConnectorException;
+
+import org.apache.arrow.adbc.core.AdbcConnection;
+import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcStatement;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+
+/** Metadata confined to the remote catalog that the ADBC connection uses for SQL execution. */
+final class AdbcDorisMetadata {
+    private static final DorisDialect DIALECT = new DorisDialect();
+
+    private AdbcDorisMetadata() {
+    }
+
+    static boolean isDorisSource(AdbcClient client, Supplier<AdbcDialect> dialect) {
+        Optional<String> vendor = client.vendorName().map(String::trim).filter(name -> !name.isEmpty());
+        if (vendor.isPresent() && !"Flight SQL".equalsIgnoreCase(vendor.get())) {
+            return DIALECT.matchesVendor(vendor.get());
+        }
+        // Older Flight servers lack SQL info; the native driver can return its generic vendor default.
+        // An explicit Doris dialect opts into scoped discovery so GetObjects cannot reenter the source catalog.
+        return DorisDialect.NAME.equals(dialect.get().name());
+    }
+
+    static List<AdbcNamespace> readNamespaces(AdbcConnection connection) throws AdbcException, IOException {
+        List<String> catalogs = new ArrayList<>(1);
+        // Older Doris servers expose the current catalog through SQL but lack Flight GetSessionOptions.
+        readRows(connection, "SELECT CURRENT_CATALOG()", row -> catalogs.add(row.get(0)));
+        String catalog = catalogs.get(0);
+        if (catalog == null || catalog.isEmpty()) {
+            throw new DorisConnectorException("The Doris ADBC connection must select a remote catalog");
+        }
+        List<AdbcNamespace> namespaces = new ArrayList<>();
+        // The Flight driver omits catalog filters in GetObjects RPCs. On a loopback source, unrestricted
+        // discovery reenters the ADBC catalog whose metadata load is waiting for that RPC to complete.
+        readRows(connection, "SHOW DATABASES FROM " + DIALECT.quoteIdentifier(catalog),
+                row -> namespaces.add(new AdbcNamespace(catalog, row.get(0))));
+        return namespaces;
+    }
+
+    static List<String> readTableNames(AdbcConnection connection, AdbcNamespace namespace)
+            throws AdbcException, IOException {
+        List<String> tables = new ArrayList<>();
+        // Scope the actual SQL request, not just GetObjects' client-side result filtering.
+        readRows(connection, "SHOW FULL TABLES FROM " + DIALECT.quoteIdentifier(namespace.getRemoteCatalog())
+                + "." + DIALECT.quoteIdentifier(namespace.getRemoteDbSchema()), row -> {
+                    if (AdbcObjectsReader.isBaseTable(row.get(1))) {
+                        tables.add(row.get(0));
+                    }
+                });
+        return tables;
+    }
+
+    private static void readRows(AdbcConnection connection, String sql, Consumer<List<String>> consumer)
+            throws AdbcException, IOException {
+        try (AdbcStatement statement = connection.createStatement()) {
+            statement.setSqlQuery(sql);
+            try (AdbcStatement.QueryResult result = statement.executeQuery()) {
+                ArrowReader reader = result.getReader();
+                VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                while (reader.loadNextBatch()) {
+                    for (int row = 0; row < root.getRowCount(); row++) {
+                        List<String> values = new ArrayList<>();
+                        for (int column = 0; column < root.getFieldVectors().size(); column++) {
+                            Object value = root.getVector(column).getObject(row);
+                            // Preserve SQL NULL so the current-catalog check can report a missing selection.
+                            values.add(value == null ? null : value.toString());
+                        }
+                        consumer.accept(values);
+                    }
+                }
+            }
+        }
+    }
+}

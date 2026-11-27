@@ -166,4 +166,27 @@ TEST(FunctionElementAtStructTest, test_field_not_found) {
     EXPECT_TRUE(err.find("not found") != std::string::npos);
 }
 
+TEST(FunctionElementAtStructTest, large_integer_ordinal_keeps_high_bits) {
+    // One row and one field suffice. Both invalid ordinals become 1 through get_int().
+    auto type = std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeInt32>()},
+                                                 Strings {"a"});
+    auto index_type = std::make_shared<DataTypeInt128>();
+    const Int128 high = Int128 {1} << 64;
+    for (Int128 index : {high + 1, -high + 1}) {
+        ColumnPtr index_column =
+                ColumnConst::create(ColumnHelper::create_column<DataTypeInt128>({index}), 1);
+        ColumnsWithTypeAndName args {{nullptr, type, "s"}, {index_column, index_type, "i"}};
+        EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
+                             "element_at", args, make_nullable(std::make_shared<DataTypeInt32>())),
+                     Exception);
+    }
+    ColumnPtr index_column =
+            ColumnConst::create(ColumnHelper::create_column<DataTypeInt128>({1}), 1);
+    ColumnsWithTypeAndName args {{nullptr, type, "s"}, {index_column, index_type, "i"}};
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "element_at", args, make_nullable(std::make_shared<DataTypeInt32>()));
+    ASSERT_NE(function, nullptr);
+    EXPECT_EQ(function->get_return_type()->get_name(), "Nullable(INT)");
+}
+
 } // namespace doris

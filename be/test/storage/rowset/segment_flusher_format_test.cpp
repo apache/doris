@@ -67,7 +67,7 @@
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
-#include "storage/index/index_common.h"
+#include "storage/index/index_common_impl.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"

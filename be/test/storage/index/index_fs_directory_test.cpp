@@ -28,6 +28,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "testutil/scoped_temp_dir.h"
 #include "testutil/test_util.h"
 #include "util/debug_points.h"
 
@@ -35,12 +36,14 @@ namespace doris::segment_v2 {
 
 class DorisFSDirectoryTest : public ::testing::Test {
 protected:
+    doris::test::ScopedTempDirectory scoped_temp_dir_ {"index_fs_directory_test"};
+
     void SetUp() override {
         // Enable debug points for testing
         _original_enable_debug_points = config::enable_debug_points;
         config::enable_debug_points = true;
 
-        _tmp_dir = std::filesystem::temp_directory_path() / "doris_fs_directory_test";
+        _tmp_dir = scoped_temp_dir_.path() / "doris_fs_directory_test";
         std::filesystem::remove_all(_tmp_dir);
         std::filesystem::create_directories(_tmp_dir);
         _fs = io::global_local_filesystem();

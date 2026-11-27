@@ -168,8 +168,9 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
 
     @Override
     public PhysicalUnion resetLogicalProperties() {
-        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
-                Optional.empty(), null, physicalProperties, statistics, children);
+        return rebuildKeepingStates(this,
+                new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                Optional.empty(), null, physicalProperties, statistics, children));
     }
 
     @Override

@@ -128,6 +128,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final Long positionDeleteContentOffset;
     private final Long positionDeleteContentSizeInBytes;
 
+    @Override
+    public boolean supportsBeSplitRefinement() {
+        return serializedSplit == null && !positionDeleteSystemTableSplit && deleteFiles.isEmpty();
+    }
+
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
         // Default the raw original path to the (possibly already-raw) path when a caller does not split them
@@ -357,6 +362,7 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
+        boolean nativeEncryption = encryption != null;
         if (positionDeleteSystemTableSplit) {
             // Native $position_deletes sys-table range. Mirrors legacy
             // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135) field for field.
@@ -366,7 +372,7 @@ public class IcebergScanRange implements ConnectorScanRange {
             // (file_scanner.cpp:103-113, file_scanner_v2.cpp:75-125). The top-level content field is otherwise
             // deprecated and unset on ordinary data ranges — which is exactly what keeps them out of this
             // reader. Consequently the data path MUST NEVER set content to 1 or 3.
-            rangeDesc.setFormatType(positionDeleteFileFormat);
+            rangeDesc.setFormatType(nativeEncryption ? TFileFormatType.FORMAT_PARQUET_PME : positionDeleteFileFormat);
             formatDesc.setTableLevelRowCount(-1);
             fileDesc.setContent(positionDeleteContent);
             if (partitionSpecId != null) {
@@ -394,6 +400,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             }
             if (positionDeleteReferencedDataFilePath != null) {
                 deleteFileDesc.setReferencedDataFilePath(positionDeleteReferencedDataFilePath);
+            }
+            if (encryption != null) {
+                deleteFileDesc.setEncryptionInfo(encryption.toThrift());
             }
             fileDesc.setDeleteFiles(Collections.singletonList(deleteFileDesc));
             formatDesc.setIcebergParams(fileDesc);
@@ -446,13 +455,17 @@ public class IcebergScanRange implements ConnectorScanRange {
             // field-ids/DV-offset exactly as legacy built them.
             List<TIcebergDeleteFileDesc> deleteDescs = new ArrayList<>(deleteFiles.size());
             for (DeleteFile delete : deleteFiles) {
+                nativeEncryption |= delete.encryption != null;
                 deleteDescs.add(delete.toThrift());
             }
             fileDesc.setDeleteFiles(deleteDescs);
         }
 
         // native reader format (JNI = system tables, P6.5). Leaves the parent's default (FORMAT_JNI) otherwise.
-        if ("orc".equals(fileFormat)) {
+        if (nativeEncryption) {
+            // Older readers may ignore optional key fields; a distinct physical wire value must stop them.
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        } else if ("orc".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
         } else if ("parquet".equals(fileFormat)) {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
@@ -697,10 +710,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         private final Long contentOffset;
         private final Long contentSizeInBytes;
         private final long fileSize;
+        private final IcebergFileEncryption encryption;
 
         private DeleteFile(String path, int content, TFileFormatType fileFormat, Long positionLowerBound,
                 Long positionUpperBound, List<Integer> fieldIds, Long contentOffset, Long contentSizeInBytes,
-                long fileSize) {
+                long fileSize, IcebergFileEncryption encryption) {
             this.path = path;
             this.content = content;
             this.fileFormat = fileFormat;
@@ -710,13 +724,14 @@ public class IcebergScanRange implements ConnectorScanRange {
             this.contentOffset = contentOffset;
             this.contentSizeInBytes = contentSizeInBytes;
             this.fileSize = fileSize;
+            this.encryption = encryption;
         }
 
         /** A position delete file (content 1): row positions to drop, with optional [lower,upper] bounds. */
         public static DeleteFile positionDelete(String path, TFileFormatType fileFormat,
                 Long positionLowerBound, Long positionUpperBound, long fileSize) {
             return new DeleteFile(path, CONTENT_POSITION_DELETE, fileFormat,
-                    positionLowerBound, positionUpperBound, null, null, null, fileSize);
+                    positionLowerBound, positionUpperBound, null, null, null, fileSize, null);
         }
 
         /**
@@ -727,14 +742,22 @@ public class IcebergScanRange implements ConnectorScanRange {
         public static DeleteFile deletionVector(String path, Long positionLowerBound, Long positionUpperBound,
                 long contentOffset, long contentSizeInBytes, long fileSize) {
             return new DeleteFile(path, CONTENT_DELETION_VECTOR, null,
-                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes, fileSize);
+                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes, fileSize, null);
         }
 
         /** An equality delete file (content 2): rows equal on {@code fieldIds} are dropped (BE re-projects). */
         public static DeleteFile equalityDelete(String path, TFileFormatType fileFormat, List<Integer> fieldIds,
                 long fileSize) {
             return new DeleteFile(path, CONTENT_EQUALITY_DELETE, fileFormat, null, null,
-                    fieldIds, null, null, fileSize);
+                    fieldIds, null, null, fileSize, null);
+        }
+
+        DeleteFile withEncryption(IcebergFileEncryption encryption) {
+            if (this.encryption == encryption) {
+                return this;
+            }
+            return new DeleteFile(path, content, fileFormat, positionLowerBound, positionUpperBound,
+                    fieldIds, contentOffset, contentSizeInBytes, fileSize, encryption);
         }
 
         int getContent() {
@@ -761,6 +784,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             }
             if (contentSizeInBytes != null) {
                 desc.setContentSizeInBytes(contentSizeInBytes);
+            }
+            if (encryption != null) {
+                desc.setEncryptionInfo(encryption.toThrift());
             }
             desc.setContent(content);
             desc.setFileSize(fileSize);

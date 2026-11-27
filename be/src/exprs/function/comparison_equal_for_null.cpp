@@ -115,7 +115,7 @@ public:
                     nullable_right_col = assert_cast<const ColumnNullable*>(col_right.column.get());
                     // left column is all null, so result has same nullmap with right column.
                     block.get_by_position(result).column =
-                            nullable_right_col->get_null_map_column().clone();
+                            nullable_right_col->get_null_map_column_ptr();
                 }
             }
             return Status::OK();
@@ -138,7 +138,7 @@ public:
                     nullable_left_col = assert_cast<const ColumnNullable*>(col_left.column.get());
                     // right column is all null, so result has same nullmap with left column.
                     block.get_by_position(result).column =
-                            nullable_left_col->get_null_map_column().clone();
+                            nullable_left_col->get_null_map_column_ptr();
                 }
             }
             return Status::OK();

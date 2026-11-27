@@ -134,6 +134,11 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     }
 
     @Override
+    public boolean allowsKeyUse(KeyUse keyUse) {
+        return keyType.allowsKeyUse(keyUse) && valueType.allowsKeyUse(keyUse);
+    }
+
+    @Override
     public Optional<Expression> zeroValue() {
         return Optional.of(new MapLiteral(Collections.<Literal, Literal>emptyMap(), this));
     }

@@ -150,6 +150,46 @@ suite("test_streaming_oceanbase_job",
                     && lagValue.isLong() && Long.parseLong(lagValue) >= 0
         })
 
+        def expectedAfterRollback = connect("root@test", "123456",
+                "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
+            sql "BEGIN"
+            try {
+                sql """INSERT INTO ${sourceDb}.${table1} VALUES (4, 'rolled_back', 99)"""
+                sql """UPDATE ${sourceDb}.${table1} SET age=99 WHERE id=2"""
+                sql """DELETE FROM ${sourceDb}.${table1} WHERE id=3"""
+            } finally {
+                sql "ROLLBACK"
+            }
+            sql """INSERT INTO ${sourceDb}.${table1} VALUES (5, 'after_rollback', 50)"""
+            sql """SELECT id, name, age FROM ${sourceDb}.${table1} ORDER BY id"""
+        }
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT id, name, age FROM ${currentDb}.${table1} ORDER BY id") == expectedAfterRollback
+        }
+        order_qt_oceanbase_after_rollback "SELECT id, name, age FROM ${currentDb}.${table1} ORDER BY id"
+
+        sql """PAUSE JOB WHERE jobname='${jobName}'"""
+        Awaitility.await().pollInSameThread().atMost(120, SECONDS).pollInterval(1, SECONDS).until {
+            def job = sql """SELECT Status FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            def tasks = sql """SELECT COUNT(*) FROM tasks("type"="insert")
+                               WHERE JobName='${jobName}' AND Status='RUNNING'"""
+            job.size() == 1 && job[0][0] == "PAUSED" && tasks[0][0] == 0
+        }
+        def expectedAfterResume = connect("root@test", "123456",
+                "jdbc:mysql://${externalEnvIp}:${oceanbaseCdcPort}") {
+            // Each statement commits separately while the reader is paused.
+            sql """UPDATE ${sourceDb}.${table1} SET age=22 WHERE id=2"""
+            sql """DELETE FROM ${sourceDb}.${table1} WHERE id=2"""
+            sql """INSERT INTO ${sourceDb}.${table1} VALUES (2, 'Bob_reinserted', 42)"""
+            sql """DELETE FROM ${sourceDb}.${table1} WHERE id=3"""
+            sql """SELECT id, name, age FROM ${sourceDb}.${table1} ORDER BY id"""
+        }
+        sql """RESUME JOB WHERE jobname='${jobName}'"""
+        Awaitility.await().pollInSameThread().atMost(300, SECONDS).pollInterval(1, SECONDS).until {
+            sql("SELECT id, name, age FROM ${currentDb}.${table1} ORDER BY id") == expectedAfterResume
+        }
+        order_qt_oceanbase_after_resume "SELECT id, name, age FROM ${currentDb}.${table1} ORDER BY id"
+
         sql """DROP JOB IF EXISTS WHERE jobname='${jobName}'"""
     }
 }

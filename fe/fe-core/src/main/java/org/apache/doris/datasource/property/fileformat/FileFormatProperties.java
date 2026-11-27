@@ -24,8 +24,10 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
+import java.util.Set;
 
 public abstract class FileFormatProperties {
     public static final String PROP_FORMAT = "format";
@@ -40,6 +42,13 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
+    /**
+     * The formats {@link #createFileFormatProperties} knows, which no connector plugin may claim for the file table
+     * functions: a plugin answering to one would change what existing statements read.
+     */
+    public static final Set<String> ENGINE_FORMATS = ImmutableSet.of(FORMAT_CSV, FORMAT_HIVE_TEXT,
+            FORMAT_CSV_WITH_NAMES, FORMAT_CSV_WITH_NAMES_AND_TYPES, FORMAT_PARQUET, FORMAT_ORC, FORMAT_JSON,
+            FORMAT_AVRO, FORMAT_WAL, FORMAT_ARROW);
 
     protected String formatName;
     protected TFileFormatType fileFormatType;

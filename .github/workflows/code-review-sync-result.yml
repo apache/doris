@@ -1,8 +1,9 @@
 name: Code Review
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, edited, closed]
+  workflow_run:
+    workflows: [Pull Request Events, Code Review Dismissal]
+    types: [completed]
   issue_comment:
     types: [created]
 
@@ -12,6 +13,40 @@ permissions:
   statuses: write
 
 jobs:
+  record-dismissal:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request_review' &&
+      github.event.workflow_run.path == '.github/workflows/code-review-dismissed.yml' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      head_sha: ${{ steps.record.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/record_review_dismissal.py
+            .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+      - name: Record verified manual dismissal
+        id: record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DORIS_REVIEW_APP_BOT: ${{ vars.DORIS_REVIEW_APP_BOT }}
+          RUN_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+        run: python3 .github/scripts/record_review_dismissal.py
+
+  aggregate-after-dismissal:
+    needs: record-dismissal
+    if: needs.record-dismissal.outputs.head_sha != ''
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.record-dismissal.outputs.head_sha }}
+
   accept-skill-review:
     name: Accept local skill review PASS
     runs-on: ubuntu-latest
@@ -309,27 +344,27 @@ jobs:
       pull-requests: read
       statuses: write
 
-  sync-status:
-    name: Sync review status
-    if: github.event_name == 'pull_request_target'
-    uses: ./.github/workflows/code-review-aggregate-status.yml
-    with:
-      head_sha: ${{ github.event.pull_request.head.sha }}
+  resolve-event:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    uses: ./.github/workflows/resolve-pr-event.yml
     permissions:
+      actions: read
       contents: read
       pull-requests: read
-      statuses: write
 
-  sync-previous-head-status:
-    name: Sync previous review status
-    if: >
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'synchronize' &&
-      github.event.before != '' &&
-      github.event.before != github.event.pull_request.head.sha
+  sync-status:
+    name: Sync review status
+    needs: resolve-event
+    strategy:
+      fail-fast: false
+      matrix:
+        head_sha: ${{ fromJSON(needs.resolve-event.outputs.head_shas) }}
     uses: ./.github/workflows/code-review-aggregate-status.yml
     with:
-      head_sha: ${{ github.event.before }}
+      head_sha: ${{ matrix.head_sha }}
     permissions:
       contents: read
       pull-requests: read

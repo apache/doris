@@ -1122,14 +1122,16 @@ public class AppendVariantEqualityDelete {
         }
         return sum
     }
-    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
-        String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+    def getProfileByToken = { String token, List<String> positiveCounters = [],
+                             List<String> requiredCounters = [] ->
+        List<String> requiredContents = positiveCounters + requiredCounters
+        String lastProfile = profileAction.getProfileBySql(token, requiredContents)
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
             return lastProfile
         }
         try {
             return profileAction.waitProfile({
-                lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+                lastProfile = profileAction.getProfileBySql(token, requiredContents)
                 return positiveCounters.every {
                     String counter -> counterSum(lastProfile, counter) > 0
                 } ? lastProfile : ""
@@ -1718,6 +1720,36 @@ public class AppendVariantEqualityDelete {
             ["VariantUnshreddedDirectSeekRows"]).toString()
     assertTrue(counterSum(positionDeleteProfile, "VariantUnshreddedDirectSeekRows") > 0,
                "Position-delete filtering did not seek the unshredded Variant leaf")
+
+    // A STRING path must build a physical leaf projection rather than falling back to rebuilding
+    // the complete Variant. Reading only the accessed leaves is the entire advantage shredded
+    // storage has over unshredded storage.
+    String stringLeafToken = "iceberg_variant_string_leaf_" + UUID.randomUUID().toString()
+    List<List<Object>> stringLeafRows = sql """
+        SELECT '${stringLeafToken}', COUNT(*)
+        FROM variant_page_pruning FOR VERSION AS OF ${shreddedOnlySnapshot}
+        WHERE CAST(v['padding'] AS STRING) IS NOT NULL
+    """
+    assertEquals(1, stringLeafRows.size())
+    assertEquals(4096L, ((Number) stringLeafRows[0][1]).longValue(),
+                 "The pinned shredded STRING fixture did not return all padding rows")
+    // Counter names can arrive before the final BE report fills in their values. Wait for the
+    // positive counters while still requiring the zero-valued counters used by the assertions.
+    String stringLeafProfile = getProfileByToken(stringLeafToken,
+            ["VariantLeafProjectionRowGroupColumns", "VariantDirectLeafRows"],
+            ["VariantResidualProjectionRowGroupColumns",
+             "VariantFullProjectionRowGroupColumns", "VariantReconstructedRows"]).toString()
+    assertTrue(counterSum(stringLeafProfile, "VariantLeafProjectionRowGroupColumns") > 0,
+               "A STRING leaf predicate did not retain its physical row-group leaf projection")
+    assertEquals(0L, counterSum(stringLeafProfile,
+                                "VariantResidualProjectionRowGroupColumns"),
+               "The fully shredded STRING fixture unexpectedly retained residual columns")
+    assertEquals(0L, counterSum(stringLeafProfile, "VariantFullProjectionRowGroupColumns"),
+               "A STRING leaf predicate unexpectedly read the complete Variant wrapper")
+    assertTrue(counterSum(stringLeafProfile, "VariantDirectLeafRows") > 0,
+               "A STRING leaf predicate did not evaluate rows from the shredded typed leaf")
+    assertEquals(0L, counterSum(stringLeafProfile, "VariantReconstructedRows"),
+               "A STRING leaf-only predicate unexpectedly reconstructed complete Variant rows")
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.

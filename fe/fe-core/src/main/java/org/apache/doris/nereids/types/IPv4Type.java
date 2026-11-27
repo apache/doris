@@ -38,6 +38,11 @@ public class IPv4Type extends PrimitiveType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // BE maps all 32 IPv4 bits into IPv6 and prints a canonical address for string casts.
         return target instanceof IPv4Type || target instanceof IPv6Type || target instanceof CharacterType;

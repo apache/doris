@@ -365,13 +365,12 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
         return Status::OK();
     }
     const auto& deletion_file = table_desc.deletion_file;
-    size_t bytes_read = 0;
-    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file));
 
     desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
-    desc->size = static_cast<int64_t>(bytes_read);
+    desc->size = deletion_file.length;
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::PAIMON;
     *has_delete_file = true;
@@ -401,8 +400,20 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     return _current_split_reader->prepare_split(native_options);
 }
 
-Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
-    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+Status PaimonHybridReader::build_physical_splits(const FileScanSplit& source_split,
+                                                 std::vector<FileScanSplit>* splits,
+                                                 bool* was_split) {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->build_physical_splits(source_split, splits, was_split);
+}
+
+Status PaimonHybridReader::refresh_conjuncts(
+        VExprContextSPtrs conjuncts, std::optional<uint64_t> condition_cache_digest,
+        bool all_runtime_filters_applied,
+        std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(
+            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied,
+            predicate_snapshot));
     if (_current_split_reader == nullptr) {
         return Status::OK();
     }
@@ -410,7 +421,9 @@ Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
     // The hybrid wrapper owns no physical reader; forward a clone so the active child, rather than
     // only the wrapper snapshot, observes late predicates for the remainder of this split.
-    return _current_split_reader->refresh_conjuncts(std::move(child_conjuncts));
+    return _current_split_reader->refresh_conjuncts(
+            std::move(child_conjuncts), condition_cache_digest, all_runtime_filters_applied,
+            std::move(predicate_snapshot));
 }
 
 Status PaimonHybridReader::get_block(Block* block, bool* eos) {
@@ -549,6 +562,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
+            .predicate_snapshot = _predicate_snapshot,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
     // runtime default until FileScannerV2 supplies the first positive prediction.

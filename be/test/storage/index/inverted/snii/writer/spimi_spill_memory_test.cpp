@@ -36,6 +36,7 @@
 #include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 #include "storage/index/inverted/snii/writer/spill_run_codec.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::snii::writer {
 namespace {
@@ -44,14 +45,8 @@ constexpr uint64_t kMiB = 1ULL << 20;
 
 class TemporaryPostingFile {
 public:
-    TemporaryPostingFile() {
-        static std::atomic<uint64_t> sequence {0};
-        path = "/tmp/snii_spill_memory_" + std::to_string(getpid()) + "_" +
-               std::to_string(sequence.fetch_add(1));
-    }
-    ~TemporaryPostingFile() { std::remove(path.c_str()); }
-
-    std::string path;
+    doris::test::ScopedTempDirectory temp_dir {"snii_spill_memory"};
+    std::string path = (temp_dir.path() / "posting.run").string();
 };
 
 Status consume_dense_postings(StreamedTermPostings&& term, uint32_t expected_docs) {

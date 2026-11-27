@@ -25,13 +25,17 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
 public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
+    private static final int MAX_CHANGELOG_ROW_COUNT_VERSIONS = 128;
+
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -83,6 +87,13 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     private long rollupFinishedVersion;
 
     private boolean rowCountReported = false;
+
+    // Track only the versions counted since the last complete periodic report.
+    private transient Set<Long> countedChangelogVersions;
+    private transient long changelogRowCountReportVersion = -1;
+    private transient long changelogRowCountMaxReportVersion = -1;
+    private transient long latestChangelogWriteVersion = -1;
+    private transient long changelogWriteVersionAtLastReport = -1;
 
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
@@ -139,6 +150,13 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         // lookup-by-id drops them. Maintains tablets ⊆ idToTablets.
         tablets = new ArrayList<>();
         idToTablets = new HashMap<>();
+        rowCount = -1;
+        rowCountReported = false;
+        countedChangelogVersions = null;
+        changelogRowCountReportVersion = -1;
+        changelogRowCountMaxReportVersion = -1;
+        latestChangelogWriteVersion = -1;
+        changelogWriteVersionAtLastReport = -1;
     }
 
     public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
@@ -201,6 +219,69 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
+    }
+
+    /** Under the table write lock, accumulate multiple tablet deltas for the same publish version. */
+    public void addChangelogRowsFromPublish(long version, long rows) {
+        recordChangelogDelta(version, rows, false);
+    }
+
+    /** Under the table write lock, apply each visible Cloud commit once. */
+    public void addChangelogRows(long version, long rows) {
+        recordChangelogDelta(version, rows, true);
+    }
+
+    private void recordChangelogDelta(long version, long rows, boolean deduplicate) {
+        // An empty write cannot turn unknown into a known zero.
+        if (rows <= 0) {
+            return;
+        }
+        // Cloud polling must still see newer writes when the estimate is at capacity.
+        latestChangelogWriteVersion = Math.max(latestChangelogWriteVersion, version);
+        if (version <= changelogWriteVersionAtLastReport) {
+            return;
+        }
+        if (countedChangelogVersions == null) {
+            countedChangelogVersions = new HashSet<>();
+        }
+        if (countedChangelogVersions.size() >= MAX_CHANGELOG_ROW_COUNT_VERSIONS
+                && !countedChangelogVersions.contains(version)) {
+            return;
+        }
+        if (!countedChangelogVersions.add(version) && deduplicate) {
+            return;
+        }
+        rowCount = Math.max(0, rowCount) + rows;
+    }
+
+    long getChangelogStatsRefreshVersion() {
+        return Math.max(changelogRowCountReportVersion, latestChangelogWriteVersion);
+    }
+
+    long getChangelogRowCountReportVersion() {
+        return changelogRowCountReportVersion;
+    }
+
+    void setReportedRowCount(long rows, boolean reported) {
+        rowCount = rows;
+        rowCountReported = reported;
+    }
+
+    /** Replace the estimate with a complete, non-regressing retained row count. */
+    public void setChangelogReportedRowCount(long rows, boolean reported, long minVersion, long maxVersion) {
+        if (minVersion < changelogRowCountReportVersion || maxVersion < changelogRowCountMaxReportVersion
+                || ((!reported || minVersion < 0) && getChangelogStatsRefreshVersion() >= 0)) {
+            return;
+        }
+        if (reported && minVersion >= 0) {
+            changelogRowCountReportVersion = minVersion;
+            changelogRowCountMaxReportVersion = maxVersion;
+            // Reported rows may overlap deltas above the reported version. Start a new estimate
+            // window and suppress retries of versions already seen, even when the report lags.
+            changelogWriteVersionAtLastReport = Math.max(maxVersion, latestChangelogWriteVersion);
+            countedChangelogVersions = null;
+        }
+        setReportedRowCount(rows, reported);
     }
 
     public void setRollupIndexInfo(long rollupIndexId, long rollupFinishedVersion) {

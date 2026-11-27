@@ -152,6 +152,47 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext).analyze("SELECT array_sort((x, y) -> x - y, arr2) FROM t_arr");
     }
 
+    @Test
+    void testRejectSubqueriesInLambda() {
+        List<String> sqls = ImmutableList.of(
+                "SELECT array_exists(x -> x IN (SELECT col2 FROM t1), arr2) FROM t_arr",
+                "SELECT array_exists(x -> x NOT IN (SELECT col2 FROM t1), arr2) FROM t_arr",
+                "SELECT array_filter(x -> x IN (SELECT col2 FROM t1), [1, 2])",
+                "SELECT array_exists(x -> EXISTS (SELECT 1 FROM t1 WHERE col2 = x), arr2) FROM t_arr",
+                "SELECT array_exists(x -> NOT EXISTS (SELECT 1 FROM t1 WHERE col2 = x), arr2) FROM t_arr",
+                "SELECT array_exists(x -> EXISTS (SELECT 1 FROM t1), arr2) FROM t_arr",
+                "SELECT array_exists(x -> EXISTS (SELECT count(*) FROM t1), arr2) FROM t_arr",
+                "SELECT array_map(x -> x + (SELECT max(col2) FROM t1), arr2) FROM t_arr",
+                "SELECT array_map(x -> (SELECT max(col2) FROM t1 WHERE col2 = x), arr2) FROM t_arr",
+                "SELECT array_map(x -> (SELECT max(col2) FROM t1 WHERE col2 > t_arr.id), arr2) FROM t_arr",
+                "SELECT array_map(x -> if(false, (SELECT 1), x), [1, 2])",
+                "SELECT array_map(x -> array_map(y -> y + (SELECT 1), [1]), [1])",
+                "SELECT array_map(x -> array_map(y -> y, (SELECT [1])), [1])",
+                "SELECT array_sort((x, y) -> (SELECT 1), [1, 2])",
+                "SELECT map_filter((k, v) -> EXISTS (SELECT 1), map(1, 2))",
+                "SELECT * FROM t_arr WHERE array_exists(x -> x IN (SELECT col2 FROM t1), arr2)"
+        );
+        for (String sql : sqls) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PlanChecker.from(connectContext).analyze(sql), sql);
+            Assertions.assertEquals("Subqueries are not supported in lambda expressions",
+                    exception.getMessage(), sql);
+        }
+    }
+
+    @Test
+    void testSubqueriesOutsideLambdaBody() {
+        List<String> sqls = ImmutableList.of(
+                "SELECT array_map(x -> x + 1, (SELECT array_agg(col2) FROM t1))",
+                "SELECT array_filter(x -> x IN (1, 2), (SELECT array_agg(col2) FROM t1))",
+                "SELECT (SELECT array_map(x -> x + 1, [1, 2]))",
+                "SELECT array_map(x -> array_map(y -> x + y, [1]), [1])"
+        );
+        for (String sql : sqls) {
+            PlanChecker.from(connectContext).analyze(sql).rewrite();
+        }
+    }
+
     private static Lambda innermostLambda(Plan plan) {
         List<Lambda> innermostLambdas = plan.<Plan>collect(node -> true).stream()
                 .flatMap(node -> node.getExpressions().stream())

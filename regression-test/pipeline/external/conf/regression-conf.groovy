@@ -165,6 +165,7 @@ iceberg_rest_uri_port_gcs=19185
 iceberg_rest_uri_port_hdfs=19186
 iceberg_rest_hdfs_port=20020
 iceberg_minio_port=19001
+lance_rest_port=19102
 enableIcebergTest=true
 
 // polaris rest catalog config
@@ -229,7 +230,11 @@ hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
 
 // Keep rootless CI exclusions opt-in; other external-test environments are unchanged.
+// Do not append a second private excludeSuites assignment after loading this file.
+// Assertion, storage-access, dependency and memory failures must be reported.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Both original External groups are part of CI; the choice is source-owned.
+    testGroups = "external,external_docker"
     // Temporary environment exclusions using the existing suite-name filter.
     // Re-enable after the rootless execution prerequisites are reviewed and validated.
     excludeSuites += "," + [

@@ -32,11 +32,32 @@ suite("bucket_shuffle_set_operation") {
         set runtime_filter_mode=off;
         """
 
+    // Row counts affect INTERSECT input order and the bucket-shuffle basic child. Pin
+    // both columns so plan shapes do not depend on asynchronous tablet statistics updates.
+    // Leave detailed column statistics unset to preserve the existing join-plan coverage.
+    ["bucket_shuffle_set_operation1", "bucket_shuffle_set_operation2", "bucket_shuffle_set_operation3"].each { table ->
+        ["id", "value"].each { column ->
+            sql """alter table ${table} modify column ${column} set stats
+                ('row_count'='3')"""
+        }
+    }
+
     // make bucket shuffle set operation stable
     sql "set parallel_pipeline_task_num=5"
     // disable the bucket shuffle downgrade so the chosen shapes do not depend on the
     // backend count / parallelism of the environment running this suite
     sql "set bucket_shuffle_downgrade_ratio=0"
+
+    // The largest estimated input becomes the bucket-shuffle base. Delayed tablet row reports can
+    // make these equal-sized fixtures appear unequal and flip which input gets an exchange.
+    sql "set enable_stats=true"
+    for (String table : ["bucket_shuffle_set_operation1", "bucket_shuffle_set_operation2",
+                         "bucket_shuffle_set_operation3"]) {
+        for (String column : ["id", "value"]) {
+            sql """alter table ${table} modify column ${column}
+                set stats ('row_count'='3', 'ndv'='3', 'num_nulls'='0', 'min_value'='1', 'max_value'='3')"""
+        }
+    }
 
     // Spill rewrites INTERSECT/EXCEPT into joins. Keep the physical set operations
     // whose bucket distribution is checked by this suite, including in spill-enabled CI.

@@ -1,9 +1,9 @@
 # GitHub request diagnostics for code review
 
-The runner, status aggregator and result-sync jobs load review_github_api.py
-from the immutable workflow commit before their first GitHub API request. The
-copy in RUNNER_TEMP survives the subsequent PR checkout and is shared by the
-submission helper and head watchdog.
+The status aggregator and result-sync jobs load review_github_api.py from
+the immutable workflow commit into RUNNER_TEMP. The cloud dispatch job also
+checks out its helpers from the workflow commit. The cloud publisher uses
+its pinned copy of the submission and API helpers.
 
 Use python3 "$REVIEW_GH_HELPER" api ... in these workflow steps. Python helpers
 use run_gh with captured text output, check=True and their existing timeout;
@@ -19,10 +19,7 @@ Only a successful attempt's complete stdout is returned; failed pagination
 output is discarded before restarting the full read. Exhaustion still fails.
 
 Writes, GraphQL, fields/input, unknown argument forms, transport/timeouts, JSON
-parse failures and other HTTP statuses retain single-attempt behavior. The
-failure notification can use the authorized event/input PR number when input
-resolution failed before producing outputs; this does not authorize status
-writes for an unresolved head/base.
+parse failures and other HTTP statuses retain single-attempt behavior.
 
 On a failure, the helper prints a short diagnostic and saves one JSON record
 under REVIEW_GITHUB_DIAGNOSTICS_DIR. Records include the command exit status or
@@ -47,10 +44,6 @@ is caught by an optional step. Artifacts are named
 github-api-errors-<job>-<run>-<attempt>; reusable aggregation jobs include the
 head SHA to distinguish current-head and previous-head executions. Diagnostic
 upload/storage failures do not replace the original request failure.
-
-The existing failed-code-review-* submission artifacts remain available.
-These additions do not change the failure notification's content or posting
-arguments, or its existing failure classification.
 
 Local validation:
 
@@ -78,7 +71,7 @@ comment set or local journal never proves delivery. No write is automatically
 retried. A lost final-submit response may be recovered by exact readback of the
 already submitted review, without another submission event.
 
-failed-code-review-* now also includes review-draft.json: the current stage,
+The publishing context keeps review-draft.json with the current stage,
 owned review ID, confirmed thread IDs and current finding index/location. This
 is diagnostic progress, not a resume instruction. Before publication, an error
 triggers best-effort deletion only of the uniquely identified pending draft
@@ -94,5 +87,4 @@ force a retry. The pipeline must fail rather than report partial delivery.
 The motivating #68499 experiment accepted all five original findings in one
 draft via sequential GraphQL mutations, while bulk REST creation rejected the
 same set with 422. That experiment used a personal account and deleted the
-draft; formal publication and the Actions identity still require live rollout
-validation. The exact GitHub internal diff limit is not established.
+draft. The exact GitHub internal diff limit is not established.

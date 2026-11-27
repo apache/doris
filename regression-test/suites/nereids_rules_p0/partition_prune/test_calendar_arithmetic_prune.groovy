@@ -43,7 +43,11 @@ suite("test_calendar_arithmetic_prune") {
         }
         explain {
             sql "select d from calendar_add_sub_prune where years_add(d, 1) > '2024-02-29 00:00:00'"
-            contains "partitions=3/4 (p_sub,p_quarter,p_leap)"
+            // TIMESTAMPTZ year ranges stay disabled even in UTC: the shared inference
+            // does not account for session-local leap-day clamping and DST transitions.
+            contains(dateType == "timestamptz(6)"
+                    ? "partitions=4/4 (p_month,p_sub,p_quarter,p_leap)"
+                    : "partitions=3/4 (p_sub,p_quarter,p_leap)")
         }
 
         "order_qt_${typeIndex}_months_add" """

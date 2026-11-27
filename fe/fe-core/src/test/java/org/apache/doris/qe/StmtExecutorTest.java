@@ -20,12 +20,14 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.TableIf;
@@ -65,6 +67,8 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -73,6 +77,8 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.Planner;
@@ -80,6 +86,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCounter;
@@ -98,6 +105,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -114,6 +123,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -738,7 +748,8 @@ public class StmtExecutorTest extends TestWithFeService {
                 Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
                 Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
                 Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
-                Assertions.assertEquals(42L, statistics.getActualRowCount());
+                Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+                Assertions.assertEquals(-1L, statistics.getActualRowCount());
 
                 profile.writeToStorage(profileDirectory.toString());
                 Profile storedProfile = Profile.read(profile.getProfileStoragePath());
@@ -940,10 +951,12 @@ public class StmtExecutorTest extends TestWithFeService {
         ProfileManager manager = ProfileManager.getInstance();
         boolean fetchFailure = outcome.startsWith("FETCH_FAILURE_");
         Planner planner = fetchFailure ? Mockito.mock(NereidsPlanner.class) : Mockito.mock(Planner.class);
-        Statistics failedStatistics = Mockito.mock(Statistics.class);
-        Statistics successfulStatistics = Mockito.mock(Statistics.class);
-        Mockito.when(failedStatistics.printColumnStats()).thenReturn("abandoned-plan-column-statistics\n");
-        Mockito.when(successfulStatistics.printColumnStats()).thenReturn("successful-plan-column-statistics\n");
+        SlotReference failedColumn = new SlotReference("abandoned-plan-column-statistics", IntegerType.INSTANCE);
+        SlotReference successfulColumn = new SlotReference("successful-plan-column-statistics", IntegerType.INSTANCE);
+        Statistics failedStatistics = new Statistics(1000,
+                Map.of(failedColumn, new ColumnStatisticBuilder(1000).setNdv(10).build()));
+        Statistics successfulStatistics = new Statistics(42,
+                Map.of(successfulColumn, new ColumnStatisticBuilder(42).setNdv(10).build()));
         Field plannerField = StmtExecutor.class.getDeclaredField("planner");
         plannerField.setAccessible(true);
         Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
@@ -992,8 +1005,16 @@ public class StmtExecutorTest extends TestWithFeService {
                 }
                 Mockito.when(((NereidsPlanner) planner).getDistributedPlans()).thenReturn(distributedPlans);
                 Mockito.when(((NereidsPlanner) planner).getPhysicalPlan()).thenReturn(plan);
+                PhysicalOlapScan relation = Mockito.mock(PhysicalOlapScan.class);
+                OlapTable table = Mockito.mock(OlapTable.class);
+                Mockito.when(table.getName()).thenReturn("profile_replan");
+                Mockito.when(relation.getTable()).thenReturn(table);
+                Mockito.when(relation.getQualifier()).thenReturn(List.of("test"));
+                Mockito.when(relation.getOperativeSlots()).thenReturn(List.of(
+                        attempts.get() == 1 ? failedColumn : successfulColumn));
+                Mockito.when(relation.getStats()).thenReturn(plan.getStats());
                 Mockito.when(((NereidsPlanner) planner).getPhysicalRelations())
-                        .thenReturn(Collections.singletonList(plan));
+                        .thenReturn(Collections.singletonList(relation));
             }
             plannerField.set(executor, planner);
             try {
@@ -1012,6 +1033,10 @@ public class StmtExecutorTest extends TestWithFeService {
             TQueryOptions options = new TQueryOptions();
             options.enable_profile = true;
             Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+            // A dispatched Flight query registers its cancellation route with these.
+            Mockito.when(coordinator.getQueryId()).thenReturn(queryId);
+            Mockito.when(coordinator.getBackendBrpcAddresses())
+                    .thenReturn(Collections.singletonList(new TNetworkAddress("127.0.0.1", 8060)));
             Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
             Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
             Mockito.when(coordinator.mustOutliveDispatch()).thenReturn("FLIGHT_DEFERRED".equals(outcome));
@@ -1052,6 +1077,12 @@ public class StmtExecutorTest extends TestWithFeService {
                     }
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                 }
+                if (flight) {
+                    // As the coordinator does for a query whose results stay on the BEs.
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(queryId,
+                            new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060),
+                            new ArrayList<>()));
+                }
                 return null;
             }).when(coordinator).exec();
         };
@@ -1083,6 +1114,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertSame(successful, manager.getExecutionProfile(successful.getQueryId()));
                     Assertions.assertSame(executor.getCoord(),
                             QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
+                    // The result stays on the BEs, so the query's cancellation route was registered.
+                    Mockito.verify(executor.getCoord()).getBackendBrpcAddresses();
                     Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
                     if (executor.isDeferredForArrowFlight()) {
                         JsonObject pending = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()
@@ -1107,7 +1140,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertFalse(finalText.contains("abandoned-backend-selection"));
                     Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(plans.get(0).getId())));
                     Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(plans.get(1).getId())));
-                    Mockito.verify(failedStatistics, Mockito.times(1)).printColumnStats();
+                    Assertions.assertEquals(-1L, failedStatistics.getActualRowCount());
                 }
             } else {
                 Class<? extends Exception> errorType = "RPC".equals(outcome) ? RpcException.class : UserException.class;
@@ -1224,7 +1257,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
                     Mockito.doAnswer(dispatch -> {
                         if (!firstAttempt) {
-                            Assertions.assertSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertNotSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertEquals(plan.getId(), ((AbstractPlan) profile.getPhysicalPlan()).getId());
                             Assertions.assertTrue(profile.rowsProducedMap.isEmpty());
                             Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
                             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
@@ -1250,7 +1284,8 @@ public class StmtExecutorTest extends TestWithFeService {
                             String firstText = profile.getProfileByLevel();
                             Assertions.assertTrue(firstText.contains("actualRows=1000"));
                             Assertions.assertTrue(firstText.contains("actualRows=500"));
-                            Assertions.assertEquals(500L, childStatistics.getActualRowCount());
+                            Assertions.assertEquals(500L, profile.getPhysicalPlan().child(0).getStats().getActualRowCount());
+                            Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
                             throw new RpcException("test-be", "fetch failed before sending results");
                         }
                         if (terminalFailure) {
@@ -1291,7 +1326,8 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(finalText.contains("actualRows=42"));
             Assertions.assertFalse(finalText.contains("actualRows=1000"));
             Assertions.assertFalse(finalText.contains("actualRows=500"));
-            Assertions.assertEquals(42L, rootStatistics.getActualRowCount());
+            Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+            Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
             Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(child.getId())));
             profile.writeToStorage(profileDirectory.toString());
@@ -1579,27 +1615,16 @@ public class StmtExecutorTest extends TestWithFeService {
 
     @Test
     public void testEmptyOriginStmtSkipsAuditMaskingReparse() throws Exception {
-        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
-                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
-                Mockito.withSettings().extraInterfaces(
-                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
-        Mockito.doThrow(new AssertionError("empty SQL should not trigger audit masking reparse"))
-                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
-                .geneEncryptionSQL("");
-
-        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
-                logicalPlan, new org.apache.doris.nereids.StatementContext());
-        parsedStmt.setOrigStmt(new OriginStatement("", 0));
-        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
-
-        // Empty internal SQL must bypass audit masking reparsing in both logging paths.
-        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
-        getStmtForLogging.setAccessible(true);
-        Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
-
-        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
-        getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+        StmtExecutor executor = new StmtExecutor(connectContext, "");
+        try (MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class)) {
+            Method logging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+            logging.setAccessible(true);
+            Assertions.assertEquals("", logging.invoke(executor, ""));
+            Method beforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+            beforeParse.setAccessible(true);
+            Assertions.assertEquals("", beforeParse.invoke(executor));
+            Assertions.assertTrue(parsers.constructed().isEmpty());
+        }
     }
 
     @Test
@@ -1617,6 +1642,9 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, "*XXX"));
             Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, AI_RESOURCE_LOG_SECRET));
             Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, "*XXX"));
+            String expected = buildCreateAiResourceSql(resourceName, "*XXX");
+            Assertions.assertTrue(appender.contains(Level.INFO, expected));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, expected));
         } finally {
             Config.enable_print_request_before_execution = originalPrintRequest;
         }
@@ -1647,24 +1675,20 @@ public class StmtExecutorTest extends TestWithFeService {
 
     @Test
     public void testGetStmtForLoggingFailsClosedWhenMaskingThrows() throws Exception {
-        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
-                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
-                Mockito.withSettings().extraInterfaces(
-                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
-        Mockito.doThrow(new IllegalStateException("masking failed"))
-                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
-                .geneEncryptionSQL(Mockito.anyString());
-
-        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
-                logicalPlan, new org.apache.doris.nereids.StatementContext());
-        parsedStmt.setOrigStmt(new OriginStatement("CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
-                + "\"ai.api_key\" = \"" + AI_RESOURCE_LOG_SECRET + "\")", 0));
-        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
-
-        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
-        getStmtForLogging.setAccessible(true);
-        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLogging.invoke(executor,
-                parsedStmt.getOrigStmt().originStmt));
+        String sql = buildCreateAiResourceSql("ai_resource", AI_RESOURCE_LOG_SECRET);
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        Method logging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        logging.setAccessible(true);
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class);
+                MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class,
+                        (parser, context) -> Mockito.doThrow(
+                                new IllegalStateException("masking failed: " + AI_RESOURCE_LOG_SECRET))
+                                .when(parser).parseForEncryption(Mockito.anyString(), Mockito.anyMap(),
+                                        Mockito.eq(true)))) {
+            Assertions.assertEquals(MASKED_STMT_FALLBACK, logging.invoke(executor, sql));
+            Assertions.assertEquals(1, parsers.constructed().size());
+            assertMaskingFailureDoesNotLogSql(appender);
+        }
     }
 
     @Test
@@ -1675,7 +1699,89 @@ public class StmtExecutorTest extends TestWithFeService {
 
         Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
         getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+            assertMaskingFailureDoesNotLogSql(appender);
+        }
+    }
+
+    @Test
+    public void testPlainSqlLoggingPreservesFormatting() throws Exception {
+        String sql = "/* keep */\nSELECT\n\t1 AS value;";
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        Method beforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        beforeParse.setAccessible(true);
+        Assertions.assertEquals(sql, beforeParse.invoke(executor));
+    }
+
+    @Test
+    public void testLoggingDoesNotApplyExecutionHints() throws Exception {
+        int queryTimeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        String sql = "SELECT /*+ SET_VAR(query_timeout=123) */\n1";
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        Method beforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        beforeParse.setAccessible(true);
+        Assertions.assertEquals(sql, beforeParse.invoke(executor));
+        Assertions.assertEquals(queryTimeout, connectContext.getSessionVariable().getQueryTimeoutS());
+    }
+
+    @Test
+    public void testParsedExplainLogsMaskedSql() throws Exception {
+        String sql = "EXPLAIN SELECT * FROM S3(\n"
+                + "  'uri' = 's3://test-bucket/file.csv',\n"
+                + "  'format' = 'csv',\n"
+                + "  's3.secret_key' = '" + AI_RESOURCE_LOG_SECRET + "'\n)";
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
+                new NereidsParser().parseSingle(sql);
+        org.apache.doris.analysis.StatementBase parsed = new LogicalPlanAdapter(
+                plan, new org.apache.doris.nereids.StatementContext());
+        parsed.setOrigStmt(new OriginStatement(sql, 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsed);
+        Method logging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        logging.setAccessible(true);
+        Assertions.assertEquals(sql.replace(AI_RESOURCE_LOG_SECRET, "*XXX"), logging.invoke(executor, sql));
+    }
+
+    @Test
+    public void testParsedCtasLogsMaskedSqlWhenAuditGateSkipsIt() throws Exception {
+        String sql = "CREATE TABLE testDb.log_ctas ENGINE=OLAP AS SELECT * FROM S3(\n"
+                + "  'uri' = 's3://test-bucket/file.csv', 'format' = 'csv',\n"
+                + "  's3.secret_key' = '" + AI_RESOURCE_LOG_SECRET + "'\n)";
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertFalse(((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) plan)
+                .needAuditEncryption());
+        org.apache.doris.analysis.StatementBase parsed = new LogicalPlanAdapter(
+                plan, new org.apache.doris.nereids.StatementContext());
+        parsed.setOrigStmt(new OriginStatement(sql, 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsed);
+        Method logging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        logging.setAccessible(true);
+        Assertions.assertEquals(sql.replace(AI_RESOURCE_LOG_SECRET, "*XXX"), logging.invoke(executor, sql));
+    }
+
+    @Test
+    public void testSyntaxErrorLogsDoNotContainSql() throws Exception {
+        boolean printRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            connectContext.getState().reset();
+            StmtExecutor executor = new StmtExecutor(connectContext,
+                    "CREATE USER 'broken_log_user' IDENTIFIED BY '" + AI_RESOURCE_LOG_SECRET + "' PROPERTIES (");
+            executor.execute();
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+            Assertions.assertFalse(appender.contains(Level.INFO, AI_RESOURCE_LOG_SECRET));
+            Assertions.assertFalse(appender.contains(Level.DEBUG, AI_RESOURCE_LOG_SECRET));
+            assertMaskingFailureDoesNotLogSql(appender);
+        } finally {
+            Config.enable_print_request_before_execution = printRequest;
+        }
+    }
+
+    private void assertMaskingFailureDoesNotLogSql(TestLogAppender appender) {
+        Assertions.assertTrue(appender.contains(Level.WARN, "FE logging"));
+        Assertions.assertFalse(appender.contains(Level.WARN, AI_RESOURCE_LOG_SECRET));
+        List<LogEvent> events = Deencapsulation.getField(appender, "events");
+        Assertions.assertTrue(events.stream().allMatch(event -> event.getThrown() == null));
     }
 
     @Test

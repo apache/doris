@@ -250,8 +250,11 @@ public class TypeCoercionUtils {
      * NS-literal admission is handled separately; CAST legality is checked by CheckCast.
      */
     private static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        if (input.equals(expected) || expected instanceof AnyDataType) {
+        if (input.equals(expected)) {
             return Optional.of(input);
+        }
+        if (expected instanceof AnyDataType) {
+            return expected.acceptsType(input) ? Optional.of(input) : Optional.empty();
         }
         if (input instanceof NullType) {
             return Optional.of(expected.defaultConcreteType());
@@ -605,9 +608,6 @@ public class TypeCoercionUtils {
     public static void checkCanCastTo(DataType input, DataType target) {
         if (canCastTo(input, target)) {
             return;
-        }
-        if (CheckCast.requiresExactAggStateMatch(input, target)) {
-            throw new AnalysisException(CheckCast.exactAggStateMatchError(input, target));
         }
         throw new AnalysisException("can not cast from origin type " + input + " to target type=" + target);
     }

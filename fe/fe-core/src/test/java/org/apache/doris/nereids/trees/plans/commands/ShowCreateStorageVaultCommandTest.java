@@ -18,20 +18,37 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
 public class ShowCreateStorageVaultCommandTest {
+    private String originalSensitivePattern;
+
+    @BeforeEach
+    public void saveSensitivePattern() {
+        originalSensitivePattern = Config.datasource_sensitive_property_pattern;
+    }
+
+    @AfterEach
+    public void restoreSensitivePattern() {
+        Config.datasource_sensitive_property_pattern = originalSensitivePattern;
+    }
+
     @Test
     public void testNativeGcpIdentityRoundTrip() {
+        // Isolate identity projection from heuristic name masking; permanent secret rules remain active.
+        Config.datasource_sensitive_property_pattern = "(?!)";
         for (Cloud.GcpCredentialPB.CredentialProviderType providerType : List.of(
                 Cloud.GcpCredentialPB.CredentialProviderType.DEFAULT,
                 Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE)) {
@@ -57,6 +74,7 @@ public class ShowCreateStorageVaultCommandTest {
 
     @Test
     public void testLegacyKeysRemainMasked() {
+        Config.datasource_sensitive_property_pattern = "(?!)";
         for (Cloud.ObjectStoreInfoPB.Provider provider : List.of(
                 Cloud.ObjectStoreInfoPB.Provider.GCP, Cloud.ObjectStoreInfoPB.Provider.S3)) {
             Map<String, String> properties = shownProperties(objectInfo(provider)
@@ -65,6 +83,23 @@ public class ShowCreateStorageVaultCommandTest {
             Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, properties.get("s3.secret_key"));
             Assertions.assertFalse(properties.containsKey("gs.credential_provider_type"));
             Assertions.assertFalse(properties.containsKey("gs.impersonation_service_account"));
+        }
+    }
+
+    @Test
+    public void testCredentialNameRuleMasksNativeGcpMetadata() {
+        Config.datasource_sensitive_property_pattern = "credential";
+        for (Cloud.GcpCredentialPB.CredentialProviderType providerType : List.of(
+                Cloud.GcpCredentialPB.CredentialProviderType.DEFAULT,
+                Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE)) {
+            Cloud.ObjectStoreInfoPB.Builder info = objectInfo(Cloud.ObjectStoreInfoPB.Provider.GCP);
+            info.getCredentialBuilder().getGcpCredentialBuilder().setCredentialProviderType(providerType);
+            Map<String, String> properties = shownProperties(info.build());
+            // Name rules deliberately include metadata names containing the configured keyword.
+            Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK,
+                    properties.get("gs.credential_provider_type"));
+            Assertions.assertFalse(properties.containsKey("s3.access_key"));
+            Assertions.assertFalse(properties.containsKey("s3.secret_key"));
         }
     }
 

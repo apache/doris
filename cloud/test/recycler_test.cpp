@@ -46,6 +46,8 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/blob_message.h"
@@ -3349,6 +3351,81 @@ TEST(RecyclerTest, delete_bitmap_collect_shard_keys) {
     EXPECT_EQ(storage_type, InstanceRecycler::DeleteBitmapStorageType::IN_FDB);
 }
 
+static void check_interrupted_tablet_scan(bool recycle_index) {
+    auto retention_seconds = config::retention_seconds;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+    };
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    constexpr int64_t table_id = 10000, index_id = 10001, partition_id = 10002;
+    constexpr int64_t first_tablet = 10100, second_tablet = 10101;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, first_tablet), 0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, second_tablet), 0);
+    std::string parent_key;
+    if (recycle_index) {
+        ASSERT_EQ(create_recycle_index(txn_kv.get(), table_id, index_id), 0);
+        parent_key = recycle_index_key({instance_id, index_id});
+    } else {
+        ASSERT_EQ(create_recycle_partiton(txn_kv.get(), table_id, partition_id, {index_id}), 0);
+        parent_key = recycle_partition_key({instance_id, partition_id});
+    }
+    auto recycle = [recycle_index](InstanceRecycler& recycler) {
+        return recycle_index ? recycler.recycle_indexes() : recycler.recycle_partitions();
+    };
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto committer = std::make_shared<TxnLazyCommitter>(txn_kv);
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group, committer);
+        ASSERT_EQ(recycler.init(), 0);
+        auto* sp = SyncPoint::get_instance();
+        SyncPoint::CallbackGuard page_size, stop;
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+        };
+        sp->set_call_back(
+                "memkv::Transaction::get", [](auto&& args) { *try_any_cast<int*>(args[0]) = 1; },
+                &page_size);
+        sp->set_call_back(
+                "InstanceRecycler::recycle_tablets.before_commit", [&](auto&&) { recycler.stop(); },
+                &stop);
+        sp->enable_processing();
+        EXPECT_EQ(recycle(recycler), -1);
+    }
+
+    auto first_meta =
+            meta_tablet_key({instance_id, table_id, index_id, partition_id, first_tablet});
+    auto second_meta =
+            meta_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    auto stats = stats_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    auto job = job_tablet_key({instance_id, table_id, index_id, partition_id, second_tablet});
+    std::unique_ptr<Transaction> txn;
+    std::string val;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(first_meta, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    for (const auto& key : {second_meta, stats, job, parent_key}) {
+        EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK) << hex(key);
+    }
+
+    InstanceRecycler successor(txn_kv, instance, thread_group, committer);
+    ASSERT_EQ(successor.init(), 0);
+    ASSERT_EQ(recycle(successor), 0);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (const auto& key : {second_meta, stats, job, parent_key}) {
+        EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND) << hex(key);
+    }
+}
+
+TEST(RecyclerTest, interrupted_index_tablet_scan) {
+    check_interrupted_tablet_scan(true);
+}
+
+TEST(RecyclerTest, interrupted_partition_tablet_scan) {
+    check_interrupted_tablet_scan(false);
+}
+
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -5205,6 +5282,321 @@ TEST(CheckerTest, normal_inverted_check) {
     ASSERT_EQ(checker.do_inverted_check(), 0);
 }
 
+// A checker of an instance whose storage vaults are the mock vaults added by each test
+class InvertedCheckTest : public testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_EQ(txn_kv->init(), 0);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        ASSERT_EQ(checker.init(instance), 0);
+    }
+
+    std::shared_ptr<MockAccessor> add_vault(const std::string& id,
+                                            std::optional<StorageRoot> root = std::nullopt) {
+        auto vault = root ? std::make_shared<MockAccessor>("mock://" + id, *root)
+                          : std::make_shared<MockAccessor>("mock://" + id);
+        checker.TEST_add_accessor(id, vault);
+        return vault;
+    }
+
+    int64_t num_scanned() {
+        return read_status_bvar_value("checker", "num_inverted_scanned", instance_id);
+    }
+    int64_t num_leaks() {
+        return read_status_bvar_value("checker", "num_inverted_check_failed", instance_id);
+    }
+
+    std::shared_ptr<MemTxnKv> txn_kv = std::make_shared<MemTxnKv>();
+    InstanceChecker checker {txn_kv, instance_id};
+};
+
+// Puts the data objects of `from` into `to`, as storage seen by both vaults
+static void copy_data_objects(StorageVaultAccessor* from, StorageVaultAccessor* to) {
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(from->list_directory("data", &list_iter), 0);
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        ASSERT_EQ(to->put_file(file->path, ""), 0);
+    }
+}
+
+TEST_F(InvertedCheckTest, multi_vault) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    for (int t = 10001; t <= 10010; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", t, v, t * 2, 1, 0);
+        }
+    }
+    for (int t = 10011; t <= 10020; ++t) {
+        for (int v = 0; v < 3; ++v) {
+            create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", t, v, t * 2, 1, 0);
+        }
+    }
+    // Objects of both vaults are checked
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(num_scanned(), 60);
+    ASSERT_EQ(num_leaks(), 0);
+
+    // A leaked segment in each vault: one of a tablet without rowsets, one listed after the live
+    // rowsets of its tablet ("zzz" sorts after the numeric test rowset ids)
+    ASSERT_EQ(vault1->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10015, "zzz", 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 62);
+    ASSERT_EQ(num_leaks(), 2);
+}
+
+TEST_F(InvertedCheckTest, same_location_once) {
+    // Two resources backed by the same storage location
+    auto accessor = add_vault("vault1");
+    checker.TEST_add_accessor("vault2", accessor);
+    for (int t = 10001; t <= 10010; ++t) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "vault1", t, 0, t * 2, 1, 0);
+    }
+    ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 11);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, segment_in_another_vault_is_leak) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    // Vaults 3 and 4 address the same paths with different credentials, so both are listed
+    StorageRoot root {.container = "bucket", .prefix = "p"};
+    auto vault3 = add_vault("vault3", root);
+    auto vault4 = add_vault("vault4", root);
+    create_committed_rowset(txn_kv.get(), vault1.get(), "vault1", 10001, 0, 20002, 1, 0);
+    create_committed_rowset(txn_kv.get(), vault3.get(), "vault3", 10002, 0, 20004, 1, 0);
+    // A copy of a vault1 segment in vault2 is not covered by its rowset
+    copy_data_objects(vault1.get(), vault2.get());
+    // A vault3 segment listed through vault4 is in the storage of its rowset
+    copy_data_objects(vault3.get(), vault4.get());
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 4);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, list_error_does_not_stop_other_vaults) {
+    auto vault1 = add_vault("vault1");
+    auto vault2 = add_vault("vault2");
+    create_committed_rowset(txn_kv.get(), vault2.get(), "vault2", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(vault2->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "MockAccessor::list_directory",
+            [&](auto&& args) {
+                if (try_any_cast<MockAccessor*>(args[0]) == vault1.get()) {
+                    *try_any_cast_ret<int>(args) = {-1, true};
+                }
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // vault2 is checked whichever vault is listed first, its leak is the result
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 1);
+}
+
+TEST_F(InvertedCheckTest, orphans_in_both_listing_orders) {
+    auto accessor = add_vault("1");
+    // Tablet 10001: a live rowset listed before two orphans ("zzz*" sort after the numeric test
+    // rowset ids), the orphans are checked against the cached rowsets of the tablet
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz1", 0), ""), 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz2", 0), ""), 0);
+    // Tablet 10002: an orphan listed before the live rowset ("0000" sorts first), the orphan loads
+    // the rowsets of the tablet and the live rowset is checked against the cache
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10002, 0, 20004, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10002, "0000", 0), ""), 0);
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(num_scanned(), 5);
+    ASSERT_EQ(num_leaks(), 3);
+}
+
+TEST_F(InvertedCheckTest, rowset_meta_read_error_is_not_leak) {
+    auto accessor = add_vault("1");
+    for (int v = 0; v < 2; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [](auto&& args) { *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_CONFLICT; },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Failing to read the rowsets of the tablet is an error for each of its objects, never a leak
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+TEST_F(InvertedCheckTest, rowset_committed_during_scan_is_not_leak) {
+    auto accessor = add_vault("1");
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    // The segment of rowset "zzz" is uploaded, and its meta commits after the checker loaded the
+    // rowsets of the tablet for the first object ("zzz" sorts after the numeric rowset ids)
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
+
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                if (++rowset_reads != 1) {
+                    return;
+                }
+                doris::RowsetMetaCloudPB rowset;
+                rowset.set_rowset_id(0);
+                rowset.set_rowset_id_v2("zzz");
+                rowset.set_tablet_id(10001);
+                rowset.set_num_segments(1);
+                rowset.set_resource_id("1");
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(meta_rowset_key({instance_id, 10001, 1}), rowset.SerializeAsString());
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // The rowset missing from the cache is read again and found, so it is not a leak
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(rowset_reads, 2);
+    ASSERT_EQ(num_scanned(), 2);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+TEST_F(InvertedCheckTest, stops_when_stopped) {
+    auto accessor = add_vault("1");
+    for (int v = 0; v < 3; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    // The checker is stopped while the rowsets of the first object's tablet are being read
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                ++rowset_reads;
+                checker.stop();
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // No more objects are checked, so no more rowset reads are started
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(rowset_reads, 1);
+    ASSERT_EQ(num_scanned(), 1);
+    ASSERT_EQ(num_leaks(), 0);
+}
+
+#ifdef ENABLE_HDFS_STORAGE_VAULT
+TEST(HdfsAccessorLocationTest, location) {
+    auto make_info = [](const std::string& fs_name, const std::string& prefix) {
+        HdfsVaultInfo info;
+        info.set_prefix(prefix);
+        info.mutable_build_conf()->set_fs_name(fs_name);
+        return info;
+    };
+    // No init and no HDFS needed: the location only depends on the configuration. It lives here
+    // because hdfs_accessor_test skips everything without a test HDFS.
+    auto info1 = make_info("hdfs://nn1:8020", "p1");
+    auto info1_again = make_info("hdfs://nn1:8020", "p1");
+    auto info2 = make_info("hdfs://nn1:8020", "p2");
+    auto info3 = make_info("hdfs://nn2:8020", "p1");
+    HdfsAccessor accessor1(info1);
+    HdfsAccessor accessor1_again(info1_again);
+    HdfsAccessor accessor2(info2);
+    HdfsAccessor accessor3(info3);
+
+    EXPECT_EQ(accessor1.uri(), "hdfs://nn1:8020/p1");
+    EXPECT_EQ(accessor1.location(), "hdfs://nn1:8020\n/p1");
+    EXPECT_EQ(accessor1.location(), accessor1_again.location());
+    EXPECT_NE(accessor1.location(), accessor2.location());
+    EXPECT_NE(accessor1.location(), accessor3.location());
+
+    // HA: the same logical nameservice and prefix resolve through each vault's hdfs_confs
+    auto make_ha_info = [&](std::vector<std::pair<std::string, std::string>> confs) {
+        auto info = make_info("hdfs://ns", "/warehouse");
+        for (auto& [key, value] : confs) {
+            auto* conf = info.mutable_build_conf()->add_hdfs_confs();
+            conf->set_key(key);
+            conf->set_value(value);
+        }
+        return info;
+    };
+    auto cluster_a = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"}});
+    auto cluster_a_reordered = make_ha_info({{"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                             {"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                             {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    auto cluster_b = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "b2:8020"}});
+    HdfsAccessor accessor_a(cluster_a);
+    HdfsAccessor accessor_a_reordered(cluster_a_reordered);
+    HdfsAccessor accessor_b(cluster_b);
+    EXPECT_EQ(accessor_a.uri(), accessor_b.uri());
+    EXPECT_NE(accessor_a.location(), accessor_b.location());
+    // The confs are kept in order, a different order may resolve differently and is listed again
+    EXPECT_NE(accessor_a.location(), accessor_a_reordered.location());
+    // The root ignores the confs and fs_name, which has aliases (host, FQDN, IP, nameservice)
+    EXPECT_EQ(accessor_a.root(), accessor_b.root());
+    EXPECT_EQ(accessor_a.root(), (StorageRoot {.container = "", .prefix = "warehouse"}));
+    EXPECT_EQ(accessor1.root(), accessor3.root());
+    EXPECT_NE(accessor1.root(), accessor2.root());
+
+    // fs_name and prefix do not merge: same uri, different directories
+    auto info_split_1 = make_info("hdfs://ns/a", "b");
+    auto info_split_2 = make_info("hdfs://ns", "a/b");
+    HdfsAccessor accessor_split_1(info_split_1);
+    HdfsAccessor accessor_split_2(info_split_2);
+    EXPECT_EQ(accessor_split_1.uri(), accessor_split_2.uri());
+    EXPECT_NE(accessor_split_1.location(), accessor_split_2.location());
+
+    // A repeated key is kept with all its values in order: which one takes effect depends on the
+    // HDFS client, so neither value is dropped
+    auto repeated = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"}});
+    auto repeated_reversed = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    HdfsAccessor accessor_repeated(repeated);
+    HdfsAccessor accessor_repeated_reversed(repeated_reversed);
+    EXPECT_NE(accessor_repeated.location(), accessor_a.location());
+    EXPECT_NE(accessor_repeated.location(), accessor_repeated_reversed.location());
+}
+#endif
+
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
 // to do the following test
 TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
@@ -5999,6 +6391,318 @@ TEST(CheckerTest, do_inspect) {
     }
 }
 
+TEST(CheckerTest, delete_bitmap_orphan_check_reverse_first_missing) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 30, 2}), rowset.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 30, "present", 100, 0}), "bitmap");
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "missing", 8, 0}), "bitmap");
+    auto missing_key = meta_delete_bitmap_key({instance_id, 20, "missing", 9, 2});
+    blob_put(txn.get(), missing_key, std::string(MIN_BLOB_SPLIT_SIZE + 1, 'A'), 0,
+             MIN_BLOB_SPLIT_SIZE);
+    // A failure here would mean the scan continued after finding the first missing rowset.
+    txn->put(meta_rowset_key({instance_id, 10, 2}), "malformed rowset");
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "older", 1000, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_EQ(result.tablet_id, 20);
+    EXPECT_EQ(result.rowset_id, "missing");
+    EXPECT_EQ(result.version, 9);
+    EXPECT_EQ(result.segment_id, 2);
+    EXPECT_EQ(result.key, encode_blob_key(missing_key, 0, 1));
+    EXPECT_EQ(result.scanned_kvs, 2);
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_pagination_scope_and_limit) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+    for (int64_t version = 1; version <= 300; ++version) {
+        txn->put(meta_delete_bitmap_key({instance_id, 20, "present", version, 0}), "bitmap");
+    }
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 4, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_EQ(result.scanned_kvs, 4);
+    EXPECT_FALSE(result.range_exhausted);
+
+    std::tie(code, msg) = check_delete_bitmap_orphan(txn_kv, instance_id, 20, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_EQ(result.scanned_kvs, 300);
+    EXPECT_TRUE(result.range_exhausted);
+
+    std::tie(code, msg) = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_EQ(result.tablet_id, 10);
+    EXPECT_EQ(result.scanned_kvs, 301);
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_retry_bitmap_read) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "present", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool injected = false;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_call_back("check_delete_bitmap_orphan::get_bitmap");
+    };
+    sp->set_call_back("check_delete_bitmap_orphan::get_bitmap", [&](auto&& args) {
+        if (injected) {
+            return;
+        }
+        injected = true;
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+        std::unique_ptr<Transaction> writer;
+        ASSERT_EQ(txn_kv->create_txn(&writer), TxnErrorCode::TXN_OK);
+        writer->put(meta_delete_bitmap_key({instance_id, 30, "new_missing", 1, 0}), "bitmap");
+        ASSERT_EQ(writer->commit(), TxnErrorCode::TXN_OK);
+    });
+    sp->enable_processing();
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 1, &result);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(injected);
+    EXPECT_EQ(result.tablet_id, 30);
+    EXPECT_EQ(result.rowset_id, "new_missing");
+    EXPECT_EQ(result.scanned_kvs, 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_retry_rowsets_revalidates_current_key) {
+    for (bool remove_bitmap : {false, true}) {
+        SCOPED_TRACE(remove_bitmap);
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        txn->put(instance_key({instance_id}), instance.SerializeAsString());
+        RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("present");
+        txn->put(meta_rowset_key({instance_id, 30, 1}), rowset.SerializeAsString());
+        txn->put(meta_delete_bitmap_key({instance_id, 30, "present", 1, 0}), "bitmap");
+        rowset.set_rowset_id_v2("unrelated");
+        txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+        auto retry_key = meta_delete_bitmap_key({instance_id, 20, "pending", 1, 0});
+        txn->put(retry_key, "bitmap");
+        txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 1, 0}), "bitmap");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        bool injected = false;
+        auto* sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->clear_call_back("check_delete_bitmap_orphan::get_rowsets");
+        };
+        sp->set_call_back("check_delete_bitmap_orphan::get_rowsets", [&](auto&& args) {
+            auto key = *try_any_cast<std::string_view*>(args[1]);
+            if (injected || key != retry_key) {
+                return;
+            }
+            injected = true;
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+            std::unique_ptr<Transaction> writer;
+            ASSERT_EQ(txn_kv->create_txn(&writer), TxnErrorCode::TXN_OK);
+            if (remove_bitmap) {
+                writer->remove(retry_key);
+            } else {
+                rowset.set_rowset_id_v2("pending");
+                writer->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+            }
+            ASSERT_EQ(writer->commit(), TxnErrorCode::TXN_OK);
+        });
+        sp->enable_processing();
+
+        DeleteBitmapOrphanCheckResult result;
+        int64_t max_scan_keys = remove_bitmap ? 2 : 3;
+        auto [code, msg] =
+                check_delete_bitmap_orphan(txn_kv, instance_id, 0, max_scan_keys, &result);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        EXPECT_TRUE(injected);
+        EXPECT_EQ(result.tablet_id, 10);
+        EXPECT_EQ(result.rowset_id, "missing");
+        EXPECT_EQ(result.scanned_kvs, max_scan_keys);
+        EXPECT_FALSE(result.range_exhausted);
+    }
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_http_validation_and_result) {
+    // Standalone controllers have no peer socket; model an active server request explicitly.
+    class ConnectedController : public brpc::Controller {
+    public:
+        bool IsCanceled() const override { return false; }
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    for (const auto* query :
+         {"", "instance_id=test&tablet_id=1x", "instance_id=test&tablet_id=9223372036854775807",
+          "instance_id=test&max_scan_keys=-1", "instance_id=test&max_scan_keys="}) {
+        brpc::Controller cntl;
+        cntl.http_request().uri() = std::string("/check_delete_bitmap_orphan?") + query;
+        EXPECT_EQ(process_check_delete_bitmap_orphan(&service, &cntl).status_code, 400);
+    }
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    txn->put(meta_delete_bitmap_key({instance_id, 10, "missing", 9, 2}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ConnectedController cntl;
+    cntl.http_request().uri() = "/check_delete_bitmap_orphan?instance_id=" + instance_id;
+    auto response = process_check_delete_bitmap_orphan(&service, &cntl);
+    ASSERT_EQ(response.status_code, 200);
+    rapidjson::Document body;
+    body.Parse(response.body.c_str());
+    ASSERT_FALSE(body.HasParseError());
+    EXPECT_STREQ(body["result"]["status"].GetString(), "suspected_orphan");
+    EXPECT_EQ(body["result"]["tablet_id"].GetInt64(), 10);
+    EXPECT_EQ(body["result"]["scanned_kvs"].GetInt64(), 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_http_cancelled_before_scan) {
+    class CancelledController : public brpc::Controller {
+    public:
+        bool IsCanceled() const override { return true; }
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    CancelledController cntl;
+    cntl.http_request().uri() = "/check_delete_bitmap_orphan?instance_id=" + instance_id;
+    auto response = process_check_delete_bitmap_orphan(&service, &cntl);
+    ASSERT_EQ(response.status_code, 200);
+    rapidjson::Document body;
+    body.Parse(response.body.c_str());
+    ASSERT_FALSE(body.HasParseError());
+    EXPECT_STREQ(body["result"]["status"].GetString(), "cancelled");
+    EXPECT_EQ(body["result"]["scanned_kvs"].GetInt64(), 0);
+    EXPECT_FALSE(body["result"]["range_exhausted"].GetBool());
+    EXPECT_EQ(txn_kv->get_count_, 0);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_instance_read) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    DeleteBitmapOrphanCheckResult result;
+    // Cancel as soon as the instance read completes, even though the instance is missing.
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return txn_kv->get_count_ > 0; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 0);
+    EXPECT_FALSE(result.range_exhausted);
+    EXPECT_EQ(txn_kv->get_count_, 1);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_bitmap_scan) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 2}), rowset.SerializeAsString());
+    for (int64_t version = 1; version <= 3; ++version) {
+        txn->put(meta_delete_bitmap_key({instance_id, 20, "present", version, 0}), "bitmap");
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return result.scanned_kvs >= 2; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 2);
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_FALSE(result.range_exhausted);
+}
+
+TEST(CheckerTest, delete_bitmap_orphan_check_cancelled_during_rowset_scan) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2("present");
+    txn->put(meta_rowset_key({instance_id, 20, 1}), rowset.SerializeAsString());
+    txn->put(meta_rowset_key({instance_id, 20, 2}), "malformed rowset");
+    txn->put(meta_delete_bitmap_key({instance_id, 20, "present", 1, 0}), "bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool cancelled = false;
+    int range_reads = 0;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_call_back("memkv::Transaction::get");
+    };
+    sp->set_call_back("memkv::Transaction::get", [&](auto&&) {
+        // The first range read fetches bitmaps; the second fetches rowset metadata.
+        if (++range_reads == 2) {
+            cancelled = true;
+        }
+    });
+    sp->enable_processing();
+
+    DeleteBitmapOrphanCheckResult result;
+    auto [code, msg] = check_delete_bitmap_orphan(txn_kv, instance_id, 0, 0, &result,
+                                                  [&] { return cancelled; });
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.scanned_kvs, 1);
+    EXPECT_TRUE(result.key.empty());
+    EXPECT_FALSE(result.range_exhausted);
+}
+
 TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     // normal case, all delete bitmaps belong to a rowset
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -6614,6 +7318,139 @@ TEST(CheckerTest, do_restore_job_check) {
 
     // Run the check
     ASSERT_EQ(checker.do_restore_job_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_delayed_aggregation_replay) {
+    for (bool point_delete : {false, true}) {
+        SCOPED_TRACE(point_delete);
+        auto txn_kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(txn_kv->init(), 0);
+        auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
+        auto rate_limiter = std::make_shared<RateLimiter>();
+        auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+        MetaServiceImpl meta_service(txn_kv, resource_mgr, rate_limiter, snapshot);
+
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        instance.add_obj_info()->set_id("1");
+        InstanceChecker checker(txn_kv, mock_instance);
+        ASSERT_EQ(checker.init(instance), 0);
+        constexpr int64_t tablet_id = 900031;
+        const std::string pre_rowset_id = "100091";
+        // Exercise the actual version check, beyond its compaction grace period.
+        const auto creation_time =
+                current_time - config::delete_bitmap_storage_optimize_v2_check_skip_seconds - 1;
+        auto put_rowset = [&](Transaction* txn, int64_t start, int64_t end,
+                              const std::string& rowset_id) {
+            RowsetMetaCloudPB rowset;
+            rowset.set_rowset_id(0);
+            rowset.set_rowset_id_v2(rowset_id);
+            rowset.set_start_version(start);
+            rowset.set_end_version(end);
+            rowset.set_creation_time(creation_time);
+            txn->put(meta_rowset_key({mock_instance, tablet_id, end}), rowset.SerializeAsString());
+        };
+        auto bitmap_key = [&](int64_t version) {
+            return meta_delete_bitmap_key({mock_instance, tablet_id, pre_rowset_id, version, 0});
+        };
+        auto bitmap_value = [](int64_t version) { return fmt::format("bitmap_{}", version); };
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_rowset(txn.get(), 0, 91, pre_rowset_id);
+        put_rowset(txn.get(), 92, 163, "output_163");
+        for (auto version : {92, 110}) {
+            blob_put(txn.get(), bitmap_key(version), bitmap_value(version), 0);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        auto make_request = [&](int64_t end, const std::vector<int64_t>& source_versions) {
+            UpdateDeleteBitmapRequest request;
+            request.set_cloud_unique_id("test_cloud_unique_id");
+            request.set_table_id(10000);
+            request.set_partition_id(10002);
+            request.set_tablet_id(tablet_id);
+            request.set_store_version(1);
+            request.set_without_lock(true);
+            request.set_lock_id(COMPACTION_WITHOUT_LOCK_DELETE_BITMAP_LOCK_ID);
+            request.set_pre_rowset_agg_start_version(92);
+            request.set_pre_rowset_agg_end_version(end);
+            request.set_enable_remove_agg_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            request.set_enable_remove_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            request.add_rowset_ids(pre_rowset_id);
+            request.add_pre_rowset_versions(91);
+            request.add_versions(end);
+            request.add_segment_ids(0);
+            request.add_segment_delete_bitmaps(bitmap_value(end));
+            auto* rowset_stats = request.add_pre_rowset_delete_bitmap_stats();
+            rowset_stats->set_rowset_id(pre_rowset_id);
+            for (auto version : source_versions) {
+                auto* stats = rowset_stats->add_delete_bitmap_stats();
+                stats->set_segment_id(0);
+                stats->set_version(version);
+                stats->set_delete_bitmap_size(bitmap_value(version).size());
+            }
+            return request;
+        };
+        auto submit = [&](const UpdateDeleteBitmapRequest& request) {
+            brpc::Controller cntl;
+            UpdateDeleteBitmapResponse response;
+            meta_service.update_delete_bitmap(&cntl, &request, &response, nullptr);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+        };
+        auto check_versions = [&](const std::vector<int64_t>& expected) {
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            for (auto version : {92, 110, 163, 180}) {
+                ValueBuf value;
+                auto err = blob_get(txn.get(), bitmap_key(version), &value);
+                if (std::find(expected.begin(), expected.end(), version) != expected.end()) {
+                    ASSERT_EQ(err, TxnErrorCode::TXN_OK) << version;
+                    EXPECT_EQ(value.value(), bitmap_value(version));
+                } else {
+                    EXPECT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND) << version;
+                }
+            }
+            std::string rowset_value;
+            ASSERT_EQ(txn->get(meta_rowset_key({mock_instance, tablet_id, 91}), &rowset_value),
+                      TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB rowset;
+            ASSERT_TRUE(rowset.ParseFromString(rowset_value));
+            EXPECT_EQ(rowset.rowset_id_v2(), pre_rowset_id);
+            EXPECT_EQ(rowset.start_version(), 0);
+            EXPECT_EQ(rowset.end_version(), 91);
+        };
+        auto check_no_useless_versions = [&] {
+            int64_t abnormal_rowsets = 0;
+            EXPECT_EQ(checker.check_delete_bitmap_storage_optimize_v2(tablet_id, false,
+                                                                      abnormal_rowsets),
+                      0);
+            // The return code tolerates one abnormal rowset; assert the count as well.
+            EXPECT_EQ(abnormal_rowsets, 0);
+        };
+
+        check_versions({92, 110});
+        const auto q163 = make_request(163, {92, 110});
+        submit(q163);
+        check_versions({163});
+        // An identical retry remains valid while its compaction output is live.
+        submit(q163);
+        check_versions({163});
+        check_no_useless_versions();
+
+        // Publish [92,180], replacing [92,163], while keeping pre-rowset [0,91].
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(meta_rowset_key({mock_instance, tablet_id, 163}));
+        put_rowset(txn.get(), 92, 180, "output_180");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        const auto q180 = make_request(180, {163});
+        submit(q180);
+        check_versions({180});
+        check_no_useless_versions();
+
+        // A delayed at-least-once replay must not restore the obsolete version 163.
+        submit(q163);
+        check_versions({180});
+        check_no_useless_versions();
+    }
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
@@ -8665,12 +9502,43 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 }
 
 TEST(RecyclerTest, init_vault_accessor_failed_test) {
+    class FailingObjStorageClient final : public S3ObjStorageClient {
+    public:
+        FailingObjStorageClient() : S3ObjStorageClient(nullptr) {}
+
+        ObjStorageHeadResult head_object(const ObjStoragePath&) override {
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected head failure"},
+                             .http_code = 0}};
+        }
+
+        std::atomic<int> list_calls {0};
+
+    protected:
+        ObjStorageListPageResult list_objects_page(const ObjStoragePath&,
+                                                   std::string_view) override {
+            ++list_calls;
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected list failure"},
+                             .http_code = 0}};
+        }
+    };
+
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
     };
+
+    // Keep configuration validation and accessor initialization, but fail object I/O
+    // deterministically instead of relying on an incomplete vault or a network error.
+    auto failing_client = std::make_shared<FailingObjStorageClient>();
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [failing_client](const ObjStorageClientConfig&) { return failing_client; });
+    // Exercise both vaults even if the injected failure completes before the other task starts.
+    // Otherwise SyncExecutor may cancel the successful vault before it can delete its objects.
+    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
+                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -8683,7 +9551,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -8698,7 +9566,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
     }
 
-    // succeed to init but unuseful
+    // Valid configuration initializes successfully; the client above fails object operations.
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -8706,6 +9574,9 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         obj_info.set_ak("ak");
         obj_info.set_sk("sk");
         obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        obj_info.set_bucket("test-bucket");
+        obj_info.set_endpoint("https://cos.example.com");
+        obj_info.set_region("ap-beijing");
         vault.mutable_obj_info()->MergeFrom(obj_info);
         vault.set_name("test_failed_s3_vault_2");
         vault.set_id("failed_s3_2");
@@ -8789,17 +9660,19 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
-    EXPECT_EQ(recycler.init(), 0);
-    EXPECT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_TRUE(recycler.accessor_map_.contains("failed_s3_2"));
+    ASSERT_TRUE(recycler.accessor_map_.contains("success_vault"));
 
-    // unuseful obj accessor
+    // Object I/O fails even though the accessor initialized successfully.
     EXPECT_EQ(recycler.accessor_map_.at("failed_s3_2")->exists("data/0/rowset_id_test.csv"), -1);
     // useful mock accessor
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 0);
 
-    // recycle tablet will fail because unuseful obj accessor can not connectted
+    // The failed vault must not prevent the other vault from recycling its objects.
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
-    // however, useful mock accessor can recycle tablet
+    EXPECT_EQ(failing_client->list_calls.load(), 1);
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 1);
 }
 
@@ -9057,7 +9930,7 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;

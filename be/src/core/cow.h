@@ -30,6 +30,8 @@
 
 namespace doris {
 
+struct ColumnWithTypeAndName;
+
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
   *
@@ -90,9 +92,15 @@ namespace doris {
   */
 template <typename Derived>
 class COW {
+    friend struct ColumnWithTypeAndName;
+
     std::atomic_uint ref_counter;
 
+    unsigned int use_count() const { return ref_counter.load(); }
+
 protected:
+    bool is_exclusive_self() const { return use_count() == 1; }
+
     COW() : ref_counter(0) {}
 
     COW(COW const&) : ref_counter(0) {}
@@ -242,8 +250,6 @@ protected:
 
 public:
     using MutablePtr = mutable_ptr<Derived>;
-
-    unsigned int use_count() const { return ref_counter.load(); }
 
 protected:
     template <typename T>

@@ -727,6 +727,9 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
 extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_scanned;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_expired;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_current_round_kv_recycled;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started;
 extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started;
 extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
@@ -830,15 +833,15 @@ extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
 extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned_with_segment;
-extern BvarStatusWithTag<long> g_bvar_checker_num_check_failed;
-extern BvarStatusWithTag<long> g_bvar_checker_check_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
-extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned_with_segment;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_check_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_enqueue_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_last_success_time_ms;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_instance_volume;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed;
 
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;

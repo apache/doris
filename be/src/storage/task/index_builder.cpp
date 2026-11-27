@@ -719,97 +719,101 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     _index_file_writers.emplace(seg_ptr->id(), std::move(index_file_writer));
             DORIS_CHECK(inserted);
             DORIS_CHECK(index_file_writer_it->second != nullptr);
-            if (return_columns.empty()) {
-                // no columns to read
-                continue;
-            }
-            // create iterator for each segment
-            OlapReaderStatistics stats;
-            StorageReadOptions read_options(stats);
-            auto schema = std::make_shared<ReadSchema>(
-                    project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
-            std::unique_ptr<RowwiseIterator> iter;
-            auto res = seg_ptr->new_iterator(schema, read_options, &iter);
-            DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_create_iterator_error", {
-                res = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "debug point: handle_single_rowset_create_iterator_error");
-            })
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
-                             << "]: " << res.to_string();
-                return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
-            }
+            // Even without columns to rebuild, the inherited indexes must be sealed below.
+            if (!return_columns.empty()) {
+                // create iterator for each segment
+                OlapReaderStatistics stats;
+                StorageReadOptions read_options(stats);
+                auto schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
+                        output_rowset_schema->columns(), return_columns));
+                std::unique_ptr<RowwiseIterator> iter;
+                auto res = seg_ptr->new_iterator(schema, read_options, &iter);
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_create_iterator_error", {
+                    res = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "debug point: handle_single_rowset_create_iterator_error");
+                })
+                if (!res.ok()) {
+                    LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
+                                 << "]: " << res.to_string();
+                    return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
+                }
 
-            auto block = Block::create_unique(schema->create_read_block());
-            while (true) {
-                auto status = iter->next_batch(block.get());
-                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_iterator_next_batch_error", {
-                    status = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
-                            "next_batch fault injection");
-                });
-                if (!status.ok()) {
-                    if (status.is<ErrorCode::END_OF_FILE>()) {
-                        break;
+                auto block = Block::create_unique(schema->create_read_block());
+                while (true) {
+                    auto status = iter->next_batch(block.get());
+                    DBUG_EXECUTE_IF(
+                            "IndexBuilder::handle_single_rowset_iterator_next_batch_error", {
+                                status = Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                                        "next_batch fault injection");
+                            });
+                    if (!status.ok()) {
+                        if (status.is<ErrorCode::END_OF_FILE>()) {
+                            break;
+                        }
+                        LOG(WARNING) << "failed to read next block when schema change for inverted "
+                                        "index."
+                                     << ", err=" << status.to_string();
+                        return status;
                     }
-                    LOG(WARNING)
-                            << "failed to read next block when schema change for inverted index."
-                            << ", err=" << status.to_string();
-                    return status;
+
+                    // write inverted index data, or ann index data
+                    status = _write_inverted_index_data(output_rowset_schema, iter->data_id(),
+                                                        block.get());
+                    DBUG_EXECUTE_IF(
+                            "IndexBuilder::handle_single_rowset_write_inverted_index_data_error", {
+                                status = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                        "debug point: "
+                                        "handle_single_rowset_write_inverted_index_data_error");
+                            })
+                    if (!status.ok()) {
+                        return status;
+                    }
+                    block->clear_column_data();
                 }
 
-                // write inverted index data, or ann index data
-                status = _write_inverted_index_data(output_rowset_schema, iter->data_id(),
-                                                    block.get());
-                DBUG_EXECUTE_IF(
-                        "IndexBuilder::handle_single_rowset_write_inverted_index_data_error", {
-                            status = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                    "debug point: "
-                                    "handle_single_rowset_write_inverted_index_data_error");
-                        })
-                if (!status.ok()) {
-                    return status;
-                }
-                block->clear_column_data();
-            }
-
-            // finish write inverted index, flush data to compound file
-            for (auto& writer_sign : inverted_index_writer_signs) {
-                try {
-                    auto index_column_writer_it = _index_column_writers.find(writer_sign);
-                    DORIS_CHECK(index_column_writer_it != _index_column_writers.end());
-                    DORIS_CHECK(index_column_writer_it->second != nullptr);
-                    RETURN_IF_ERROR(index_column_writer_it->second->finish());
-                    DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_index_build_finish_error", {
-                        _CLTHROWA(CL_ERR_IO,
-                                  "debug point: handle_single_rowset_index_build_finish_error");
-                    })
-                } catch (const std::exception& e) {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                            "CLuceneError occurred: {}", e.what());
+                // finish write inverted index, flush data to compound file
+                for (auto& writer_sign : inverted_index_writer_signs) {
+                    try {
+                        auto index_column_writer_it = _index_column_writers.find(writer_sign);
+                        DORIS_CHECK(index_column_writer_it != _index_column_writers.end());
+                        DORIS_CHECK(index_column_writer_it->second != nullptr);
+                        RETURN_IF_ERROR(index_column_writer_it->second->finish());
+                        DBUG_EXECUTE_IF(
+                                "IndexBuilder::handle_single_rowset_index_build_finish_error", {
+                                    _CLTHROWA(CL_ERR_IO,
+                                              "debug point: "
+                                              "handle_single_rowset_index_build_finish_error");
+                                })
+                    } catch (const std::exception& e) {
+                        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                "CLuceneError occurred: {}", e.what());
+                    }
                 }
             }
-        }
-        for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-            auto st = index_file_writer->begin_close();
-            DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_file_writer_close_error", {
-                st = Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "debug point: handle_single_rowset_file_writer_close_error");
-            })
-            if (!st.ok()) {
-                LOG(ERROR) << "close index_file_writer error:" << st;
-                return st;
+            // Each segment owns an independent index file. Seal it before building the
+            // next segment: otherwise every completed ANN file remains in its RAM directory.
+            for (auto&& [seg_id, completed_file_writer] : _index_file_writers) {
+                auto st = completed_file_writer->begin_close();
+                DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_file_writer_close_error", {
+                    st = Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: handle_single_rowset_file_writer_close_error");
+                })
+                if (!st.ok()) {
+                    LOG(ERROR) << "close completed_file_writer error:" << st;
+                    return st;
+                }
+                inverted_index_size += completed_file_writer->get_index_file_total_size();
             }
-            inverted_index_size += index_file_writer->get_index_file_total_size();
-        }
-        for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-            auto st = index_file_writer->finish_close();
-            if (!st.ok()) {
-                LOG(ERROR) << "wait close index_file_writer error:" << st;
-                return st;
+            for (auto&& [seg_id, completed_file_writer] : _index_file_writers) {
+                auto st = completed_file_writer->finish_close();
+                if (!st.ok()) {
+                    LOG(ERROR) << "wait close completed_file_writer error:" << st;
+                    return st;
+                }
             }
+            _index_column_writers.clear();
+            _index_file_writers.clear();
         }
-        _index_column_writers.clear();
-        _index_file_writers.clear();
         output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
         output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
                                                 inverted_index_size);
@@ -828,21 +832,22 @@ Status IndexBuilder::_handle_single_rowset_snii(
     auto input_schema_it = _input_rowset_schemas.find(rowset_id);
     DORIS_CHECK(input_schema_it != _input_rowset_schemas.end());
 
+    size_t inverted_index_size = 0;
     for (auto& seg_ptr : segments) {
         RETURN_IF_ERROR(_rewrite_single_segment_snii(output_rowset_meta->fs(),
                                                      output_rowset_meta->tablet_schema(),
                                                      *input_schema_it->second, rowset_id, seg_ptr));
+        // Blob staging and column writers belong to this segment, not the whole rowset.
+        for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+            RETURN_IF_ERROR(index_file_writer->begin_close());
+            inverted_index_size += index_file_writer->get_index_file_total_size();
+        }
+        for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+            RETURN_IF_ERROR(index_file_writer->finish_close());
+        }
+        _index_column_writers.clear();
+        _index_file_writers.clear();
     }
-    size_t inverted_index_size = 0;
-    for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-        RETURN_IF_ERROR(index_file_writer->begin_close());
-        inverted_index_size += index_file_writer->get_index_file_total_size();
-    }
-    for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-        RETURN_IF_ERROR(index_file_writer->finish_close());
-    }
-    _index_column_writers.clear();
-    _index_file_writers.clear();
     output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
     output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
                                             inverted_index_size);
@@ -931,7 +936,11 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         const int32_t column_idx = output_rowset_schema->field_index(col_unique_id);
         DORIS_CHECK_GE(column_idx, 0);
         const TabletColumn& column = output_rowset_schema->column(column_idx);
-        DORIS_CHECK(segment_v2::IndexColumnWriter::check_support_inverted_index(column));
+        if (!segment_v2::IndexColumnWriter::check_support_inverted_index(column)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                    "Generic index builder does not support column {} of type {}", column.name(),
+                    TabletColumn::get_string_by_field_type(column.type()));
+        }
         return_columns.emplace_back(column_idx);
         std::vector<std::pair<int64_t, int64_t>> signs;
         for (const TabletIndex* index_meta : index_metas) {

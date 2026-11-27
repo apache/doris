@@ -19,18 +19,15 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 
-/** MAX-specific extreme comparisons and delta state. */
+/** MAX-specific top-K state, delta and merge. */
 class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     IvmAggMaxProcessor() {
-        super(IvmAggFunctionKind.MAX, IvmAggStateKey.MAX_COUNT, "DELMAX");
+        super(IvmAggFunctionKind.MAX, IvmAggStateKey.MAX_TOPK,
+                IvmAggStateKey.MAX_TOPK_BOUND, "DELMAX");
     }
 
     @Override
@@ -39,28 +36,18 @@ class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression buildExtremeAggregate(Expression input) {
+    protected AggregateFunction buildExtremeAggregate(Expression input) {
         return new Max(input);
     }
 
     @Override
-    protected Expression buildExtremeCountAggregate(Expression input) {
+    protected AggregateFunction buildExtremeCountAggregate(Expression input) {
         return new CountAtMax(input);
     }
 
     @Override
-    protected Expression insertedIsBetter(Expression deltaInsert, Slot oldExtreme) {
-        return new GreaterThan(deltaInsert, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme) {
-        return new LessThanEqual(deltaDelete, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsBeyondInsert(Expression deltaDelete, Expression deltaInsert) {
-        return new LessThan(deltaDelete, deltaInsert);
+    protected boolean isTopKAscending() {
+        return false;
     }
 
     @Override

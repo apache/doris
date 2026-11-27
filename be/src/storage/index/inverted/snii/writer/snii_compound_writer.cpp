@@ -597,7 +597,12 @@ Status SniiCompoundWriter::write_tail() {
         SectionRefs refs;
         refs.dict_region = {.offset = p.dict_off, .length = p.dict_len};
         refs.posting_region = {.offset = p.post_off, .length = p.post_len};
-        refs.norms = {.offset = p.norms_off, .length = p.norms_len};
+        const format::RegionRef norms = {.offset = p.norms_off, .length = p.norms_len};
+        if (w.has_sparse_norms()) {
+            refs.sparse_norms = norms;
+        } else {
+            refs.norms = norms;
+        }
         refs.null_bitmap = {.offset = p.null_off, .length = p.null_len};
         refs.bsbf = {.offset = p.bsbf_off, .length = p.bsbf_len};
 

@@ -55,7 +55,11 @@ final class IcebergSnapshotTableOperations implements TableOperations {
 
     @Override
     public FileIO io() {
-        return delegate.io();
+        FileIO io = delegate.io();
+        // SDK byte caches hold decrypted manifests, including plaintext file-key metadata. The read view
+        // must not leave those bytes in the catalog IO after its encrypted statement has ended.
+        return IcebergEncryptionRead.hasEncryptionMetadata(metadata)
+                ? new IcebergScanFileIO(io, () -> { }) : io;
     }
 
     @Override

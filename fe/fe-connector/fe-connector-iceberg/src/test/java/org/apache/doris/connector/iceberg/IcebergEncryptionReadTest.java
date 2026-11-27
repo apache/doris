@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -46,25 +47,30 @@ import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Real SDK tables exercise scan, metadata and COUNT entry points without reading data files. */
 public class IcebergEncryptionReadTest {
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
     private static final IcebergTableHandle HANDLE = new IcebergTableHandle("db", "tbl");
 
-    @Test
-    public void encryptedReadsAreDisabledAcrossPlanningRoutes() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void encryptedReadsAreDisabledAcrossPlanningRoutes(String flavor) throws Exception {
         for (boolean populated : new boolean[] {false, true}) {
             for (boolean cached : new boolean[] {false, true}) {
                 IcebergTableCache cache = new IcebergTableCache(100, 10);
                 try (InMemoryCatalog catalog = catalog()) {
                     Table table = encryptedView(table(catalog, populated), 3);
                     RecordingIcebergCatalogOps ops = ops(table);
-                    IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+                    IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor),
                             ignored -> ops, context(Map.of()), null, cached ? cache : null);
                     for (ConnectorStatementScope scope : List.of(ConnectorStatementScope.NONE,
                             new TestStatementScope())) {
@@ -100,28 +106,91 @@ public class IcebergEncryptionReadTest {
             for (String flavor : List.of("hms", "rest", "hadoop", "jdbc", "glue", "dlf", "s3tables")) {
                 IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor),
                         ops(table), context(Map.of("enable_encryption_read", "true")));
-                reject(flavor.equals("hms") ? "BACKEND_CAPABILITY_UNAVAILABLE" : "UNSUPPORTED_CATALOG",
+                reject(flavor.equals("hms") || flavor.equals("rest")
+                                ? "BACKEND_CAPABILITY_UNAVAILABLE" : "UNSUPPORTED_CATALOG",
                         () -> provider.planScan(null, request(HANDLE, true)));
             }
         }
     }
 
     @Test
-    public void unsupportedTableVersionHasAnExplicitError() throws Exception {
+    public void unexpectedPerFileKeysCannotBypassTheTableAdmissionContract() throws Exception {
+        try (InMemoryCatalog catalog = catalog()) {
+            Table table = table(catalog, false);
+            table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("memory:///encrypted.parquet")
+                    .withFormat("parquet").withFileSizeInBytes(128).withRecordCount(10)
+                    .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build()).commit();
+            IcebergScanPlanProvider disabled = new IcebergScanPlanProvider(properties("hms"),
+                    ops(table), context(Map.of(), true));
+            reject("READ_DISABLED", () -> disabled.planScan(null, request(HANDLE, false)));
+            IcebergScanPlanProvider enabled = new IcebergScanPlanProvider(properties("hms"),
+                    ops(table), context(Map.of("enable_encryption_read", "true"), true));
+            reject("UNSUPPORTED_ENCRYPTION_MANAGER", () -> enabled.planScan(null, request(HANDLE, false)));
+        }
+    }
+
+    @Test
+    public void encryptedMetadataRequiresPhysicalCountPlanningAndRejectsJniSystemSplits() {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
+            Assertions.assertFalse(provider.canServeMetadataOnlyCount(null, HANDLE, Optional.empty()));
+            Assertions.assertEquals(-1, provider.planScan(null, request(HANDLE, true)).get(0).getPushDownRowCount());
+            reject("UNSUPPORTED_METADATA_TABLE", () -> provider.planScan(null,
+                    request(IcebergTableHandle.forSystemTable("db", "tbl", "files", -1L, null, -1L), false)));
+        }
+    }
+
+    @Test
+    public void backendInventoryProofIsNotRepeatedForEachEncryptedFile() {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            fixture.appendEncryptedFiles(3);
+            AtomicInteger capabilityChecks = new AtomicInteger();
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true, capabilityChecks));
+            Assertions.assertEquals(4, provider.planScan(null, request(HANDLE, false)).size());
+            Assertions.assertEquals(1, capabilityChecks.get(),
+                    "Table admission snapshots the backend inventory; dispatch rechecks each selected target");
+        }
+    }
+
+    @Test
+    public void verifiedNativeExecutionCanPlanEncryptedSdkManifests() {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
+            Assertions.assertEquals(1, provider.planScan(null, request(HANDLE, false)).size());
+            Assertions.assertTrue(fixture.unwraps.get() > 0, "Planning must authorize the current SDK manifest keys");
+        }
+    }
+
+    @Test
+    public void nativeRestExecutionRemainsOutsideTheHmsReadScope() throws Exception {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("rest"),
+                    ops(fixture.queryTable()), context(Map.of("enable_encryption_read", "true"), true));
+            reject("UNSUPPORTED_CATALOG", () -> provider.planScan(null, request(HANDLE, false)));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void unsupportedTableVersionHasAnExplicitError(String flavor) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             Table table = encryptedView(table(catalog, false), 2);
-            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"),
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor),
                     ops(table), context(Map.of("enable_encryption_read", "true")));
             reject("UNSUPPORTED_TABLE_FORMAT", () -> provider.planScan(null, request(HANDLE, false)));
         }
     }
 
-    @Test
-    public void metadataBindingCannotBypassReadChecks() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void metadataBindingCannotBypassReadChecks(String flavor) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             Table table = encryptedView(table(catalog, true), 3);
             IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(
-                    ops(table), properties("hms"), context(Map.of()));
+                    ops(table), properties(flavor), context(Map.of()));
             reject("READ_DISABLED", () -> metadata.getTableSchema(null, HANDLE));
             reject("READ_DISABLED", () -> metadata.beginQuerySnapshot(null, HANDLE));
             IcebergTableHandle sys = IcebergTableHandle.forSystemTable("db", "tbl", "files", -1L, null, -1L);
@@ -129,8 +198,9 @@ public class IcebergEncryptionReadTest {
         }
     }
 
-    @Test
-    public void retainedEncryptionKeysAndEmptySnapshotPinsCannotBypassReadChecks() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void retainedEncryptionKeysAndEmptySnapshotPinsCannotBypassReadChecks(String flavor) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             Table table = table(catalog, false);
             ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(
@@ -140,7 +210,7 @@ public class IcebergEncryptionReadTest {
             key.put("encrypted-key-metadata", "AA==");
             Table retained = new BaseTable(new StaticTableOperations(
                     TableMetadataParser.fromJson(json.toString()), table.io()), "db.tbl");
-            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"), ops(retained));
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor), ops(retained));
             IcebergTableHandle empty = HANDLE.withSnapshot(-1L, null, 0L);
             reject("READ_DISABLED", () -> provider.planScan(null, request(empty, false)));
             reject("READ_DISABLED", () -> provider.streamSplits(null, request(empty, false)));
@@ -148,8 +218,9 @@ public class IcebergEncryptionReadTest {
         }
     }
 
-    @Test
-    public void customEncryptionManagerIsDetectedWithoutTableProperties() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void customEncryptionManagerIsDetectedWithoutTableProperties(String flavor) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             Table table = table(catalog, false);
             StaticTableOperations operations = new StaticTableOperations(
@@ -170,16 +241,17 @@ public class IcebergEncryptionReadTest {
                 }
             };
             Table custom = new BaseTable(operations, "db.tbl");
-            reject("READ_DISABLED", () -> new IcebergScanPlanProvider(properties("hms"), ops(custom))
+            reject("READ_DISABLED", () -> new IcebergScanPlanProvider(properties(flavor), ops(custom))
                     .planScan(null, request(HANDLE, false)));
-            reject("UNSUPPORTED_ENCRYPTION_MANAGER", () -> new IcebergScanPlanProvider(properties("hms"),
+            reject("UNSUPPORTED_ENCRYPTION_MANAGER", () -> new IcebergScanPlanProvider(properties(flavor),
                     ops(custom), context(Map.of("enable_encryption_read", "true")))
                     .planScan(null, request(HANDLE, false)));
         }
     }
 
-    @Test
-    public void unverifiedBackendRejectsBeforeKmsManagerInitialization() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"hms", "rest"})
+    public void unverifiedBackendRejectsBeforeKmsManagerInitialization(String flavor) throws Exception {
         try (InMemoryCatalog catalog = catalog()) {
             BaseTable encrypted = (BaseTable) encryptedView(table(catalog, false), 3);
             Table table = new BaseTable(new StaticTableOperations(
@@ -189,7 +261,7 @@ public class IcebergEncryptionReadTest {
                     throw new AssertionError("Unverified execution must not initialize a KMS client");
                 }
             }, "db.tbl");
-            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties("hms"), ops(table),
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties(flavor), ops(table),
                     context(Map.of("enable_encryption_read", "true")));
             reject("BACKEND_CAPABILITY_UNAVAILABLE", () -> provider.planScan(null, request(HANDLE, false)));
         }
@@ -249,6 +321,15 @@ public class IcebergEncryptionReadTest {
     }
 
     private static ConnectorContext context(Map<String, String> config) {
+        return context(config, false);
+    }
+
+    private static ConnectorContext context(Map<String, String> config, boolean nativeEncryptionSupported) {
+        return context(config, nativeEncryptionSupported, new AtomicInteger());
+    }
+
+    private static ConnectorContext context(Map<String, String> config, boolean nativeEncryptionSupported,
+            AtomicInteger capabilityChecks) {
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -263,6 +344,17 @@ public class IcebergEncryptionReadTest {
             @Override
             public Map<String, String> getConnectorConfig() {
                 return config;
+            }
+
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                return new ConnectorStorageContext() {
+                    @Override
+                    public boolean supportsNativeFileEncryption() {
+                        capabilityChecks.incrementAndGet();
+                        return nativeEncryptionSupported;
+                    }
+                };
             }
         };
     }
