@@ -17,16 +17,29 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/status.h"
 
 namespace doris {
 class Block;
 class RuntimeProfile;
 
+enum class SortDirection : uint8_t {
+    ASC,  // small to large (0 -> N)
+    DESC, // large to small (N -> 0)
+};
+
 // One read mode of BlockReader: returns the rows of the read Block by Block.
 class BlockIterator {
 public:
+    BlockIterator() = default;
     virtual ~BlockIterator() = default;
+
+    BlockIterator(const BlockIterator&) = delete;
+    BlockIterator& operator=(const BlockIterator&) = delete;
+    BlockIterator(BlockIterator&&) = delete;
+    BlockIterator& operator=(BlockIterator&&) = delete;
 
     // Fill `block`, which must be empty, with the next batch of rows; `*eof` once there are none.
     virtual Status next_block(Block* block, bool* eof) = 0;

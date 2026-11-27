@@ -19,13 +19,12 @@
 
 #include <glog/logging.h>
 
-#include <ranges>
 #include <utility>
 
 #include "common/cast_set.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
+#include "storage/iterator/block_key_utils.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/simd/bits.h"
 
 namespace doris {
 
@@ -73,27 +72,10 @@ Status AggKeyBlockAggregator::init(int be_exec_version) {
 }
 
 void AggKeyBlockAggregator::_mark_same_keys(const Block& source) {
-    const size_t rows = source.rows();
-    _same_key.assign(rows, 1);
-    // From the last key column, which changes most often: once no row has the key of the row
-    // before, the other key columns need no comparison.
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        source.get_by_position(ordinal).column->update_equal_flags(_same_key);
-        if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
-            break;
-        }
-    }
+    mark_same_keys_in_block(source, _num_key_columns, &_same_key);
     // The first row goes on with the batch's last key when it has that key.
-    bool same_key = _batch_rows > 0;
-    for (size_t ordinal : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        if (!same_key) {
-            break;
-        }
-        const IColumn& batch = *_batch_columns[ordinal];
-        same_key = batch.compare_at(batch.size() - 1, 0, *source.get_by_position(ordinal).column,
-                                    -1) == 0;
-    }
-    _same_key[0] = same_key;
+    _same_key[0] = _batch_rows > 0 &&
+                   row_matches_first_key(_batch_columns, _batch_rows - 1, source, _num_key_columns);
 }
 
 void AggKeyBlockAggregator::aggregate(const Block& source) {

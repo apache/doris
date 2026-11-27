@@ -29,7 +29,6 @@
 #include "storage/schema.h"
 
 namespace doris {
-class RuntimeProfile;
 
 // Folds same-key rows for merge-on-read UNIQUE_KEYS tables with sequence mapping (multiple
 // sequence columns, each governing a group of value columns). Input Blocks arrive in key order

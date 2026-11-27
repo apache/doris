@@ -78,10 +78,6 @@ private:
 
     Status _detail_change_next_block(Block* block, bool* eof);
 
-    ChangelogOp _read_changelog_op(const IColumn& col, size_t row) const;
-
-    Status _write_changelog_op(IColumn& col, changelog::StreamChangeOp op) const;
-
     uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
 
     bool _min_delta_values_equal(size_t last_row);
@@ -97,8 +93,7 @@ private:
     Status _init_agg_state(const ReaderParams& read_params);
 
     Status _init_legacy_next_block(const ReaderParams& read_params, bool merge_by_sequence_mapping);
-    Status _try_init_block_iter(const ReaderParams& read_params, bool merge_by_sequence_mapping,
-                                bool* handled);
+    Status _init_block_iter(const ReaderParams& read_params, bool merge_by_sequence_mapping);
 
     Status _insert_data_normal(MutableColumns& columns);
 

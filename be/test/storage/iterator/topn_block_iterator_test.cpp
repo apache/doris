@@ -179,8 +179,8 @@ std::vector<Row> read(TopNBlockIterator& topn, const ReadSchema& schema) {
 // The first `limit` rows of `rowsets` by `sort_columns`; `filter_values` gets the values the TopN
 // filter is tightened to.
 std::vector<Row> read_topn(const ReadSchemaSPtr& schema, const std::vector<Batches>& rowsets,
-                           size_t limit, std::vector<uint32_t> sort_columns, bool descending,
-                           std::vector<int64_t>* filter_values = nullptr) {
+                           size_t limit, std::vector<uint32_t> sort_columns,
+                           SortDirection direction, std::vector<int64_t>* filter_values = nullptr) {
     std::vector<TopNBlockIterator::RowsetOpener> openers;
     for (const Batches& rowset : rowsets) {
         openers.push_back(open_rowset(schema, rowset));
@@ -192,7 +192,7 @@ std::vector<Row> read_topn(const ReadSchemaSPtr& schema, const std::vector<Batch
             return Status::OK();
         };
     }
-    TopNBlockIterator topn(std::move(openers), limit, std::move(sort_columns), descending, {},
+    TopNBlockIterator topn(std::move(openers), limit, std::move(sort_columns), direction, {},
                            std::move(update_filter));
     return read(topn, *schema);
 }
@@ -209,7 +209,7 @@ TEST(TopNBlockIteratorTest, KeepsTheFirstRowsInAscendingOrder) {
                         {{{{1, 10}, {4, 40}, {7, 70}}},
                          {{{2, 20}, {3, 30}}, {{9, 90}}},
                          {{{0, 0}, {5, 50}}}},
-                        3, {0}, false, &filter_values),
+                        3, {0}, SortDirection::ASC, &filter_values),
               (std::vector<Row> {{0, 0}, {1, 10}, {2, 20}}));
     EXPECT_EQ(filter_values, (std::vector<int64_t> {7, 3, 2}));
 }
@@ -222,7 +222,7 @@ TEST(TopNBlockIteratorTest, KeepsTheFirstRowsInDescendingOrder) {
                         {{{{9, 90}, {6, 60}, {3, 30}}},
                          {{{8, 80}, {7, 70}}, {{1, 10}}},
                          {{{10, 100}, {5, 50}}}},
-                        3, {0}, true, &filter_values),
+                        3, {0}, SortDirection::DESC, &filter_values),
               (std::vector<Row> {{10, 100}, {9, 90}, {8, 80}}));
     EXPECT_EQ(filter_values, (std::vector<int64_t> {3, 7, 8}));
 }
@@ -231,9 +231,9 @@ TEST(TopNBlockIteratorTest, KeepsTheFirstRowsInDescendingOrder) {
 TEST(TopNBlockIteratorTest, ReturnsEveryRowWhenThereAreFewerThanTheLimit) {
     auto schema = make_schema();
     std::vector<int64_t> filter_values;
-    EXPECT_EQ(
-            read_topn(schema, {{{{3, 30}, {5, 50}}}, {{{1, 10}}}}, 10, {0}, false, &filter_values),
-            (std::vector<Row> {{1, 10}, {3, 30}, {5, 50}}));
+    EXPECT_EQ(read_topn(schema, {{{{3, 30}, {5, 50}}}, {{{1, 10}}}}, 10, {0}, SortDirection::ASC,
+                        &filter_values),
+              (std::vector<Row> {{1, 10}, {3, 30}, {5, 50}}));
     EXPECT_TRUE(filter_values.empty());
 }
 
@@ -241,8 +241,9 @@ TEST(TopNBlockIteratorTest, ReturnsEveryRowWhenThereAreFewerThanTheLimit) {
 // whose predicates filtered out every row: the read ends at once.
 TEST(TopNBlockIteratorTest, EndsAtOnceWithoutRows) {
     auto schema = make_schema();
-    EXPECT_TRUE(read_topn(schema, {}, 3, {0}, false).empty());
-    EXPECT_TRUE(read_topn(schema, {Batches {}, Batches {Batch {}}}, 3, {0}, false).empty());
+    EXPECT_TRUE(read_topn(schema, {}, 3, {0}, SortDirection::ASC).empty());
+    EXPECT_TRUE(read_topn(schema, {Batches {}, Batches {Batch {}}}, 3, {0}, SortDirection::ASC)
+                        .empty());
 }
 
 // A row equal on the sort columns to the last of the first rows does not replace it, and the
@@ -250,9 +251,12 @@ TEST(TopNBlockIteratorTest, EndsAtOnceWithoutRows) {
 TEST(TopNBlockIteratorTest, ComparesTheSortColumnsInTurn) {
     auto schema = make_schema();
     const std::vector<Batches> rowsets = {{{{1, 10}, {2, 20}}}, {{{2, 15}, {2, 25}, {3, 30}}}};
-    EXPECT_EQ(read_topn(schema, rowsets, 2, {0}, false), (std::vector<Row> {{1, 10}, {2, 20}}));
-    EXPECT_EQ(read_topn(schema, rowsets, 2, {0, 1}, false), (std::vector<Row> {{1, 10}, {2, 15}}));
-    EXPECT_EQ(read_topn(schema, {{{{2, 25}, {2, 15}}}, {{{2, 20}, {1, 10}}}}, 2, {0, 1}, true),
+    EXPECT_EQ(read_topn(schema, rowsets, 2, {0}, SortDirection::ASC),
+              (std::vector<Row> {{1, 10}, {2, 20}}));
+    EXPECT_EQ(read_topn(schema, rowsets, 2, {0, 1}, SortDirection::ASC),
+              (std::vector<Row> {{1, 10}, {2, 15}}));
+    EXPECT_EQ(read_topn(schema, {{{{2, 25}, {2, 15}}}, {{{2, 20}, {1, 10}}}}, 2, {0, 1},
+                        SortDirection::DESC),
               (std::vector<Row> {{2, 25}, {2, 20}}));
 }
 
@@ -264,7 +268,7 @@ TEST(TopNBlockIteratorTest, ReadsAtMostTheLimitOfRowsOfAStream) {
     openers.push_back(open_rowset(schema, {{{5, 50}}, {{6, 60}, {7, 70}}, {{8, 80}}},
                                   Status::EndOfFile("no more batches"), &batches_read));
     openers.push_back(open_rowset(schema, {{{1, 10}, {2, 20}, {3, 30}, {4, 40}}}));
-    TopNBlockIterator topn(std::move(openers), 2, {0}, false, {}, {});
+    TopNBlockIterator topn(std::move(openers), 2, {0}, SortDirection::ASC, {}, {});
     EXPECT_EQ(read(topn, *schema), (std::vector<Row> {{1, 10}, {2, 20}}));
     EXPECT_EQ(batches_read, 2);
 }
@@ -280,7 +284,7 @@ TEST(TopNBlockIteratorTest, RemovesTheDroppedRowsOnceTheyOutnumberTheKeptOnes) {
                          {{{3, 30}, {4, 40}}},
                          {{{1, 10}, {2, 20}}},
                          {{{0, 0}, {9, 90}}}},
-                        2, {0}, false, &filter_values),
+                        2, {0}, SortDirection::ASC, &filter_values),
               (std::vector<Row> {{0, 0}, {1, 10}}));
     EXPECT_EQ(filter_values, (std::vector<int64_t> {6, 4, 2, 1}));
 }
@@ -295,10 +299,11 @@ TEST(TopNBlockIteratorTest, ReadsTheSegmentsOfAnOverlappingRowsetInTurn) {
     openers.push_back(open_overlapping_rowset(
             schema, {{{{1, 10}, {4, 40}, {7, 70}}}, {{{2, 20}, {5, 50}, {8, 80}}}}));
     openers.push_back(open_rowset(schema, {{{0, 0}, {3, 30}}}));
-    TopNBlockIterator topn(std::move(openers), 3, {0}, false, {}, [&](const Field& value) {
-        filter_values.push_back(value.get<TYPE_BIGINT>());
-        return Status::OK();
-    });
+    TopNBlockIterator topn(std::move(openers), 3, {0}, SortDirection::ASC, {},
+                           [&](const Field& value) {
+                               filter_values.push_back(value.get<TYPE_BIGINT>());
+                               return Status::OK();
+                           });
     EXPECT_EQ(read(topn, *schema), (std::vector<Row> {{0, 0}, {1, 10}, {2, 20}}));
     EXPECT_EQ(filter_values, (std::vector<int64_t> {7, 4, 2}));
 }
@@ -311,7 +316,7 @@ TEST(TopNBlockIteratorTest, KeepsTheValuesOfVirtualColumns) {
     std::vector<TopNBlockIterator::RowsetOpener> openers;
     openers.push_back(open_overlapping_rowset(
             schema, {{{{1, 10, 100}, {3, 30, 300}}}, {{{2, 20, 200}, {4, 40, 400}}}}));
-    TopNBlockIterator topn(std::move(openers), 3, {0}, false,
+    TopNBlockIterator topn(std::move(openers), 3, {0}, SortDirection::ASC,
                            {{2, std::make_shared<DataTypeInt64>()}}, {});
     EXPECT_EQ(read(topn, *schema), (std::vector<Row> {{1, 10, 100}, {2, 20, 200}, {3, 30, 300}}));
 }
@@ -321,7 +326,8 @@ TEST(TopNBlockIteratorTest, PassesOnTheErrors) {
     auto schema = make_schema();
     auto next_block = [&](std::vector<TopNBlockIterator::RowsetOpener> openers,
                           TopNBlockIterator::FilterUpdater update_filter) {
-        TopNBlockIterator topn(std::move(openers), 1, {0}, false, {}, std::move(update_filter));
+        TopNBlockIterator topn(std::move(openers), 1, {0}, SortDirection::ASC, {},
+                               std::move(update_filter));
         Block block = schema->create_read_block();
         bool eof = false;
         return topn.next_block(&block, &eof);
@@ -329,7 +335,7 @@ TEST(TopNBlockIteratorTest, PassesOnTheErrors) {
 
     std::vector<TopNBlockIterator::RowsetOpener> openers;
     openers.push_back(open_rowset(schema, {{{1, 10}}}));
-    openers.push_back(
+    openers.emplace_back(
             [](std::vector<RowwiseIteratorUPtr>*) { return Status::InternalError("open failed"); });
     Status st = next_block(std::move(openers), {});
     EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;

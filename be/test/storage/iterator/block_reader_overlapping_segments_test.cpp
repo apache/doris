@@ -25,9 +25,10 @@
 //   - a key group that a Block row limit falls inside is still folded into one row;
 //   - rowsets whose keys ascend from one to the next are read one after another.
 // A query that pushes ORDER BY a key prefix LIMIT down to storage on a DUP_KEYS or merge-on-write
-// table reads the rowsets one after another, the segments of each merged by the ORDER BY columns,
-// and keeps the first rows: other tests read such rowsets as that query and check that the first
-// rows by the ORDER BY columns come back, also rows of different keys equal on those columns.
+// table reads the rowsets one after another, the segments of each read in turn as sorted streams
+// (without merging), and keeps the first rows: other tests read such rowsets as that query and
+// check that the first rows by the ORDER BY columns come back, also rows of different keys equal on
+// those columns.
 
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>

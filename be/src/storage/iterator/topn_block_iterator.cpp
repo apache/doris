@@ -23,17 +23,18 @@
 
 #include "common/cast_set.h"
 #include "core/column/column.h"
+#include "core/field.h"
 
 namespace doris {
 
 TopNBlockIterator::TopNBlockIterator(std::vector<RowsetOpener> rowsets, size_t limit,
-                                     std::vector<uint32_t> sort_columns, bool descending,
+                                     std::vector<uint32_t> sort_columns, SortDirection direction,
                                      std::map<uint32_t, DataTypePtr> virtual_column_types,
                                      FilterUpdater update_filter)
         : _rowsets(std::move(rowsets)),
           _limit(limit),
           _sort_columns(std::move(sort_columns)),
-          _descending(descending),
+          _direction(direction),
           _virtual_column_types(std::move(virtual_column_types)),
           _update_filter(std::move(update_filter)) {
     DORIS_CHECK_GT(_limit, 0);
@@ -43,7 +44,7 @@ TopNBlockIterator::TopNBlockIterator(std::vector<RowsetOpener> rowsets, size_t l
 bool TopNBlockIterator::RowOrder::operator()(size_t lhs, size_t rhs) const {
     // NULLs are the smallest (-1).
     const int r = topn->_rows.compare_at(lhs, rhs, &topn->_sort_columns, topn->_rows, -1);
-    return topn->_descending ? r > 0 : r < 0;
+    return topn->_direction == SortDirection::DESC ? r > 0 : r < 0;
 }
 
 bool TopNBlockIterator::_sorts_before(const Block& block, size_t row, size_t top_row) const {
@@ -51,7 +52,7 @@ bool TopNBlockIterator::_sorts_before(const Block& block, size_t row, size_t top
         const int r = block.get_by_position(position).column->compare_at(
                 row, top_row, *_rows.get_column_by_position(position), -1);
         if (r != 0) {
-            return _descending ? r > 0 : r < 0;
+            return _direction == SortDirection::DESC ? r > 0 : r < 0;
         }
     }
     return false;
@@ -79,7 +80,7 @@ Status TopNBlockIterator::next_block(Block* block, bool* eof) {
         std::vector<RowwiseIteratorUPtr> streams;
         RETURN_IF_ERROR(open_rowset(&streams));
         for (RowwiseIteratorUPtr& stream : streams) {
-            RETURN_IF_ERROR(_read_stream(*stream, block));
+            RETURN_IF_ERROR(_read_stream(stream.get(), block));
             // Release a segment once it is read, not at the end of its rowset.
             stream.reset();
         }
@@ -90,11 +91,11 @@ Status TopNBlockIterator::next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status TopNBlockIterator::_read_stream(RowwiseIterator& stream, Block* block) {
+Status TopNBlockIterator::_read_stream(RowwiseIterator* stream, Block* block) {
     size_t read_rows = 0;
     while (read_rows < _limit) {
         block->clear_column_data();
-        Status st = stream.next_batch(block);
+        Status st = stream->next_batch(block);
         if (st.is<ErrorCode::END_OF_FILE>()) {
             break;
         }

@@ -27,8 +27,6 @@
 #include "storage/schema.h"
 
 namespace doris {
-class Block;
-class RuntimeProfile;
 
 // Keeps only the first row of each key from a key-ordered stream where the winning row of a key
 // (highest sequence value, then newest rowset/segment) sorts first: merge-on-read UNIQUE_KEYS
@@ -53,9 +51,8 @@ private:
     uint64_t* const _merged_rows;
 
     // Single-row key columns of the previous Block's last row, used to detect keys spanning
-    // across Block boundaries.
+    // across Block boundaries. Empty before the first output Block.
     MutableColumns _last_key_columns;
-    bool _has_last_key = false;
 
     EqualFlags _same_key;
     IColumn::Filter _filter;

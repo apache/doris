@@ -19,13 +19,12 @@
 
 #include <glog/logging.h>
 
-#include <ranges>
 #include <utility>
 
 #include "common/exception.h"
 #include "core/column/column_nullable.h"
-#include "storage/changelog.h"
 #include "storage/changelog_types.h"
+#include "storage/iterator/block_key_utils.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "util/simd/bits.h"
 
@@ -45,19 +44,7 @@ ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(std::unique_ptr<B
 }
 
 void ChangelogMinDeltaBlockIterator::_mark_block_same_keys() {
-    const Block& block = _cursor.block();
-    const size_t rows = block.rows();
-    _same_key.assign(rows, 1);
-    _same_key[0] = 0;
-    if (rows > 1) {
-        for (size_t col_idx :
-             std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-            block.get_by_position(col_idx).column->update_equal_flags(_same_key);
-            if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
-                break;
-            }
-        }
-    }
+    mark_same_keys_in_block(_cursor.block(), _num_key_columns, &_same_key);
     _same_key_block_id = _cursor.block_id();
 }
 
@@ -69,17 +56,6 @@ void ChangelogMinDeltaBlockIterator::_set_group_row(size_t row_pos, bool replace
         }
         _group_columns[col_idx]->insert_from(*block.get_by_position(col_idx).column, row_pos);
     }
-}
-
-bool ChangelogMinDeltaBlockIterator::_first_row_matches_group() const {
-    const Block& block = _cursor.block();
-    for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
-        if (_group_columns[col_idx]->compare_at(0, 0, *block.get_by_position(col_idx).column, -1) !=
-            0) {
-            return false;
-        }
-    }
-    return true;
 }
 
 Status ChangelogMinDeltaBlockIterator::_collect_group() {
@@ -101,7 +77,7 @@ Status ChangelogMinDeltaBlockIterator::_collect_group() {
             return Status::OK();
         }
         _mark_block_same_keys();
-        if (!_first_row_matches_group()) {
+        if (!row_matches_first_key(_group_columns, 0, _cursor.block(), _num_key_columns)) {
             return Status::OK();
         }
         pos = 0;
@@ -141,80 +117,82 @@ bool ChangelogMinDeltaBlockIterator::_group_values_unchanged() {
     return before_image_available;
 }
 
-Status ChangelogMinDeltaBlockIterator::_append_insert_row(MutableColumns& columns) const {
+Status ChangelogMinDeltaBlockIterator::_append_insert_row(MutableColumns* columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
         if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(
-                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::INSERT));
+            RETURN_IF_ERROR(changelog::write_changelog_op((*columns)[col_idx].get(),
+                                                          changelog::StreamChangeOp::INSERT));
         } else {
-            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
+            (*columns)[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         }
     }
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_append_delete_row(MutableColumns& columns) const {
+Status ChangelogMinDeltaBlockIterator::_append_delete_row(MutableColumns* columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
         if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(
-                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::DELETE));
+            RETURN_IF_ERROR(changelog::write_changelog_op((*columns)[col_idx].get(),
+                                                          changelog::StreamChangeOp::DELETE));
         } else if (std::cmp_equal(col_idx, _lsn_col_idx) || std::cmp_equal(col_idx, _tso_col_idx)) {
-            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
+            (*columns)[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         } else {
             const uint32_t before_col_idx =
                     _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx));
-            columns[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
+            (*columns)[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
         }
     }
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_append_update_before_row(MutableColumns& columns) const {
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+Status ChangelogMinDeltaBlockIterator::_append_update_before_row(MutableColumns* columns) const {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
         if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(write_changelog_op(*columns[col_idx],
-                                               changelog::StreamChangeOp::UPDATE_BEFORE));
+            RETURN_IF_ERROR(changelog::write_changelog_op(
+                    (*columns)[col_idx].get(), changelog::StreamChangeOp::UPDATE_BEFORE));
         } else {
             const uint32_t before_col_idx =
                     _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx));
-            columns[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
+            (*columns)[col_idx]->insert_from(*_group_columns[before_col_idx], 0);
         }
     }
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_append_update_after_row(MutableColumns& columns) const {
+Status ChangelogMinDeltaBlockIterator::_append_update_after_row(MutableColumns* columns) const {
     const size_t last_row = _last_group_row();
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
         if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(
-                    write_changelog_op(*columns[col_idx], changelog::StreamChangeOp::UPDATE_AFTER));
+            RETURN_IF_ERROR(changelog::write_changelog_op((*columns)[col_idx].get(),
+                                                          changelog::StreamChangeOp::UPDATE_AFTER));
         } else {
-            columns[col_idx]->insert_from(*_group_columns[col_idx], last_row);
+            (*columns)[col_idx]->insert_from(*_group_columns[col_idx], last_row);
         }
     }
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_emit_update_pair(MutableColumns& target_columns,
+Status ChangelogMinDeltaBlockIterator::_emit_update_pair(MutableColumns* target_columns,
                                                          size_t row_limit, size_t* output_rows) {
     RETURN_IF_ERROR(_append_update_before_row(target_columns));
     ++(*output_rows);
     if (*output_rows >= row_limit) {
-        return _append_update_after_row(_pending_row.park(target_columns));
+        return _pending_row.park(*target_columns, [&](MutableColumns* cols) {
+            return _append_update_after_row(cols);
+        });
     }
     RETURN_IF_ERROR(_append_update_after_row(target_columns));
     ++(*output_rows);
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns& target_columns, size_t row_limit,
+Status ChangelogMinDeltaBlockIterator::_emit_group(MutableColumns* target_columns, size_t row_limit,
                                                    size_t* output_rows) {
     const auto& op_column = *_group_columns[static_cast<size_t>(_op_col_idx)];
-    const ChangelogOp first_op = read_changelog_op(op_column, 0);
-    const ChangelogOp last_op = read_changelog_op(op_column, _last_group_row());
+    const ChangelogOp first_op = changelog::read_changelog_op(op_column, 0);
+    const ChangelogOp last_op = changelog::read_changelog_op(op_column, _last_group_row());
 
     switch (changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op)) {
     case changelog::AggregateFunctionMinDelta::ResultType::SKIP:
@@ -251,12 +229,12 @@ Status ChangelogMinDeltaBlockIterator::next_block(Block* block, bool* eof) {
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
     size_t output_rows = 0;
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_fill_block(target_columns, &output_rows));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_fill_block(&target_columns, &output_rows));
     *eof = output_rows == 0 && _cursor.eof() && !_pending_row.has_row();
     return Status::OK();
 }
 
-Status ChangelogMinDeltaBlockIterator::_fill_block(MutableColumns& target_columns,
+Status ChangelogMinDeltaBlockIterator::_fill_block(MutableColumns* target_columns,
                                                    size_t* output_rows) {
     size_t row_limit = _batch_limit.max_rows();
     while (*output_rows < row_limit) {

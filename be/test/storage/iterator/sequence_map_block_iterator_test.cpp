@@ -225,6 +225,47 @@ TEST(SequenceMapBlockIteratorUnitTest, FoldsSequenceGroupsAcrossChainedBlockBoun
                         }));
 }
 
+// A tiny preferred_bytes budget clamps row_limit to 1 even with max_rows=100, flushing finished
+// keys after each input Block rather than accumulating all keys into one Block.
+TEST(SequenceMapBlockIteratorUnitTest, RespectsPreferredByteBudget) {
+    auto tablet_schema = make_seq_map_schema();
+    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
+    ASSERT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema, /*merge_by_seq_map=*/true,
+                                                  /*map_changelog_cols=*/false)
+                        .ok());
+
+    auto fake = std::make_unique<FakeSeqMapInput>(
+            read_schema, std::vector<std::vector<Row>> {
+                                 {{1, 100, 10, 1, 20, 1}, {2, 200, 21, 2, 22, 2}},
+                                 {{3, 300, 31, 3, 32, 3}},
+                         });
+    uint64_t merged_rows = 0;
+    SequenceMapBlockIterator iter(std::move(fake),
+                                  BlockBatchLimit(/*max_rows=*/100, /*preferred_bytes=*/1),
+                                  read_schema, &merged_rows);
+
+    std::vector<size_t> batch_sizes;
+    std::vector<Row> all_rows;
+    bool eof = false;
+    while (!eof) {
+        Block block = read_schema->create_read_block();
+        ASSERT_TRUE(iter.next_block(&block, &eof).ok());
+        if (!eof) {
+            batch_sizes.push_back(block.rows());
+            auto r = rows_of(block);
+            all_rows.insert(all_rows.end(), r.begin(), r.end());
+        }
+    }
+    EXPECT_EQ(merged_rows, 0U);
+    EXPECT_EQ(batch_sizes, (std::vector<size_t> {1, 1, 1}));
+    EXPECT_EQ(all_rows, (std::vector<Row> {
+                                {1, 100, 10, 1, 20, 1},
+                                {2, 200, 21, 2, 22, 2},
+                                {3, 300, 31, 3, 32, 3},
+                        }));
+}
+
 class BlockReaderSequenceMapIterTest : public testing::Test {
 protected:
     void SetUp() override {

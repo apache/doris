@@ -36,8 +36,11 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
+#include "storage/iterator/block_iterator_builder.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/iterator/direct_iterator.h"
+#include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/merge_block_iterator.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -419,6 +422,159 @@ TEST_F(BlockReaderDirectIterTest, ReleasesARowsetOnceItIsRead) {
     EXPECT_TRUE(eof);
     EXPECT_TRUE(rs_readers[1].expired());
     reader.update_profile(&profile);
+}
+
+namespace {
+
+class FailingSegmentIterator final : public RowwiseIterator {
+public:
+    FailingSegmentIterator(const ReadSchema& schema, Status error)
+            : _schema(schema), _error(std::move(error)) {}
+
+    Status next_batch(Block* /*block*/) override { return _error; }
+    const ReadSchema& schema() const override { return _schema; }
+
+private:
+    const ReadSchema& _schema;
+    Status _error;
+};
+
+class StubRowsetReader final : public RowsetReader {
+public:
+    StubRowsetReader(ReadSchemaSPtr schema, Status open_status, Status batch_status)
+            : _schema(std::move(schema)),
+              _open_status(std::move(open_status)),
+              _batch_status(std::move(batch_status)) {}
+
+    Status init(RowsetReaderContext* /*read_context*/, const RowSetSplits& /*rs_splits*/) override {
+        return Status::OK();
+    }
+    Status get_segment_iterators(RowsetReaderContext* /*read_context*/,
+                                 std::vector<RowwiseIteratorUPtr>* out_iters,
+                                 bool /*use_cache*/) override {
+        RETURN_IF_ERROR(_open_status);
+        out_iters->push_back(std::make_unique<FailingSegmentIterator>(*_schema, _batch_status));
+        return Status::OK();
+    }
+    void reset_read_options() override {}
+    Status next_batch(Block* /*block*/) override { return Status::NotSupported("stub"); }
+    Status next_batch(BlockView* /*block_view*/) override { return Status::NotSupported("stub"); }
+    Status next_batch(BlockWithSameBit* /*block_view*/) override {
+        return Status::NotSupported("stub");
+    }
+    bool delete_flag() override { return false; }
+    Version version() override { return {0, 0}; }
+    RowsetSharedPtr rowset() override { return nullptr; }
+    const ReadSchema& read_schema() const override { return *_schema; }
+    int64_t filtered_rows() override { return 0; }
+    uint64_t merged_rows() override { return 0; }
+    RowsetTypePB type() const override { return BETA_ROWSET; }
+    int64_t newest_write_timestamp() override { return 0; }
+    void update_profile(RuntimeProfile* /*profile*/) override {}
+    RowsetReaderSharedPtr clone() override { return nullptr; }
+    void set_topn_limit(size_t /*topn_limit*/) override {}
+
+private:
+    ReadSchemaSPtr _schema;
+    Status _open_status;
+    Status _batch_status;
+};
+
+} // namespace
+
+// DirectIterator propagates errors from opening a rowset's segment iterators, errors from a
+// segment's next_batch(), and runtime query cancellation.
+TEST_F(BlockReaderDirectIterTest, DirectIteratorPropagatesErrorAndCancellation) {
+    config::enable_new_block_iterator = true;
+    auto schema = make_schema(KeysType::DUP_KEYS);
+    auto read_schema = std::make_shared<ReadSchema>(schema->columns());
+
+    RowsetReaderContext ctx;
+    OlapReaderStatistics stats;
+    {
+        std::vector<RowsetReaderSharedPtr> readers = {std::make_shared<StubRowsetReader>(
+                read_schema, Status::IOError("open failed"), Status::OK())};
+        DirectIterator iter(std::move(readers), &ctx, &stats);
+        Block block = read_schema->create_read_block();
+        bool eof = false;
+        Status st = iter.next_block(&block, &eof);
+        EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    }
+    {
+        std::vector<RowsetReaderSharedPtr> readers = {std::make_shared<StubRowsetReader>(
+                read_schema, Status::OK(), Status::Corruption("bad segment"))};
+        DirectIterator iter(std::move(readers), &ctx, &stats);
+        Block block = read_schema->create_read_block();
+        bool eof = false;
+        Status st = iter.next_block(&block, &eof);
+        EXPECT_TRUE(st.is<ErrorCode::CORRUPTION>()) << st;
+    }
+    {
+        auto tablet = create_tablet(*schema);
+        std::vector<RowsetSharedPtr> rowsets = {
+                write_rowset(schema, {{{1, 10}, {2, 20}}}, /*version=*/2),
+        };
+        auto params = make_params(tablet, schema, rowsets, ReaderType::READER_QUERY);
+        RuntimeState runtime_state;
+        params.runtime_state = &runtime_state;
+
+        BlockReader reader;
+        reader.set_batch_size(1);
+        ASSERT_TRUE(reader.init(params).ok());
+        Block block = params.read_schema->create_read_block();
+        bool eof = false;
+        ASSERT_TRUE(reader.next_block_with_aggregation(&block, &eof).ok());
+        EXPECT_EQ(block.rows(), 1U);
+
+        runtime_state.cancel(Status::Cancelled("query cancelled"));
+        Block next = params.read_schema->create_read_block();
+        Status st = reader.next_block_with_aggregation(&next, &eof);
+        EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    }
+}
+
+// BlockIteratorBuilder::_validate_merge_schema rejects schemas whose key prefix exceeds the
+// block columns, contains a non-key column, or references an out-of-range secondary sort column.
+TEST_F(BlockReaderDirectIterTest, ValidateMergeSchemaRejectsInvalidContracts) {
+    auto schema = make_schema(KeysType::DUP_KEYS);
+    auto tablet = create_tablet(*schema);
+    TabletReader::ReaderParams params;
+    RowsetReaderContext ctx;
+    OlapReaderStatistics stats;
+    uint64_t merged_rows = 0;
+
+    auto validate = [&](const ReadSchemaSPtr& rs, HeapMergeOrder order) {
+        BlockIteratorBuilder builder(params, *tablet, rs, &ctx, &stats, &merged_rows,
+                                     BlockBatchLimit(100));
+        return builder._validate_merge_schema(order);
+    };
+
+    // Valid schema passes.
+    auto valid_rs = std::make_shared<ReadSchema>(schema->columns());
+    EXPECT_TRUE(validate(valid_rs, HeapMergeOrder::by_all_keys()).ok());
+
+    // Compare column index out of range.
+    Status st = validate(valid_rs,
+                         HeapMergeOrder::by_all_keys_and_same_key_col(99, SortDirection::ASC));
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("compare column index out of range"), std::string::npos) << st;
+
+    // Non-key column in key prefix: put value column v before key column k.
+    std::vector<TabletColumnPtr> reversed_cols = {
+            std::make_shared<TabletColumn>(schema->column(1)),
+            std::make_shared<TabletColumn>(schema->column(0)),
+    };
+    auto bad_prefix_rs = std::make_shared<ReadSchema>(std::move(reversed_cols));
+    st = validate(bad_prefix_rs, HeapMergeOrder::by_all_keys());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("non-key column"), std::string::npos) << st;
+
+    // Fewer block columns than key prefix.
+    auto short_rs = std::make_shared<ReadSchema>(schema->columns());
+    short_rs->_num_key_columns = short_rs->num_block_columns() + 1;
+    st = validate(short_rs, HeapMergeOrder::by_all_keys());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("fewer columns than the key prefix"), std::string::npos) << st;
 }
 
 } // namespace doris

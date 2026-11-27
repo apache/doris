@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -24,24 +26,42 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
-#include "storage/changelog.h"
 #include "storage/changelog_types.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/schema.h"
 
-namespace doris {
-class RuntimeProfile;
+namespace doris::changelog {
 
 ChangelogOp read_changelog_op(const IColumn& col, size_t row);
-Status write_changelog_op(IColumn& col, changelog::StreamChangeOp op);
+Status write_changelog_op(IColumn* col, StreamChangeOp op);
 
 // Parks the UPDATE_AFTER half of an UPDATE pair when UPDATE_BEFORE fills an output Block.
 class ChangelogPendingRow {
 public:
     bool has_row() const { return _has_row; }
 
-    MutableColumns& park(const MutableColumns& target_columns);
-    bool emit(MutableColumns& target_columns);
+    // Populates the parked row via `fill(&pending_columns)` and marks it ready only on OK.
+    template <typename FillFn>
+    Status park(const MutableColumns& schema_columns, FillFn&& fill) {
+        DCHECK(!_has_row);
+        if (_columns.empty()) {
+            _columns.reserve(schema_columns.size());
+            for (const auto& column : schema_columns) {
+                _columns.push_back(column->clone_empty());
+            }
+        }
+        Status st = fill(&_columns);
+        if (!st.ok()) {
+            for (auto& column : _columns) {
+                column->clear();
+            }
+            return st;
+        }
+        _has_row = true;
+        return Status::OK();
+    }
+
+    bool emit(MutableColumns* target_columns);
 
 private:
     MutableColumns _columns;
@@ -76,4 +96,4 @@ private:
     bool _eof = false;
 };
 
-} // namespace doris
+} // namespace doris::changelog

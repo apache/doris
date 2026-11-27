@@ -30,7 +30,6 @@
 #include "storage/schema.h"
 
 namespace doris {
-class RuntimeProfile;
 
 // Folds consecutive (key, TSO)-ordered changelog rows of each primary key into its minimum net
 // change (SKIP, INSERT, DELETE, or UPDATE_BEFORE + UPDATE_AFTER) for MIN_DELTA scans. Only the
@@ -46,21 +45,20 @@ public:
     void update_profile(RuntimeProfile* profile) override { _cursor.update_profile(profile); }
 
 private:
-    Status _fill_block(MutableColumns& target_columns, size_t* output_rows);
+    Status _fill_block(MutableColumns* target_columns, size_t* output_rows);
     Status _collect_group();
     void _mark_block_same_keys();
     void _set_group_row(size_t row_pos, bool replace_last);
-    bool _first_row_matches_group() const;
     bool _group_values_unchanged();
-    Status _emit_group(MutableColumns& target_columns, size_t row_limit, size_t* output_rows);
-    Status _emit_update_pair(MutableColumns& target_columns, size_t row_limit, size_t* output_rows);
-    Status _append_insert_row(MutableColumns& columns) const;
-    Status _append_delete_row(MutableColumns& columns) const;
-    Status _append_update_before_row(MutableColumns& columns) const;
-    Status _append_update_after_row(MutableColumns& columns) const;
+    Status _emit_group(MutableColumns* target_columns, size_t row_limit, size_t* output_rows);
+    Status _emit_update_pair(MutableColumns* target_columns, size_t row_limit, size_t* output_rows);
+    Status _append_insert_row(MutableColumns* columns) const;
+    Status _append_delete_row(MutableColumns* columns) const;
+    Status _append_update_before_row(MutableColumns* columns) const;
+    Status _append_update_after_row(MutableColumns* columns) const;
     size_t _last_group_row() const { return _group_columns[0]->size() - 1; }
 
-    ChangelogInputCursor _cursor;
+    changelog::ChangelogInputCursor _cursor;
     const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const size_t _num_key_columns;
@@ -71,7 +69,7 @@ private:
     MutableColumns _group_columns;
     EqualFlags _same_key;
     uint64_t _same_key_block_id = 0;
-    ChangelogPendingRow _pending_row;
+    changelog::ChangelogPendingRow _pending_row;
     bool _value_compare_unsupported = false;
 };
 

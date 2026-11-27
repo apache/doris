@@ -26,9 +26,6 @@
 #include "storage/rowset/rowset_fwd.h"
 
 namespace doris {
-class Block;
-class RuntimeProfile;
-struct OlapReaderStatistics;
 struct RowsetReaderContext;
 
 // Reads rowsets one after another in version order, and the segments of each rowset in segment

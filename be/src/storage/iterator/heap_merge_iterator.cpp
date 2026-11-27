@@ -34,49 +34,31 @@
 namespace doris {
 using namespace ErrorCode;
 
-HeapMergeOrder HeapMergeOrder::by_all_keys(HeapSortOrder child_iterator_order) {
+HeapMergeOrder HeapMergeOrder::by_all_keys(SortDirection child_iterator_direction) {
     HeapMergeOrder order;
-    order._child_iterator_order = child_iterator_order;
+    order._child_iterator_direction = child_iterator_direction;
     return order;
 }
 
-HeapMergeOrder HeapMergeOrder::by_all_keys_and_same_key_col(int32_t same_key_sort_col_idx,
-                                                            HeapSortOrder same_key_sort_order,
-                                                            HeapSortOrder child_iterator_order) {
+HeapMergeOrder HeapMergeOrder::by_all_keys_and_same_key_col(
+        int32_t same_key_sort_col_idx, SortDirection same_key_sort_direction,
+        SortDirection child_iterator_direction) {
     DORIS_CHECK_GE(same_key_sort_col_idx, 0);
     HeapMergeOrder order;
     order._same_key_sort_col_idx = same_key_sort_col_idx;
-    order._same_key_sort_order = same_key_sort_order;
-    order._child_iterator_order = child_iterator_order;
-    return order;
-}
-
-HeapMergeOrder HeapMergeOrder::by_sort_cols(std::vector<uint32_t> sort_col_idxs,
-                                            HeapSortOrder sort_order,
-                                            HeapSortOrder child_iterator_order) {
-    DORIS_CHECK(!sort_col_idxs.empty());
-    HeapMergeOrder order;
-    order._sort_col_idxs = std::move(sort_col_idxs);
-    order._key_sort_order = sort_order;
-    order._child_iterator_order = child_iterator_order;
+    order._same_key_sort_direction = same_key_sort_direction;
+    order._child_iterator_direction = child_iterator_direction;
     return order;
 }
 
 std::vector<HeapSortCol> HeapMergeOrder::resolve_sort_cols(size_t num_key_columns) const {
     std::vector<HeapSortCol> cols;
-    if (!_sort_col_idxs.empty()) {
-        cols.reserve(_sort_col_idxs.size());
-        for (uint32_t col_idx : _sort_col_idxs) {
-            cols.push_back({col_idx, _key_sort_order});
-        }
-        return cols;
-    }
     cols.reserve(num_key_columns + (_same_key_sort_col_idx >= 0 ? 1 : 0));
     for (size_t col_idx = 0; col_idx < num_key_columns; ++col_idx) {
-        cols.push_back({cast_set<uint32_t>(col_idx), HeapSortOrder::ASC});
+        cols.push_back({cast_set<uint32_t>(col_idx), SortDirection::ASC});
     }
     if (_same_key_sort_col_idx >= 0) {
-        cols.push_back({static_cast<uint32_t>(_same_key_sort_col_idx), _same_key_sort_order});
+        cols.push_back({static_cast<uint32_t>(_same_key_sort_col_idx), _same_key_sort_direction});
     }
     return cols;
 }
@@ -85,7 +67,7 @@ VHeapMergeIterator::VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children
                                        ReadSchemaSPtr read_schema, HeapMergeOrder order)
         : _read_schema(std::move(read_schema)),
           _sort_cols(order.resolve_sort_cols(_read_schema->num_key_columns())),
-          _child_iterator_order(order.child_iterator_order()) {
+          _child_iterator_direction(order.child_iterator_direction()) {
     _children.reserve(children.size());
     for (auto& child : children) {
         _children.emplace_back();
@@ -110,7 +92,7 @@ Status VHeapMergeIterator::_push_back_to_heap(uint32_t child) {
     Child& current = _children[child];
     if (current.pos == current.block.rows()) {
         bool eof = false;
-        RETURN_IF_ERROR(_read_next_block(current, &eof));
+        RETURN_IF_ERROR(_read_next_block(&current, &eof));
         if (eof) {
             // The child is done: release its segment and its Block now, not at the end of the
             // merge.
@@ -123,14 +105,14 @@ Status VHeapMergeIterator::_push_back_to_heap(uint32_t child) {
     return Status::OK();
 }
 
-Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
+Status VHeapMergeIterator::_read_next_block(Child* child, bool* eof) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     // A segment returns an empty batch when its predicates filter out every row it read.
     do {
-        child.block.clear_column_data();
-        Status st = child.iter->next_batch(&child.block);
+        child->block.clear_column_data();
+        Status st = child->iter->next_batch(&child->block);
         if (st.is<END_OF_FILE>()) {
-            DCHECK_EQ(child.block.rows(), 0);
+            DCHECK_EQ(child->block.rows(), 0);
             *eof = true;
             return Status::OK();
         }
@@ -138,9 +120,9 @@ Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
         if (_runtime_state != nullptr && _runtime_state->is_cancelled()) [[unlikely]] {
             return _runtime_state->cancel_reason();
         }
-    } while (child.block.rows() == 0);
-    DCHECK_EQ(child.block.columns(), _read_schema->num_block_columns());
-    child.pos = 0;
+    } while (child->block.rows() == 0);
+    DCHECK_EQ(child->block.columns(), _read_schema->num_block_columns());
+    child->pos = 0;
     *eof = false;
     return Status::OK();
 }
@@ -148,15 +130,15 @@ Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
 bool VHeapMergeIterator::_less_than_current_row(uint32_t child, size_t row, uint32_t other) const {
     const Block& block = _children[child].block;
     const Child& other_child = _children[other];
-    for (const auto& [col_idx, order] : _sort_cols) {
+    for (const auto& [col_idx, direction] : _sort_cols) {
         // NULLs are smallest (-1).
         const int r = block.get_by_position(col_idx).column->compare_at(
                 row, other_child.pos, *other_child.block.get_by_position(col_idx).column, -1);
         if (r != 0) {
-            return order == HeapSortOrder::ASC ? r < 0 : r > 0;
+            return direction == SortDirection::ASC ? r < 0 : r > 0;
         }
     }
-    return _child_iterator_order == HeapSortOrder::ASC ? child < other : child > other;
+    return _child_iterator_direction == SortDirection::ASC ? child < other : child > other;
 }
 
 size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit) const {
@@ -186,23 +168,23 @@ size_t VHeapMergeIterator::_output_row_limit() const {
     return _batch_limit.row_limit(bytes, rows);
 }
 
-void VHeapMergeIterator::_copy_rows(MutableColumns& columns, const Child& child, size_t rows) {
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
+void VHeapMergeIterator::_copy_rows(MutableColumns* columns, const Child& child, size_t rows) {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
         const IColumn& source = *child.block.get_by_position(col_idx).column;
         if (rows == 1) {
-            columns[col_idx]->insert_from(source, child.pos);
+            (*columns)[col_idx]->insert_from(source, child.pos);
         } else {
-            columns[col_idx]->insert_range_from(source, child.pos, rows);
+            (*columns)[col_idx]->insert_range_from(source, child.pos, rows);
         }
     }
 }
 
-void VHeapMergeIterator::_move_block_to_output(MutableColumns& columns, Child& child) {
-    for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx) {
-        ColumnPtr& child_column = child.block.get_by_position(col_idx).column;
+void VHeapMergeIterator::_move_block_to_output(MutableColumns* columns, Child* child) {
+    for (size_t col_idx = 0; col_idx < columns->size(); ++col_idx) {
+        ColumnPtr& child_column = child->block.get_by_position(col_idx).column;
         MutableColumnPtr rows = IColumn::mutate(std::move(child_column));
-        child_column = std::move(columns[col_idx]);
-        columns[col_idx] = std::move(rows);
+        child_column = std::move((*columns)[col_idx]);
+        (*columns)[col_idx] = std::move(rows);
     }
 }
 
@@ -233,7 +215,7 @@ Status VHeapMergeIterator::next_batch(Block* block) {
                     _heap.push(child_index);
                     break;
                 }
-                RETURN_IF_CATCH_EXCEPTION(_move_block_to_output(columns, child));
+                RETURN_IF_CATCH_EXCEPTION(_move_block_to_output(&columns, &child));
                 // The output is that Block alone: rows appended to its columns could reallocate
                 // them.
                 return _push_back_to_heap(child_index);
@@ -242,7 +224,7 @@ Status VHeapMergeIterator::next_batch(Block* block) {
         } else {
             rows = _rows_before_next_child(child_index, max_rows - output_rows);
         }
-        RETURN_IF_CATCH_EXCEPTION(_copy_rows(columns, child, rows));
+        RETURN_IF_CATCH_EXCEPTION(_copy_rows(&columns, child, rows));
         child.pos += rows;
         output_rows += rows;
         RETURN_IF_ERROR(_push_back_to_heap(child_index));

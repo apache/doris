@@ -24,7 +24,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 
-namespace doris {
+namespace doris::changelog {
 
 ChangelogOp read_changelog_op(const IColumn& col, size_t row) {
     const IColumn* cur = &col;
@@ -40,8 +40,8 @@ ChangelogOp read_changelog_op(const IColumn& col, size_t row) {
     return ChangelogOp::UNKNOWN;
 }
 
-Status write_changelog_op(IColumn& col, changelog::StreamChangeOp op) {
-    IColumn* cur = &col;
+Status write_changelog_op(IColumn* col, StreamChangeOp op) {
+    IColumn* cur = col;
     ColumnNullable* nullable = nullptr;
     if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
         nullable = n;
@@ -58,24 +58,12 @@ Status write_changelog_op(IColumn& col, changelog::StreamChangeOp op) {
     return Status::OK();
 }
 
-MutableColumns& ChangelogPendingRow::park(const MutableColumns& target_columns) {
-    DCHECK(!_has_row);
-    if (_columns.empty()) {
-        _columns.reserve(target_columns.size());
-        for (const auto& column : target_columns) {
-            _columns.push_back(column->clone_empty());
-        }
-    }
-    _has_row = true;
-    return _columns;
-}
-
-bool ChangelogPendingRow::emit(MutableColumns& target_columns) {
+bool ChangelogPendingRow::emit(MutableColumns* target_columns) {
     if (!_has_row) {
         return false;
     }
     for (size_t i = 0; i < _columns.size(); ++i) {
-        target_columns[i]->insert_from(*_columns[i], 0);
+        (*target_columns)[i]->insert_from(*_columns[i], 0);
         _columns[i]->clear();
     }
     _has_row = false;
@@ -128,4 +116,4 @@ Status ChangelogInputCursor::_refill() {
     }
 }
 
-} // namespace doris
+} // namespace doris::changelog

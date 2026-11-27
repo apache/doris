@@ -26,51 +26,38 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "storage/iterator/block_batch_limit.h"
+#include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 
 namespace doris {
-class RuntimeProfile;
-class RuntimeState;
-
-enum class HeapSortOrder : uint8_t {
-    ASC,  // small to large (0 -> N)
-    DESC, // large to small (N -> 0)
-};
 
 struct HeapSortCol {
-    uint32_t col_idx;
-    HeapSortOrder order;
+    uint32_t col_idx = 0;
+    SortDirection direction = SortDirection::ASC;
 };
 
-// Sort order of VHeapMergeIterator. Full-key merges (with an optional secondary column when keys
-// are equal) and explicit sort-column merges are mutually exclusive, enforced by the factory
-// methods below and compiled into a flat `HeapSortCol` list once `num_key_columns` is known.
+// Sort order of VHeapMergeIterator: all leading key columns ascending, with an optional secondary
+// sort column when keys match (e.g. sequence column DESC or changelog TSO ASC), and tie-breaking
+// by child iterator order. Compiled into a flat `HeapSortCol` list once `num_key_columns` is known.
 class HeapMergeOrder {
 public:
     // Default: compare all leading key columns ascending, newer child (larger index) first.
     HeapMergeOrder() = default;
 
-    static HeapMergeOrder by_all_keys(HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
+    static HeapMergeOrder by_all_keys(SortDirection child_iterator_direction = SortDirection::DESC);
 
     static HeapMergeOrder by_all_keys_and_same_key_col(
-            int32_t same_key_sort_col_idx, HeapSortOrder same_key_sort_order,
-            HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
+            int32_t same_key_sort_col_idx, SortDirection same_key_sort_direction,
+            SortDirection child_iterator_direction = SortDirection::DESC);
 
-    static HeapMergeOrder by_sort_cols(std::vector<uint32_t> sort_col_idxs,
-                                       HeapSortOrder sort_order,
-                                       HeapSortOrder child_iterator_order = HeapSortOrder::DESC);
-
-    bool uses_all_keys() const { return _sort_col_idxs.empty(); }
-    HeapSortOrder child_iterator_order() const { return _child_iterator_order; }
+    SortDirection child_iterator_direction() const { return _child_iterator_direction; }
     std::vector<HeapSortCol> resolve_sort_cols(size_t num_key_columns) const;
 
 private:
     int32_t _same_key_sort_col_idx = -1;
-    HeapSortOrder _same_key_sort_order = HeapSortOrder::DESC;
-    HeapSortOrder _child_iterator_order = HeapSortOrder::DESC;
-    std::vector<uint32_t> _sort_col_idxs;
-    HeapSortOrder _key_sort_order = HeapSortOrder::ASC;
+    SortDirection _same_key_sort_direction = SortDirection::DESC;
+    SortDirection _child_iterator_direction = SortDirection::DESC;
 };
 
 // Merges key-ordered children into one ordered stream. An output Block may end inside the rows of
@@ -82,6 +69,11 @@ public:
                        HeapMergeOrder order = {});
 
     ~VHeapMergeIterator() override = default;
+
+    VHeapMergeIterator(const VHeapMergeIterator&) = delete;
+    VHeapMergeIterator& operator=(const VHeapMergeIterator&) = delete;
+    VHeapMergeIterator(VHeapMergeIterator&&) = delete;
+    VHeapMergeIterator& operator=(VHeapMergeIterator&&) = delete;
 
     // Reads the first Block of every child. `opts` supplies the row limit and the byte budget
     // of an output Block, and the runtime state.
@@ -106,7 +98,7 @@ private:
     };
 
     // Read the next Block of `child` that has rows; `*eof` once the child has no more rows.
-    Status _read_next_block(Child& child, bool* eof);
+    Status _read_next_block(Child* child, bool* eof);
     // Push child `child` back into the heap. When its Block is used up, read its next Block
     // first, and release the child instead once it has no more rows.
     Status _push_back_to_heap(uint32_t child);
@@ -121,7 +113,7 @@ private:
     // The order of `_heap`. std::priority_queue keeps its largest element on top, so `lhs` is
     // "less" than `rhs` when the current row of `rhs` sorts first.
     struct HeapOrder {
-        const VHeapMergeIterator* merge;
+        const VHeapMergeIterator* merge = nullptr;
         bool operator()(uint32_t lhs, uint32_t rhs) const {
             return merge->_less_than_current_row(rhs, merge->_children[rhs].pos, lhs);
         }
@@ -130,15 +122,15 @@ private:
     // The row limit of the next output Block, see the class comment.
     size_t _output_row_limit() const;
     // Copy `rows` rows of `child`, from its current row on, to the output `columns`.
-    static void _copy_rows(MutableColumns& columns, const Child& child, size_t rows);
+    static void _copy_rows(MutableColumns* columns, const Child& child, size_t rows);
     // Give the empty output `columns` the rows of `child`'s Block without copying them: they swap
     // columns, and the child reads its next Block into the empty ones.
-    static void _move_block_to_output(MutableColumns& columns, Child& child);
+    static void _move_block_to_output(MutableColumns* columns, Child* child);
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;
     const std::vector<HeapSortCol> _sort_cols;
-    const HeapSortOrder _child_iterator_order;
+    const SortDirection _child_iterator_direction;
 
     // From init():
     BlockBatchLimit _batch_limit;

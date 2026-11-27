@@ -388,7 +388,7 @@ std::vector<Row> merge_two_children(const ReadSchemaSPtr& schema, std::vector<Ba
     std::vector<RowwiseIteratorUPtr> children;
     children.push_back(std::make_unique<BatchesUtIterator>(*schema, std::move(first)));
     children.push_back(std::make_unique<BatchesUtIterator>(*schema, std::move(second)));
-    VHeapMergeIterator iter(std::move(children), schema, std::move(order));
+    VHeapMergeIterator iter(std::move(children), schema, order);
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = 4064;
@@ -415,20 +415,20 @@ TEST(HeapMergeIteratorTest, SupportsExplicitSortOrderFactories) {
     auto schema = make_schema();
     // Older child first when keys match.
     EXPECT_EQ(merge_two_children(schema, {{{1, 10}, {1, 20}, {2, 5}}}, {{{1, 20}, {1, 15}, {2, 9}}},
-                                 HeapMergeOrder::by_all_keys(HeapSortOrder::ASC)),
+                                 HeapMergeOrder::by_all_keys(SortDirection::ASC)),
               (std::vector<Row> {{1, 10}, {1, 20}, {1, 20}, {1, 15}, {2, 5}, {2, 9}}));
 
     // Same-key sort column ascending (like TSO) with older child first on ties.
     EXPECT_EQ(merge_two_children(schema, {{{1, 10}, {1, 20}}}, {{{1, 15}, {1, 20}}},
-                                 HeapMergeOrder::by_all_keys_and_same_key_col(1, HeapSortOrder::ASC,
-                                                                              HeapSortOrder::ASC)),
+                                 HeapMergeOrder::by_all_keys_and_same_key_col(1, SortDirection::ASC,
+                                                                              SortDirection::ASC)),
               (std::vector<Row> {{1, 10}, {1, 15}, {1, 20}, {1, 20}}));
 
-    // Explicit sort columns descending, newer child first on ties.
-    EXPECT_EQ(merge_two_children(
-                      schema, {{{3, 30}, {1, 10}}}, {{{2, 20}, {1, 99}}},
-                      HeapMergeOrder::by_sort_cols({0}, HeapSortOrder::DESC, HeapSortOrder::DESC)),
-              (std::vector<Row> {{3, 30}, {2, 20}, {1, 99}, {1, 10}}));
+    // Same-key sort column descending (like sequence column) with newer child first on ties.
+    EXPECT_EQ(merge_two_children(schema, {{{1, 30}, {1, 10}}}, {{{1, 20}, {1, 10}}},
+                                 HeapMergeOrder::by_all_keys_and_same_key_col(
+                                         1, SortDirection::DESC, SortDirection::DESC)),
+              (std::vector<Row> {{1, 30}, {1, 20}, {1, 10}, {1, 10}}));
 }
 
 } // namespace doris

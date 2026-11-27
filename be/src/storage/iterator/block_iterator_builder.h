@@ -23,46 +23,64 @@
 #include "common/status.h"
 #include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
+#include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
-class BaseTablet;
-struct OlapReaderStatistics;
-struct RowsetReaderContext;
-class TabletSchema;
+class HeapMergeOrder;
 
-enum class BlockIterMode : uint8_t {
-    NONE,
-    TOPN,
-    CHANGELOG_MIN_DELTA,
-    CHANGELOG_DETAIL,
-    DIRECT,
-    KEY_ORDERED,
-    UNIQUE_NEWEST,
-    SEQUENCE_MAP,
-    AGG_FOLD,
+class BlockIteratorBuilder {
+public:
+    enum class Mode : uint8_t {
+        TOPN,
+        CHANGELOG_MIN_DELTA,
+        CHANGELOG_DETAIL,
+        DIRECT,
+        KEY_ORDERED,
+        UNIQUE_NEWEST,
+        SEQUENCE_MAP,
+        AGG_FOLD,
+    };
+
+    // Returns false when non-empty rowsets are monotonically ascending and disjoint on keys.
+    static bool rowsets_not_mono_asc_disjoint(const TabletReader::ReaderParams& read_params);
+
+    static Mode select_mode(const TabletReader::ReaderParams& read_params, const BaseTablet& tablet,
+                            const TabletSchema& tablet_schema, const ReadSchema& read_schema,
+                            bool direct_mode, bool merge_by_sequence_mapping);
+
+    BlockIteratorBuilder(const TabletReader::ReaderParams& read_params, const BaseTablet& tablet,
+                         ReadSchemaSPtr read_schema, RowsetReaderContext* reader_context,
+                         OlapReaderStatistics* stats, uint64_t* merged_rows,
+                         BlockBatchLimit batch_limit);
+
+    BlockIteratorBuilder(const BlockIteratorBuilder&) = delete;
+    BlockIteratorBuilder& operator=(const BlockIteratorBuilder&) = delete;
+    BlockIteratorBuilder(BlockIteratorBuilder&&) = delete;
+    BlockIteratorBuilder& operator=(BlockIteratorBuilder&&) = delete;
+
+    Status build(Mode mode, std::unique_ptr<BlockIterator>* out_iter);
+
+private:
+    Status _validate_merge_schema(const HeapMergeOrder& order) const;
+    Status _build_heap_merge_iter(HeapMergeOrder order, RowwiseIteratorUPtr* merge_iter);
+    Status _init_direct_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_ordered_block_iter(HeapMergeOrder order, std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_changelog_input_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_key_ordered_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_unique_key_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_sequence_map_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_agg_key_iter(std::unique_ptr<BlockIterator>* out_iter);
+    Status _init_topn_iter(std::unique_ptr<BlockIterator>* out_iter);
+
+    const TabletReader::ReaderParams& _read_params;
+    const BaseTablet& _tablet;
+    ReadSchemaSPtr _read_schema;
+    RowsetReaderContext* const _reader_context;
+    OlapReaderStatistics* const _stats;
+    uint64_t* const _merged_rows;
+    const BlockBatchLimit _batch_limit;
 };
-
-struct BlockIteratorBuildContext {
-    const BaseTablet& tablet;
-    ReadSchemaSPtr read_schema;
-    RowsetReaderContext& reader_context;
-    OlapReaderStatistics& stats;
-    uint64_t* merged_rows;
-    BlockBatchLimit batch_limit;
-};
-
-// Returns false when non-empty rowsets are monotonically ascending and disjoint on keys.
-bool rowsets_not_mono_asc_disjoint(const TabletReader::ReaderParams& read_params);
-
-BlockIterMode select_block_iter_mode(const TabletReader::ReaderParams& read_params,
-                                     const BaseTablet& tablet, const TabletSchema& tablet_schema,
-                                     const ReadSchema& read_schema, bool direct_mode,
-                                     bool merge_by_sequence_mapping);
-
-Status build_block_iterator(const TabletReader::ReaderParams& read_params, BlockIterMode mode,
-                            BlockIteratorBuildContext ctx,
-                            std::unique_ptr<BlockIterator>* out_iter);
 
 } // namespace doris

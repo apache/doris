@@ -19,10 +19,10 @@
 
 #include <glog/logging.h>
 
-#include <ranges>
 #include <utility>
 
 #include "common/exception.h"
+#include "storage/iterator/block_key_utils.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -42,24 +42,9 @@ SequenceMapBlockIterator::SequenceMapBlockIterator(RowwiseIteratorUPtr input,
 }
 
 void SequenceMapBlockIterator::_mark_same_keys(const Block& source) {
-    const size_t rows = source.rows();
-    _same_key.assign(rows, 1);
-    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        source.get_by_position(col_idx).column->update_equal_flags(_same_key);
-        if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
-            break;
-        }
-    }
-    bool same_first = _batch_rows > 0;
-    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        if (!same_first) {
-            break;
-        }
-        const IColumn& batch = *_batch_columns[col_idx];
-        same_first = batch.compare_at(batch.size() - 1, 0, *source.get_by_position(col_idx).column,
-                                      -1) == 0;
-    }
-    _same_key[0] = same_first;
+    mark_same_keys_in_block(source, _num_key_columns, &_same_key);
+    _same_key[0] = _batch_rows > 0 &&
+                   row_matches_first_key(_batch_columns, _batch_rows - 1, source, _num_key_columns);
 }
 
 void SequenceMapBlockIterator::_replace_by_sequence(const Block& source, size_t src_pos) {

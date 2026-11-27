@@ -27,11 +27,11 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
-#include "core/field.h"
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterators.h"
 
 namespace doris {
+class Field;
 
 // Returns the first `limit` rows by the sort columns, for a query that pushed ORDER BY a key prefix
 // LIMIT down to storage. The rowsets are read one after another, each as streams of rows that come
@@ -54,7 +54,7 @@ public:
     // of the read Blocks has a column of its type in `virtual_column_types`, by position.
     // `update_filter` may be empty.
     TopNBlockIterator(std::vector<RowsetOpener> rowsets, size_t limit,
-                      std::vector<uint32_t> sort_columns, bool descending,
+                      std::vector<uint32_t> sort_columns, SortDirection direction,
                       std::map<uint32_t, DataTypePtr> virtual_column_types,
                       FilterUpdater update_filter);
 
@@ -65,7 +65,7 @@ public:
 
 private:
     // Read the rows of one stream into `block`, and keep the ones among the first `limit` so far.
-    Status _read_stream(RowwiseIterator& stream, Block* block);
+    Status _read_stream(RowwiseIterator* stream, Block* block);
     // Copy the rows of `block`, which are sorted, that are among the first `limit` so far.
     Status _keep_top_rows(const Block& block);
     // How many rows from the start of `block`, which are sorted, are among the first `limit` so
@@ -78,14 +78,14 @@ private:
 
     // The order of `_top_rows`, by the sort columns of the rows of `_rows`.
     struct RowOrder {
-        const TopNBlockIterator* topn;
+        const TopNBlockIterator* topn = nullptr;
         bool operator()(size_t lhs, size_t rhs) const;
     };
 
     const std::vector<RowsetOpener> _rowsets;
     const size_t _limit;
     const std::vector<uint32_t> _sort_columns;
-    const bool _descending;
+    const SortDirection _direction;
     const std::map<uint32_t, DataTypePtr> _virtual_column_types;
     const FilterUpdater _update_filter;
 

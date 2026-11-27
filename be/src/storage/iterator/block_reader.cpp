@@ -46,6 +46,7 @@
 #include "storage/iterator/block_iterator.h"
 #include "storage/iterator/block_iterator_builder.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "storage/iterator/changelog_iterator_utils.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -98,42 +99,6 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
         }
     }
     return res;
-}
-
-ChangelogOp BlockReader::_read_changelog_op(const IColumn& col, size_t row) const {
-    const IColumn* cur = &col;
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
-        if (nullable->is_null_at(row)) {
-            return ChangelogOp::UNKNOWN;
-        }
-        cur = &nullable->get_nested_column();
-    }
-
-    if (const auto* int64_col = check_and_get_column<ColumnInt64>(*cur)) {
-        return static_cast<ChangelogOp>(int64_col->get_element(row));
-    }
-
-    return ChangelogOp::UNKNOWN;
-}
-
-Status BlockReader::_write_changelog_op(IColumn& col, changelog::StreamChangeOp op) const {
-    IColumn* cur = &col;
-    ColumnNullable* nullable = nullptr;
-    if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
-        nullable = n;
-        cur = &nullable->get_nested_column();
-    }
-
-    if (auto* int64_col = typeid_cast<ColumnInt64*>(cur)) {
-        int64_col->insert_value(static_cast<int64_t>(op));
-    } else {
-        return Status::InternalError("invalid column type");
-    }
-
-    if (nullable != nullptr) {
-        nullable->get_null_map_data().push_back(0);
-    }
-    return Status::OK();
 }
 
 // Resolves which source-block column to read from for a given changelog row position.
@@ -210,7 +175,8 @@ Status BlockReader::_append_change_row(MutableColumns& target_columns, const Blo
     const int32_t op_ordinal = _read_schema->op_ordinal();
     for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
         if (static_cast<int32_t>(ordinal) == op_ordinal) {
-            RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal], output_op));
+            RETURN_IF_ERROR(
+                    changelog::write_changelog_op(target_columns[ordinal].get(), output_op));
             continue;
         }
         auto source_ordinal =
@@ -291,8 +257,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
         }
         size_t group_size = _stored_data_columns[0]->size();
-        auto first_op = _read_changelog_op(*_stored_data_columns[op_ordinal], 0);
-        auto last_op = _read_changelog_op(*_stored_data_columns[op_ordinal], group_size - 1);
+        auto first_op = changelog::read_changelog_op(*_stored_data_columns[op_ordinal], 0);
+        auto last_op =
+                changelog::read_changelog_op(*_stored_data_columns[op_ordinal], group_size - 1);
         auto result = changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
         switch (result) {
         case changelog::AggregateFunctionMinDelta::ResultType::SKIP:
@@ -300,8 +267,8 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
         case changelog::AggregateFunctionMinDelta::ResultType::INSERT:
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::StreamChangeOp::INSERT));
+                    RETURN_IF_ERROR(changelog::write_changelog_op(
+                            target_columns[ordinal].get(), changelog::StreamChangeOp::INSERT));
                 } else {
                     // insert should use most recent value
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
@@ -314,8 +281,8 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 const auto read_ordinal = static_cast<int32_t>(ordinal);
                 if (read_ordinal == op_ordinal) {
-                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::StreamChangeOp::DELETE));
+                    RETURN_IF_ERROR(changelog::write_changelog_op(
+                            target_columns[ordinal].get(), changelog::StreamChangeOp::DELETE));
                 } else if (read_ordinal == lsn_ordinal || read_ordinal == tso_ordinal) {
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                          group_size - 1);
@@ -336,8 +303,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::StreamChangeOp::UPDATE_BEFORE));
+                    RETURN_IF_ERROR(changelog::write_changelog_op(
+                            target_columns[ordinal].get(),
+                            changelog::StreamChangeOp::UPDATE_BEFORE));
                 } else {
                     auto source_ordinal =
                             _resolve_source_column_ordinal(static_cast<uint32_t>(ordinal), true);
@@ -348,9 +316,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             if (output_row_count >= batch_max_rows()) {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(
-                                _write_changelog_op(*_pending_row_columns[ordinal],
-                                                    changelog::StreamChangeOp::UPDATE_AFTER));
+                        RETURN_IF_ERROR(changelog::write_changelog_op(
+                                _pending_row_columns[ordinal].get(),
+                                changelog::StreamChangeOp::UPDATE_AFTER));
                     } else {
                         _pending_row_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                                    group_size - 1);
@@ -360,8 +328,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             } else {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(_write_changelog_op(
-                                *target_columns[ordinal], changelog::StreamChangeOp::UPDATE_AFTER));
+                        RETURN_IF_ERROR(changelog::write_changelog_op(
+                                target_columns[ordinal].get(),
+                                changelog::StreamChangeOp::UPDATE_AFTER));
                     } else {
                         target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                              group_size - 1);
@@ -405,7 +374,8 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
         }
         const Block& source_block = *_next_row.block;
         const size_t row = _next_row.row_pos;
-        const auto op = _read_changelog_op(*source_block.get_by_position(op_ordinal).column, row);
+        const auto op =
+                changelog::read_changelog_op(*source_block.get_by_position(op_ordinal).column, row);
         if (op == ChangelogOp::UPDATE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
                                                changelog::StreamChangeOp::UPDATE_BEFORE, true));
@@ -441,7 +411,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
 }
 
 bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
-    return rowsets_not_mono_asc_disjoint(read_params);
+    return BlockIteratorBuilder::rowsets_not_mono_asc_disjoint(read_params);
 }
 
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
@@ -549,16 +519,11 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_try_init_block_iter(const ReaderParams& read_params,
-                                         bool merge_by_sequence_mapping, bool* handled) {
-    const BlockIterMode mode =
-            select_block_iter_mode(read_params, *_tablet, *_tablet_schema, *_read_schema,
-                                   _direct_mode, merge_by_sequence_mapping);
-    if (mode == BlockIterMode::NONE) {
-        *handled = false;
-        return Status::OK();
-    }
-    *handled = true;
+Status BlockReader::_init_block_iter(const ReaderParams& read_params,
+                                     bool merge_by_sequence_mapping) {
+    const auto mode =
+            BlockIteratorBuilder::select_mode(read_params, *_tablet, *_tablet_schema, *_read_schema,
+                                              _direct_mode, merge_by_sequence_mapping);
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -568,17 +533,13 @@ Status BlockReader::_try_init_block_iter(const ReaderParams& read_params,
                      << ", version:" << read_params.version;
         return res;
     }
-    BlockIteratorBuildContext ctx {
-            .tablet = *_tablet,
-            .read_schema = _read_schema,
-            .reader_context = _reader_context,
-            .stats = _stats,
-            .merged_rows = &_merged_rows,
-            .batch_limit = BlockBatchLimit(batch_max_rows(), preferred_block_size_bytes()),
-    };
-    RETURN_IF_ERROR(build_block_iterator(read_params, mode, std::move(ctx), &_block_iter));
+    BlockIteratorBuilder builder(read_params, *_tablet, _read_schema, &_reader_context, &_stats,
+                                 &_merged_rows,
+                                 BlockBatchLimit(batch_max_rows(), preferred_block_size_bytes()));
+    RETURN_IF_ERROR(builder.build(mode, &_block_iter));
     _next_block_func = &BlockReader::_block_iter_next_block;
-    _filter_delete_sign = mode == BlockIterMode::UNIQUE_NEWEST && _delete_sign_available;
+    _filter_delete_sign =
+            mode == BlockIteratorBuilder::Mode::UNIQUE_NEWEST && _delete_sign_available;
     return Status::OK();
 }
 
@@ -604,34 +565,18 @@ Status BlockReader::init(const ReaderParams& read_params) {
               _tablet->enable_unique_key_merge_on_write());
     RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(
             *_tablet_schema, merge_by_sequence_mapping, map_changelog_columns));
-    if (map_changelog_columns) {
-        _min_delta_value_compare_unsupported = false;
-    }
-
-    // Every merge and caller Block has the exact read-schema layout. Cache only
-    // the non-key columns of AGG tables that go through the aggregate machinery.
-    const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
-    const bool is_agg_keys = _tablet->keys_type() == AGG_KEYS;
-    for (uint32_t ordinal = 0; ordinal < num_block_columns; ++ordinal) {
-        if (is_agg_keys && !_read_schema->column(ordinal)->is_key()) {
-            _agg_columns_idx.emplace_back(ordinal);
-        }
-    }
 
     // Decided once, as config::enable_new_block_iterator is mutable at runtime.
-    bool handled_by_block_iter = false;
-    Status status =
-            _try_init_block_iter(read_params, merge_by_sequence_mapping, &handled_by_block_iter);
-    if (!handled_by_block_iter) {
-        status = _init_collect_iter(read_params);
-    }
+    const bool use_new_block_iter = config::enable_new_block_iterator;
+    Status status = use_new_block_iter ? _init_block_iter(read_params, merge_by_sequence_mapping)
+                                       : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
     }
-    if (handled_by_block_iter) {
+    if (use_new_block_iter) {
         return Status::OK();
     }
 
@@ -643,6 +588,7 @@ Status BlockReader::_init_legacy_next_block(const ReaderParams& read_params,
     // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
     // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
     if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
+        _min_delta_value_compare_unsupported = false;
         _next_block_func = &BlockReader::_min_delta_next_block;
         return Status::OK();
     }
@@ -671,10 +617,19 @@ Status BlockReader::_init_legacy_next_block(const ReaderParams& read_params,
             _next_block_func = &BlockReader::_unique_key_next_block;
         }
         break;
-    case KeysType::AGG_KEYS:
+    case KeysType::AGG_KEYS: {
+        // Cache the non-key columns of AGG tables that go through the legacy aggregate machinery.
+        const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
+        _agg_columns_idx.clear();
+        for (uint32_t ordinal = 0; ordinal < num_block_columns; ++ordinal) {
+            if (!_read_schema->column(ordinal)->is_key()) {
+                _agg_columns_idx.emplace_back(ordinal);
+            }
+        }
         _next_block_func = &BlockReader::_agg_key_next_block;
         RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
+    }
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;

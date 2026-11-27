@@ -35,33 +35,36 @@ ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(std::unique_ptr<Block
     DORIS_CHECK_GE(_op_col_idx, 0);
 }
 
-Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns& target_columns,
+Status ChangelogDetailBlockIterator::_append_change_row(MutableColumns* target_columns,
                                                         changelog::StreamChangeOp output_op,
                                                         bool use_before) const {
     const Block& src_block = _cursor.block();
     const size_t pos = _cursor.row_pos();
-    for (size_t col_idx = 0; col_idx < target_columns.size(); ++col_idx) {
+    for (size_t col_idx = 0; col_idx < target_columns->size(); ++col_idx) {
         if (std::cmp_equal(col_idx, _op_col_idx)) {
-            RETURN_IF_ERROR(write_changelog_op(*target_columns[col_idx], output_op));
+            RETURN_IF_ERROR(
+                    changelog::write_changelog_op((*target_columns)[col_idx].get(), output_op));
             continue;
         }
         const uint32_t src_col_idx =
                 use_before ? _read_schema->before_column_ordinal(static_cast<uint32_t>(col_idx))
                            : static_cast<uint32_t>(col_idx);
-        target_columns[col_idx]->insert_from(*src_block.get_by_position(src_col_idx).column, pos);
+        (*target_columns)[col_idx]->insert_from(*src_block.get_by_position(src_col_idx).column,
+                                                pos);
     }
     return Status::OK();
 }
 
-Status ChangelogDetailBlockIterator::_emit_change(ChangelogOp op, MutableColumns& target_columns,
+Status ChangelogDetailBlockIterator::_emit_change(ChangelogOp op, MutableColumns* target_columns,
                                                   size_t row_limit, size_t* output_rows) {
     if (op == ChangelogOp::UPDATE) {
         RETURN_IF_ERROR(
                 _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_BEFORE, true));
         ++(*output_rows);
         if (*output_rows >= row_limit) {
-            return _append_change_row(_pending_row.park(target_columns),
-                                      changelog::StreamChangeOp::UPDATE_AFTER, false);
+            return _pending_row.park(*target_columns, [&](MutableColumns* cols) {
+                return _append_change_row(cols, changelog::StreamChangeOp::UPDATE_AFTER, false);
+            });
         }
         RETURN_IF_ERROR(
                 _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_AFTER, false));
@@ -92,7 +95,7 @@ Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION([&]() -> Status {
         size_t row_limit = _batch_limit.max_rows();
         while (output_rows < row_limit) {
-            if (_pending_row.emit(target_columns)) {
+            if (_pending_row.emit(&target_columns)) {
                 ++output_rows;
                 if (!_cursor.eof()) {
                     row_limit = _batch_limit.row_limit(_cursor.block());
@@ -103,10 +106,10 @@ Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
                 break;
             }
             row_limit = _batch_limit.row_limit(_cursor.block());
-            const ChangelogOp op = read_changelog_op(
+            const ChangelogOp op = changelog::read_changelog_op(
                     *_cursor.block().get_by_position(static_cast<size_t>(_op_col_idx)).column,
                     _cursor.row_pos());
-            RETURN_IF_ERROR(_emit_change(op, target_columns, row_limit, &output_rows));
+            RETURN_IF_ERROR(_emit_change(op, &target_columns, row_limit, &output_rows));
             RETURN_IF_ERROR(_cursor.advance());
         }
         return Status::OK();

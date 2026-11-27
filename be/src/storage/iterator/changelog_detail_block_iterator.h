@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
-#include "storage/changelog.h"
 #include "storage/changelog_types.h"
 #include "storage/iterator/block_batch_limit.h"
 #include "storage/iterator/block_iterator.h"
@@ -32,7 +31,6 @@
 #include "storage/schema.h"
 
 namespace doris {
-class RuntimeProfile;
 
 // Emits every recorded changelog event in (key, TSO) order for DETAIL scans: APPEND -> INSERT,
 // DELETE -> DELETE (with before image), UPDATE -> UPDATE_BEFORE + UPDATE_AFTER.
@@ -46,16 +44,16 @@ public:
     void update_profile(RuntimeProfile* profile) override { _cursor.update_profile(profile); }
 
 private:
-    Status _emit_change(ChangelogOp op, MutableColumns& target_columns, size_t row_limit,
+    Status _emit_change(ChangelogOp op, MutableColumns* target_columns, size_t row_limit,
                         size_t* output_rows);
-    Status _append_change_row(MutableColumns& target_columns, changelog::StreamChangeOp output_op,
+    Status _append_change_row(MutableColumns* target_columns, changelog::StreamChangeOp output_op,
                               bool use_before) const;
 
-    ChangelogInputCursor _cursor;
+    changelog::ChangelogInputCursor _cursor;
     const BlockBatchLimit _batch_limit;
     const ReadSchemaSPtr _read_schema;
     const int32_t _op_col_idx;
-    ChangelogPendingRow _pending_row;
+    changelog::ChangelogPendingRow _pending_row;
 };
 
 } // namespace doris

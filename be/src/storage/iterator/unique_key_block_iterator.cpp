@@ -19,11 +19,11 @@
 
 #include <glog/logging.h>
 
-#include <ranges>
 #include <utility>
 
 #include "common/exception.h"
 #include "core/block/block.h"
+#include "storage/iterator/block_key_utils.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -38,33 +38,18 @@ UniqueKeyBlockIterator::UniqueKeyBlockIterator(RowwiseIteratorUPtr input,
 }
 
 void UniqueKeyBlockIterator::_mark_same_keys(const Block& block) {
-    const size_t rows = block.rows();
-    _same_key.assign(rows, 1);
-    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        block.get_by_position(col_idx).column->update_equal_flags(_same_key);
-        if (!simd::contain_one(_same_key.data() + 1, rows - 1)) {
-            break;
-        }
-    }
-    bool same_first = _has_last_key;
-    for (size_t col_idx : std::views::iota(size_t {0}, _num_key_columns) | std::views::reverse) {
-        if (!same_first) {
-            break;
-        }
-        same_first = _last_key_columns[col_idx]->compare_at(
-                             0, 0, *block.get_by_position(col_idx).column, -1) == 0;
-    }
-    _same_key[0] = same_first;
+    mark_same_keys_in_block(block, _num_key_columns, &_same_key);
+    _same_key[0] = !_last_key_columns.empty() &&
+                   row_matches_first_key(_last_key_columns, 0, block, _num_key_columns);
 }
 
 void UniqueKeyBlockIterator::_save_last_key(const Block& block) {
     const size_t last_row = block.rows() - 1;
-    if (!_has_last_key) {
+    if (_last_key_columns.empty()) {
         _last_key_columns.reserve(_num_key_columns);
         for (size_t col_idx = 0; col_idx < _num_key_columns; ++col_idx) {
             _last_key_columns.push_back(block.get_by_position(col_idx).column->clone_empty());
         }
-        _has_last_key = true;
     } else {
         for (auto& col : _last_key_columns) {
             col->clear();

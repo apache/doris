@@ -28,7 +28,6 @@
 #include "storage/schema.h"
 
 namespace doris {
-class RuntimeProfile;
 
 // Folds the rows of each key into one row for the AGG_KEYS reads over rowsets that may hold a key
 // more than once: queries that did not push their aggregation down, compactions and the checksum
