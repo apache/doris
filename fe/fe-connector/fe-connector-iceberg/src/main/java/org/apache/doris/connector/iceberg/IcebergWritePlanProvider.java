@@ -207,8 +207,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
         if (schemaContext != null) {
-            // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
+            // REWRITE resolves and validates its schema after beginWrite.
             validateVariantWrite(handle, schemaContext);
+            validateSpatialWrite(handle, schemaContext);
         }
         validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
@@ -242,6 +243,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             schemaContext = IcebergWriteSchemaContext.create(table, tableHandle.getTableName(), Optional.empty(),
                     mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
             validateVariantWrite(handle, schemaContext);
+            validateSpatialWrite(handle, schemaContext);
             validateNestedPartitionWriteCompatibility(handle, schemaContext);
         }
         TDataSink dataSink = buildDataSink(writeContext.getWriteOperation(), table, tableHandle, handle,
@@ -463,6 +465,22 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         validateVariantWrite(handle.getBoundTargetColumns(), handle.isWritesDataFiles(),
                 schemaContext.getFormatVersion(), schemaContext.getFileFormat(),
                 schemaContext.getWriterProperties());
+    }
+
+    private static void validateSpatialWrite(ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
+        WriteOperation operation = handle.getWriteOperation();
+        // DELETE and delete-only MERGE/UPDATE emit no spatial data values, so their delete-file path stays valid.
+        if (operation == WriteOperation.DELETE
+                || ((operation == WriteOperation.MERGE || operation == WriteOperation.UPDATE)
+                        && !handle.isWritesDataFiles())) {
+            return;
+        }
+        Schema schema = schemaContext.getSchema();
+        if (IcebergSpatialSchemaValidator.containsSpatial(schema)) {
+            // An INSERT column list can omit a spatial field that is still part of every written data file.
+            IcebergSpatialSchemaValidator.validateTable(schema, schemaContext.getFormatVersion(),
+                    schemaContext.getFileFormat().name());
+        }
     }
 
     private static void validateNestedPartitionWriteCompatibility(

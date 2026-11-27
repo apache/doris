@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "exprs/function/cast/cast_base.h"

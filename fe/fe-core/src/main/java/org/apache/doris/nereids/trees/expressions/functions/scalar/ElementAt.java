@@ -111,6 +111,7 @@ public class ElementAt extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        checkSpatialMapKey();
         // Struct field access (the former struct_element) only accepts a constant int/string index,
         // since the selected field — and therefore the result type — must be known at analysis time.
         if (getArgument(0).getDataType() instanceof StructType) {
@@ -126,6 +127,23 @@ public class ElementAt extends ScalarFunction
             if (((StringLikeLiteral) getArgument(1)).getStringValue().equalsIgnoreCase("inline")) {
                 throw new AnalysisException("ELEMENT_AT does not support the FILE inline field; use FL_GET_BINARY");
             }
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkSpatialMapKey();
+    }
+
+    private void checkSpatialMapKey() {
+        DataType container = child(0).getDataType();
+        if (!(container instanceof MapType)) {
+            return;
+        }
+        DataType key = ((MapType) container).getKeyType();
+        if (key.toCatalogDataType().typeContainsSpatialType()
+                || child(1).getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("element_at does not support spatial MAP keys");
         }
     }
 

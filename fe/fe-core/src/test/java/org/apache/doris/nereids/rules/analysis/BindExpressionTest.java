@@ -19,7 +19,10 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
@@ -44,10 +47,17 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.ConnectorComputeVariantType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
@@ -57,8 +67,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Optional;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
 
@@ -296,6 +308,160 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
     }
 
     @Test
+    void testMergeAcceptsMatchingNestedSpatialDataWrites() {
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            ArrayType array = ArrayType.of(spatial);
+            LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                    new Alias(new NullLiteral(array), "shapes")));
+            LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                    new Alias(new TinyIntLiteral((byte) 1), MergeOperation.OPERATION_COLUMN),
+                    new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                    new Alias(input.getOutput().get(0), "shapes")), input);
+            List<Column> columns = ImmutableList.of(new Column("shapes", array.toCatalogDataType()));
+            for (boolean writesDataFiles : new boolean[] {false, true}) {
+                LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                        Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                        "schema-1", columns, ImmutableList.of(), writesDataFiles, true,
+                        Optional.empty(), Optional.empty(), source);
+                Assertions.assertDoesNotThrow(
+                        () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+            }
+        }
+    }
+
+    @Test
+    void testMergeNormalizesProvenSpatialNullsBeforeCoercion() {
+        for (DataType target : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (DataType nullType : ImmutableList.of(IntegerType.INSTANCE, new GeometryType("EPSG:3857"),
+                    new GeographyType("OGC:CRS84", "vincenty"))) {
+                LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                        new Alias(new IntegerLiteral(1), "id")));
+                LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                        new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                        new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                        input.getOutput().get(0),
+                        new Alias(new Cast(new NullLiteral(), nullType), "shape")), input);
+                List<Column> columns = ImmutableList.of(new Column("id", PrimitiveType.INT),
+                        new Column("shape", target.toCatalogDataType()));
+                LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                        Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                        "schema-1", columns, ImmutableList.of(), true, true,
+                        Optional.empty(), Optional.empty(), source);
+                LogicalExternalRowLevelMergeSink<?> bound = (LogicalExternalRowLevelMergeSink<?>) PlanChecker
+                        .from(connectContext, sink).applyTopDown(new BindExpression()).getPlan();
+                Assertions.assertEquals(target, bound.getOutputExprs().get(3).getDataType());
+                for (int i = 0; i < 3; i++) {
+                    Assertions.assertEquals(source.getOutput().get(i), bound.getOutputExprs().get(i));
+                }
+            }
+        }
+    }
+
+    @Test
+    void testMergeSpatialNullsPreserveRoutingPassthroughAndOrdinaryCasts() {
+        for (DataType target : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                    new Alias(new NullLiteral(IntegerType.INSTANCE), "n"),
+                    new Alias(new StringLiteral("kept"), "reserved")));
+            LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                    new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                    new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                    input.getOutput().get(0), input.getOutput().get(1),
+                    new Alias(input.getOutput().get(0), MergeOperation.OPERATION_COLUMN)), input);
+            Column hidden = new Column("hidden", PrimitiveType.INT);
+            hidden.setIsVisible(false);
+            Column reserved = new Column("reserved", PrimitiveType.STRING);
+            reserved.setIsVisible(false);
+            reserved.setReservedPassthrough(true);
+            List<Column> columns = ImmutableList.of(hidden, new Column("n", PrimitiveType.BIGINT), reserved,
+                    new Column(MergeOperation.OPERATION_COLUMN, target.toCatalogDataType()));
+            LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                    Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                    "schema-1", columns, ImmutableList.of(), true, true,
+                    Optional.empty(), Optional.empty(), source);
+            LogicalExternalRowLevelMergeSink<?> bound = (LogicalExternalRowLevelMergeSink<?>) PlanChecker
+                    .from(connectContext, sink).applyTopDown(new BindExpression()).getPlan();
+            List<NamedExpression> output = bound.getOutputExprs();
+            for (int i : new int[] {0, 1, 3}) {
+                Assertions.assertEquals(source.getOutput().get(i), output.get(i));
+            }
+            Assertions.assertEquals(BigIntType.INSTANCE, output.get(2).getDataType());
+            Expression ordinary = ((LogicalProject<?>) bound.child()).getProjects().get(2).child(0);
+            Assertions.assertInstanceOf(Cast.class, ordinary);
+            Assertions.assertEquals(IntegerType.INSTANCE, ordinary.child(0).getDataType());
+            Assertions.assertEquals(target, output.get(4).getDataType());
+            Assertions.assertNotEquals(output.get(2).getExprId(), output.get(4).getExprId());
+            LogicalExternalRowLevelMergeSink<?> rebound = (LogicalExternalRowLevelMergeSink<?>) PlanChecker
+                    .from(connectContext, bound).applyTopDown(new BindExpression()).getPlan();
+            Assertions.assertEquals(output, rebound.getOutputExprs());
+        }
+    }
+
+    @Test
+    void testMergeRejectsMismatchedNestedSpatialDataWrites() {
+        for (DataType spatial : ImmutableList.of(new GeometryType("OGC:CRS84"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            ArrayType sourceType = ArrayType.of(spatial);
+            LogicalEmptyRelation input = new LogicalEmptyRelation(new RelationId(1), ImmutableList.of(
+                    new SlotReference("shapes", sourceType)));
+            for (DataType target : ImmutableList.of(new GeometryType("EPSG:3857"),
+                    new GeographyType("OGC:CRS84", "vincenty"))) {
+                ArrayType targetType = ArrayType.of(target);
+                // MERGE already projects target casts; validate the original typed slot below it.
+                LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                        new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                        new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                        new Alias(new Cast(input.getOutput().get(0), targetType), "shapes")), input);
+                List<Column> columns = ImmutableList.of(new Column("shapes",
+                        targetType.toCatalogDataType()));
+                LogicalExternalRowLevelMergeSink<?> sink = new LogicalExternalRowLevelMergeSink<>(
+                        Mockito.mock(ExternalDatabase.class), Mockito.mock(ExternalTable.class),
+                        "schema-1", columns, ImmutableList.of(), true, true,
+                        Optional.empty(), Optional.empty(), source);
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> PlanChecker.from(connectContext, sink).applyTopDown(new BindExpression()));
+                String mismatch = spatial.getClass() != target.getClass() ? "type mismatch"
+                        : spatial instanceof GeometryType ? "CRS mismatch" : "algorithm mismatch";
+                Assertions.assertTrue(exception.getMessage().contains(mismatch), exception.getMessage());
+            }
+        }
+    }
+
+    @Test
+    void testRowLevelMergeValidatesSpatialTargetNamedLikeTheOperationColumn() {
+        GeometryType projected = new GeometryType("EPSG:3857");
+        GeometryType target = new GeometryType("OGC:CRS84");
+        LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                new Alias(new NullLiteral(projected), "source_shape")));
+        // The output slot carries the target type, but the projection still contains the
+        // original CRS under the target cast. Check data position 2 even when named operation.
+        LogicalProject<?> source = new LogicalProject<>(ImmutableList.of(
+                new Alias(new TinyIntLiteral((byte) 3), MergeOperation.OPERATION_COLUMN),
+                new Alias(new StringLiteral("row"), Column.ICEBERG_ROWID_COL),
+                new Alias(new Cast(new SlotReference("shape", projected), target),
+                        MergeOperation.OPERATION_COLUMN)), input);
+        List<Column> columns = ImmutableList.of(new Column(MergeOperation.OPERATION_COLUMN,
+                ScalarType.createGeometryType()));
+        List<NamedExpression> output = source.getOutput().stream()
+                .map(NamedExpression.class::cast).collect(ImmutableList.toImmutableList());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> BindExpression.validateMergeSpatialTypes(columns, source, output));
+        Assertions.assertTrue(exception.getMessage().contains("CRS mismatch"), exception.getMessage());
+
+        List<Column> matchingColumns = ImmutableList.of(new Column(MergeOperation.OPERATION_COLUMN,
+                ScalarType.createGeometryType("EPSG:3857")));
+        LogicalProject<?> matchingSource = new LogicalProject<>(ImmutableList.of(
+                source.getProjects().get(0), source.getProjects().get(1),
+                new Alias(new SlotReference("shape", projected), MergeOperation.OPERATION_COLUMN)), input);
+        Assertions.assertDoesNotThrow(
+                () -> BindExpression.validateMergeSpatialTypes(matchingColumns, matchingSource, output));
+    }
+
+    @Test
     void testRowLevelMergeValidatesVariantTargetNamedLikeTheOperationColumn() {
         // The Variant target named like the operation routing column is traced at its own position.
         LogicalOneRowRelation input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
@@ -310,7 +476,7 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 MergeOperation.OPERATION_COLUMN, ConnectorComputeVariantType.INSTANCE.toCatalogDataType()));
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> BindExpression.validateMergeNoLossyCoercion(columns, source, new CTEContext()));
+                () -> BindExpression.validateAndNormalizeMergeOutput(columns, source, new CTEContext()));
         Assertions.assertTrue(exception.getMessage().contains("input column 'operation'"), exception.getMessage());
     }
 }

@@ -88,7 +88,7 @@ public class MapFromEntries extends ScalarFunction
                     "map_from_entries requires an array of structs with exactly two fields");
         }
         MapType resultType = MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType());
-        resultType.validateDataType();
+        resultType.validateDataTypeWithSpatialLeaves();
         return FunctionSignature.ret(resultType).args(inputType);
     }
 

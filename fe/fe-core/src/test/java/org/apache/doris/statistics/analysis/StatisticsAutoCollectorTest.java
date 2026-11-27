@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
@@ -46,6 +47,20 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class StatisticsAutoCollectorTest {
+    @Test
+    public void testExternalAutoAnalyzeColumnPairsExcludeSpatial() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getColumn("id")).thenReturn(new Column("id", PrimitiveType.INT));
+        Mockito.when(table.getColumn("geom")).thenReturn(
+                new Column("geom", ScalarType.createGeometryType("projjson:my_crs")));
+        Mockito.when(table.getColumn("geog")).thenReturn(
+                new Column("geog", ScalarType.createGeographyType("EPSG:4326", "karney")));
+        Mockito.when(table.getColumnIndexPairs(Mockito.anySet())).thenCallRealMethod();
+        Set<Pair<String, String>> pairs = table.getColumnIndexPairs(Sets.newHashSet("id", "geom", "geog"));
+        Assertions.assertEquals(1, pairs.size());
+        Assertions.assertEquals("id", pairs.iterator().next().second);
+    }
+
 
     @Test
     public void testFetchJob() {

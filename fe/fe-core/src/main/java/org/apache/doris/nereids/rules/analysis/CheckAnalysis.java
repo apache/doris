@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -135,6 +136,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     CheckAnalysis.checkKeyTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
+                    checkSpatialOrderAndWindowPartitionKeys(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
                     return null;
@@ -249,10 +251,50 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
+    private void checkSpatialOrderAndWindowPartitionKeys(Plan plan) {
+        if (plan instanceof LogicalSort) {
+            ((LogicalSort<?>) plan).getOrderKeys().forEach(key -> checkSpatialOrderKey(key.getExpr()));
+        }
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreachUp(node -> {
+                if (node instanceof OrderExpression) {
+                    checkSpatialOrderKey(((OrderExpression) node).child());
+                } else if (node instanceof WindowExpression) {
+                    for (Expression key : ((WindowExpression) node).getPartitionKeys()) {
+                        if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                            throw new AnalysisException("Window PARTITION BY does not support spatial keys: "
+                                    + key.toSql());
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    static void checkSpatialOrderKey(Expression key) {
+        if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("ORDER BY does not support spatial keys: " + key.toSql());
+        }
+    }
+
     private void checkAggregateFunction(Plan plan) {
+        if (plan instanceof LogicalSetOperation) {
+            LogicalSetOperation set = (LogicalSetOperation) plan;
+            if (!(set instanceof LogicalUnion) || set.getQualifier() != Qualifier.ALL) {
+                for (NamedExpression output : set.getOutputs()) {
+                    checkSpatialGroupingType(output);
+                }
+            }
+        }
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isDistinct()) {
+            for (NamedExpression expression : ((LogicalProject<?>) plan).getProjects()) {
+                checkSpatialGroupingType(expression);
+            }
+        }
         if (plan instanceof Aggregate) {
             Aggregate<?> aggregate = (Aggregate<?>) plan;
             for (Expression expr : aggregate.getGroupByExpressions()) {
+                checkSpatialGroupingType(expr);
                 if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                     throw new AnalysisException(
                             "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
@@ -280,6 +322,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+    }
+
+    static void checkSpatialGroupingType(Expression expression) {
+        if (expression.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("GROUP BY and DISTINCT do not support spatial keys: " + expression.toSql());
         }
     }
 

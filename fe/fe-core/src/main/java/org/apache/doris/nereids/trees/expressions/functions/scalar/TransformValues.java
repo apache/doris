@@ -77,7 +77,7 @@ public class TransformValues extends ScalarFunction
         List<StructField> fields = entryType.getFields();
         DataType resultValueType = fields.get(1).getDataType();
         MapType resultType = MapType.of(inputMapType.getKeyType(), resultValueType);
-        resultType.validateDataType();
+        resultType.validateDataTypeWithSpatialLeaves();
         return FunctionSignature.ret(resultType).args(inputMapType, mappedEntriesType);
     }
 

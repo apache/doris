@@ -84,6 +84,8 @@ struct ParquetColumnSchema {
 Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
+bool apply_spatial_binary_types(format::ColumnDefinition* column, ParquetColumnSchema* schema);
+
 Status apply_variant_schema_overrides(
         const NativeFieldDescriptor& native_schema,
         const std::vector<format::LocalColumnIndex>& variant_schema_overrides,

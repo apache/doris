@@ -316,6 +316,14 @@ public enum ConnectorCapability {
      */
     SUPPORTS_SCAN_PARAM_OPTIONS,
     /**
+     * Admits spatial leaves inside ARRAY elements, MAP values and STRUCT fields in column DDL.
+     * The connector still validates table format/version and spatial identity before mutations.
+     *
+     * <p><b>Scope: catalog-wide only.</b> CREATE needs this answer before the target table exists.
+     * This does not admit spatial MAP keys, Variant fields, or Doris internal-table storage.</p>
+     */
+    SUPPORTS_NESTED_SPATIAL_TYPES,
+    /**
      * Indicates the connector's column defaults apply to writes only: they are carried by the
      * request-scoped writer schema ({@code ConnectorWritePlanProvider.getWriteColumns}), not by the read
      * schema (e.g. Iceberg {@code write-default}).

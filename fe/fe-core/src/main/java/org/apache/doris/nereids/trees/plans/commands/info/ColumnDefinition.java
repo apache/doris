@@ -181,6 +181,10 @@ public class ColumnDefinition {
         return type;
     }
 
+    public boolean containsNestedSpatialType() {
+        return type.isComplexType() && containsSpatialType(type);
+    }
+
     public AggregateType getAggType() {
         return aggType;
     }
@@ -390,6 +394,10 @@ public class ColumnDefinition {
         }
     }
 
+    private static boolean containsSpatialType(DataType dataType) {
+        return dataType.toCatalogDataType().typeContainsSpatialType();
+    }
+
     /**
      * validate column definition and analyze
      */
@@ -400,8 +408,13 @@ public class ColumnDefinition {
 
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType, boolean isSystemGeneratedTable) {
+        validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, isSystemGeneratedTable, false);
+    }
+
+    public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
+            KeysType keysType, boolean isSystemGeneratedTable, boolean allowNestedSpatialTypes) {
         validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
-                isSystemGeneratedTable);
+                isSystemGeneratedTable, allowNestedSpatialTypes);
     }
 
     /**
@@ -409,11 +422,18 @@ public class ColumnDefinition {
      */
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
+        validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+    }
+
+    public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean allowNestedSpatialTypes) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false,
+                allowNestedSpatialTypes);
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable) {
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable,
+            boolean allowNestedSpatialTypes) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -429,11 +449,18 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
+        if (isOlap && containsSpatialType(type)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
+        }
         if (!nestedColumn && type.isVariantType() && name.indexOf('.') != -1) {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
-        type.validateDataType();
+        if (allowNestedSpatialTypes) {
+            type.validateDataTypeWithSpatialLeaves();
+        } else {
+            type.validateDataType();
+        }
         if (type.typeContainsFile()) {
             throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql() + " for column '" + name
                     + "': FILE and types containing FILE cannot be used as table columns");

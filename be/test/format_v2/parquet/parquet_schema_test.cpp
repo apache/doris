@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -46,6 +47,64 @@
 #include "util/thrift_util.h"
 
 namespace doris::format::parquet {
+
+TEST(ParquetSchemaTest, ExplicitGeographyAlgorithmsPreserveCanonicalMetadata) {
+    const std::pair<tparquet::EdgeInterpolationAlgorithm::type, const char*> algorithms[] = {
+            {tparquet::EdgeInterpolationAlgorithm::SPHERICAL, "spherical"},
+            {tparquet::EdgeInterpolationAlgorithm::VINCENTY, "vincenty"},
+            {tparquet::EdgeInterpolationAlgorithm::THOMAS, "thomas"},
+            {tparquet::EdgeInterpolationAlgorithm::ANDOYER, "andoyer"},
+            {tparquet::EdgeInterpolationAlgorithm::KARNEY, "karney"}};
+    for (const auto& [algorithm, name] : algorithms) {
+        tparquet::GeographyType geography;
+        geography.__set_crs("OGC:CRS84");
+        geography.__set_algorithm(algorithm);
+        tparquet::LogicalType logical;
+        logical.__set_GEOGRAPHY(geography);
+        const DataTypeSpatial expected(TYPE_GEOGRAPHY, "OGC:CRS84", name);
+        FieldDescriptor legacy;
+        NativeFieldDescriptor native;
+        const auto legacy_type = legacy.convert_to_doris_type(logical, false).first;
+        const auto native_type = native.convert_to_doris_type(logical, false).first;
+        EXPECT_TRUE(expected.equals(*legacy_type));
+        EXPECT_TRUE(expected.equals(*native_type));
+        EXPECT_EQ(assert_cast<const DataTypeSpatial&>(*legacy_type).algorithm(), name);
+        EXPECT_EQ(assert_cast<const DataTypeSpatial&>(*native_type).algorithm(), name);
+    }
+}
+
+static void expect_spatial_count_definition_level(const tparquet::LogicalType& logical,
+                                                  bool nullable) {
+    FieldDescriptor legacy;
+    EXPECT_EQ(legacy.convert_to_doris_type(logical, nullable).first->is_nullable(), nullable);
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement field;
+    field.__set_name("shape");
+    field.__set_type(tparquet::Type::BYTE_ARRAY);
+    field.__set_logicalType(logical);
+    field.__set_repetition_type(nullable ? tparquet::FieldRepetitionType::OPTIONAL
+                                         : tparquet::FieldRepetitionType::REQUIRED);
+    NativeFieldDescriptor native;
+    ASSERT_TRUE(native.parse_from_thrift({root, field}).ok());
+    EXPECT_EQ(native.get_column(0)->data_type->is_nullable(), nullable);
+    std::vector<std::unique_ptr<ParquetColumnSchema>> columns;
+    ASSERT_TRUE(build_parquet_column_schema(native, &columns).ok());
+    ASSERT_EQ(columns.size(), 1);
+    EXPECT_EQ(columns[0]->nullable_definition_level, nullable ? 1 : 0);
+}
+
+TEST(ParquetSchemaTest, SpatialNullabilitySetsCountDefinitionLevel) {
+    tparquet::LogicalType geometry;
+    geometry.__set_GEOMETRY(tparquet::GeometryType {});
+    tparquet::LogicalType geography;
+    geography.__set_GEOGRAPHY(tparquet::GeographyType {});
+    for (const auto& logical : {geometry, geography}) {
+        expect_spatial_count_definition_level(logical, false);
+        expect_spatial_count_definition_level(logical, true);
+    }
+}
 
 TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
     tparquet::SchemaElement root;

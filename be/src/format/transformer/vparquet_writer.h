@@ -127,12 +127,23 @@ protected:
     virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
             const cctz::time_zone& timezone, bool enable_int96_timestamps) const;
+    virtual arrow::Status _open_file_writer();
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
+    const std::unique_ptr<ArrowBlockConvertor>& _arrow_convertor() const {
+        return _arrow_block_convertor;
+    }
+    const std::shared_ptr<::parquet::WriterProperties>& _writer_properties() const {
+        return _parquet_writer_properties;
+    }
+    const std::shared_ptr<::parquet::ArrowWriterProperties>& _arrow_writer_properties() const {
+        return _arrow_properties;
+    }
+    const std::shared_ptr<ParquetOutputStream>& _output_stream() const { return _outstream; }
+    std::unique_ptr<::parquet::arrow::FileWriter>& _parquet_file_writer() { return _writer; }
 
 private:
     std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
     Status _parse_properties();
-    arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;

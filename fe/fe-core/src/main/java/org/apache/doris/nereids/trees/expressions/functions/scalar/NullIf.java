@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -58,6 +59,21 @@ public class NullIf extends ScalarFunction
     public NullIf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new NullIf(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // NULLIF calls BE equality directly, so it does not pass through ComparisonPredicate.
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                throw new AnalysisException(getName() + " does not support spatial comparison");
+            }
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     @Override

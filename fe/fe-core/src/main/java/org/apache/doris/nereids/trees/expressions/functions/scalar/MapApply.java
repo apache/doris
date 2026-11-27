@@ -83,7 +83,7 @@ public class MapApply extends ScalarFunction
         MapType inputMapType = (MapType) getArgument(0).getDataType();
         List<StructField> fields = structType.getFields();
         MapType resultType = MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType());
-        resultType.validateDataType();
+        resultType.validateDataTypeWithSpatialLeaves();
         return FunctionSignature.ret(resultType).args(inputMapType, mappedEntriesType);
     }
 
@@ -119,7 +119,7 @@ public class MapApply extends ScalarFunction
         }
         StructType structType = (StructType) lambdaBody.getDataType();
         List<StructField> fields = structType.getFields();
-        MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType()).validateDataType();
+        MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType()).validateDataTypeWithSpatialLeaves();
     }
 
     private static AnalysisException invalidReturnType() {

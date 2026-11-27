@@ -59,6 +59,7 @@ public class MinMap extends MapAggregateFunction {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        super.checkLegalityBeforeTypeCoercion();
         checkMinMaxValueType();
     }
 

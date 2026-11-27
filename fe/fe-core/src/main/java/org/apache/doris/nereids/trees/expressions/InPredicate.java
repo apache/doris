@@ -137,6 +137,10 @@ public class InPredicate extends Expression {
     public void checkLegalityBeforeTypeCoercion() {
         List<Expression> arguments = getArguments();
         arguments.forEach(c -> {
+            // Spatial constant-list IN would reach the same unsupported BE predicate factory as RF IN.
+            if (c.getDataType().isSpatialType()) {
+                throw new AnalysisException("in predicate does not support spatial arguments: " + this.toSql());
+            }
             if (c.getDataType().isObjectType()) {
                 throw new AnalysisException("in predicate could not contains object type: " + this.toSql());
             }

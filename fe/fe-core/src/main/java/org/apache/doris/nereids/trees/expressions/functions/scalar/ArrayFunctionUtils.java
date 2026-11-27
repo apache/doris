@@ -73,7 +73,7 @@ final class ArrayFunctionUtils {
         if (dataType.isArrayType()) {
             return isSupportedByArrayComparisonFunctions(((ArrayType) dataType).getItemType());
         }
-        return !dataType.isOnlyMetricType();
+        return !dataType.isOnlyMetricType() && !dataType.toCatalogDataType().typeContainsSpatialType();
     }
 
     /** Whether the element type is supported by the lambda array_sort implementation. */

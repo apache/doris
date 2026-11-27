@@ -19,11 +19,11 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -163,29 +163,16 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
             }
         } else if (plan instanceof LogicalSort) {
-            LogicalSort<?> sort = (LogicalSort<?>) plan;
-            for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
+            ((LogicalSort<?>) plan).getOrderKeys().forEach(key -> checkOrderKey(key.getExpr()));
         } else if (plan instanceof LogicalTopN) {
-            LogicalTopN<?> topN = (LogicalTopN<?>) plan;
-            for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
+            ((LogicalTopN<?>) plan).getOrderKeys().forEach(key -> checkOrderKey(key.getExpr()));
         } else if (plan instanceof LogicalWindow) {
             ((LogicalWindow<?>) plan).getWindowExpressions().forEach(a -> {
                 if (!(a instanceof Alias && ((Alias) a).child() instanceof WindowExpression)) {
                     return;
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
-                if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isObjectType()))) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
+                windowExpression.getOrderKeys().forEach(key -> checkOrderKey(key.child()));
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
                         partitionKey -> partitionKey.getDataType().isObjectType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
@@ -193,18 +180,25 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             });
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-            for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (comparesVarBinary(conjunct)) {
-                    throw new AnalysisException(
-                            "varbinary type could not in join equal conditions: " + conjunct.toSql());
-                }
-            }
-            for (Expression conjunct : join.getMarkJoinConjuncts()) {
-                if (comparesVarBinary(conjunct)) {
-                    throw new AnalysisException(
-                            "varbinary type could not in join equal conditions: " + conjunct.toSql());
-                }
-            }
+            join.getHashJoinConjuncts().forEach(CheckAfterRewrite::checkJoinKey);
+            join.getMarkJoinConjuncts().forEach(CheckAfterRewrite::checkJoinKey);
+        }
+    }
+
+    private static void checkOrderKey(Expression key) {
+        if (key.getDataType().isObjectType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+        CheckAnalysis.checkSpatialOrderKey(key);
+    }
+
+    private static void checkJoinKey(Expression conjunct) {
+        if (comparesVarBinary(conjunct)) {
+            throw new AnalysisException("varbinary type could not in join equal conditions: " + conjunct.toSql());
+        }
+        if (conjunct instanceof EqualPredicate && conjunct.children().stream()
+                .anyMatch(operand -> operand.getDataType().toCatalogDataType().typeContainsSpatialType())) {
+            throw new AnalysisException("JOIN equality does not support spatial keys: " + conjunct.toSql());
         }
     }
 

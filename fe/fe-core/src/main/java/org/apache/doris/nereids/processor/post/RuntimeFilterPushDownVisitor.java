@@ -118,13 +118,15 @@ public class RuntimeFilterPushDownVisitor extends AbstractRuntimeFilterPushDownV
 
         /**
          * A context is valid if probeExpr references exactly one input slot and both expressions
-         * have non-Variant types. Scalar runtime filters cannot express Variant canonical equality;
-         * explicit casts to supported scalar types can still produce runtime filters.
+         * have supported predicate types. Spatial types have no BE runtime predicate kernel;
+         * Variant canonical equality is also unsupported. Supported scalar projections can still filter.
          * Invalid when probeExpr is a constant (e.g., from OneRowRelation) or multi-slot.
          */
         public boolean isValid() {
             return !srcExpr.getDataType().isVariantType()
                     && !probeExpr.getDataType().isVariantType()
+                    && !srcExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
+                    && !probeExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
                     && probeExpr.getInputSlots().size() == 1;
         }
 
@@ -167,8 +169,11 @@ public class RuntimeFilterPushDownVisitor extends AbstractRuntimeFilterPushDownV
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
-        // Recheck types after the probe expression is rewritten through Projects/SetOps/joins.
-        if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()) {
+        // Recheck after rewrites: direct or nested Iceberg spatial slots otherwise reach
+        // the BE predicate factory, which has no spatial IN/Bloom implementation.
+        if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()
+                || ctx.srcExpr.getDataType().toCatalogDataType().typeContainsSpatialType()
+                || ctx.probeExpr.getDataType().toCatalogDataType().typeContainsSpatialType()) {
             return false;
         }
         if (!scan.canPushDownRuntimeFilter()) {

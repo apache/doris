@@ -104,11 +104,16 @@ public class MapType extends Type {
 
     @Override
     public String toSql(int depth) {
+        return toSql(depth, false);
+    }
+
+    @Override
+    public String toSql(int depth, boolean noBackslashEscapes) {
         if (depth >= MAX_NESTING_DEPTH) {
             return "map<...>";
         }
         return String.format("map<%s,%s>",
-                keyType.toSql(depth + 1), valueType.toSql(depth + 1));
+                keyType.toSql(depth + 1, noBackslashEscapes), valueType.toSql(depth + 1, noBackslashEscapes));
     }
 
     @Override

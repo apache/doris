@@ -43,6 +43,7 @@ struct ParquetReaderScanState;
 // ============================================================================
 class ParquetReader : public format::FileReader {
 public:
+    // Generic readers retain the physical bytes. Iceberg opts into typed spatial decoding.
     ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
@@ -52,7 +53,8 @@ public:
                   bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr,
                   std::optional<TFileEncryptionInfo> encryption_info = std::nullopt,
                   std::shared_ptr<const FileContext> file_context = nullptr,
-                  int64_t format_split_id = -1, int64_t format_split_id_end = -1);
+                  int64_t format_split_id = -1, int64_t format_split_id_end = -1,
+                  bool spatial_annotations_as_bytes = true);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -63,6 +65,7 @@ public:
     void set_batch_size(size_t batch_size) override;
 
     Status get_schema(std::vector<format::ColumnDefinition>* file_schema) const override;
+    Status apply_spatial_binary_types(format::ColumnDefinition* file_column) override;
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -116,6 +119,7 @@ private:
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
     int64_t _format_split_id_end = -1;
+    bool _spatial_annotations_as_bytes = true;
 };
 
 } // namespace doris::format::parquet

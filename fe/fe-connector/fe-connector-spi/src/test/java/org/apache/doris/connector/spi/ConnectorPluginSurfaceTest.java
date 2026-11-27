@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Native encryption requires a new major after API 36 added connector file formats.
-        Assertions.assertEquals("37.0", version.getProperty("api.version"));
+        // Major 38 adds the spatial contract on top of API 37's native encryption support.
+        Assertions.assertEquals("38.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -109,6 +109,7 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
+            ConnectorType.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,

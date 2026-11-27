@@ -76,7 +76,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_TIMESTAMPTZ,                    /* 42, timestamptz */
     TYPE_TIMESTAMP_NS,                   /* 43, signed Int64 epoch nanoseconds */
     TYPE_UUID,                           /* 44, uuid */
-    TYPE_FILE /* 45, file value with a URI reference and/or inline content */
+    TYPE_FILE,                           /* 45, file URI and/or inline content */
+    TYPE_GEOMETRY,                       /* 46, Iceberg geometry */
+    TYPE_GEOGRAPHY                       /* 47, Iceberg geography */
 };
 
 } // namespace doris

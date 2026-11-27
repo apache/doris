@@ -62,6 +62,22 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
                 .args(MapType.of(keyType, argumentValueType));
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        MapType mapType = getMapType();
+        if (mapType.getKeyType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException(getName() + " does not support spatial MAP keys");
+        }
+        if (distinct && mapType.toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException(getName() + " DISTINCT does not support spatial arguments");
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
     /** Template constraining map value types in {@link #customSignature()}. */
     protected AnyDataType valueTypeTemplate() {
         return AnyDataType.INSTANCE_WITHOUT_INDEX;
@@ -81,6 +97,9 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
 
     protected void checkMinMaxValueType() {
         DataType valueType = getMapType().getValueType();
+        if (valueType.toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException(getName() + " does not support spatial MAP values");
+        }
         if (valueType.isOnlyMetricType() && !valueType.isArrayType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }

@@ -363,6 +363,12 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
                                                                         FileFormat file_format) {
     PrimitiveType src_primitive_type = src_type->get_primitive_type();
     PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+    const bool dst_spatial =
+            dst_primitive_type == TYPE_GEOMETRY || dst_primitive_type == TYPE_GEOGRAPHY;
+    if (dst_spatial && src_primitive_type == dst_primitive_type &&
+        !remove_nullable(src_type)->equals(*remove_nullable(dst_type))) {
+        return std::make_unique<UnsupportedConverter>(src_type, dst_type);
+    }
     //todo:  type to varchar/char.
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
         return std::make_unique<ConsistentConverter>();

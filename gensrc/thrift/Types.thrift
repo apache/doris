@@ -105,7 +105,9 @@ enum TPrimitiveType {
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
   UUID = 46,
-  FILE = 47
+  FILE = 47,
+  GEOMETRY = 48,
+  GEOGRAPHY = 49
 }
 
 enum TTypeNodeType {
@@ -153,6 +155,10 @@ struct TScalarType {
     6: optional bool variant_enable_doc_mode = false;
     // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
     7: optional bool variant_is_v2 = false;
+    // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+    8: optional string spatial_crs;
+    // Only set for Iceberg GEOGRAPHY type.
+    9: optional string spatial_algorithm;
 }
 
 // Represents a field in a STRUCT type.
@@ -293,6 +299,10 @@ struct TColumnType {
   5: optional i32 scale
   6: optional i32 variant_max_subcolumns_count = 0;
   7: optional bool variant_enable_doc_mode = false;
+  // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+  8: optional string spatial_crs;
+  // Only set for Iceberg GEOGRAPHY type.
+  9: optional string spatial_algorithm;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
