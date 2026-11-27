@@ -229,6 +229,12 @@ public:
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 CacheContext& context);
 
+    /// Whether existing DOWNLOADED/DOWNLOADING blocks fully cover `[offset, offset + size)`.
+    /// Handles arbitrary block boundaries, including restored upload blocks. May load metadata,
+    /// but never reserves cache cells, waits for downloads or touches LRU state.
+    bool is_range_downloaded_or_downloading(const UInt128Wrapper& hash, size_t offset, size_t size,
+                                            const CacheContext& context);
+
     /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
     /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
     /// on miss or owns an existing block that starts at and covers the slot. A final short slot can
@@ -264,6 +270,11 @@ public:
 
     /// Account a completed query disk hit that bypassed get_or_set, using complete block sizes.
     void record_query_cache_hit(const FileBlocks& blocks);
+
+    /// Diagnostic snapshot of resident DOWNLOADED intervals, clipped to the requested range.
+    /// Handles irregular block boundaries; never loads metadata, reserves space or touches LRU.
+    std::vector<FileBlock::Range> downloaded_ranges(const UInt128Wrapper& hash, size_t offset,
+                                                    size_t size);
 
     /**
      * record blocks read directly by CachedRemoteFileReader

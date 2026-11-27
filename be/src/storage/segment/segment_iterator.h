@@ -70,6 +70,7 @@ namespace segment_v2 {
 
 class ColumnIterator;
 class InvertedIndexIterator;
+struct ColumnReadAheadResources;
 class RowRanges;
 class IndexIterator;
 
@@ -168,8 +169,12 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Bind shared query services before initializing the per-column controllers.
+    [[nodiscard]] Status _init_query_read_ahead();
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
+    // Pass the pruned row selection and dependency role to every independently planned column.
+    void _prepare_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -468,6 +473,7 @@ private:
     MutableColumns _seek_block;
 
     io::FileReaderSPtr _file_reader;
+    std::shared_ptr<const ColumnReadAheadResources> _read_ahead_resources;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
