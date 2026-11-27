@@ -232,6 +232,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(tablet_publish_txn_max_thread, [](int32_t value) { return value > 0; });
 // the timeout of EnginPublishVersionTask
 DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
@@ -242,12 +244,17 @@ DEFINE_Int32(calc_delete_bitmap_for_load_max_thread, "0");
 DEFINE_Int32(calc_delete_bitmap_worker_count, "8");
 // the count of thread to calc tablet delete bitmap task, only used for cloud
 DEFINE_Int32(calc_tablet_delete_bitmap_task_max_thread, "32");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(calc_tablet_delete_bitmap_task_max_thread,
+                 [](int32_t value) { return value > 0; });
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
 DEFINE_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 DEFINE_Int32(alter_tablet_worker_count, "3");
+// This value is a divisor; zero or a negative value is invalid.
+DEFINE_Validator(alter_tablet_worker_count, [](int32_t value) { return value > 0; });
 // the count of thread to alter index
 DEFINE_Int32(alter_index_worker_count, "3");
 // the count of thread to clone
@@ -261,6 +268,8 @@ DEFINE_Int32(upload_worker_count, "1");
 // the count of thread to download
 DEFINE_Int32(download_worker_count, "1");
 DEFINE_Int32(num_query_ctx_map_partitions, "128");
+// Zero is a divisor; -1 becomes an unsigned container size.
+DEFINE_Validator(num_query_ctx_map_partitions, [](int32_t value) { return value > 0; });
 // the count of thread to make snapshot
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
@@ -280,10 +289,16 @@ DEFINE_mInt32(report_active_tablet_max_num, "5000");
 DEFINE_mInt32(report_active_tablet_window_second, "3600");
 // the max download speed(KB/s)
 DEFINE_mInt32(max_download_speed_kbps, "50000");
+// Zero disables the transfer limit. A negative speed is not a valid libcurl limit.
+DEFINE_Validator(max_download_speed_kbps, [](int32_t value) { return value >= 0; });
 // download low speed limit(KB/s)
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
+// This value is a divisor; zero or a negative value is invalid.
+DEFINE_Validator(download_low_speed_limit_kbps, [](int32_t value) { return value > 0; });
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
+// Zero disables the low-speed timeout; negative seconds become an unsigned duration.
+DEFINE_Validator(download_low_speed_time, [](int32_t value) { return value >= 0; });
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
 // whether to enable stream load forward endpoint for cloud group commit
@@ -352,27 +367,51 @@ DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
 
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "1000");
+// The consumer or split request needs a positive batch capacity.
+DEFINE_Validator(remote_split_source_batch_size, [](int32_t value) { return value > 0; });
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(doris_scanner_thread_pool_queue_size, [](int32_t value) { return value > 0; });
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
+// Milliseconds must fit the client int timeout; zero keeps the unlimited timeout.
+DEFINE_Validator(thrift_connect_timeout_seconds, [](int32_t value) {
+    return value >= 0 && value <= std::numeric_limits<int>::max() / 1000;
+});
 
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
+// The retry loop doubles this interval. Negative waits and signed overflow are invalid.
+DEFINE_Validator(thrift_client_retry_interval_ms, [](int64_t value) {
+    return value >= 0 && value <= std::numeric_limits<int64_t>::max() / 2;
+});
 // max message size of thrift request
 // default: 100 * 1024 * 1024
 DEFINE_mInt32(thrift_max_message_size, "104857600");
+// This value is a divisor; zero or a negative value is invalid.
+DEFINE_Validator(thrift_max_message_size, [](int32_t value) { return value > 0; });
 // max bytes number for single scan range, used in segmentv2
 DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 // single read execute fragment row number
 DEFINE_mInt32(doris_scanner_row_num, "16384");
+// Zero reads one block per call; a negative row target has no meaning.
+DEFINE_Validator(doris_scanner_row_num, [](int32_t value) { return value >= 0; });
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// A negative byte count becomes SIZE_MAX when reserving scanner memory.
+DEFINE_Validator(doris_scanner_row_bytes, [](int32_t value) { return value >= 0; });
 DEFINE_mInt32(doris_scanner_dynamic_interval_ms, "100");
+// Zero permits adjustment after time advances; negative intervals defeat this check.
+DEFINE_Validator(doris_scanner_dynamic_interval_ms, [](int32_t value) { return value >= 0; });
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
+// A negative limit becomes unsigned at the receiver and removes backpressure.
+DEFINE_Validator(exchg_node_buffer_size_bytes, [](int32_t value) { return value >= 0; });
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
+// The factor multiplies an unsigned instance count. For example, -1 becomes SIZE_MAX.
+DEFINE_Validator(exchg_buffer_queue_capacity_factor, [](int32_t value) { return value >= 0; });
 
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
@@ -431,7 +470,13 @@ DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
+// Round-up must fit int32. Keep rounding valid positive counts as before.
+DEFINE_Validator(storage_page_cache_shard_size,
+                 [](int32_t value) { return value > 0 && value <= (1 << 30); });
 DEFINE_mInt32(file_cache_mem_storage_shard_num, "1024");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(file_cache_mem_storage_shard_num,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -682,14 +727,38 @@ DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
                  [](const int config) -> bool { return config == -1 || config > 0; });
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_heavy_work_pool_threads,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_peer_fetch_pool_threads,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_light_work_pool_threads,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_heavy_work_pool_max_queue_size,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_peer_fetch_pool_max_queue_size, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_peer_fetch_pool_max_queue_size,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_light_work_pool_max_queue_size,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_arrow_flight_work_pool_threads,
+                 [](int32_t value) { return value == -1 || value > 0; });
 DEFINE_Int32(brpc_arrow_flight_work_pool_max_queue_size, "-1");
+// Only -1 selects the default; -2 must not become a huge unsigned pool capacity.
+DEFINE_Validator(brpc_arrow_flight_work_pool_max_queue_size,
+                 [](int32_t value) { return value == -1 || value > 0; });
 
 //Enable brpc builtin services, see:
 //https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
@@ -745,8 +814,16 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(fragment_mgr_async_work_pool_thread_num_min,
+                 [](int32_t value) { return value >= 0; });
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(fragment_mgr_async_work_pool_thread_num_max,
+                 [](int32_t value) { return value > 0; });
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(fragment_mgr_async_work_pool_queue_size, [](int32_t value) { return value >= 0; });
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
@@ -778,16 +855,29 @@ DEFINE_Bool(ignore_file_cache_dir_upgrade_failure, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(memory_maintenance_sleep_time_ms, [](int32_t value) { return value > 0; });
 
 // Memory gc are expensive, wait a while to avoid too frequent.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
+// Zero checks each maintenance cycle. A negative countdown can wrap after subtraction.
+DEFINE_Validator(memory_gc_sleep_time_ms, [](int32_t value) { return value >= 0; });
 
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
+// Adaptive buffering can multiply this limit by four. The result must fit int64.
+DEFINE_Validator(write_buffer_size, [](int64_t value) {
+    return value >= 0 && value <= std::numeric_limits<int64_t>::max() / 4;
+});
 DEFINE_mBool(enable_adaptive_write_buffer_size, "true");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
+// Zero permits immediate aggregation. Negative bytes become an unsigned threshold.
+DEFINE_Validator(write_buffer_size_for_agg, [](int64_t value) { return value >= 0; });
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
+// Zero removes the minimum. A negative byte count is not a valid minimum.
+DEFINE_Validator(min_write_buffer_size_for_partial_update,
+                 [](int64_t value) { return value >= 0; });
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
@@ -836,10 +926,14 @@ DEFINE_Bool(enable_metric_calculator, "true");
 
 // max consumer num in one data consumer group, for routine load
 DEFINE_mInt32(max_consumer_num_per_group, "3");
+// The consumer or split request needs a positive batch capacity.
+DEFINE_Validator(max_consumer_num_per_group, [](int32_t value) { return value > 0; });
 
 // the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(max_routine_load_thread_pool_size, [](int32_t value) { return value > 0; });
 
 // the timeout of condition variable wait in blocking_get and blocking_put
 DEFINE_mInt32(blocking_queue_cv_wait_timeout_ms, "1000");
@@ -926,14 +1020,23 @@ DEFINE_mInt64(max_runnings_transactions_per_txn_map, "2000");
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
 DEFINE_Int32(tablet_map_shard_size, "256");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(tablet_map_shard_size,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
 DEFINE_Int32(txn_map_shard_size, "1024");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(txn_map_shard_size,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 
 // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to commit and publish txn
 DEFINE_Int32(txn_shard_size, "1024");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(txn_shard_size,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_Bool(ignore_load_tablet_failure, "true");
@@ -1032,8 +1135,12 @@ DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
 // number of send batch thread pool size
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(send_batch_thread_pool_thread_num, [](int32_t value) { return value > 0; });
 // number of send batch thread pool queue size
 DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(send_batch_thread_pool_queue_size, [](int32_t value) { return value >= 0; });
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -1106,14 +1213,20 @@ DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
+// Negative MiB values become huge unsigned buffer limits; zero keeps its existing behavior.
+DEFINE_Validator(parquet_header_max_size_mb, [](int32_t value) { return value >= 0; });
 // Max size of parquet file metadata in bytes
 DEFINE_mInt64(parquet_metadata_size_limit, "268435456");
 DEFINE_Validator(parquet_metadata_size_limit,
                  [](const int64_t config) -> bool { return config > 0; });
 // Max buffer size for parquet row group
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
+// Negative MiB values become huge unsigned buffer limits; zero keeps its existing behavior.
+DEFINE_Validator(parquet_rowgroup_max_buffer_mb, [](int32_t value) { return value >= 0; });
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+// Negative MiB values become huge unsigned buffer limits; zero keeps its existing behavior.
+DEFINE_Validator(parquet_column_max_buffer_mb, [](int32_t value) { return value >= 0; });
 DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 DEFINE_mInt32(merged_oss_min_io_size, "1048576");
 DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
@@ -1125,22 +1238,34 @@ DEFINE_Validator(orc_natural_read_size_mb,
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
+// Zero expires execution RPCs immediately; -1 becomes a negative millisecond deadline.
+DEFINE_Validator(execution_max_rpc_timeout_sec, [](int32_t value) { return value > 0; });
 DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(cooldown_thread_num, [](int32_t value) { return value > 0; });
 DEFINE_mInt64(generate_cooldown_task_interval_sec, "20");
 DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(cold_data_compaction_thread_num, [](int32_t value) { return value > 0; });
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
 DEFINE_mInt32(cold_data_compaction_score_threshold, "100");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(min_s3_file_system_thread_num, [](int32_t value) { return value >= 0; });
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(max_s3_file_system_thread_num, [](int32_t value) { return value > 0; });
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(min_peer_race_s3_thread_num, [](int32_t value) { return value >= 0; });
 // Effective max threads = max(this value, max_concurrent_peer_races); a smaller value has no effect.
 DEFINE_Int32(max_peer_race_s3_thread_num, "32");
 
@@ -1149,8 +1274,14 @@ DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
 DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(doris_remote_scanner_thread_pool_thread_num,
+                 [](int32_t value) { return value > 0; });
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(doris_remote_scanner_thread_pool_queue_size,
+                 [](int32_t value) { return value > 0; });
 DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
@@ -1160,6 +1291,9 @@ DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 
 DEFINE_mInt32(fragment_mgr_cancel_worker_interval_seconds, "1");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(fragment_mgr_cancel_worker_interval_seconds,
+                 [](int32_t value) { return value > 0; });
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
@@ -1188,6 +1322,8 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(segcompaction_num_threads, [](int32_t value) { return value > 0; });
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
@@ -1340,7 +1476,11 @@ DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+// Zero keeps the existing pool behavior; a negative capacity is invalid.
+DEFINE_Validator(file_cache_downloader_thread_num_min, [](int32_t value) { return value >= 0; });
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(file_cache_downloader_thread_num_max, [](int32_t value) { return value > 0; });
 
 // Larger values favor remote reads when a query enables the file-cache IO adaptor.
 DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
@@ -1372,6 +1512,9 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(inverted_index_query_cache_shards,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
 DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
                  [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
@@ -1445,6 +1588,9 @@ DEFINE_Int16(condition_cache_limit, "512");
 // ANN index topn result cache
 DEFINE_String(ann_index_result_cache_limit, "10%");
 DEFINE_Int32(ann_index_result_cache_shards, "16");
+// The shard mask requires a positive power of two. Zero leaves no shard to access.
+DEFINE_Validator(ann_index_result_cache_shards,
+                 [](int32_t value) { return value > 0 && (value & (value - 1)) == 0; });
 DEFINE_Int32(ann_index_result_cache_stale_sweep_time_sec, "1800");
 
 // inverted index
@@ -1547,9 +1693,10 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Startup checks this alignment too. Reject runtime updates such as 5.5 MiB with 1 MiB
 // cache blocks, which would let upload writers create non-grid cache blocks.
 DEFINE_Validator(s3_write_buffer_size, [](int64_t value) {
-    return !enable_file_cache ||
-           (file_cache_each_block_size > 0 && value >= file_cache_each_block_size &&
-            value % file_cache_each_block_size == 0);
+    // Writers divide by this size even when the file cache is disabled.
+    return value > 0 && (!enable_file_cache ||
+                         (file_cache_each_block_size > 0 && value >= file_cache_each_block_size &&
+                          value % file_cache_each_block_size == 0));
 });
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
@@ -1683,8 +1830,12 @@ DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_max_seconds, "1800");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(group_commit_relay_wal_threads, [](int32_t value) { return value > 0; });
 // This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(group_commit_insert_threads, [](int32_t value) { return value > 0; });
 DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
 // Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
@@ -1713,9 +1864,15 @@ DEFINE_String(doris_cgroup_cpu_path, "");
 
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(be_proc_monitor_interval_ms, [](int32_t value) { return value > 0; });
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(workload_group_metrics_interval_ms, [](int32_t value) { return value > 0; });
 DEFINE_Int32(workload_policy_check_interval_ms, "500");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(workload_policy_check_interval_ms, [](int32_t value) { return value > 0; });
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1743,10 +1900,14 @@ DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(report_query_statistics_interval_ms, [](int32_t value) { return value > 0; });
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
 DEFINE_mInt32(report_exec_status_thread_num, "5");
+// The worker pool requires positive capacity. Negative values can become unsigned limits.
+DEFINE_Validator(report_exec_status_thread_num, [](int32_t value) { return value > 0; });
 
 // consider two high usage disk at the same available level if they do not exceed this diff.
 DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
@@ -1758,7 +1919,9 @@ DEFINE_String(spill_storage_root_path, "");
 DEFINE_String(spill_storage_limit, "20%"); // 20%
 DEFINE_mInt64(spill_storage_limit_bytes, "0");
 DEFINE_Validator(spill_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
-DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
+DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
+// A nonpositive wait interval makes the maintenance loop run without waiting.
+DEFINE_Validator(spill_gc_interval_ms, [](int32_t value) { return value > 0; });
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 DEFINE_String(spill_storage_type, "local");
@@ -2026,6 +2189,8 @@ DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 
 DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
+// A zero buffer cannot advance the upload; a negative buffer becomes a huge allocation.
+DEFINE_Validator(s3_file_system_local_upload_buffer_size, [](int64_t value) { return value > 0; });
 
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
 DEFINE_Bool(enable_jvm_monitor, "true");
@@ -2046,6 +2211,10 @@ DEFINE_Int64(min_row_group_size, "134217728");
 DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
 
 DEFINE_mInt64(compaction_batch_size, "-1");
+// Only -1 requests an estimate; the explicit batch size must fit the reader int count.
+DEFINE_Validator(compaction_batch_size, [](int64_t value) {
+    return value == -1 || (value > 0 && value <= std::numeric_limits<int>::max());
+});
 
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
@@ -2067,11 +2236,17 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
 DEFINE_mInt32(snappy_compression_block_size, "262144");
+// Snappy overhead is size / 6 + 32. Size 38 leaves zero input bytes; size 39 leaves one.
+DEFINE_Validator(snappy_compression_block_size, [](int32_t value) { return value >= 39; });
 DEFINE_mInt32(lz4_compression_block_size, "262144");
+// The frame header uses 16 bytes; at least one byte must remain for input.
+DEFINE_Validator(lz4_compression_block_size, [](int32_t value) { return value >= 17; });
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 DEFINE_mInt32(check_score_rounds_num, "1000");
+// This value is a divisor; zero or a negative value is invalid.
+DEFINE_Validator(check_score_rounds_num, [](int32_t value) { return value > 0; });
 
 DEFINE_Int32(query_cache_size, "512");
 // Max number of incremental merges accumulated on one query cache entry before
@@ -2206,7 +2381,8 @@ DEFINE_String(test_s3_prefix, "prefix");
 // clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
-std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
+std::map<std::string, std::function<bool(const void*)>>* RegisterConfValidator::_s_field_validator =
+        nullptr;
 std::map<std::string, RegisterConfUpdateCallback::CallbackFunc>*
         RegisterConfUpdateCallback::_s_field_update_callback = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
@@ -2482,18 +2658,16 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
             continue;                                                                          \
         }                                                                                      \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                      \
-        TYPE old_value = ref_conf_value;                                                       \
-        ref_conf_value = new_value;                                                            \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                            \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);    \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&               \
-                !(validator->second)()) {                                                      \
-                ref_conf_value = old_value;                                                    \
+                !(validator->second)(&new_value)) {                                            \
                 std::cerr << "validate " << (FIELD).name << "=" << new_value << " failed"      \
                           << std::endl;                                                        \
                 return false;                                                                  \
             }                                                                                  \
         }                                                                                      \
+        ref_conf_value = new_value;                                                            \
         if (FILL_CONF_MAP) {                                                                   \
             std::ostringstream oss;                                                            \
             oss << ref_conf_value;                                                             \
@@ -2588,12 +2762,10 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
-        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
-                !(validator->second)()) {                                                          \
-                ref_conf_value = old_value;                                                        \
+                !(validator->second)(&new_value)) {                                                \
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed",  \
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
@@ -2601,10 +2773,10 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                             \
             Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
             if (!persist_status.ok()) {                                                            \
-                ref_conf_value = old_value;                                                        \
                 return persist_status;                                                             \
             }                                                                                      \
         }                                                                                          \
+        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

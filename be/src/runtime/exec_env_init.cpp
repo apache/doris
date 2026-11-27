@@ -630,7 +630,8 @@ Status ExecEnv::init_mem_env() {
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
                         "conf file to be a power of two for better performance.";
     }
-    if (storage_cache_limit < num_shards * 2) {
+    // A valid shard count can be 2^30. Widen before doubling it.
+    if (storage_cache_limit < int64_t {num_shards} * 2) {
         LOG(WARNING) << "storage_cache_limit(" << storage_cache_limit << ") less than num_shards("
                      << num_shards
                      << ") * 2, cache capacity will be 0, continuing to use "
