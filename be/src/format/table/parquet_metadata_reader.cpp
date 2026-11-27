@@ -217,10 +217,15 @@ public:
             return Status::OK();
         }
 
+        const bool need_stats_decoding =
+                _slot_pos[META_STATS_MIN] >= 0 || _slot_pos[META_STATS_MAX] >= 0 ||
+                _slot_pos[META_STATS_MIN_VALUE] >= 0 || _slot_pos[META_STATS_MAX_VALUE] >= 0;
         std::unordered_map<std::string, const FieldSchema*> path_map;
-        const auto& fields = metadata->schema().get_fields_schema();
-        for (const auto& field : fields) {
-            build_path_map(field, "", &path_map);
+        if (need_stats_decoding) {
+            const auto& fields = metadata->schema().get_fields_schema();
+            for (const auto& field : fields) {
+                build_path_map(field, "", &path_map);
+            }
         }
 
         const int kv_pos = _slot_pos[META_KEY_VALUE_METADATA];
@@ -274,9 +279,11 @@ public:
                 const auto& column_meta = column_chunk.meta_data;
                 std::string path_in_schema = join_path(column_meta.path_in_schema);
                 const FieldSchema* schema_field = nullptr;
-                auto it = path_map.find(path_in_schema);
-                if (it != path_map.end()) {
-                    schema_field = it->second;
+                if (need_stats_decoding) {
+                    auto it = path_map.find(path_in_schema);
+                    if (it != path_map.end()) {
+                        schema_field = it->second;
+                    }
                 }
 
                 auto insert_if_requested = [&](MetadataColumnIndex idx, auto&& inserter,
@@ -317,21 +324,28 @@ public:
                     const cctz::time_zone& ctz = _state != nullptr ? _state->timezone_obj() : kUtc0;
 
                     const auto& stats = column_meta.statistics;
+                    // Check slot projection before calling decode_statistics_value: passing the
+                    // call as an argument to insert_if_requested eagerly evaluates it even when
+                    // the query does not project stats_min/stats_max/stats_min_value/
+                    // stats_max_value (for example SELECT path_in_schema ORDER BY column_id).
+                    auto insert_decoded_stat_if_requested = [&](MetadataColumnIndex idx,
+                                                                bool has_value,
+                                                                const std::string& encoded_value) {
+                        int pos = _slot_pos[idx];
+                        if (pos < 0) {
+                            return;
+                        }
+                        if (has_value) {
+                            insert_string(columns[pos],
+                                          decode_statistics_value(schema_field, column_meta.type,
+                                                                  encoded_value, ctz));
+                        } else {
+                            insert_null(columns[pos]);
+                        }
+                    };
 
-                    if (stats.__isset.min) {
-                        insert_if_requested(META_STATS_MIN, insert_string,
-                                            decode_statistics_value(schema_field, column_meta.type,
-                                                                    stats.min, ctz));
-                    } else {
-                        insert_if_requested(META_STATS_MIN, insert_null);
-                    }
-                    if (stats.__isset.max) {
-                        insert_if_requested(META_STATS_MAX, insert_string,
-                                            decode_statistics_value(schema_field, column_meta.type,
-                                                                    stats.max, ctz));
-                    } else {
-                        insert_if_requested(META_STATS_MAX, insert_null);
-                    }
+                    insert_decoded_stat_if_requested(META_STATS_MIN, stats.__isset.min, stats.min);
+                    insert_decoded_stat_if_requested(META_STATS_MAX, stats.__isset.max, stats.max);
 
                     if (stats.__isset.null_count) {
                         insert_if_requested(META_STATS_NULL_COUNT, insert_int64, stats.null_count);
@@ -347,37 +361,19 @@ public:
 
                     // Prefer min_value/max_value, but fall back to deprecated min/max so the column
                     // is still populated for older files.
-                    std::string encoded_min_value;
-                    std::string encoded_max_value;
-                    bool has_min_value = false;
-                    bool has_max_value = false;
-                    if (stats.__isset.min_value) {
-                        encoded_min_value = stats.min_value;
-                        has_min_value = true;
-                    } else if (stats.__isset.min) {
-                        encoded_min_value = stats.min;
-                        has_min_value = true;
+                    if (_slot_pos[META_STATS_MIN_VALUE] >= 0) {
+                        std::string encoded_min_value;
+                        bool has_min_value =
+                                try_get_statistics_encoded_value(stats, true, &encoded_min_value);
+                        insert_decoded_stat_if_requested(META_STATS_MIN_VALUE, has_min_value,
+                                                         encoded_min_value);
                     }
-                    if (stats.__isset.max_value) {
-                        encoded_max_value = stats.max_value;
-                        has_max_value = true;
-                    } else if (stats.__isset.max) {
-                        encoded_max_value = stats.max;
-                        has_max_value = true;
-                    }
-                    if (has_min_value) {
-                        insert_if_requested(META_STATS_MIN_VALUE, insert_string,
-                                            decode_statistics_value(schema_field, column_meta.type,
-                                                                    encoded_min_value, ctz));
-                    } else {
-                        insert_if_requested(META_STATS_MIN_VALUE, insert_null);
-                    }
-                    if (has_max_value) {
-                        insert_if_requested(META_STATS_MAX_VALUE, insert_string,
-                                            decode_statistics_value(schema_field, column_meta.type,
-                                                                    encoded_max_value, ctz));
-                    } else {
-                        insert_if_requested(META_STATS_MAX_VALUE, insert_null);
+                    if (_slot_pos[META_STATS_MAX_VALUE] >= 0) {
+                        std::string encoded_max_value;
+                        bool has_max_value =
+                                try_get_statistics_encoded_value(stats, false, &encoded_max_value);
+                        insert_decoded_stat_if_requested(META_STATS_MAX_VALUE, has_max_value,
+                                                         encoded_max_value);
                     }
 
                     if (stats.__isset.is_min_value_exact) {
