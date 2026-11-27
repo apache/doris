@@ -221,6 +221,19 @@ static int32_t get_changelog_compaction_threads_num(size_t data_dirs_num) {
 }
 
 Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
+    // Keep the legacy single-budget path intact unless the operator opts in at startup.
+    if (config::enable_cumulative_compaction_isolation) {
+        const auto reserved = config::cumulative_compaction_reserved_permits;
+        const auto total = config::total_permits_for_compaction_score;
+        // Zero leaves cumulative without a lane; reserving the entire total starves base.
+        if (reserved <= 0 || reserved >= total) {
+            return Status::InvalidArgument(
+                    "cumulative_compaction_reserved_permits ({}) must be positive and smaller "
+                    "than total_permits_for_compaction_score ({}) when isolation is enabled",
+                    reserved, total);
+        }
+        _compaction_admission = std::make_unique<CompactionAdmission>(reserved);
+    }
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
             [this]() { this->_unused_rowset_monitor_thread_callback(); },
@@ -746,7 +759,13 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 } else if (compaction_type == CompactionType::FULL_COMPACTION) {
                     tablet->set_last_full_compaction_schedule_time(UnixMillis());
                 }
-                Status st = _submit_compaction_task(tablet, compaction_type, false);
+                Status st =
+                        _submit_compaction_task(tablet, compaction_type, false, TriggerMethod::AUTO,
+                                                tablet_compaction_context.disk_slots);
+                // End this round without waiting on base or bypassing the current candidate.
+                if (_compaction_admission && st.is<ErrorCode::TOO_MANY_TASKS>()) {
+                    break;
+                }
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
@@ -898,7 +917,7 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
            compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
            compaction_type == CompactionType::CHANGELOG_COMPACTION);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("olap_server::_generate_compaction_tasks.return_empty",
-                                      std::vector<TabletCompactionContext> {});
+                                      std::vector<TabletCompactionContext> {}, compaction_type);
     _update_cumulative_compaction_policy();
     auto cumulative_compaction_policies = _snapshot_cumulative_compaction_policy();
     std::vector<TabletCompactionContext> tablet_compaction_contexts;
@@ -914,13 +933,21 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
     auto compaction_registry_snapshot = _compaction_submit_registry.create_snapshot();
     for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
-        uint32_t executing_task_num =
-                compaction_type == CompactionType::CHANGELOG_COMPACTION
-                        ? compaction_registry_snapshot.count_executing_compaction(
-                                  data_dir, CompactionType::CHANGELOG_COMPACTION)
-                        : compaction_registry_snapshot.count_executing_cumu_and_base(data_dir);
-        need_pick_tablet = has_free_compaction_slot(&compaction_registry_snapshot, data_dir,
-                                                    compaction_type, executing_task_num);
+        const int disk_slots = disk_compaction_slot_num(*data_dir, compaction_type);
+        uint32_t executing_task_num = 0;
+        if (_compaction_admission) {
+            // Skip disks already full of leased tasks, not just disks with running workers.
+            need_pick_tablet =
+                    _compaction_admission->has_disk_slot(data_dir, compaction_type, disk_slots);
+        } else {
+            executing_task_num =
+                    compaction_type == CompactionType::CHANGELOG_COMPACTION
+                            ? compaction_registry_snapshot.count_executing_compaction(
+                                      data_dir, CompactionType::CHANGELOG_COMPACTION)
+                            : compaction_registry_snapshot.count_executing_cumu_and_base(data_dir);
+            need_pick_tablet = has_free_compaction_slot(&compaction_registry_snapshot, data_dir,
+                                                        compaction_type, executing_task_num);
+        }
         if (!need_pick_tablet && !check_score) {
             continue;
         }
@@ -942,16 +969,23 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
                                                         disk_score_stats.size_based_max_score);
         max_score_stats.time_series_max_score = std::max(max_score_stats.time_series_max_score,
                                                          disk_score_stats.time_series_max_score);
-        int concurrent_num = get_concurrent_per_disk(
-                disk_score_stats.max_score, disk_compaction_slot_num(*data_dir, compaction_type));
-        need_pick_tablet = need_generate_compaction_tasks(
-                executing_task_num, concurrent_num, compaction_type,
-                !compaction_registry_snapshot.has_compaction_task(
-                        data_dir, CompactionType::CUMULATIVE_COMPACTION));
-        for (const auto& context : tablet_contexts) {
+        int concurrent_num = get_concurrent_per_disk(disk_score_stats.max_score, disk_slots);
+        if (_compaction_admission) {
+            // Keep the configured disk limit a ceiling even if the low-priority limit is larger.
+            concurrent_num = std::min(concurrent_num, disk_slots);
+            need_pick_tablet =
+                    _compaction_admission->has_disk_slot(data_dir, compaction_type, concurrent_num);
+        } else {
+            need_pick_tablet = need_generate_compaction_tasks(
+                    executing_task_num, concurrent_num, compaction_type,
+                    !compaction_registry_snapshot.has_compaction_task(
+                            data_dir, CompactionType::CUMULATIVE_COMPACTION));
+        }
+        for (auto& context : tablet_contexts) {
             if (context.tablet != nullptr) {
                 if (need_pick_tablet) {
-                    tablet_compaction_contexts.emplace_back(context);
+                    context.disk_slots = concurrent_num;
+                    tablet_compaction_contexts.emplace_back(std::move(context));
                 }
             }
         }
@@ -1023,22 +1057,48 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     });
 }
 
+static Status acquire_compaction_lease(CompactionAdmission& admission, DataDir* dir,
+                                       CompactionType type, int automatic_disk_slots, bool force,
+                                       int64_t permits,
+                                       std::unique_ptr<CompactionAdmission::Lease>& lease) {
+    const bool automatic = automatic_disk_slots > 0;
+    // Automatic candidates carry the limit selected by the existing pressure policy.
+    const int slots = automatic ? automatic_disk_slots : disk_compaction_slot_num(*dir, type);
+    // A force submission may run on a writer or publish thread, so it must not wait.
+    const bool wait = !automatic && !force && type != CompactionType::CHANGELOG_COMPACTION;
+    return admission.acquire(dir, type, slots, force ? 0 : permits, wait, lease);
+}
+
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force,
-                                              TriggerMethod trigger_method) {
+                                              TriggerMethod trigger_method,
+                                              int automatic_disk_slots) {
     bool already_exist = _compaction_submit_registry.insert(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
-    tablet->compaction_stage = CompactionStage::PENDING;
+    // Isolated scheduling counts leases rather than a stage shared by all types on a tablet.
+    if (!_compaction_admission) {
+        tablet->compaction_stage = CompactionStage::PENDING;
+    }
     std::shared_ptr<CompactionMixin> compaction;
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
     if (st.ok() && permits > 0) {
-        if (!force) {
+        std::unique_ptr<CompactionAdmission::Lease> lease;
+        if (_compaction_admission) {
+            Status admission = acquire_compaction_lease(*_compaction_admission, tablet->data_dir(),
+                                                        compaction_type, automatic_disk_slots,
+                                                        force, permits, lease);
+            if (!admission.ok()) {
+                // Nothing was enqueued; the next round can consider this tablet again.
+                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                return admission;
+            }
+        } else if (!force) {
             if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
                 if (!_permit_limiter.try_request(permits)) {
                     _pop_tablet_from_submitted_compaction(tablet, compaction_type);
@@ -1119,8 +1179,21 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", max_threads: " << thread_pool->get()->max_threads()
                       << ", min_threads: " << thread_pool->get()->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get()->get_queue_size();
-        auto status =
-                thread_pool->get()->submit_func([=, compaction = std::move(compaction), this]() {
+        std::shared_ptr<void> cleanup;
+        if (lease) {
+            // The pool can discard pending callbacks at shutdown. Cleanup must live with
+            // the callback, not just in the worker's body.
+            auto on_exit = [this, tablet, compaction_type, compaction_id,
+                            lease = std::move(lease)]() mutable {
+                CompactionTaskTracker::instance()->remove_task(compaction_id);
+                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                lease.reset();
+            };
+            cleanup = std::make_shared<Defer<decltype(on_exit)>>(std::move(on_exit));
+        }
+        auto status = thread_pool->get()->submit_func(
+                [=, compaction = std::move(compaction), this]() mutable {
+                    auto task_cleanup = std::move(cleanup);
                     _handle_compaction(std::move(tablet), std::move(compaction), compaction_type,
                                        permits, force, compaction_id);
                 });
@@ -1132,13 +1205,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _base_compaction_thread_pool->get_queue_size());
         }
         if (!status.ok()) {
-            // Cleanup tracker on submit failure
-            tracker->remove_task(compaction_id);
-            if (!force) {
-                _permit_limiter.release(permits);
+            // The isolation lease owns cleanup, including rejection before enqueue.
+            if (!_compaction_admission) {
+                tracker->remove_task(compaction_id);
+                if (!force) {
+                    _permit_limiter.release(permits);
+                }
+                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
             }
-            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-            tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
                     "tablet_id={}, compaction_type={}.",
@@ -1147,7 +1222,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         return Status::OK();
     } else {
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+        // Never change the legacy tablet-wide stage for a lease-based task.
+        if (!_compaction_admission) {
+            tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+        }
         if (!st.ok()) {
             return Status::InternalError(
                     "failed to prepare compaction task and calculate permits, "
@@ -1180,13 +1258,15 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
     bool is_large_task = true;
     Defer defer {[&]() {
         DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
-        // Idempotent cleanup: remove task from tracker
-        CompactionTaskTracker::instance()->remove_task(compaction_id);
-        if (!force) {
-            _permit_limiter.release(permits);
+        // The isolated task callback owns cleanup even if no worker ever runs it.
+        if (!_compaction_admission) {
+            CompactionTaskTracker::instance()->remove_task(compaction_id);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
+            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+            tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
         }
-        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
             std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads--;
@@ -1257,7 +1337,10 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
                   << ", tablet_state=" << static_cast<int>(tablet->tablet_state());
         return;
     }
-    tablet->compaction_stage = CompactionStage::EXECUTING;
+    // Isolated scheduling does not use the tablet-wide stage to count disk occupancy.
+    if (!_compaction_admission) {
+        tablet->compaction_stage = CompactionStage::EXECUTING;
+    }
     // Update tracker to RUNNING
     {
         RunningStats rs;
@@ -1267,13 +1350,14 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         rs.permits = permits;
         CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
     }
-    TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
+    TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction", compaction_type);
     tablet->execute_compaction(*compaction);
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                              bool force, bool eager, TriggerMethod trigger_method) {
-    if (!eager) {
+    // The isolated path checks the target disk at admission, not whether any disk is free.
+    if (!eager && !_compaction_admission) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
         auto compaction_registry_snapshot = _compaction_submit_registry.create_snapshot();

@@ -553,6 +553,15 @@ DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
+// Isolate admission for cumulative compaction in the local storage engine.
+DEFINE_Bool(enable_cumulative_compaction_isolation, "false");
+// Absolute number of permits reserved from the total, not a percentage.
+DEFINE_Int64(cumulative_compaction_reserved_permits, "0");
+DEFINE_Validator(total_permits_for_compaction_score, [](int64_t total) {
+    // Lowering the total to the reservation would leave no permits for base compaction.
+    return !enable_cumulative_compaction_isolation ||
+           total > cumulative_compaction_reserved_permits;
+});
 
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");

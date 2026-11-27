@@ -740,6 +740,10 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
+    // A manual submission can be waiting for a slot on a disk whose workers are stopping.
+    if (_compaction_admission) {
+        _compaction_admission->close();
+    }
     _stop_changelog_ttl_scanner();
 #define THREAD_JOIN(thread) \
     if (thread) {           \

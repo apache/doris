@@ -645,6 +645,8 @@ DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 DECLARE_mInt64(total_permits_for_compaction_score);
+DECLARE_Bool(enable_cumulative_compaction_isolation);
+DECLARE_Int64(cumulative_compaction_reserved_permits);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
