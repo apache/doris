@@ -382,6 +382,20 @@ TEST_F(JsonbDocumentTest, jsonb_path_member_to_string_quotes_only_unparsable_key
     }
 }
 
+TEST_F(JsonbDocumentTest, last_offset_must_be_nonnegative) {
+    // Parsing alone reproduces the defect. No JSON document is needed.
+    for (std::string text : {"$[last--1]", "$[last--2147483648]", "$[last-2147483648]"}) {
+        JsonbPath path;
+        EXPECT_FALSE(path.seek(text.data(), text.size())) << text;
+    }
+    // Preserve valid last offsets and the existing numeric-prefix path syntax.
+    for (std::string text :
+         {"$[last-0]", "$[last-1]", "$[-1]", "$[last-1.5]", "$[last-2147483647]"}) {
+        JsonbPath path;
+        EXPECT_TRUE(path.seek(text.data(), text.size())) << text;
+    }
+}
+
 TEST_F(JsonbDocumentTest, jsonb_path_quoted_member_is_literal_key) {
     JsonbWriter writer;
     writer.writeStartObject();

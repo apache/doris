@@ -31,6 +31,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
+#include <charconv>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -247,7 +248,12 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
                 if (index == "*") {
                     idx = -2;
                 } else {
-                    idx = atoi(index.c_str());
+                    // Parse before storing the index. For example, 4294967296 must not select element 0.
+                    auto result = std::from_chars(index.data(), index.data() + index.size(), idx);
+                    if (result.ec != std::errc()) {
+                        throw Exception(ErrorCode::INVALID_JSON_PATH,
+                                        "Array index is outside the INT range: {}", index);
+                    }
                 }
             }
             parsed_paths->emplace_back(std::move(col), idx, true);

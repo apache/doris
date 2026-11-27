@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/exception.h"
 #include "exprs/json_functions.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -35,6 +36,19 @@ class JsonFunctionTest : public testing::Test {
 public:
     JsonFunctionTest() {}
 };
+
+TEST_F(JsonFunctionTest, array_index_must_fit_int) {
+    // These paths formerly became index 0 and the internal no-index marker -1.
+    // Parsing the path is sufficient; the test needs no input rows.
+    for (const std::string path : {"$.a[4294967296]", "$.a[4294967295]", "$.a[2147483648]"}) {
+        std::vector<JsonPath> parsed;
+        EXPECT_THROW(JsonFunctions::parse_json_paths(path, &parsed), Exception);
+    }
+    std::vector<JsonPath> parsed;
+    JsonFunctions::parse_json_paths("$.a[2147483647]", &parsed);
+    ASSERT_EQ(parsed.size(), 2);
+    EXPECT_EQ(parsed[1].idx, 2147483647);
+}
 
 TEST_F(JsonFunctionTest, json_path1) {
     bool wrap_explicitly;
