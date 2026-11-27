@@ -31,9 +31,13 @@
 #include <new>
 #include <set>
 #include <string>
+#include <thread>
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/olap_meta.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset.h"
@@ -321,6 +325,85 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
                                              std::move(guard2), false);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_TRUE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+}
+
+TEST_F(TxnManagerTest, CommitRetainsWorkloadGroupAcrossRetryAndCleanup) {
+    auto wg = std::make_shared<WorkloadGroup>(
+            WorkloadGroupInfo {.id = 68385, .name = "local_publish_owner"});
+    std::weak_ptr<WorkloadGroup> weak_wg = wg;
+    auto ctx = ResourceContext::create_shared();
+    ctx->memory_context()->set_mem_tracker(
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "local_publish_owner"));
+    ctx->set_workload_group(wg);
+    {
+        SCOPED_ATTACH_TASK(ctx);
+        auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+        ASSERT_TRUE(k_engine->txn_manager()
+                            ->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                         _tablet_uid, load_id, _rowset, std::move(guard), false)
+                            .ok());
+    }
+    ctx.reset();
+    wg.reset();
+    ASSERT_FALSE(weak_wg.expired());
+
+    // A repeated commit from a different request context must retain the original owner.
+    {
+        SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "local_publish_retry"));
+        auto guard = k_engine->pending_local_rowsets().add(_rowset_same_id->rowset_id());
+        ASSERT_TRUE(k_engine->txn_manager()
+                            ->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                         _tablet_uid, load_id, _rowset_same_id, std::move(guard),
+                                         false)
+                            .ok());
+    }
+    std::map<TabletInfo, RowsetSharedPtr> rowsets;
+    std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> infos;
+    k_engine->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &rowsets,
+                                                     &infos);
+    ASSERT_EQ(infos.size(), 1);
+    EXPECT_EQ(infos.begin()->second->workload_group, weak_wg.lock());
+    infos.clear();
+    ASSERT_TRUE(
+            k_engine->txn_manager()
+                    ->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id, _tablet_uid)
+                    .ok());
+    EXPECT_TRUE(weak_wg.expired());
+}
+
+TEST_F(TxnManagerTest, ContextlessAndRecoveredCommitsHaveNoWorkloadGroup) {
+    auto wg = std::make_shared<WorkloadGroup>(
+            WorkloadGroupInfo {.id = 68386, .name = "local_publish_recovery"});
+    auto ctx = ResourceContext::create_shared();
+    ctx->memory_context()->set_mem_tracker(MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, "local_publish_recovery"));
+    ctx->set_workload_group(wg);
+    std::thread worker([&] {
+        SCOPED_INIT_THREAD_CONTEXT();
+        auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+        ASSERT_FALSE(thread_context()->is_attach_task());
+        ASSERT_TRUE(k_engine->txn_manager()
+                            ->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                         _tablet_uid, load_id, _rowset, std::move(guard), false)
+                            .ok());
+        // Recovery must not assign an unrelated caller's group to a persisted transaction.
+        SCOPED_ATTACH_TASK(ctx);
+        auto recovery_guard = k_engine->pending_local_rowsets().add(_rowset_diff_id->rowset_id());
+        ASSERT_TRUE(k_engine->txn_manager()
+                            ->commit_txn(_meta.get(), partition_id, transaction_id + 1, tablet_id,
+                                         _tablet_uid, load_id, _rowset_diff_id,
+                                         std::move(recovery_guard), true)
+                            .ok());
+    });
+    worker.join();
+    for (auto txn_id : {transaction_id, transaction_id + 1}) {
+        std::map<TabletInfo, RowsetSharedPtr> rowsets;
+        std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> infos;
+        k_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &rowsets, &infos);
+        ASSERT_EQ(infos.size(), 1);
+        EXPECT_EQ(infos.begin()->second->workload_group, nullptr);
+    }
 }
 
 // 1. prepare twice should be success
