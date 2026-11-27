@@ -59,6 +59,7 @@ public:
         ANN_INDEX_IVF_LIST_CACHE = 24,
         ANN_INDEX_RESULT_CACHE = 25,
         FLUSS_UNION_TAIL_CACHE = 26,
+        S3_CLIENT_CACHE = 27,
     };
 
     static std::string type_string(CacheType type) {
@@ -115,6 +116,8 @@ public:
             return "AnnIndexResultCache";
         case CacheType::FLUSS_UNION_TAIL_CACHE:
             return "FlussUnionTailCache";
+        case CacheType::S3_CLIENT_CACHE:
+            return "S3ClientCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -147,7 +150,8 @@ public:
             {"ConditionCache", CacheType::CONDITION_CACHE},
             {"AnnIndexIVFListCache", CacheType::ANN_INDEX_IVF_LIST_CACHE},
             {"AnnIndexResultCache", CacheType::ANN_INDEX_RESULT_CACHE},
-            {"FlussUnionTailCache", CacheType::FLUSS_UNION_TAIL_CACHE}};
+            {"FlussUnionTailCache", CacheType::FLUSS_UNION_TAIL_CACHE},
+            {"S3ClientCache", CacheType::S3_CLIENT_CACHE}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {

@@ -54,6 +54,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <barrier>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -64,6 +65,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <typeinfo>
 #include <utility>
 #include <variant>
@@ -88,13 +90,19 @@
 #include "cpp/obj-storage/parser/obj_storage_config_parser.h"
 #include "cpp/obj-storage/rate_limit/rate_limited_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/file_factory.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/obj_storage_file_reader.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "io/object_storage/obj_storage_client_holder.h"
 #include "io/object_storage/obj_storage_rate_limiter_manager.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "testutil/container_credentials_endpoint.h"
 #include "testutil/scoped_temp_dir.h"
+#include "util/defer_op.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_uri.h"
 
 #ifdef USE_AZURE
@@ -1887,6 +1895,214 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUsableAsStsBaseProvider) {
     ASSERT_FALSE(auth_headers.empty())
             << "the STS base provider never contacted the credentials endpoint";
     EXPECT_EQ(auth_headers.back(), "token-one");
+}
+
+namespace {
+
+void check_holder_client_release(bool request_holds_client) {
+    auto original = make_factory_conf("holder-lifetime.example.com");
+    original.auth.source = AccessKeyObjStorageAuth {
+            .access_key = "ak", .secret_key = "sk", .session_token = "old"};
+    auto rotated = original;
+    std::get<AccessKeyObjStorageAuth>(rotated.auth.source).session_token = "new";
+    std::unique_ptr<io::ObjStorageClientHolder> holder;
+    int destroyed = 0;
+    auto release_old_client = [&](ObjStorageClient* p) {
+        // Re-enter get/reset to verify neither publication nor
+        // update serialization locks cover the final release.
+        EXPECT_NE(holder->get().get(), p);
+        EXPECT_TRUE(holder->reset(rotated).ok());
+        ++destroyed;
+        delete p;
+    };
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [&](const ObjStorageClientConfig& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                if (std::get<AccessKeyObjStorageAuth>(
+                            std::get<AwsObjStorageConfig>(conf).auth.source)
+                            .session_token == "old") {
+                    return {new S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> {}),
+                            release_old_client};
+                }
+                return std::make_shared<S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+            });
+    holder = std::make_unique<io::ObjStorageClientHolder>(original);
+    ASSERT_TRUE(holder->init().ok());
+    std::shared_ptr<ObjStorageClient> request;
+    if (request_holds_client) {
+        request = holder->get();
+    }
+    ASSERT_TRUE(holder->reset(rotated).ok());
+    EXPECT_EQ(destroyed, request_holds_client ? 0 : 1);
+    EXPECT_EQ(holder->config(), ObjStorageClientConfig {rotated});
+    request.reset();
+    EXPECT_EQ(destroyed, 1);
+    ObjStorageClientFactory::instance().clear_client_creator_for_test();
+}
+
+} // namespace
+
+TEST_F(S3ClientFactoryTest, HolderReleasesOldClientOutsideBothLocks) {
+    check_holder_client_release(false);
+    check_holder_client_release(true);
+}
+
+TEST_F(S3ClientFactoryTest, FailedHolderUpdatePreservesClientAndConfiguration) {
+    auto original = make_factory_conf("holder-failed-update.example.com");
+    auto client = std::make_shared<S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [&](const ObjStorageClientConfig&) -> std::shared_ptr<io::ObjStorageClient> {
+                return client;
+            });
+    io::ObjStorageClientHolder holder(original);
+    ASSERT_TRUE(holder.init().ok());
+    auto invalid = original;
+    invalid.auth.source = AccessKeyObjStorageAuth {.access_key = "access-key-without-secret"};
+    EXPECT_FALSE(holder.reset(invalid).ok());
+    EXPECT_EQ(holder.get(), client);
+    EXPECT_EQ(holder.config(), ObjStorageClientConfig {original});
+}
+
+TEST_F(S3ClientFactoryTest, ReaderDestructionReleasesRealSdkClient) {
+    CloudModeConfigGuard cloud_mode(true);
+    auto conf = make_factory_conf("sdk-lifetime.example.com");
+    auto holder = std::make_shared<io::ObjStorageClientHolder>(conf);
+    ASSERT_TRUE(holder->init().ok());
+    auto other_holder = std::make_shared<io::ObjStorageClientHolder>(conf);
+    ASSERT_TRUE(other_holder->init().ok());
+    EXPECT_EQ(holder->get(), other_holder->get());
+    other_holder.reset();
+    std::weak_ptr<ObjStorageClient> client = holder->get();
+    std::weak_ptr<Aws::S3::S3Client> sdk =
+            std::static_pointer_cast<S3ObjStorageClient>(holder->get())->_client;
+    auto result = io::ObjStorageFileReader::create(holder, "bucket", "file", 0, nullptr);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto reader = std::move(result).value();
+    holder.reset();
+    EXPECT_FALSE(client.expired());
+    EXPECT_FALSE(sdk.expired());
+    ASSERT_TRUE(reader->close().ok());
+    // close() is not object destruction. The reader still owns its holder.
+    EXPECT_FALSE(sdk.expired());
+    reader.reset();
+    EXPECT_TRUE(client.expired());
+    EXPECT_TRUE(sdk.expired());
+}
+
+TEST_F(S3ClientFactoryTest, PartialExecEnvTeardownPreservesFactory) {
+    auto& factory = ObjStorageClientFactory::instance();
+    auto conf = make_factory_conf("partial-exec-env.example.com");
+    auto before = factory.create(conf);
+    ASSERT_TRUE(before.client != nullptr) << before.error;
+
+    const bool was_ready = ExecEnv::ready();
+    Defer restore_ready([was_ready] { ExecEnv::_s_ready = was_ready; });
+    ExecEnv partial_env;
+    partial_env.set_ready();
+    // ExternalScanContextMgrTest also tears down a partial environment. It never
+    // owns process-wide SDK shutdown, so later S3 users must still work.
+    partial_env.destroy();
+
+    auto after = factory.create(conf);
+    ASSERT_TRUE(after.client != nullptr) << after.error;
+    EXPECT_EQ(before.client, after.client);
+}
+
+TEST_F(S3ClientFactoryTest, ScopeReusesSequentialFileReadersAndReleasesAtEnd) {
+    CloudModeConfigGuard cloud_mode(true);
+    const auto before = S3ClientRegistry::instance()->stats();
+    std::weak_ptr<ObjStorageClient> weak;
+    {
+        io::FileSystemProperties properties;
+        properties.system_type = TFileType::FILE_S3;
+        properties.properties = {{"AWS_ENDPOINT", "http://127.0.0.1:19000"},
+                                 {"AWS_REGION", "us-east-1"},
+                                 {"AWS_ACCESS_KEY", "scope-ak"},
+                                 {"AWS_SECRET_KEY", "scope-sk"}};
+        properties.s3_client_scope = std::make_shared<S3ClientScope>();
+        for (size_t file = 0; file < 64; ++file) {
+            io::FileDescription description;
+            description.path = "s3://scope-bucket/file-" + std::to_string(file);
+            description.file_size = 32;
+            auto result = FileFactory::create_file_reader(properties, description,
+                                                          io::FileReaderOptions::DEFAULT, nullptr);
+            ASSERT_TRUE(result.has_value()) << result.error();
+            const auto& reader = static_cast<const io::ObjStorageFileReader&>(*result.value());
+            weak = reader._client->get();
+            EXPECT_EQ(S3ClientRegistry::instance()->stats().created - before.created, 1);
+        }
+        EXPECT_FALSE(weak.expired());
+        EXPECT_EQ(S3ClientRegistry::instance()->stats().live - before.live, 1);
+    }
+    EXPECT_TRUE(weak.expired());
+    const auto after = S3ClientRegistry::instance()->stats();
+    EXPECT_EQ(after.destroyed - before.destroyed, 1);
+    EXPECT_EQ(after.live, before.live);
+    EXPECT_EQ(after.indexed, before.indexed);
+}
+
+TEST_F(S3ClientFactoryTest, ScopeUsesFullIdentityAndOriginalControlBlock) {
+    auto& factory = ObjStorageClientFactory::instance();
+    auto first_conf = make_timeout_conf("http://scope-identity.invalid", false);
+    auto second_conf = make_timeout_conf("http://scope-identity.invalid", true);
+    ASSERT_NE(first_conf, second_conf);
+    std::weak_ptr<ObjStorageClient> weak;
+    {
+        S3ClientScope scope;
+        auto first = scope.get_or_create({.config = first_conf, .bucket = {}}).value();
+        auto second = scope.get_or_create({.config = second_conf, .bucket = {}}).value();
+        EXPECT_NE(first, second);
+        auto from_factory = factory.create(first_conf).client;
+        auto from_self = first->shared_from_this();
+        EXPECT_EQ(first, from_factory);
+        EXPECT_FALSE(first.owner_before(from_factory));
+        EXPECT_FALSE(from_factory.owner_before(first));
+        EXPECT_FALSE(first.owner_before(from_self));
+        EXPECT_FALSE(from_self.owner_before(first));
+        weak = first;
+        first.reset();
+        from_factory.reset();
+        from_self.reset();
+        EXPECT_FALSE(weak.expired());
+        auto invalid_conf = first_conf;
+        invalid_conf.region.clear();
+        EXPECT_FALSE(scope.get_or_create({.config = invalid_conf, .bucket = {}}).has_value());
+        EXPECT_EQ(scope.get_or_create({.config = first_conf, .bucket = {}}).value(), weak.lock());
+    }
+    EXPECT_TRUE(weak.expired());
+}
+
+TEST_F(S3ClientFactoryTest, ScopeSharesConcurrentAcquisitionsAndKeepsExternalOwners) {
+    constexpr size_t threads = 8;
+    const auto before = S3ClientRegistry::instance()->stats();
+    const auto conf = make_factory_conf("http://scope-concurrent.invalid");
+    std::vector<std::shared_ptr<ObjStorageClient>> clients(threads);
+    {
+        S3ClientScope scope;
+        std::barrier start(static_cast<ptrdiff_t>(threads));
+        std::vector<std::thread> workers;
+        for (size_t i = 0; i < threads; ++i) {
+            workers.emplace_back([&, i] {
+                SCOPED_INIT_THREAD_CONTEXT();
+                start.arrive_and_wait();
+                auto result = scope.get_or_create({.config = conf, .bucket = {}});
+                ASSERT_TRUE(result.has_value()) << result.error();
+                clients[i] = std::move(result).value();
+            });
+        }
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        for (const auto& client : clients) {
+            EXPECT_EQ(client, clients.front());
+        }
+        EXPECT_EQ(S3ClientRegistry::instance()->stats().created - before.created, 1);
+    }
+    EXPECT_EQ(S3ClientRegistry::instance()->stats().live - before.live, 1);
+    clients.clear();
+    const auto after = S3ClientRegistry::instance()->stats();
+    EXPECT_EQ(after.destroyed - before.destroyed, 1);
+    EXPECT_EQ(after.live, before.live);
+    EXPECT_EQ(after.indexed, before.indexed);
 }
 
 } // namespace doris

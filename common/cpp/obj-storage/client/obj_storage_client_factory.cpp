@@ -57,6 +57,15 @@ ObjStorageClientBuildResult ObjStorageClientFactory::create(const ObjStorageClie
     }
 #endif
 
+    std::shared_ptr<ClientCacheCallback> cache;
+    if (use_cache) {
+        std::lock_guard l(_lock);
+        cache = _client_cache;
+    }
+    if (cache) {
+        return (*cache)(config, bucket);
+    }
+
     if (use_cache) {
         std::lock_guard l(_lock);
         auto bucket_cache = _cache.find(bucket);
@@ -113,6 +122,19 @@ ObjStorageClientBuildResult ObjStorageClientFactory::create(const ObjStorageClie
         return {.client = it->second};
     }
     return result;
+}
+
+void ObjStorageClientFactory::set_client_cache(ClientCacheCallback cache) {
+    // Release old clients outside the factory lock; SDK destruction may re-enter it.
+    decltype(_cache) old_cache;
+    auto callback = std::make_shared<ClientCacheCallback>(std::move(cache));
+    std::shared_ptr<ClientCacheCallback> old_callback;
+    {
+        std::lock_guard l(_lock);
+        old_cache.swap(_cache);
+        old_callback.swap(_client_cache);
+        _client_cache = std::move(callback);
+    }
 }
 
 #ifdef BE_TEST

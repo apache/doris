@@ -284,6 +284,9 @@ protected:
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result.client);
     }
 
+    // Release suite-owned clients before process-wide factory teardown.
+    static void TearDownTestSuite() { obj_storage_client.reset(); }
+
     void SetUp() override {
         if (AzureObjStorageClientTest::obj_storage_client == nullptr) {
             GTEST_SKIP() << "Skipping Azure test, because AZURE environment not set";

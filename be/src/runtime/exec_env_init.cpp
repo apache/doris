@@ -50,6 +50,7 @@
 #include "common/status.h"
 #include "cpp/aws_sdk.h"
 #include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
+#include "cpp/sync_point.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
@@ -133,6 +134,7 @@
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/s3_client_registry.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
@@ -333,6 +335,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(peer_race_s3_max_threads)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
+
+    // Initialize on the main thread, after CacheManager exists and before
+    // storage-engine/packed-file workers can acquire clients concurrently.
+    S3ClientRegistry::instance()->init_cache(config::s3_client_cache_capacity,
+                                             config::s3_client_cache_stale_sweep_time_sec);
 
     if (config::is_cloud_mode()) {
         io::FileRangeReadSchedulerOptions options {
@@ -902,8 +909,42 @@ void ExecEnv::clear_wal_mgr() {
     this->_wal_manager.reset();
 }
 #endif
+void ExecEnv::_shutdown_object_storage() {
+    // The background manager can submit async closes and report uploads through
+    // the storage engine. Join it before draining its downstream worker pools.
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+    }
+
+    // A queued whole-file upload can submit a close, and a queued close can
+    // submit an upload buffer. shutdown() discards queued tasks: losing either
+    // callback would leave a writer waiting forever on its future/countdown.
+    // Keep the upload pool alive until all of these producers have drained.
+    for (auto* pool : {_obj_storage_file_system_thread_pool.get(), _lazy_release_obj_pool.get(),
+                       _non_block_close_thread_pool.get(), _obj_storage_upload_thread_pool.get()}) {
+        // Offline tools and BE tests initialize only the pools they use.
+        if (pool) {
+            TEST_SYNC_POINT_CALLBACK("ExecEnv::_shutdown_object_storage:before_wait", pool);
+            pool->wait();
+        }
+    }
+
+    // A vault added after startup can be owned only by this singleton. Release
+    // its writers and clients before the worker pools and, later, the AWS SDK.
+    if (_packed_file_manager) {
+        _packed_file_manager->release_resources();
+        _packed_file_manager = nullptr;
+    }
+    SAFE_SHUTDOWN(_obj_storage_file_system_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_upload_thread_pool);
+}
+
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
+// Keep teardown order visible; SAFE_STOP/SAFE_DELETE macro checks dominate complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void ExecEnv::destroy() {
     //Only destroy once after init
     if (!ready()) {
@@ -967,6 +1008,7 @@ void ExecEnv::destroy() {
 
     // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
+    _shutdown_object_storage();
     _storage_engine.reset();
 
     if (_runtime_query_statistics_mgr) {
@@ -1061,6 +1103,11 @@ void ExecEnv::destroy() {
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    // Partial/offline ExecEnvs do not own the process-wide client's cache. The
+    // initialized environment releases it before its CacheManager disappears.
+    if (_cache_manager) {
+        S3ClientRegistry::instance()->release_cache();
+    }
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
 
@@ -1085,12 +1132,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_dns_cache);
     SAFE_DELETE(_kerberos_ticket_mgr);
     SAFE_DELETE(_hdfs_mgr);
-    // PackedFileManager is a singleton, just stop its background thread
-    if (_packed_file_manager) {
-        _packed_file_manager->stop_background_manager();
-        _packed_file_manager = nullptr;
-    }
-
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);
 

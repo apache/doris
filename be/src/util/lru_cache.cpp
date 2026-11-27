@@ -544,21 +544,11 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
             return reinterpret_cast<Cache::Handle*>(e);
         }
 
-        // Free the space following strict LRU policy until enough space
-        // is freed or the lru list is empty
-        if (_cache_value_check_timestamp) {
-            _evict_from_lru_with_time(e->total_size, &to_remove_head);
-        } else {
-            _evict_from_lru(e->total_size, &to_remove_head);
-        }
-
-        // insert into the cache
-        // note that the cache might get larger than its capacity if not enough
-        // space was freed
-        auto* old = _table.insert(e);
-        e->in_cache = true;
-        _usage += e->total_size;
-        e->refs++; // one for the returned handle, one for LRUCache.
+        // Remove a replacement before budgeting for the new entry. With a full
+        // NUMBER cache [B, C], inserting C again must not evict B to make room
+        // for an entry that already occupies one slot. Keep final releases outside
+        // the shard lock, including when the old handle is still held by a caller.
+        auto* old = _table.remove(key, hash);
         if (old != nullptr) {
             _stampede_count++;
             old->in_cache = false;
@@ -578,6 +568,20 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
                 to_remove_head = old;
             }
         }
+
+        // Free the space following strict LRU policy until enough space
+        // is freed or the lru list is empty.
+        if (_cache_value_check_timestamp) {
+            _evict_from_lru_with_time(e->total_size, &to_remove_head);
+        } else {
+            _evict_from_lru(e->total_size, &to_remove_head);
+        }
+
+        // The cache may exceed capacity while other handles pin entries.
+        _table.insert(e);
+        e->in_cache = true;
+        _usage += e->total_size;
+        e->refs++; // one for the returned handle, one for LRUCache.
     }
 
     // we free the entries here outside of mutex for

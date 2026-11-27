@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "cpp/obj-storage/rate_limit/rate_limited_obj_storage_client.h"
+#include "util/s3_client_registry.h"
 
 namespace doris::io {
 
@@ -36,8 +37,18 @@ ObjStorageClientHolder::ObjStorageClientHolder(
 ObjStorageClientHolder::~ObjStorageClientHolder() = default;
 
 Result<std::shared_ptr<ObjStorageClient>> ObjStorageClientHolder::create_client(
-        const ObjStorageClientConfig& conf) const {
-    auto result = ObjStorageClientFactory::instance().create(conf, /*use_cache=*/true, _bucket);
+        const ObjStorageClientConfig& conf, S3ClientScope* scope) const {
+    S3ClientRegistry::instance();
+    ObjStorageClientBuildResult result;
+    if (scope) {
+        auto scoped = scope->get_or_create({.config = conf, .bucket = _bucket});
+        if (!scoped.has_value()) {
+            return ResultError(std::move(scoped).error());
+        }
+        result.client = std::move(scoped).value();
+    } else {
+        result = ObjStorageClientFactory::instance().create(conf, /*use_cache=*/true, _bucket);
+    }
     if (!result.client) {
         if (result.unsupported) {
             return ResultError(Status::NotSupported("{}", result.error));
@@ -51,13 +62,13 @@ Result<std::shared_ptr<ObjStorageClient>> ObjStorageClientHolder::create_client(
     return std::move(result.client);
 }
 
-Status ObjStorageClientHolder::init() {
-    _client = DORIS_TRY(create_client(_conf));
+Status ObjStorageClientHolder::init(S3ClientScope* scope) {
+    _client = DORIS_TRY(create_client(_conf, scope));
     return Status::OK();
 }
 
 Status ObjStorageClientHolder::reset(const ObjStorageClientConfig& conf) {
-    std::lock_guard update_lock(_update_mutex);
+    std::unique_lock update_lock(_update_mutex);
     if (!same_client_target(_conf, conf)) {
         return Status::InvalidArgument(
                 "Cannot change storage target on an open object storage filesystem");
@@ -69,9 +80,12 @@ Status ObjStorageClientHolder::reset(const ObjStorageClientConfig& conf) {
     auto client = DORIS_TRY(create_client(conf));
     LOG(INFO) << "reset object storage client with new conf: "
               << obj_storage_config_to_string(conf);
-    std::lock_guard lock(_mtx);
-    _client = std::move(client);
-    _conf = conf;
+    {
+        std::lock_guard lock(_mtx);
+        _client.swap(client);
+        _conf = conf;
+    }
+    update_lock.unlock();
     return Status::OK();
 }
 
