@@ -20,6 +20,7 @@ package org.apache.iceberg.rest;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.io.FileIO;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -41,7 +43,13 @@ public final class DorisRESTSessionCatalog extends RESTSessionCatalog {
 
     public DorisRESTSessionCatalog(Function<Map<String, String>, RESTClient> clientBuilder,
             Function<RESTSessionCatalog, FileIO> catalogFileIO) {
-        super(clientBuilder, null);
+        this(clientBuilder, null, catalogFileIO);
+    }
+
+    public DorisRESTSessionCatalog(Function<Map<String, String>, RESTClient> clientBuilder,
+            BiFunction<SessionContext, Map<String, String>, FileIO> ioBuilder,
+            Function<RESTSessionCatalog, FileIO> catalogFileIO) {
+        super(clientBuilder, ioBuilder);
         this.catalogFileIO = catalogFileIO;
     }
 

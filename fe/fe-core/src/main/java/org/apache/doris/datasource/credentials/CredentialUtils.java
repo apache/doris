@@ -40,6 +40,7 @@ public class CredentialUtils {
             "oss.",          // Alibaba OSS
             "cos.",          // Tencent COS
             "obs.",          // Huawei OBS
+            "gcs.",          // Iceberg GCS OAuth2 credentials
             "gs.",           // Google Cloud Storage
             "azure.",        // Microsoft Azure
             "client.",       // Iceberg client properties (e.g., client.region)

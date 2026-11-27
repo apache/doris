@@ -410,7 +410,11 @@ ObjStorageConfigParseResult<GcpObjStorageConfig> parse_gcp_obj_storage_config(
             return std::string("GCP credentials cannot be combined with other credentials");
         }
         GcpNativeObjStorageAuth auth;
-        auth.source = native.credential->provider_type == GcpCredentialProviderType::ComputeEngine
+        auth.access_token = std::move(native.credential->access_token);
+        auth.expires_at_ms = native.credential->expires_at_ms;
+        auth.source = native.credential->provider_type == GcpCredentialProviderType::AccessToken
+                              ? GcpCredentialSource::AccessToken
+                      : native.credential->provider_type == GcpCredentialProviderType::ComputeEngine
                               ? GcpCredentialSource::ComputeEngine
                               : GcpCredentialSource::Default;
         if (!native.credential->impersonation_service_account.empty()) {
@@ -480,9 +484,10 @@ Parsed<ObjStorageClientConfig> as_client_config(Parsed<T> parsed) {
 Parsed<ObjStorageClientConfig> parse_obj_storage_client_config(Vault::Provider provider,
                                                                const Props& props,
                                                                AwsCredentialImplementation impl) {
-    if (provider != Vault::GCP &&
-        (props.contains(std::string(GCP_CREDENTIAL_PROVIDER_TYPE)) ||
-         props.contains(std::string(GCP_IMPERSONATION_SERVICE_ACCOUNT)))) {
+    if (provider != Vault::GCP && (props.contains(std::string(GCP_CREDENTIAL_PROVIDER_TYPE)) ||
+                                   props.contains(std::string(GCP_IMPERSONATION_SERVICE_ACCOUNT)) ||
+                                   props.contains(std::string(GCP_OAUTH2_TOKEN)) ||
+                                   props.contains(std::string(GCP_OAUTH2_TOKEN_EXPIRES_AT)))) {
         return std::string("GCP credentials require provider=GCP");
     }
     switch (provider) {

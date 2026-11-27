@@ -216,4 +216,33 @@ public class GcsAuthResolverTest {
         }
     }
 
+    @Test
+    public void testVendedTokenAliasesAndConflicts() {
+        for (String tokenKey : new String[] {"gs.oauth2.token", "gcs.oauth2.token"}) {
+            GcsAuth auth = GcsAuthResolver.resolve(Map.of(tokenKey, "catalog-token")).orElseThrow();
+            Assertions.assertEquals(GcsAuth.Mode.ACCESS_TOKEN, auth.getMode());
+            Assertions.assertEquals("catalog-token", auth.getNativeCredential().orElseThrow().getAccessToken());
+            Assertions.assertTrue(GcsAuthResolver.guessIsGcs(Map.of(tokenKey, "catalog-token")));
+            for (String badToken : new String[] {"", " ", "token value", "token\nvalue", "token\u2003value"}) {
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> GcsAuthResolver.resolve(Map.of(tokenKey, badToken)));
+            }
+            Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(
+                    Map.of(tokenKey, "token", "gs.credential_provider_type", "DEFAULT")));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(
+                    Map.of(tokenKey, "token", "gs.access_key", "ak", "gs.secret_key", "sk")));
+        }
+    }
+
+    @Test
+    public void testVendedTokenExpirationValidation() {
+        GcpCredential credential = GcsAuthResolver.resolve(Map.of("gcs.oauth2.token", "token",
+                "gcs.oauth2.token-expires-at", "4102444800000")).orElseThrow().getNativeCredential().orElseThrow();
+        Assertions.assertEquals(4102444800000L, credential.getExpiresAtMillis());
+        for (String expiration : new String[] {"", "0", "-1", "bad", "9223372036854775808"}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(
+                    Map.of("gcs.oauth2.token", "token", "gcs.oauth2.token-expires-at", expiration)));
+        }
+    }
+
 }

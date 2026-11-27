@@ -68,7 +68,36 @@ public final class GcsAuthResolver {
         }
 
         String providerType = getPropertyIgnoreCase(properties, CREDENTIAL_PROVIDER_TYPE);
+        if (providerType != null) {
+            providerType = providerType.trim();
+        }
         String impersonation = getPropertyIgnoreCase(properties, IMPERSONATION_SERVICE_ACCOUNT);
+        String accessToken = firstProperty(properties, GcpCredential.OAUTH2_TOKEN, GcpCredential.ICEBERG_OAUTH2_TOKEN);
+        String expiration = firstProperty(properties, GcpCredential.OAUTH2_TOKEN_EXPIRES_AT,
+                GcpCredential.ICEBERG_OAUTH2_TOKEN_EXPIRES_AT);
+        if (accessToken != null || expiration != null || "ACCESS_TOKEN".equalsIgnoreCase(providerType)) {
+            if (providerType != null && !"ACCESS_TOKEN".equalsIgnoreCase(providerType)) {
+                throw new IllegalArgumentException("GCS access token conflicts with " + CREDENTIAL_PROVIDER_TYPE);
+            }
+            if (hasAccessKey || hasSecretKey || hasNonBlankProperty(properties, TOKENS)
+                    || hasNonBlankProperty(properties, AWS_ROLES) || hasNonBlankProperty(properties, AWS_PROVIDERS)) {
+                throw new IllegalArgumentException("GCS access token cannot be combined with AWS/HMAC credentials");
+            }
+            long expiresAt = 0;
+            if (expiration != null) {
+                try {
+                    expiresAt = Long.parseLong(expiration);
+                    if (expiresAt <= 0) {
+                        throw new NumberFormatException();
+                    }
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException(
+                            "GCS access token expiration must be positive epoch milliseconds");
+                }
+            }
+            return Optional.of(new GcsAuth(new GcpCredential(GcpCredentialProviderType.ACCESS_TOKEN,
+                    impersonation, accessToken, expiresAt)));
+        }
         GcsAuth.Mode mode;
         if (hasNativeProperties) {
             GcpCredentialProviderType type = providerType == null ? GcpCredentialProviderType.DEFAULT
@@ -108,11 +137,18 @@ public final class GcsAuthResolver {
 
     public static boolean hasNativeCredentialProperties(Map<String, String> properties) {
         return properties.keySet().stream().anyMatch(key -> CREDENTIAL_PROVIDER_TYPE.equalsIgnoreCase(key)
-                || IMPERSONATION_SERVICE_ACCOUNT.equalsIgnoreCase(key));
+                || IMPERSONATION_SERVICE_ACCOUNT.equalsIgnoreCase(key)
+                || GcpCredential.OAUTH2_TOKEN.equalsIgnoreCase(key)
+                || GcpCredential.ICEBERG_OAUTH2_TOKEN.equalsIgnoreCase(key)
+                || GcpCredential.OAUTH2_TOKEN_EXPIRES_AT.equalsIgnoreCase(key)
+                || GcpCredential.ICEBERG_OAUTH2_TOKEN_EXPIRES_AT.equalsIgnoreCase(key));
     }
 
     // Storage selection also uses these signals, before authentication is resolved.
     public static boolean guessIsGcs(Map<String, String> properties) {
+        if (firstProperty(properties, GcpCredential.OAUTH2_TOKEN, GcpCredential.ICEBERG_OAUTH2_TOKEN) != null) {
+            return true;
+        }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
             String value = entry.getValue();
@@ -161,6 +197,11 @@ public final class GcsAuthResolver {
             }
         }
         return false;
+    }
+
+    private static String firstProperty(Map<String, String> properties, String canonical, String alias) {
+        String value = getPropertyIgnoreCase(properties, canonical);
+        return value != null ? value : getPropertyIgnoreCase(properties, alias);
     }
 
     private static String getPropertyIgnoreCase(Map<String, String> properties, String name) {

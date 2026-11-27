@@ -1889,4 +1889,55 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUsableAsStsBaseProvider) {
     EXPECT_EQ(auth_headers.back(), "token-one");
 }
 
+TEST_F(S3ClientFactoryTest, GcsVendedTokensUseWeakBucketScopedClients) {
+    auto config = make_gcp_native_conf();
+    auto& auth = std::get<GcpNativeObjStorageAuth>(config.auth);
+    auth.source = GcpCredentialSource::AccessToken;
+    auth.access_token = "vended-token";
+    auth.expires_at_ms = 4102444800000;
+    auto& factory = ObjStorageClientFactory::instance();
+    auto first = factory.create(config, true, "vended-bucket");
+    ASSERT_NE(first.client, nullptr) << first.error;
+    auto reused = factory.create(config, true, "vended-bucket");
+    EXPECT_EQ(first.client, reused.client);
+    auto isolated = factory.create(config, true, "different-vended-bucket");
+    ASSERT_NE(isolated.client, nullptr) << isolated.error;
+    EXPECT_NE(first.client, isolated.client);
+    std::weak_ptr<ObjStorageClient> released = first.client;
+    first.client.reset();
+    EXPECT_FALSE(released.expired());
+    reused.client.reset();
+    EXPECT_TRUE(released.expired());
+    for (int i = 0; i < 64; ++i) {
+        auth.access_token = "rotated-token-" + std::to_string(i);
+        auto rotated = factory.create(config, true, "vended-bucket");
+        ASSERT_NE(rotated.client, nullptr) << rotated.error;
+        std::weak_ptr<ObjStorageClient> owner = rotated.client;
+        rotated.client.reset();
+        EXPECT_TRUE(owner.expired());
+    }
+}
+
+TEST_F(S3ClientFactoryTest, GcsVendedTokenConfigRetainsTokenAndExpiration) {
+    std::map<std::string, std::string> properties {
+            {"provider", "GCP"},
+            {"AWS_ENDPOINT", "https://storage.googleapis.com"},
+            {"gs.oauth2.token", "catalog-token"},
+            {"gs.oauth2.token-expires-at", "4102444800000"}};
+    auto parsed = parse_gcp_obj_storage_config(properties, AwsCredentialImplementation::V2);
+    ASSERT_TRUE(std::holds_alternative<GcpObjStorageConfig>(parsed));
+    const auto& config = std::get<GcpObjStorageConfig>(parsed);
+    const auto& auth = std::get<GcpNativeObjStorageAuth>(config.auth);
+    EXPECT_EQ(auth.source, GcpCredentialSource::AccessToken);
+    EXPECT_EQ(auth.access_token, "catalog-token");
+    EXPECT_EQ(auth.expires_at_ms, 4102444800000);
+    auto rotated = config;
+    std::get<GcpNativeObjStorageAuth>(rotated.auth).access_token = "new-token";
+    EXPECT_NE(ObjStorageClientHash {}(config), ObjStorageClientHash {}(rotated));
+    EXPECT_EQ(obj_storage_config_to_string(config).find("catalog-token"), std::string::npos);
+    properties["gs.oauth2.token-expires-at"] = "1";
+    EXPECT_TRUE(std::holds_alternative<std::string>(
+            parse_gcp_obj_storage_config(properties, AwsCredentialImplementation::V2)));
+}
+
 } // namespace doris

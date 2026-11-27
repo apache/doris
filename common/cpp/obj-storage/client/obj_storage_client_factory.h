@@ -49,6 +49,10 @@ private:
 
     using ClientCache = std::unordered_map<ObjStorageClientConfig,
                                            std::shared_ptr<ObjStorageClient>, ObjStorageClientHash>;
+    using WeakClientCache =
+            std::unordered_map<ObjStorageClientConfig, std::weak_ptr<ObjStorageClient>,
+                               ObjStorageClientHash>;
+    std::unordered_map<std::string, WeakClientCache> _vended_cache;
     std::mutex _lock;
     std::unordered_map<std::string, ClientCache> _cache;
 #ifdef BE_TEST

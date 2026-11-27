@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.iceberg.auth.GcsVendedCredentials;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -2309,7 +2310,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 ioProps.putAll(storageCredential.config());
             }
         }
-        return ioProps;
+        return GcpS3FileIOAwsClientFactory.withVendedCredentials(GcsVendedCredentials.currentProperties(ioProps));
     }
 
     /**
