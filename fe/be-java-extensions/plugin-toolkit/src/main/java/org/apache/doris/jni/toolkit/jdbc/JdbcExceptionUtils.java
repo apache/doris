@@ -49,8 +49,9 @@ public final class JdbcExceptionUtils {
     }
 
     /**
-     * Collects both JDBC chains, with identity-based cycle detection. Identical diagnostics are
-     * emitted once, but errors with the same message and different remote codes stay distinct.
+     * Collects JDBC chains and suppressed cleanup failures, with identity-based cycle detection.
+     * Identical diagnostics are emitted once, but errors with the same message and different
+     * remote codes stay distinct.
      * Non-SQL exceptions retain their messages without inventing remote error codes.
      */
     public static String format(String context, Throwable error, String... sensitiveValues) {
@@ -96,6 +97,7 @@ public final class JdbcExceptionUtils {
             if (current.getCause() != null) {
                 pending.addLast(current.getCause());
             }
+            Collections.addAll(pending, current.getSuppressed());
         }
         messages.removeAll(sqlMessages);
         String safeContext = redact(context, sensitiveValues);

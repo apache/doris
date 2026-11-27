@@ -40,6 +40,7 @@ public class LocalFileJniWriter extends JniWriter {
     private final String columnSeparator;
     private final String lineDelimiter;
     private BufferedWriter fileWriter;
+    private Exception closeFailure;
     private long writtenRows = 0;
     private long writtenBytes = 0;
 
@@ -90,12 +91,38 @@ public class LocalFileJniWriter extends JniWriter {
 
     @Override
     protected void closeInternal() throws IOException {
-        if (fileWriter != null) {
-            fileWriter.flush();
-            fileWriter.close();
-            fileWriter = null;
+        if (closeFailure != null) {
+            rethrowCloseFailure();
         }
-        LOG.info(() -> "closed " + filePath + " after " + writtenRows + " rows, " + writtenBytes + " bytes");
+        if (fileWriter != null) {
+            try {
+                fileWriter.flush();
+            } catch (IOException | RuntimeException e) {
+                closeFailure = e;
+            }
+            // Even a failed flush must not leave the file handle open.
+            try {
+                fileWriter.close();
+                fileWriter = null;
+            } catch (IOException | RuntimeException e) {
+                if (closeFailure == null) {
+                    closeFailure = e;
+                } else if (closeFailure != e) {
+                    closeFailure.addSuppressed(e);
+                }
+            }
+            if (closeFailure != null) {
+                rethrowCloseFailure();
+            }
+            LOG.info(() -> "closed " + filePath + " after " + writtenRows + " rows, " + writtenBytes + " bytes");
+        }
+    }
+
+    private void rethrowCloseFailure() throws IOException {
+        if (closeFailure instanceof IOException) {
+            throw (IOException) closeFailure;
+        }
+        throw (RuntimeException) closeFailure;
     }
 
     @Override

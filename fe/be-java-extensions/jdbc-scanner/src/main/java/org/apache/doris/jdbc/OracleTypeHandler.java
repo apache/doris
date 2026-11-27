@@ -142,8 +142,7 @@ public class OracleTypeHandler extends DefaultTypeHandler {
         }
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-        stmt.setFetchSize(fetchSize);
-        return stmt;
+        return JdbcCleanup.setFetchSizeOrClose(stmt, fetchSize);
     }
 
     @Override

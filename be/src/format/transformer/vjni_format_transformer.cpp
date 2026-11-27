@@ -98,18 +98,24 @@ Status VJniFormatTransformer::write(const Block& block) {
 }
 
 Status VJniFormatTransformer::close() {
-    if (_closed || !_opened) {
+    return _close_with_env(Jni::Env::Get);
+}
+
+Status VJniFormatTransformer::_close_with_env(Status (*get_env)(JNIEnv**)) {
+    // Java close can commit/publish before throwing; return its first result without redoing it.
+    if (_close_result.has_value()) {
+        return *_close_result;
+    }
+    // Do not finalize an incomplete open; JDBC rolls back its own partial acquisition.
+    if (!_opened) {
         return Status::OK();
     }
-    _closed = true;
 
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->close).call());
-    RETURN_ERROR_IF_EXC(env);
-
-    return Status::OK();
+    // An attach failure has not entered Java, so a later close may safely try again.
+    RETURN_IF_ERROR(get_env(&env));
+    _close_result = _jni_writer_obj.call_void_method(env, _writer_api->close).call();
+    return *_close_result;
 }
 
 int64_t VJniFormatTransformer::written_len() {

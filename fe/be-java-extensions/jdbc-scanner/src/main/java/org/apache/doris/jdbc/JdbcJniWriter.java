@@ -95,6 +95,8 @@ public class JdbcJniWriter extends JniWriter {
     private Connection conn = null;
     private PreparedStatement preparedStatement = null;
     private ClassLoader classLoader = null;
+    private boolean commitPending = false;
+    private JdbcIOException closeFailure = null;
 
     // Statistics
     private long writtenRows = 0;
@@ -125,6 +127,7 @@ public class JdbcJniWriter extends JniWriter {
     @Override
     protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+        boolean transactionStarted = false;
         try {
             initializeClassLoaderAndDataSource();
 
@@ -133,12 +136,18 @@ public class JdbcJniWriter extends JniWriter {
 
             if (useTransaction) {
                 conn.setAutoCommit(false);
+                transactionStarted = true;
             }
 
             LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
+            commitPending = useTransaction;
         } catch (Exception e) {
-            throw new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl);
+            // Initialization must release resources without committing an incomplete open.
+            if (transactionStarted) {
+                JdbcCleanup.attempt(e, conn::rollback);
+            }
+            throw new JdbcIOException("JdbcJniWriter open failed", closeResources(e), jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -169,41 +178,48 @@ public class JdbcJniWriter extends JniWriter {
 
     @Override
     protected void closeInternal() throws IOException {
-        try {
-            // Commit transaction before closing if useTransaction is enabled.
-            // autoCommit was set to false in open(), so without explicit commit()
-            // the JDBC driver will roll back all writes on connection close.
-            if (useTransaction && conn != null && !conn.isClosed()) {
-                conn.commit();
-            }
-            if (preparedStatement != null && !preparedStatement.isClosed()) {
-                preparedStatement.close();
-            }
-            if (conn != null && !conn.isClosed()) {
-                conn.close();
-            }
-        } catch (SQLException e) {
-            // If commit or close fails, attempt rollback before rethrowing
+        // A previous commit/close may have taken effect despite throwing. Do not finalize twice.
+        if (closeFailure != null) {
+            throw closeFailure;
+        }
+        Exception failure = null;
+        if (commitPending) {
+            commitPending = false;
             try {
-                if (useTransaction && conn != null && !conn.isClosed()) {
-                    conn.rollback();
-                }
-            } catch (SQLException rollbackEx) {
-                String diagnostic = JdbcExceptionUtils.format("JdbcJniWriter rollback on close failure also failed",
-                        rollbackEx, jdbcPassword, jdbcUrl);
-                LOG.warn("{}", diagnostic);
-            }
-            throw new JdbcIOException("JdbcJniWriter close failed", e, jdbcPassword, jdbcUrl);
-        } finally {
-            preparedStatement = null;
-            conn = null;
-            if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap()
-                        .remove(createCacheKey());
-                hikariDataSource = null;
+                conn.commit();
+            } catch (Exception e) {
+                failure = JdbcCleanup.attempt(e, conn::rollback);
             }
         }
+        failure = closeResources(failure);
+        if (failure != null) {
+            closeFailure = new JdbcIOException("JdbcJniWriter close failed", failure, jdbcPassword, jdbcUrl);
+            throw closeFailure;
+        }
+    }
+
+    private Exception closeResources(Exception failure) {
+        if (preparedStatement != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                preparedStatement.close();
+                preparedStatement = null;
+            });
+        }
+        if (conn != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                conn.close();
+                conn = null;
+                preparedStatement = null;
+            });
+        }
+        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                hikariDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey(), hikariDataSource);
+                hikariDataSource = null;
+            });
+        }
+        return failure;
     }
 
     @Override

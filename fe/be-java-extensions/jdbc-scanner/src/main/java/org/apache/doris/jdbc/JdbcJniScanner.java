@@ -99,6 +99,7 @@ public class JdbcJniScanner extends JniScanner {
 
     // Read state
     private boolean resultSetOpened = false;
+    private boolean abortAttempted = false;
     private List<Object[]> block = null;
     // Per-column replace strings for special type handling (bitmap, hll)
     private String[] replaceStringList;
@@ -170,6 +171,7 @@ public class JdbcJniScanner extends JniScanner {
             initializeClassLoaderAndDataSource();
 
             conn = hikariDataSource.getConnection();
+            abortAttempted = false;
 
             // Use type handler to create the statement with database-specific settings
             stmt = typeHandler.initializeStatement(conn, querySql, batchSize);
@@ -213,7 +215,7 @@ public class JdbcJniScanner extends JniScanner {
                 outputConverters[i] = typeHandler.getOutputConverter(types[i], replaceStr);
             }
         } catch (Exception e) {
-            throw new JdbcIOException("JdbcJniScanner open failed", e, jdbcPassword, jdbcUrl);
+            throw new JdbcIOException("JdbcJniScanner open failed", closeResources(e), jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -301,40 +303,49 @@ public class JdbcJniScanner extends JniScanner {
 
     @Override
     protected void closeInternal() throws IOException {
-        try {
-            // Use type handler for database-specific connection abort
-            if (conn != null && resultSet != null) {
-                typeHandler.abortReadConnection(conn, resultSet);
-            }
-        } catch (Exception e) {
-            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner abort connection error",
-                    e, jdbcPassword, jdbcUrl);
-            LOG.warn("{}", diagnostic);
+        Exception failure = closeResources(null);
+        if (failure != null) {
+            throw new JdbcIOException("JdbcJniScanner close failed", failure, jdbcPassword, jdbcUrl);
         }
-        try {
-            if (resultSet != null && !resultSet.isClosed()) {
+    }
+
+    private Exception closeResources(Exception failure) {
+        resultSetOpened = false;
+        resultSetMetaData = null;
+        // A streaming abort can fail too; never let it skip the ordinary close steps.
+        if (conn != null && resultSet != null && !abortAttempted) {
+            abortAttempted = true;
+            failure = JdbcCleanup.attempt(failure, () -> typeHandler.abortReadConnection(conn, resultSet));
+        }
+        if (resultSet != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
                 resultSet.close();
-            }
-            if (stmt != null && !stmt.isClosed()) {
-                stmt.close();
-            }
-            if (conn != null && !conn.isClosed()) {
-                conn.close();
-            }
-        } catch (Exception e) {
-            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner close error",
-                    e, jdbcPassword, jdbcUrl);
-            LOG.warn("{}", diagnostic);
-        } finally {
-            resultSet = null;
-            stmt = null;
-            conn = null;
-            if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey());
-                hikariDataSource = null;
-            }
+                resultSet = null;
+            });
         }
+        if (stmt != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                stmt.close();
+                stmt = null;
+            });
+        }
+        if (conn != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                conn.close();
+                conn = null;
+                // Returning the parent connection ends this borrow, including its children.
+                resultSet = null;
+                stmt = null;
+            });
+        }
+        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
+            failure = JdbcCleanup.attempt(failure, () -> {
+                hikariDataSource.close();
+                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey(), hikariDataSource);
+                hikariDataSource = null;
+            });
+        }
+        return failure;
     }
 
     @Override

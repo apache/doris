@@ -215,8 +215,7 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
         // MySQL: Integer.MIN_VALUE signals streaming results to avoid OOM
-        stmt.setFetchSize(Integer.MIN_VALUE);
-        return stmt;
+        return JdbcCleanup.setFetchSizeOrClose(stmt, Integer.MIN_VALUE);
     }
 
     @Override
