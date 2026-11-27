@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -28,6 +29,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.TreeNode;
 import org.apache.doris.thrift.TPlanNode;
 
 import com.google.common.collect.Lists;
@@ -35,11 +37,64 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class PlanNodeTest {
+    @Test
+    public void testSearchSharedExchangeInputs() {
+        TestPlanNode leaf = new TestPlanNode();
+        UnionNode producer = new UnionNode(new PlanNodeId(1), new TupleId(0));
+        ExchangeNode lowerLeft = new ExchangeNode(new PlanNodeId(2), leaf);
+        ExchangeNode lowerRight = new ExchangeNode(new PlanNodeId(3), leaf);
+        producer.addChild(lowerLeft);
+        producer.addChild(lowerRight);
+        UnionNode root = new UnionNode(new PlanNodeId(4), new TupleId(1));
+        ExchangeNode upperLeft = new ExchangeNode(new PlanNodeId(5), producer);
+        ExchangeNode upperRight = new ExchangeNode(new PlanNodeId(6), producer);
+        root.addChild(upperLeft);
+        root.addChild(upperRight);
+
+        List<PlanNode> expectedOrder = List.of(root, upperLeft, producer, lowerLeft, leaf, lowerRight, upperRight);
+        List<TreeNode<?>> visited = new ArrayList<>();
+        Assertions.assertFalse(root.anyMatch(node -> {
+            visited.add(node);
+            return false;
+        }));
+        Assertions.assertEquals(expectedOrder.size(), visited.size());
+        Assertions.assertEquals(expectedOrder, visited);
+
+        visited.clear();
+        Assertions.assertFalse(root.contains(node -> {
+            visited.add(node);
+            return false;
+        }));
+        Assertions.assertEquals(expectedOrder, visited);
+
+        visited.clear();
+        Assertions.assertTrue(root.anyMatch(node -> {
+            visited.add(node);
+            return node == leaf;
+        }));
+        Assertions.assertEquals(List.of(root, upperLeft, producer, lowerLeft, leaf), visited);
+        Assertions.assertSame(upperLeft, root.findFirstOf(ExchangeNode.class));
+        Assertions.assertNull(root.findFirstOf(PlanNode.class));
+        Assertions.assertTrue(root.contains(TestPlanNode.class));
+        Assertions.assertFalse(root.contains(PlanNode.class));
+        Assertions.assertTrue(root.containsSubclass(PlanNode.class));
+    }
+
+    @Test
+    public void testNullAwareLeftAntiJoinAcrossExchange() {
+        PlanNode join = new NestedLoopJoinNode(new PlanNodeId(1), new TestPlanNode(), new TestPlanNode(),
+                List.of(), JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN, false);
+        PlanNode exchange = new ExchangeNode(new PlanNodeId(2), join);
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), exchange, DataPartition.UNPARTITIONED);
+        Assertions.assertTrue(fragment.hasNullAwareLeftAntiJoin());
+    }
+
     @Test
     public void testGetPointQueryProjectListFlattensIntermediateProjection() {
         TestPlanNode planNode = new TestPlanNode();

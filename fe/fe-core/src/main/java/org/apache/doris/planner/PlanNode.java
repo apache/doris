@@ -53,13 +53,16 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -825,6 +828,27 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             substitutionMap.put(new SlotRef(outputSlots.get(i)), projectionExprs.get(i));
         }
         return substitutionMap;
+    }
+
+    @Override
+    protected PlanNode findFirstMatching(Predicate<? super TreeNode<PlanNode>> predicate) {
+        // Exchanges for different CTE consumers can share the same producer root.
+        Set<PlanNode> visited = Sets.newIdentityHashSet();
+        Deque<PlanNode> pending = new ArrayDeque<>();
+        pending.push(this);
+        while (!pending.isEmpty()) {
+            PlanNode node = pending.pop();
+            if (!visited.add(node)) {
+                continue;
+            }
+            if (predicate.test(node)) {
+                return node;
+            }
+            for (int i = node.children.size() - 1; i >= 0; i--) {
+                pending.push(node.children.get(i));
+            }
+        }
+        return null;
     }
 
     public <T extends PlanNode> List<T> collectInCurrentFragment(Predicate<PlanNode> predicate) {
