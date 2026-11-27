@@ -46,7 +46,8 @@ final class DeltaLakeConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(DeltaLakeConnector.class);
     private static final Set<ConnectorCapability> CAPABILITIES = Collections.unmodifiableSet(
             EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
-                    ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+                    ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE));
     private static final ExecutorService RESOURCE_CLOSER = resourceCloser();
 
     private final DeltaLakeCatalogProperties properties;

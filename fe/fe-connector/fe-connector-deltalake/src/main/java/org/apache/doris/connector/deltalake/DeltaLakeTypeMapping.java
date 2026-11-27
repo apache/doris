@@ -38,6 +38,7 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.VariantType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +55,8 @@ final class DeltaLakeTypeMapping {
             LongType.LONG, "BIGINT",
             FloatType.FLOAT, "FLOAT",
             DoubleType.DOUBLE, "DOUBLE",
-            DateType.DATE, "DATEV2");
+            DateType.DATE, "DATEV2",
+            VariantType.VARIANT, "VARIANT_COMPUTE_V2");
 
     private DeltaLakeTypeMapping() {
     }

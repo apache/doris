@@ -403,6 +403,9 @@ public:
 
     virtual std::string debug_string() const;
 
+    // Delta sends logical names even for mapped tables: e.g. STRUCT field "8" can have ID 7.
+    virtual bool uses_field_id_access_paths() const { return true; }
+
     virtual Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
                                              ProjectedColumnBuildContext* context,
                                              ColumnDefinition* column) const;

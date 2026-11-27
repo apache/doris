@@ -1971,7 +1971,7 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
-static bool has_timestamp_semantics(const ColumnDefinition& column) {
+bool has_timestamp_semantics(const ColumnDefinition& column) {
     return column.timestamp_is_adjusted_to_utc.has_value() ||
            std::ranges::any_of(column.children, has_timestamp_semantics);
 }

@@ -42,6 +42,7 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.VariantType;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -162,22 +163,21 @@ final class DeltaLakeSchemaBuilder {
         result.setName(name);
         result.setIsOptional(field.isNullable());
         DataType type = field.getDataType();
-        TColumnType columnType = new TColumnType();
-        columnType.setType(TPrimitiveType.STRING);
+        // Ordinary scalars retain the projected slot type, including its precision and scale.
         if (type instanceof StructType) {
-            columnType.setType(TPrimitiveType.STRUCT);
+            result.setType(new TColumnType(TPrimitiveType.STRUCT));
             TNestedField nested = new TNestedField();
             nested.setStructField(mappingStruct((StructType) type, physical));
             result.setNestedField(nested);
         } else if (type instanceof ArrayType) {
-            columnType.setType(TPrimitiveType.ARRAY);
+            result.setType(new TColumnType(TPrimitiveType.ARRAY));
             TArrayField array = new TArrayField();
             array.setItemField(mappingCollectionField(((ArrayType) type).getElementField(), nestedIds, path, physical));
             TNestedField nested = new TNestedField();
             nested.setArrayField(array);
             result.setNestedField(nested);
         } else if (type instanceof MapType) {
-            columnType.setType(TPrimitiveType.MAP);
+            result.setType(new TColumnType(TPrimitiveType.MAP));
             MapType mapType = (MapType) type;
             TMapField map = new TMapField();
             map.setKeyField(mappingCollectionField(mapType.getKeyField(), nestedIds, path, physical));
@@ -185,10 +185,11 @@ final class DeltaLakeSchemaBuilder {
             TNestedField nested = new TNestedField();
             nested.setMapField(map);
             result.setNestedField(nested);
+        } else if (type instanceof VariantType) {
+            result.setType(new TColumnType(TPrimitiveType.VARIANT));
         } else if (type instanceof TimestampType || type instanceof TimestampNTZType) {
             result.setTimestampIsAdjustedToUtc(type instanceof TimestampType);
         }
-        result.setType(columnType);
         return result;
     }
 

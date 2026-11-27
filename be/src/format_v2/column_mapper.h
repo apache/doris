@@ -196,6 +196,9 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
 const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
                                                 const std::vector<ColumnDefinition>& file_schema,
                                                 bool allow_idless_complex_wrapper_projection);
+// True when the file column or one of its descendants carries a table-format timestamp marker.
+bool has_timestamp_semantics(const ColumnDefinition& column);
+
 // Put the timestamp semantics recorded on an annotated file column and its descendants onto a
 // projection of that column. A full projection gains a child only for a subtree that carries a
 // semantic; a partial projection keeps its selection. Callers that project a file column without

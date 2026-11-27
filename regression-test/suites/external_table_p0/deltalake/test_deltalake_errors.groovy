@@ -29,8 +29,8 @@ suite("test_deltalake_errors", "p0,external") {
         's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'
     )"""
     test {
-        sql "select * from test_deltalake_errors.delta_golden.spark_variant_checkpoint"
-        exception "Unsupported Delta Lake reader features [variantType-preview]"
+        sql "select * from test_deltalake_errors.delta_reader_edges.geospatial"
+        exception "Unsupported Delta Lake reader features [geospatial]"
     }
     test {
         sql "select * from test_deltalake_errors.delta_golden.collations_table"

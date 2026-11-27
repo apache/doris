@@ -24,6 +24,7 @@ namespace doris::format::deltalake {
 class DeltaReader final : public TableReader {
 public:
     ~DeltaReader() override = default;
+    bool uses_field_id_access_paths() const override { return false; }
     Status prepare_split(const SplitReadOptions& options) override;
 
 protected:
@@ -31,11 +32,13 @@ protected:
     TableColumnMappingMode mapping_mode() const override;
     bool _should_enable_condition_cache(const FileScanRequest& file_request) const override;
     Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) override;
+    Status customize_file_scan_request(FileScanRequest* file_request) override;
     Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                        bool* has_delete_file) override;
 
 private:
     int64_t _split_schema_id = -1;
+    std::vector<LocalColumnIndex> _variant_schema_overrides;
 };
 
 } // namespace doris::format::deltalake

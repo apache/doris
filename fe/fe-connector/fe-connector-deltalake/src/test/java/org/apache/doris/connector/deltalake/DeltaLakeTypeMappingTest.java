@@ -80,10 +80,18 @@ class DeltaLakeTypeMappingTest {
     }
 
     @Test
-    void rejectsTypesOutsideM1() {
-        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                () -> map(VariantType.VARIANT));
-        Assertions.assertTrue(error.getMessage().contains("variant"));
+    void mapsVariantInsideEveryContainer() {
+        ConnectorType variant = ConnectorType.of("VARIANT_COMPUTE_V2");
+        Assertions.assertEquals(variant, map(VariantType.VARIANT));
+        StructType nested = new StructType().add("v", VariantType.VARIANT);
+        Assertions.assertEquals(variant, map(nested).getChildren().get(0));
+        Assertions.assertEquals(variant, map(new ArrayType(VariantType.VARIANT, true)).getChildren().get(0));
+        Assertions.assertEquals(variant,
+                map(new MapType(StringType.STRING, VariantType.VARIANT, true)).getChildren().get(1));
+    }
+
+    @Test
+    void rejectsUnsupportedCollation() {
         Assertions.assertThrows(DorisConnectorException.class, () -> map(new StringType("SPARK.UTF8_LCASE")));
     }
 

@@ -52,9 +52,9 @@ import java.util.ServiceLoader;
 import java.util.Set;
 
 class DeltaLakeConnectorTest {
-    private static final Map<String, Object> VARIANT_PROTOCOL = Map.of(
+    private static final Map<String, Object> GEOSPATIAL_PROTOCOL = Map.of(
             "minReaderVersion", 3, "minWriterVersion", 7,
-            "readerFeatures", List.of("variantType"), "writerFeatures", List.of("variantType"));
+            "readerFeatures", List.of("geospatial"), "writerFeatures", List.of("geospatial"));
     private static final Map<String, Object> ICT_PROTOCOL = Map.of(
             "minReaderVersion", 1, "minWriterVersion", 7,
             "writerFeatures", List.of("inCommitTimestamp"));
@@ -67,6 +67,14 @@ class DeltaLakeConnectorTest {
         try (Connector delta = connector()) {
             Assertions.assertTrue(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
             Assertions.assertFalse(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+        }
+    }
+
+    @Test
+    void prunesNestedColumnsUsingLogicalNames() throws Exception {
+        try (Connector delta = connector()) {
+            Assertions.assertTrue(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE));
+            Assertions.assertFalse(delta.getCapabilities().contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH));
         }
     }
 
@@ -325,7 +333,7 @@ class DeltaLakeConnectorTest {
         long t2 = Instant.parse("2026-11-24T02:00:00Z").toEpochMilli();
         DeltaLakeTestTables.commit(table, 0, "another-table", schema, List.of(),
                 Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t0);
-        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL,
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), GEOSPATIAL_PROTOCOL,
                 Collections.emptyMap(), null, t1);
         DeltaLakeTestTables.commit(table, 2, "first", schema, List.of(),
                 Map.of("minReaderVersion", 1, "minWriterVersion", 2), Collections.emptyMap(), null, t2);
@@ -358,7 +366,7 @@ class DeltaLakeConnectorTest {
             DorisConnectorException features = Assertions.assertThrows(DorisConnectorException.class,
                     () -> metadata.resolveTimeTravel(session, latest,
                             ConnectorTimeTravelSpec.timestamp(Long.toString(t1), true)));
-            Assertions.assertTrue(features.getMessage().contains("variantType"), features.getMessage());
+            Assertions.assertTrue(features.getMessage().contains("geospatial"), features.getMessage());
 
             // Table recreated at latest version between getTableHandle and resolveTimeTravel.
             DeltaLakeTestTables.commit(table, 2, "replacement", schema, List.of(),
@@ -394,7 +402,7 @@ class DeltaLakeConnectorTest {
         Path table = warehouse.resolve("db/table");
         StructType schema = new StructType().add("id", LongType.LONG);
         DeltaLakeTestTables.commit(table, 0, "another-table", schema);
-        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL);
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), GEOSPATIAL_PROTOCOL);
         DeltaLakeTestTables.commit(table, 2, "first", schema);
         TestingConnectorSession session = new TestingConnectorSession("unsupported-version");
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
@@ -404,7 +412,7 @@ class DeltaLakeConnectorTest {
             Assertions.assertTrue(identity.getMessage().contains("recreated"), identity.getMessage());
             DorisConnectorException features = Assertions.assertThrows(DorisConnectorException.class,
                     () -> metadata.resolveTimeTravel(session, latest, ConnectorTimeTravelSpec.snapshotId("1")));
-            Assertions.assertTrue(features.getMessage().contains("variantType"), features.getMessage());
+            Assertions.assertTrue(features.getMessage().contains("geospatial"), features.getMessage());
         }
     }
 
@@ -428,14 +436,14 @@ class DeltaLakeConnectorTest {
         Path table = warehouse.resolve("db/table");
         StructType schema = new StructType().add("id", LongType.LONG);
         DeltaLakeTestTables.commit(table, 0, "first", schema);
-        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL);
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), GEOSPATIAL_PROTOCOL);
         TestingConnectorSession session = new TestingConnectorSession("unsupported-latest");
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
             DorisConnectorException unsupported = Assertions.assertThrows(DorisConnectorException.class,
                     () -> metadata.getTableHandle(session, "db", "table"));
             Assertions.assertTrue(unsupported.getMessage().contains("Unsupported Delta Lake reader features"),
                     unsupported.getMessage());
-            Assertions.assertTrue(unsupported.getMessage().contains("variantType"), unsupported.getMessage());
+            Assertions.assertTrue(unsupported.getMessage().contains("geospatial"), unsupported.getMessage());
         }
     }
 

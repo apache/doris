@@ -23,6 +23,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table/delta_sys_table_reader.h"
+#include "format_v2/table/parquet_variant_schema.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -119,11 +120,14 @@ Status DeltaReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
 
 Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
     DORIS_CHECK(file_schema != nullptr);
-    if (_scan_params != nullptr && _scan_params->__isset.deltalake_column_mapping_mode) {
-        switch (_scan_params->deltalake_column_mapping_mode) {
-        case TDeltaLakeColumnMappingMode::NONE:
-            return Status::OK();
-        case TDeltaLakeColumnMappingMode::ID:
+    _variant_schema_overrides.clear();
+    if (_current_file_range_desc.table_format_params.deltalake_params.__isset.sys_table_batch) {
+        return Status::OK();
+    }
+    const auto mode = mapping_mode();
+    if (mode == TableColumnMappingMode::BY_FIELD_ID) {
+        if (_scan_params->__isset.deltalake_column_mapping_mode &&
+            _scan_params->deltalake_column_mapping_mode == TDeltaLakeColumnMappingMode::ID) {
             // A file containing ID 3 has no value for ID 7, even if both have the same name.
             // Spark rejects an entirely untagged footer when the scan requests a field by ID.
             if (!std::ranges::any_of(*file_schema, has_data_field_id) &&
@@ -134,18 +138,30 @@ Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_sch
                 return Status::DataQualityError("Delta id mapping requires Parquet field IDs in {}",
                                                 _current_file_range_desc.path);
             }
-            return Status::OK();
-        case TDeltaLakeColumnMappingMode::NAME:
-            // The physical-name dictionary below supplies the IDs used by the mapper. An old
-            // field with a different physical name must not match by its coincidental footer ID.
-            clear_parquet_field_ids(*file_schema);
-            break;
+        } else {
+            if (_scan_params->__isset.deltalake_column_mapping_mode) {
+                // NAME matches the physical dictionary. An old file's coincidental footer ID
+                // must not match a dropped and re-added field.
+                clear_parquet_field_ids(*file_schema);
+            }
+            RETURN_IF_ERROR(
+                    annotate_file_schema_from_history(_scan_params, _split_schema_id, file_schema));
+            // The request carries these markers into Parquet. Keep the mapper's file block in
+            // sync, e.g. for an INT96 instant beside a Variant inside a mapped struct.
+            for (auto& column : *file_schema) {
+                if (has_timestamp_semantics(column)) {
+                    RETURN_IF_ERROR(apply_file_timestamp_semantics(&column));
+                }
+            }
         }
     }
-    // Plans from older FEs carried only the physical-name dictionary.
-    if (mapping_mode() == TableColumnMappingMode::BY_FIELD_ID) {
-        return annotate_file_schema_from_history(_scan_params, _split_schema_id, file_schema);
-    }
+    return annotate_parquet_variants(_projected_columns, file_schema, mode,
+                                     &_variant_schema_overrides);
+}
+
+Status DeltaReader::customize_file_scan_request(FileScanRequest* file_request) {
+    RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
+    file_request->variant_schema_overrides = _variant_schema_overrides;
     return Status::OK();
 }
 

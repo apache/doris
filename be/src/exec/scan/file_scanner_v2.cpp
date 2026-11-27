@@ -1030,7 +1030,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         RETURN_IF_ERROR(AccessPathParser::build_nested_children(
                 &column, it->second,
                 build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr,
-                prefer_exact_name_match));
+                prefer_exact_name_match, table_reader.uses_field_id_access_paths()));
         if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
