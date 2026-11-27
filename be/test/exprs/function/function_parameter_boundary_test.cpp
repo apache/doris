@@ -136,4 +136,70 @@ TEST(FunctionParameterBoundaryTest, BitmapNullElementPayload) {
     }
 }
 
+TEST(FunctionParameterBoundaryTest, FloatingNegativeRoundingScale) {
+    InputTypeSet types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_INT};
+    // One value at 10^19 distinguishes 10^20 from the old saturated UINT64_MAX factor.
+    for (const std::string function : {"round", "round_bankers", "truncate", "floor"}) {
+        DataSet rows = {{{1e19, Int32(-20)}, double(0)}};
+        check_function_all_arg_comb<DataTypeFloat64, true>(function, types, rows);
+    }
+    DataSet ceiling = {{{1e19, Int32(-20)}, 1e20}};
+    check_function_all_arg_comb<DataTypeFloat64, true>("ceil", types, ceiling);
+    // The minimum supported scale has no finite factor. ROUND still returns zero.
+    DataSet tiny = {{{double(1), Int32(-32768)}, double(0)}};
+    check_function_all_arg_comb<DataTypeFloat64, true>("round", types, tiny);
+    DataSet directed = {{{double(1), Int32(-309)}, double(0)}};
+    auto status = check_function<DataTypeFloat64, true>("ceil", types, directed, -1, -1, true);
+    EXPECT_NE(status.to_string().find("Arithmetic overflow"), std::string::npos);
+    DataSet overflow = {{{1.7e308, Int32(-308)}, double(0)}};
+    status = check_function<DataTypeFloat64, true>("ceil", types, overflow, -1, -1, true);
+    EXPECT_NE(status.to_string().find("Arithmetic overflow"), std::string::npos);
+    // A finite factor can underflow the quotient. CEIL must still return one unit.
+    DataSet underflow = {{{1e-300, Int32(-308)}, 1e308}};
+    check_function_all_arg_comb<DataTypeFloat64, true>("ceil", types, underflow);
+}
+
+TEST(FunctionParameterBoundaryTest, FloatingPositiveRoundingScale) {
+    // A single subnormal value distinguishes a decimal unit from an infinite factor.
+    // Enumerate constant/column arguments so all three dispatcher paths execute.
+    InputTypeSet types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_INT};
+    for (const std::string function : {"round", "round_bankers", "truncate"}) {
+        for (double value : {1e-310, -1e-310}) {
+            check_function_all_arg_comb<DataTypeFloat64, true>(function, types,
+                                                               {{{value, Int32(309)}, double(0)}});
+        }
+    }
+    check_function_all_arg_comb<DataTypeFloat64, true>("ceil", types,
+                                                       {{{1e-310, Int32(309)}, 1e-309}});
+    check_function_all_arg_comb<DataTypeFloat64, true>("floor", types,
+                                                       {{{-1e-310, Int32(309)}, -1e-309}});
+    // The last decimal place that can change the smallest DOUBLE is 323.
+    const auto smallest = std::numeric_limits<double>::denorm_min();
+    check_function_all_arg_comb<DataTypeFloat64, true>("round", types,
+                                                       {{{smallest, Int32(323)}, double(0)}});
+    check_function_all_arg_comb<DataTypeFloat64, true>("ceil", types,
+                                                       {{{smallest, Int32(323)}, 1e-323}});
+    for (Int32 precision : {Int32(324), Int32(32767)}) {
+        for (const std::string function : {"round", "round_bankers", "truncate", "floor", "ceil"}) {
+            check_function_all_arg_comb<DataTypeFloat64, true>(function, types,
+                                                               {{{smallest, precision}, smallest}});
+        }
+    }
+}
+
+TEST(FunctionParameterBoundaryTest, NegativeRoundingDirection) {
+    InputTypeSet doubles = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_INT};
+    // Negative directed rounding must choose the adjacent negative unit, even when
+    // the quotient underflows. CEIL of the same value must choose zero.
+    check_function_all_arg_comb<DataTypeFloat64, true>("floor", doubles,
+                                                       {{{-1e-300, Int32(-308)}, -1e308}});
+    check_function_all_arg_comb<DataTypeFloat64, true>("ceil", doubles,
+                                                       {{{double(-1), Int32(-309)}, double(0)}});
+    check_function_all_arg_comb<DataTypeFloat64, true>("floor", doubles,
+                                                       {{{double(1), Int32(-309)}, double(0)}});
+    const auto status = check_function<DataTypeFloat64, true>(
+            "floor", doubles, {{{double(-1), Int32(-309)}, double(0)}}, -1, -1, true);
+    EXPECT_NE(status.to_string().find("Arithmetic overflow"), std::string::npos);
+}
+
 } // namespace doris

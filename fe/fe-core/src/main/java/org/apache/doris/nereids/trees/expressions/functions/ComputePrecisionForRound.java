@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -29,6 +30,20 @@ import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 
 /** ComputePrecisionForRound */
 public interface ComputePrecisionForRound extends ComputePrecision {
+    @Override
+    default void checkLegalityBeforeTypeCoercion() {
+        if (arity() == 2) {
+            Expression scale = FoldConstantRuleOnFE.evaluateWithoutContext(getArgument(1));
+            // BE stores scale in int16. Check before folding can remove an invalid argument:
+            // ROUND(NULL, -32769) becomes NULL, and ROUND(1, 32768) can become 1.
+            if (scale instanceof IntegerLikeLiteral
+                    && !((IntegerLikeLiteral) scale).isValueInRange(Short.MIN_VALUE, Short.MAX_VALUE)) {
+                throw new AnalysisException("Scale argument for function " + getName()
+                        + " is out of bound: " + scale.toSql());
+            }
+        }
+    }
+
     @Override
     default FunctionSignature computePrecision(FunctionSignature signature) {
         if (arity() == 1 && signature.getArgType(0) instanceof DecimalV3Type) {
