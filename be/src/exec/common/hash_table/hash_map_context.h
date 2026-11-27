@@ -22,6 +22,10 @@
 #include <type_traits>
 #include <utility>
 
+#ifdef BE_TEST
+#include <functional>
+#endif
+
 #include "common/compiler_util.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
@@ -61,7 +65,24 @@ struct MethodBaseInner {
     // use in join case
     DorisVector<uint32_t> bucket_nums;
 
-    MethodBaseInner() { hash_table.reset(new HashMap()); }
+private:
+#ifdef BE_TEST
+    using HashTableInitForTest = std::function<void(std::shared_ptr<HashMap>&, HashMap* (*)())>;
+    inline static thread_local const HashTableInitForTest* _hash_table_init_for_test = nullptr;
+#endif
+
+public:
+    MethodBaseInner() {
+        const auto allocate_map = [] { return new HashMap(); };
+#ifdef BE_TEST
+        // A scoped UT override can fail the map or control-block allocation here.
+        if (_hash_table_init_for_test != nullptr) {
+            (*_hash_table_init_for_test)(hash_table, allocate_map);
+            return;
+        }
+#endif
+        hash_table.reset(allocate_map());
+    }
     virtual ~MethodBaseInner() = default;
 
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,

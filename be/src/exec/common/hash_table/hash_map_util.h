@@ -42,6 +42,10 @@ Status init_hash_method(DataVariants* data, const std::vector<DataTypePtr>& data
         // method_variant may meet valueless_by_exception, so we set it to monostate
         data->method_variant.template emplace<std::monostate>();
         return e.to_status();
+    } catch (...) {
+        // emplace can leave the variant valueless; restore a safely destructible state.
+        data->method_variant.template emplace<std::monostate>();
+        throw;
     }
 
     CHECK(!data->method_variant.valueless_by_exception());
