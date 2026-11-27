@@ -59,6 +59,11 @@ namespace doris {
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 HybridSorter& hybrid_sorter, UInt64 limit = 0);
 
+/// Sort one block by `description` and keep only its last `rows` rows, in that order: the rows are
+/// ordered exactly as sort_block orders them, but only the ones kept are copied.
+void sort_block_tail(Block& src_block, Block& dest_block, const SortDescription& description,
+                     HybridSorter& hybrid_sorter, size_t rows);
+
 using ColumnWithSortDescription = std::pair<const IColumn*, SortColumnDescription>;
 
 using ColumnsWithSortDescriptions = std::vector<ColumnWithSortDescription>;
