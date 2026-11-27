@@ -162,6 +162,26 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
+    public void testGetSingleTranInfoByLabel() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), CatalogTestUtil.testTxnLabel1, transactionSource,
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+
+        List<List<String>> infos = masterTransMgr.getSingleTranInfoByLabel(CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTxnLabel1);
+        Assertions.assertEquals(1, infos.size());
+        Assertions.assertEquals(String.valueOf(transactionId), infos.get(0).get(0));
+        Assertions.assertEquals(CatalogTestUtil.testTxnLabel1, infos.get(0).get(1));
+        Assertions.assertEquals(TransactionStatus.PREPARE.name(), infos.get(0).get(3));
+
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> masterTransMgr.getSingleTranInfoByLabel(CatalogTestUtil.testDbId1, "missing"));
+        Assertions.assertTrue(e.getMessage().contains("transaction with label missing does not exist"),
+                e.getMessage());
+    }
+
+    @Test
     public void testBeginTransactionWithSameLabel() throws LabelAlreadyUsedException, AnalysisException,
             BeginTransactionException, DuplicatedRequestException {
         FakeEnv.setEnv(masterEnv);

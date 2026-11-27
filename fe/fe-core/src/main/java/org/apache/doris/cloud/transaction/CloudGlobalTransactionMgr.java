@@ -2608,6 +2608,38 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException {
+        GetTxnResponse getTxnResponse = getTxnByLabel(dbId, label);
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("getLabelState failed, dbId:{} label:{} getTxnResponse:{}", dbId, label, getTxnResponse);
+            throw new AnalysisException("getLabelState failed, errMsg:" + getTxnResponse.getStatus().getMsg());
+        }
+
+        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo()).getTransactionStatus();
+    }
+
+    // Reads the label's latest transaction. Only TXN_ID_NOT_FOUND means the label has no transaction; any other
+    // failure is an error, not an absence.
+    @Override
+    public Long getTransactionId(Long dbId, String label) throws AnalysisException {
+        TxnInfoPB txnInfo = getLatestTxnInfoByLabel(dbId, label);
+        return txnInfo == null ? null : txnInfo.getTxnId();
+    }
+
+    private TxnInfoPB getLatestTxnInfoByLabel(long dbId, String label) throws AnalysisException {
+        GetTxnResponse getTxnResponse = getTxnByLabel(dbId, label);
+        if (getTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
+            return null;
+        }
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("get transaction id by label failed, dbId:{} label:{} getTxnResponse:{}",
+                    dbId, label, getTxnResponse);
+            throw new AnalysisException("get transaction id by label " + label + " failed, errMsg:"
+                    + getTxnResponse.getStatus().getMsg());
+        }
+        return getTxnResponse.getTxnInfo();
+    }
+
+    private GetTxnResponse getTxnByLabel(long dbId, String label) throws AnalysisException {
         GetTxnRequest.Builder builder = GetTxnRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setDbId(dbId).setCloudUniqueId(Config.cloud_unique_id).setLabel(label);
@@ -2621,7 +2653,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (getTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
-                LOG.info("getLabelState KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
+                LOG.info("getTxnByLabel KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
                 backoff();
                 retryTime++;
                 continue;
@@ -2630,29 +2662,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             Preconditions.checkNotNull(getTxnResponse);
             Preconditions.checkNotNull(getTxnResponse.getStatus());
         } catch (Exception e) {
-            LOG.warn("getLabelState failed, dbId:{}, exception:", dbId, e);
-            throw new AnalysisException("getLabelState failed, errMsg:" + e.getMessage());
+            LOG.warn("getTxnByLabel failed, dbId:{}, label:{}, exception:", dbId, label, e);
+            throw new AnalysisException("get txn by label " + label + " failed, errMsg:" + e.getMessage());
         }
-
-        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
-            LOG.warn("getLabelState failed, dbId:{} label:{} retryTime:{} getTxnResponse:{}",
-                    dbId, label, retryTime, getTxnResponse);
-            throw new AnalysisException("getLabelState failed, errMsg:" + getTxnResponse.getStatus().getMsg());
-        }
-
-        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo()).getTransactionStatus();
-    }
-
-    @Override
-    public Long getTransactionId(Long dbId, String label)  {
-        try {
-            TransactionStatus labelState = getLabelState(dbId, label);
-            List<TransactionStatus> statusList = Lists.newArrayList(labelState);
-            return getTransactionIdByLabel(dbId, label, statusList);
-        } catch (UserException e) {
-            LOG.warn("Get transaction id by label " + label + " failed", e);
-            return null;
-        }
+        return getTxnResponse;
     }
 
     @Override
@@ -2722,14 +2735,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .getInstance().getTxnId(getTxnIdRequest);
             LOG.info("getTxnIdReponse: {}", getTxnIdResponse);
         } catch (RpcException e) {
-            LOG.info("getTransactionId exception: {}", e.getMessage());
-            throw new TransactionNotFoundException("transaction not found, label=" + label);
+            LOG.warn("getTransactionIdByLabel exception, label:{}", label, e);
+            throw new UserException("get transaction id by label " + label + " failed, errMsg:" + e.getMessage());
         }
 
-        if (getTxnIdResponse.getStatus().getCode() != MetaServiceCode.OK) {
-            LOG.info("getTransactionState exception: {}, {}", getTxnIdResponse.getStatus().getCode(),
-                    getTxnIdResponse.getStatus().getMsg());
+        if (getTxnIdResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
             throw new TransactionNotFoundException("transaction not found, label=" + label);
+        }
+        if (getTxnIdResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("getTransactionIdByLabel failed, label:{}, code:{}, msg:{}", label,
+                    getTxnIdResponse.getStatus().getCode(), getTxnIdResponse.getStatus().getMsg());
+            throw new UserException("get transaction id by label " + label + " failed, errMsg:"
+                    + getTxnIdResponse.getStatus().getMsg());
         }
         return getTxnIdResponse.getTxnId();
     }
@@ -2848,12 +2865,50 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
-        List<List<String>> infos = new ArrayList<List<String>>();
-        TransactionState txnState = this.getTransactionState(dbId, txnId);
-        if (txnState == null) {
+        TxnInfoPB txnInfo = getTxnInfoById(dbId, txnId);
+        if (txnInfo == null) {
             throw new AnalysisException("transaction with id " + txnId + " does not exist");
         }
+        return toSingleTranInfo(dbId, TxnUtil.transactionStateFromPb(txnInfo));
+    }
+
+    private TxnInfoPB getTxnInfoById(long dbId, long txnId) throws AnalysisException {
+        long parentTxnId = subTxnIdToTxnId.getOrDefault(txnId, txnId);
+        GetTxnRequest getTxnRequest = GetTxnRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                .setDbId(dbId).setTxnId(parentTxnId).setCloudUniqueId(Config.cloud_unique_id).build();
+        GetTxnResponse getTxnResponse;
+        try {
+            getTxnResponse = MetaServiceProxy.getInstance().getTxn(getTxnRequest);
+        } catch (RpcException e) {
+            LOG.warn("get transaction by id failed, dbId:{} txnId:{}", dbId, parentTxnId, e);
+            throw new AnalysisException("get transaction " + parentTxnId + " failed, errMsg:" + e.getMessage());
+        }
+        if (getTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
+            return null;
+        }
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("get transaction by id failed, dbId:{} txnId:{} getTxnResponse:{}",
+                    dbId, parentTxnId, getTxnResponse);
+            throw new AnalysisException("get transaction " + parentTxnId + " failed, errMsg:"
+                    + getTxnResponse.getStatus().getMsg());
+        }
+        return getTxnResponse.getTxnInfo();
+    }
+
+    @Override
+    public List<List<String>> getSingleTranInfoByLabel(long dbId, String label) throws AnalysisException {
+        TxnInfoPB txnInfo = getLatestTxnInfoByLabel(dbId, label);
+        if (txnInfo == null) {
+            throw new AnalysisException("transaction with label " + label + " does not exist");
+        }
+        return toSingleTranInfo(dbId, TxnUtil.transactionStateFromPb(txnInfo));
+    }
+
+    private static List<List<String>> toSingleTranInfo(long dbId, TransactionState txnState)
+            throws AnalysisException {
         TransactionUtil.checkAuth(dbId, txnState);
+        List<List<String>> infos = new ArrayList<List<String>>();
         infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
         return infos;
     }

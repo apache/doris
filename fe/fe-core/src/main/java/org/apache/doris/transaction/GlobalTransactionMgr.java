@@ -844,6 +844,15 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         return dbTransactionMgr.getSingleTranInfo(dbId, txnId);
     }
 
+    @Override
+    public List<List<String>> getSingleTranInfoByLabel(long dbId, String label) throws AnalysisException {
+        Long txnId = getTransactionId(dbId, label);
+        if (txnId == null) {
+            throw new AnalysisException("transaction with label " + label + " does not exist");
+        }
+        return getSingleTranInfo(dbId, txnId);
+    }
+
     public List<List<Comparable>> getTableTransInfo(long dbId, long txnId) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         return dbTransactionMgr.getTableTransInfo(txnId);
