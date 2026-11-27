@@ -19,9 +19,12 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <chrono>
 #include <mutex>
 #include <regex>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/logging.h"
 #include "common/string_util.h"
@@ -36,13 +39,91 @@ namespace doris::cloud {
 
 static std::atomic_int64_t seq = 0;
 
+int64_t ResourceManager::now_ms() {
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    TEST_SYNC_POINT_CALLBACK("ResourceManager::now_ms", &now);
+    return now;
+}
+
+bool ResourceManager::is_node_cloud_unique_id_valid(const NodeInfoPB& node,
+                                                    std::string_view cloud_unique_id,
+                                                    int64_t now_ms) {
+    if (cloud_unique_id.empty()) {
+        return false;
+    }
+    if (node.cloud_unique_id() == cloud_unique_id) {
+        return true;
+    }
+    return node.has_previous_cloud_unique_id() &&
+           node.previous_cloud_unique_id() == cloud_unique_id &&
+           node.has_previous_cloud_unique_id_expire_at() &&
+           now_ms < node.previous_cloud_unique_id_expire_at();
+}
+
+bool ResourceManager::is_node_cloud_unique_id_expired_previous(const NodeInfoPB& node,
+                                                               std::string_view cloud_unique_id,
+                                                               int64_t now_ms) {
+    if (cloud_unique_id.empty()) {
+        return false;
+    }
+    return node.has_previous_cloud_unique_id() &&
+           node.previous_cloud_unique_id() == cloud_unique_id &&
+           node.has_previous_cloud_unique_id_expire_at() &&
+           now_ms >= node.previous_cloud_unique_id_expire_at();
+}
+
+bool ResourceManager::is_expired_previous_cloud_unique_id(const std::string& cloud_unique_id,
+                                                          const std::string& instance_id) {
+    if (cloud_unique_id.empty() || instance_id.empty() || txn_kv_ == nullptr) {
+        return false;
+    }
+    InstanceInfoPB instance;
+    auto [code, msg] = get_instance(nullptr, instance_id, &instance);
+    if (code != TxnErrorCode::TXN_OK) {
+        return false;
+    }
+    int64_t cur_ms = now_ms();
+    bool has_expired_previous = false;
+    for (const auto& cluster : instance.clusters()) {
+        for (const auto& node : cluster.nodes()) {
+            if (is_node_cloud_unique_id_valid(node, cloud_unique_id, cur_ms)) {
+                return false;
+            }
+            if (is_node_cloud_unique_id_expired_previous(node, cloud_unique_id, cur_ms)) {
+                has_expired_previous = true;
+            }
+        }
+    }
+    return has_expired_previous;
+}
+
 int ResourceManager::init() {
+    return reload_all_instances(nullptr);
+}
+
+int ResourceManager::reload_all_instances(const std::string* synced_update_val) {
+    if (txn_kv_ == nullptr) {
+        return -1;
+    }
     // Scan all instances
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(INFO) << "failed to init txn, err=" << err;
         return -1;
+    }
+
+    std::string update_val;
+    if (synced_update_val != nullptr) {
+        update_val = *synced_update_val;
+    } else {
+        TxnErrorCode update_err = txn->get(system_meta_service_instance_update_key(), &update_val);
+        if (update_err != TxnErrorCode::TXN_OK && update_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG(WARNING) << "failed to get instance update key during init, err=" << update_err;
+            return -1;
+        }
     }
 
     InstanceKeyInfo key0_info {""};
@@ -106,35 +187,104 @@ int ResourceManager::init() {
         key0.push_back('\x00'); // Update to next smallest key for iteration
     }
 
+    int64_t cur_ms = now_ms();
     std::unique_lock l(mtx_);
+    node_info_.clear();
+    instance_multi_version_status_.clear();
+    instance_source_snapshot_info_.clear();
     for (auto& [inst_id, inst] : instances) {
-        for (auto& c : inst.clusters()) {
-            add_cluster_to_index_no_lock(inst_id, c);
+        if (!inst.has_successor_instance_id()) {
+            for (auto& c : inst.clusters()) {
+                add_cluster_to_index_no_lock(inst_id, c, cur_ms);
+            }
         }
         if (inst.has_multi_version_status()) {
             instance_multi_version_status_[inst_id] = inst.multi_version_status();
         }
     }
+    last_synced_instance_update_val_ = update_val;
+    last_update_key_check_ms_.store(cur_ms, std::memory_order_release);
 
     return 0;
 }
 
+void ResourceManager::sync_instances_if_updated(bool force_check) {
+    if (txn_kv_ == nullptr) {
+        return;
+    }
+    constexpr int64_t kUpdateKeyCheckIntervalMs = 1000;
+    int64_t cur_ms = now_ms();
+    if (!force_check && cur_ms - last_update_key_check_ms_.load(std::memory_order_acquire) <
+                                kUpdateKeyCheckIntervalMs) {
+        return;
+    }
+
+    std::lock_guard sync_lock(sync_mtx_);
+    cur_ms = now_ms();
+    if (!force_check && cur_ms - last_update_key_check_ms_.load(std::memory_order_acquire) <
+                                kUpdateKeyCheckIntervalMs) {
+        return;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return;
+    }
+    std::string current_val;
+    TxnErrorCode err = txn->get(system_meta_service_instance_update_key(), &current_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return;
+    }
+
+    std::string last_val;
+    {
+        std::shared_lock l(mtx_);
+        last_val = last_synced_instance_update_val_;
+    }
+    if (current_val != last_val) {
+        reload_all_instances(&current_val);
+    } else {
+        last_update_key_check_ms_.store(cur_ms, std::memory_order_release);
+    }
+}
+
 std::string ResourceManager::get_node(const std::string& cloud_unique_id,
                                       std::vector<NodeInfo>* nodes) {
-    // FIXME(gavin): refresh the all instance if there is a miss?
-    //               Or we can refresh all instances regularly to reduce
-    //               read amplification.
-    std::shared_lock l(mtx_);
-    auto [s, e] = node_info_.equal_range(cloud_unique_id);
-    if (s == node_info_.end() || s->first != cloud_unique_id) {
-        LOG(INFO) << "cloud_unique_id not found in node cache";
-        return "cloud_unique_id not found";
+    auto lookup = [&](int64_t cur_ms) -> bool {
+        std::shared_lock l(mtx_);
+        auto [s, e] = node_info_.equal_range(cloud_unique_id);
+        if (s == node_info_.end() || s->first != cloud_unique_id) {
+            return false;
+        }
+        bool found = false;
+        for (auto i = s; i != e; ++i) {
+            if (i->second.is_previous && cur_ms >= i->second.expire_at_ms) {
+                continue;
+            }
+            nodes->emplace_back(i->second);
+            found = true;
+        }
+        return found;
+    };
+
+    // Bounded freshness check so stale caches still observe rotations and expirations
+    // even if asynchronous notifications fail.
+    sync_instances_if_updated(false);
+    int64_t cur_ms = now_ms();
+    if (lookup(cur_ms)) {
+        return "";
     }
-    nodes->reserve(nodes->size() + node_info_.count(cloud_unique_id));
-    for (auto i = s; i != e; ++i) {
-        nodes->emplace_back(i->second); // Just copy, it's cheap
+
+    // Authoritative check on cache miss so a newly rotated ID is visible on every MS replica
+    // immediately after commit without depending on async watch delivery.
+    sync_instances_if_updated(true);
+    cur_ms = now_ms();
+    if (lookup(cur_ms)) {
+        return "";
     }
-    return "";
+
+    LOG(INFO) << "cloud_unique_id not found in node cache";
+    return "cloud_unique_id not found";
 }
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
@@ -499,6 +649,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     //               and updating it after persistence for the cloud_unique_id
     //               to add is a fairly fine solution.
     {
+        int64_t cur_ms = now_ms();
         std::shared_lock l(mtx_);
         // Check uniqueness of cloud_unique_id to add, cloud unique ids are not
         // shared between instances
@@ -507,6 +658,9 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
             auto [start, end] = node_info_.equal_range(i.cloud_unique_id());
             if (start == node_info_.end() || start->first != i.cloud_unique_id()) continue;
             for (auto it = start; it != end; ++it) {
+                if (it->second.is_previous && cur_ms >= it->second.expire_at_ms) {
+                    continue;
+                }
                 if (it->second.instance_id != instance_id) {
                     // different instance, but has same cloud_unique_id
                     ss << "cloud_unique_id is already occupied by an instance,"
@@ -941,7 +1095,7 @@ std::string ResourceManager::update_cluster(
 }
 
 void ResourceManager::add_cluster_to_index_no_lock(const std::string& instance_id,
-                                                   const ClusterPB& c) {
+                                                   const ClusterPB& c, int64_t cur_ms) {
     auto type = c.has_type() ? c.type() : -1;
     Role role = (type == ClusterPB::SQL
                          ? Role::SQL_SERVER
@@ -955,13 +1109,28 @@ void ResourceManager::add_cluster_to_index_no_lock(const std::string& instance_i
                     .instance_id = instance_id,
                     .cluster_name = c.cluster_name(),
                     .cluster_id = c.cluster_id(),
-                    .node_info = i};
+                    .node_info = i,
+                    .is_previous = false,
+                    .expire_at_ms = 0};
         LOG(WARNING) << (existed ? "duplicated cloud_unique_id " : "")
                      << "instance_id=" << instance_id << " cluster_id=" << c.cluster_id()
                      << " node_host=" << i.host() << " node_ip=" << i.ip()
                      << " heartbeat_port=" << i.heartbeat_port()
                      << " edit_log_port=" << i.edit_log_port();
         node_info_.insert({i.cloud_unique_id(), std::move(n)});
+
+        if (i.has_previous_cloud_unique_id() && !i.previous_cloud_unique_id().empty() &&
+            i.has_previous_cloud_unique_id_expire_at() &&
+            cur_ms < i.previous_cloud_unique_id_expire_at()) {
+            NodeInfo prev {.role = role,
+                           .instance_id = instance_id,
+                           .cluster_name = c.cluster_name(),
+                           .cluster_id = c.cluster_id(),
+                           .node_info = i,
+                           .is_previous = true,
+                           .expire_at_ms = i.previous_cloud_unique_id_expire_at()};
+            node_info_.insert({i.previous_cloud_unique_id(), std::move(prev)});
+        }
     }
 }
 
@@ -1137,11 +1306,15 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     check_func check_to_add = [&](const NodeInfo& n) -> std::string {
         std::string err;
         std::stringstream s;
+        int64_t cur_ms = now_ms();
         auto [start, end] = node_info_.equal_range(n.node_info.cloud_unique_id());
         if (start == node_info_.end() || start->first != n.node_info.cloud_unique_id()) {
             return "";
         }
         for (auto it = start; it != end; ++it) {
+            if (it->second.is_previous && cur_ms >= it->second.expire_at_ms) {
+                continue;
+            }
             if (it->second.instance_id != n.instance_id) {
                 // different instance, but has same cloud_unique_id
                 s << "cloud_unique_id is already occupied by an instance,"
@@ -1240,8 +1413,12 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
             return std::string("not found ,") + err;
         }
 
+        int64_t cur_ms = now_ms();
         bool found = false;
         for (auto it = start; it != end; ++it) {
+            if (it->second.is_previous && cur_ms >= it->second.expire_at_ms) {
+                continue;
+            }
             const auto& m_node = it->second.node_info;
             if (m_node.has_ip() && n.node_info.has_ip()) {
                 std::string m_endpoint =
@@ -1303,6 +1480,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
         const auto& ni = n.node_info;
         // c.nodes: cluster registered nodes
         NodeInfoPB copy_node;
+        int64_t cur_ms = now_ms();
         for (auto& cn : c.nodes()) {
             idx++;
             if (cn.has_ip() && ni.has_ip()) {
@@ -1316,7 +1494,9 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                         (ni.has_heartbeat_port() ? std::to_string(ni.heartbeat_port())
                                                  : std::to_string(ni.edit_log_port()));
 
-                if (ni.cloud_unique_id() == cn.cloud_unique_id() && cn_endpoint == ni_endpoint) {
+                if ((ni.cloud_unique_id() == cn.cloud_unique_id() ||
+                     is_node_cloud_unique_id_valid(cn, ni.cloud_unique_id(), cur_ms)) &&
+                    cn_endpoint == ni_endpoint) {
                     copy_node.CopyFrom(cn);
                     found = true;
                     break;
@@ -1334,7 +1514,8 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                         (ni.has_heartbeat_port() ? std::to_string(ni.heartbeat_port())
                                                  : std::to_string(ni.edit_log_port()));
 
-                if (ni.cloud_unique_id() == cn.cloud_unique_id() &&
+                if ((ni.cloud_unique_id() == cn.cloud_unique_id() ||
+                     is_node_cloud_unique_id_valid(cn, ni.cloud_unique_id(), cur_ms)) &&
                     cn_endpoint_host == ni_endpoint_host) {
                     copy_node.CopyFrom(cn);
                     found = true;
@@ -1469,8 +1650,9 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
     // If successor_instance_id is set, it means this instance has a successor instance,
     // so we do not need to add its clusters to the index again.
     if (!instance.has_successor_instance_id()) {
+        int64_t cur_ms = now_ms();
         for (int i = 0; i < instance.clusters_size(); ++i) {
-            add_cluster_to_index_no_lock(instance_id, instance.clusters(i));
+            add_cluster_to_index_no_lock(instance_id, instance.clusters(i), cur_ms);
         }
     }
 
@@ -1578,6 +1760,261 @@ bool ResourceManager::get_source_snapshot_info(const std::string& instance_id,
     *source_instance_id = it->second.first;
     *snapshot_versionstamp = it->second.second;
     return true;
+}
+
+std::pair<MetaServiceCode, std::string> ResourceManager::rotate_cloud_unique_id(
+        const std::vector<RotateCloudUniqueIdNodeReq>& req_nodes,
+        RotateCloudUniqueIdResultPB* result, std::vector<std::string>* modified_instances) {
+    if (req_nodes.empty()) {
+        return {MetaServiceCode::INVALID_ARGUMENT, "nodes must not be empty"};
+    }
+
+    // 1. Validate request structure, duplicates, and cross-instance collisions within the batch.
+    std::unordered_set<std::string> seen_node_keys;
+    std::unordered_map<std::string, std::string> batch_id_to_instance;
+    std::vector<std::string> unique_instance_ids;
+    std::unordered_set<std::string> seen_instances;
+    for (const auto& req : req_nodes) {
+        if (req.instance_id.empty()) {
+            return {MetaServiceCode::INVALID_ARGUMENT, "instance_id must not be empty"};
+        }
+        if (req.cluster_id.empty()) {
+            return {MetaServiceCode::INVALID_ARGUMENT, "cluster_id must not be empty"};
+        }
+        if (req.host.empty()) {
+            return {MetaServiceCode::INVALID_ARGUMENT, "host must not be empty"};
+        }
+        if (req.port <= 0 || req.port > 65535) {
+            return {MetaServiceCode::INVALID_ARGUMENT, "port must be in range [1, 65535]"};
+        }
+        if (req.new_cloud_unique_id.empty()) {
+            return {MetaServiceCode::INVALID_ARGUMENT, "new_cloud_unique_id must not be empty"};
+        }
+        auto [is_degraded, encoded_instance_id] =
+                get_instance_id_by_cloud_unique_id(req.new_cloud_unique_id);
+        if (is_degraded && encoded_instance_id != req.instance_id) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    "new_cloud_unique_id encodes a different instance_id"};
+        }
+
+        std::string node_key = fmt::format("{}\x1f{}\x1f{}\x1f{}", req.instance_id, req.cluster_id,
+                                           req.host, req.port);
+        if (!seen_node_keys.insert(node_key).second) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("duplicate node in request: instance_id={} cluster_id={} host={} "
+                                "port={}",
+                                req.instance_id, req.cluster_id, req.host, req.port)};
+        }
+
+        auto [id_it, inserted] =
+                batch_id_to_instance.emplace(req.new_cloud_unique_id, req.instance_id);
+        if (!inserted && id_it->second != req.instance_id) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    "new_cloud_unique_id cannot be shared across different instances"};
+        }
+
+        if (seen_instances.insert(req.instance_id).second) {
+            unique_instance_ids.push_back(req.instance_id);
+        }
+    }
+
+    // Refresh local cache before checking cross-instance occupancy.
+    sync_instances_if_updated(true);
+
+    int64_t cur_ms = now_ms();
+
+    // 2. Load all target instances in a single FDB transaction.
+    std::unique_ptr<Transaction> txn0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn0);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn for rotate_cloud_unique_id, err=" << err;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, "Failed to persist cloud_unique_id rotation"};
+    }
+    std::shared_ptr<Transaction> txn(txn0.release());
+
+    std::unordered_map<std::string, InstanceInfoPB> instances;
+    for (const auto& inst_id : unique_instance_ids) {
+        InstanceInfoPB inst_pb;
+        auto [get_code, get_msg] = get_instance(txn, inst_id, &inst_pb);
+        if (get_code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return {MetaServiceCode::CLUSTER_NOT_FOUND,
+                    fmt::format("instance not found, instance_id={}", inst_id)};
+        }
+        if (get_code != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to read instance for rotate_cloud_unique_id, instance_id="
+                         << inst_id << " err=" << get_code << " msg=" << get_msg;
+            return {MetaServiceCode::KV_TXN_GET_ERR, "Failed to persist cloud_unique_id rotation"};
+        }
+        if (inst_pb.has_status() && inst_pb.status() == InstanceInfoPB::DELETED) {
+            return {MetaServiceCode::CLUSTER_NOT_FOUND,
+                    fmt::format("instance has been deleted, instance_id={}", inst_id)};
+        }
+        instances.emplace(inst_id, std::move(inst_pb));
+    }
+
+    // 3. Check cross-instance occupancy against both cache and loaded authoritative instances.
+    {
+        std::shared_lock l(mtx_);
+        for (const auto& req : req_nodes) {
+            auto [start, end] = node_info_.equal_range(req.new_cloud_unique_id);
+            for (auto it = start; it != end; ++it) {
+                if (it->second.is_previous && cur_ms >= it->second.expire_at_ms) {
+                    continue;
+                }
+                if (it->second.instance_id != req.instance_id) {
+                    return {MetaServiceCode::INVALID_ARGUMENT,
+                            "new_cloud_unique_id is already occupied by another instance"};
+                }
+            }
+        }
+    }
+    for (const auto& [inst_id, inst_pb] : instances) {
+        for (const auto& cluster : inst_pb.clusters()) {
+            for (const auto& node : cluster.nodes()) {
+                for (const auto& req : req_nodes) {
+                    if (inst_id != req.instance_id &&
+                        is_node_cloud_unique_id_valid(node, req.new_cloud_unique_id, cur_ms)) {
+                        return {MetaServiceCode::INVALID_ARGUMENT,
+                                "new_cloud_unique_id is already occupied by another instance"};
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Locate every node uniquely and stage all transitions before committing.
+    RotateCloudUniqueIdResultPB staged_result;
+    std::unordered_set<std::string> dirty_instances;
+    for (const auto& req : req_nodes) {
+        auto& inst_pb = instances.at(req.instance_id);
+        ClusterPB* target_cluster = nullptr;
+        for (auto& cluster : *inst_pb.mutable_clusters()) {
+            if (cluster.cluster_id() == req.cluster_id) {
+                target_cluster = &cluster;
+                break;
+            }
+        }
+        if (target_cluster == nullptr) {
+            return {MetaServiceCode::CLUSTER_NOT_FOUND,
+                    fmt::format("cluster not found, instance_id={} cluster_id={}", req.instance_id,
+                                req.cluster_id)};
+        }
+        if (!target_cluster->has_type() || (target_cluster->type() != ClusterPB::SQL &&
+                                            target_cluster->type() != ClusterPB::COMPUTE)) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("unsupported cluster type for cloud_unique_id rotation, "
+                                "instance_id={} cluster_id={}",
+                                req.instance_id, req.cluster_id)};
+        }
+
+        NodeInfoPB* matched_node = nullptr;
+        int match_count = 0;
+        for (auto& node : *target_cluster->mutable_nodes()) {
+            bool port_match =
+                    (target_cluster->type() == ClusterPB::SQL)
+                            ? (node.has_edit_log_port() && node.edit_log_port() == req.port)
+                            : (node.has_heartbeat_port() && node.heartbeat_port() == req.port);
+            if (!port_match) {
+                continue;
+            }
+            bool host_match = (node.has_host() && node.host() == req.host) ||
+                              (node.has_ip() && node.ip() == req.host);
+            if (!host_match) {
+                continue;
+            }
+            matched_node = &node;
+            ++match_count;
+        }
+        if (match_count == 0) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("node not found, instance_id={} cluster_id={} host={} port={}",
+                                req.instance_id, req.cluster_id, req.host, req.port)};
+        }
+        if (match_count > 1) {
+            return {MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("node location is not unique, instance_id={} cluster_id={} "
+                                "host={} port={}",
+                                req.instance_id, req.cluster_id, req.host, req.port)};
+        }
+
+        int64_t effective_mtime_ms = 0;
+        if (matched_node->cloud_unique_id() == req.new_cloud_unique_id) {
+            // Idempotent retry: preserve existing mtime and expiry without reviving expired IDs.
+            effective_mtime_ms =
+                    matched_node->has_cloud_unique_id_mtime()
+                            ? matched_node->cloud_unique_id_mtime()
+                            : (matched_node->has_mtime() ? matched_node->mtime() * 1000 : 0);
+        } else {
+            if (matched_node->has_previous_cloud_unique_id() &&
+                !matched_node->previous_cloud_unique_id().empty() &&
+                matched_node->has_previous_cloud_unique_id_expire_at() &&
+                cur_ms < matched_node->previous_cloud_unique_id_expire_at()) {
+                return {MetaServiceCode::INVALID_ARGUMENT,
+                        "Previous cloud_unique_id grace period has not ended"};
+            }
+
+            std::string old_id = matched_node->cloud_unique_id();
+            matched_node->set_previous_cloud_unique_id(old_id);
+            matched_node->set_previous_cloud_unique_id_expire_at(cur_ms +
+                                                                 kCloudUniqueIdGracePeriodMs);
+            matched_node->set_cloud_unique_id(req.new_cloud_unique_id);
+            matched_node->set_cloud_unique_id_mtime(cur_ms);
+            matched_node->set_mtime(cur_ms / 1000);
+            target_cluster->set_mtime(cur_ms / 1000);
+            effective_mtime_ms = cur_ms;
+            dirty_instances.insert(req.instance_id);
+        }
+
+        auto* out_node = staged_result.add_nodes();
+        out_node->set_instance_id(req.instance_id);
+        out_node->set_cluster_id(req.cluster_id);
+        out_node->set_host(req.host);
+        out_node->set_port(req.port);
+        out_node->set_mtime(effective_mtime_ms);
+    }
+
+    // 5. Commit all modified instances atomically in one FDB transaction.
+    if (!dirty_instances.empty()) {
+        for (const auto& inst_id : unique_instance_ids) {
+            if (!dirty_instances.contains(inst_id)) {
+                continue;
+            }
+            std::string key;
+            instance_key({inst_id}, &key);
+            std::string val = instances.at(inst_id).SerializeAsString();
+            if (val.empty()) {
+                return {MetaServiceCode::PROTOBUF_SERIALIZE_ERR,
+                        "Failed to persist cloud_unique_id rotation"};
+            }
+            txn->put(key, val);
+        }
+        txn->atomic_add(system_meta_service_instance_update_key(), 1);
+        err = TxnErrorCode::TXN_OK;
+        TEST_SYNC_POINT_CALLBACK("ResourceManager::rotate_cloud_unique_id:commit", &err);
+        if (err == TxnErrorCode::TXN_OK) {
+            err = txn->commit();
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to commit rotate_cloud_unique_id txn, err=" << err;
+            return {MetaServiceCode::KV_TXN_COMMIT_ERR,
+                    "Failed to persist cloud_unique_id rotation"};
+        }
+
+        for (const auto& inst_id : unique_instance_ids) {
+            if (!dirty_instances.contains(inst_id)) {
+                continue;
+            }
+            refresh_instance(inst_id, instances.at(inst_id));
+            if (modified_instances != nullptr) {
+                modified_instances->push_back(inst_id);
+            }
+        }
+    }
+
+    if (result != nullptr) {
+        result->CopyFrom(staged_result);
+    }
+    return {MetaServiceCode::OK, "OK"};
 }
 
 } // namespace doris::cloud

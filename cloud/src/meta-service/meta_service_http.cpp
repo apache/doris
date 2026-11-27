@@ -42,6 +42,7 @@
 #include <vector>
 
 #include "common/http_helper.h"
+#include "common/http_token_manager.h"
 #include "common/logging.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/txn_kv.h"
@@ -162,7 +163,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
-    if (token != config::http_token) {
+    if (!HttpTokenManager::instance().verify(token)) {
         std::string body = token.empty() ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(body);
@@ -170,7 +171,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side() << " request: " << path
                      << " ret=403 msg: " << body;
         VLOG_DEBUG << "http request details from " << cntl->remote_side()
-                   << hide_ak(encryt_sk(format_http_request(cntl)));
+                   << hide_cloud_unique_ids(hide_ak(encryt_sk(format_http_request(cntl))));
         return;
     }
 
@@ -194,7 +195,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request: " << path << " ret=" << ret << " msg=" << msg;
     VLOG_DEBUG << "http request details from " << cntl->remote_side()
-               << hide_ak(encryt_sk(format_http_request(cntl)));
+               << hide_cloud_unique_ids(hide_ak(encryt_sk(format_http_request(cntl))));
 }
 
 } // namespace doris::cloud

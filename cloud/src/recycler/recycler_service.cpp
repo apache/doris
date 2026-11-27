@@ -39,6 +39,7 @@
 #include "common/configbase.h"
 #include "common/defer.h"
 #include "common/http_helper.h"
+#include "common/http_token_manager.h"
 #include "common/logging.h"
 #include "common/thread_name.h"
 #include "common/util.h"
@@ -609,10 +610,9 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     }
 
     // Auth
-    const auto* token = cntl->http_request().uri().GetQuery("token");
-    if (token == nullptr || *token != config::http_token) {
-        std::string msg =
-                token == nullptr ? "incorrect token, token=(not given)" : "incorrect token";
+    auto token = http_query(cntl->http_request().uri(), "token");
+    if (!HttpTokenManager::instance().verify(token)) {
+        std::string msg = token.empty() ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(msg);
         cntl->response_attachment().append("\n");

@@ -3414,7 +3414,8 @@ void handle_drop_node(const std::string& instance_id, const AlterClusterRequest*
 }
 
 static bool matches_node(const NodeInfoPB& node, const NodeInfoPB& requested) {
-    if (node.cloud_unique_id() != requested.cloud_unique_id() ||
+    if (!ResourceManager::is_node_cloud_unique_id_valid(node, requested.cloud_unique_id(),
+                                                        ResourceManager::now_ms()) ||
         node.heartbeat_port() != requested.heartbeat_port()) {
         return false;
     }
@@ -3879,6 +3880,13 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
         if (request->has_instance_id()) {
+            if (resource_mgr_->is_expired_previous_cloud_unique_id(cloud_unique_id,
+                                                                   request->instance_id())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "cloud_unique_id has expired";
+                LOG(WARNING) << msg << ", instance_id=" << request->instance_id();
+                return;
+            }
             instance_id = request->instance_id();
             // FIXME(gavin): this mechanism benifits debugging and
             //               administration, is it dangerous?
@@ -5375,6 +5383,21 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     } // for
     for (auto& i : btids) bthread_join(i, nullptr);
     LOG(INFO) << "finish notify_refresh_instance, num_items=" << reg.items_size();
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::rotate_cloud_unique_id(
+        const std::vector<RotateCloudUniqueIdNodeReq>& req_nodes,
+        RotateCloudUniqueIdResultPB* result) {
+    std::vector<std::string> modified_instances;
+    auto [code, msg] =
+            resource_mgr_->rotate_cloud_unique_id(req_nodes, result, &modified_instances);
+    if (code != MetaServiceCode::OK) {
+        return {code, std::move(msg)};
+    }
+    for (const auto& inst_id : modified_instances) {
+        async_notify_refresh_instance(txn_kv_, inst_id, /*include_self=*/false);
+    }
+    return {MetaServiceCode::OK, "OK"};
 }
 
 } // namespace doris::cloud

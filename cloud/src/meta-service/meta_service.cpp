@@ -145,11 +145,14 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                 return "";
             }
             // Anyone knowing the instance_id can build a degraded format cloud_unique_id, so it
-            // is only trusted when it is a registered node of that instance.
+            // is only trusted when it is a registered node of that instance (current or unexpired
+            // previous cloud_unique_id).
+            int64_t cur_ms = ResourceManager::now_ms();
             bool registered = false;
             for (const auto& cluster : instance.clusters()) {
                 for (const auto& node : cluster.nodes()) {
-                    registered |= node.cloud_unique_id() == cloud_unique_id;
+                    registered |= ResourceManager::is_node_cloud_unique_id_valid(
+                            node, cloud_unique_id, cur_ms);
                 }
             }
             if (!registered) {
@@ -158,6 +161,10 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                              << id;
                 return "";
             }
+            rc_mgr->refresh_instance(id, instance);
+        } else if (rc_mgr->is_expired_previous_cloud_unique_id(cloud_unique_id, id)) {
+            LOG(WARNING) << "degraded format cloud_unique_id has expired, instance_id=" << id;
+            return "";
         }
         return id;
     }

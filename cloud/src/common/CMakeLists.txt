@@ -28,6 +28,7 @@ set(COMMON_FILES
     bvars.cpp
     encryption_util.cpp
     http_helper.cpp
+    http_token_manager.cpp
     metric.cpp
     version_metrics.cpp
     kms.cpp

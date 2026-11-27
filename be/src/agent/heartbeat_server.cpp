@@ -305,11 +305,15 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     }
 
-    if (master_info.__isset.cloud_unique_id &&
-        config::cloud_unique_id != master_info.cloud_unique_id &&
+    if (master_info.__isset.cloud_unique_id && !master_info.cloud_unique_id.empty() &&
+        !config::is_cloud_unique_id_rotated() &&
+        config::get_cloud_unique_id() != master_info.cloud_unique_id &&
         config::enable_use_cloud_unique_id_from_fe) {
-        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
-        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+        // Only apply FE-pushed cloud_unique_id before any local rotation; never overwrite a
+        // rotated ID with a stale heartbeat value or bypass thread-safe cloud_unique_id storage.
+        config::set_cloud_unique_id(master_info.cloud_unique_id, false);
+        auto st = config::persist_config("cloud_unique_id", master_info.cloud_unique_id);
+        LOG(INFO) << "updated cloud_unique_id from FE heartbeat, persist status=" << st;
     }
 
     if (master_info.__isset.cloud_cluster_info) {

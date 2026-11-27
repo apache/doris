@@ -401,6 +401,10 @@ public:
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
 
+    std::pair<MetaServiceCode, std::string> rotate_cloud_unique_id(
+            const std::vector<RotateCloudUniqueIdNodeReq>& req_nodes,
+            RotateCloudUniqueIdResultPB* result);
+
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
                                                std::string table_id_str, std::string tablet_id_str);
 

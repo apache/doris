@@ -41,6 +41,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/http_token_manager.h"
 #include "common/metric.h"
 #include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service.h"
@@ -454,6 +455,16 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_update_config((MS*)s, c); },
                   .role = HttpRole::BOTH}},
+                {"rotate_http_token",
+                 {.handler = [](void* s,
+                                brpc::Controller* c) { return process_rotate_http_token(s, c); },
+                  .role = HttpRole::BOTH}},
+                {"rotate_cloud_unique_id",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_rotate_cloud_unique_id((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
         };
     }();
 
@@ -1429,6 +1440,90 @@ HttpResponse process_get_snapshot_property(MetaServiceImpl* service, brpc::Contr
     doc.Accept(writer);
 
     return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
+}
+
+HttpResponse process_rotate_http_token(void*, brpc::Controller* cntl) {
+    if (cntl->http_request().method() != brpc::HTTP_METHOD_POST) {
+        return {.status_code = brpc::HTTP_STATUS_METHOD_NOT_ALLOWED,
+                .msg = "Only POST method is allowed",
+                .body = R"({"code":"METHOD_NOT_ALLOWED","msg":"Only POST method is allowed"})"};
+    }
+
+    std::string err_msg;
+    MetaServiceCode code = HttpTokenManager::instance().rotate(&err_msg);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, err_msg);
+    }
+    return http_json_reply(MetaServiceCode::OK, "OK");
+}
+
+HttpResponse process_rotate_cloud_unique_id(MetaServiceImpl* service, brpc::Controller* cntl) {
+    if (cntl->http_request().method() != brpc::HTTP_METHOD_POST) {
+        return {.status_code = brpc::HTTP_STATUS_METHOD_NOT_ALLOWED,
+                .msg = "Only POST method is allowed",
+                .body = R"({"code":"METHOD_NOT_ALLOWED","msg":"Only POST method is allowed"})"};
+    }
+
+    std::string body = cntl->request_attachment().to_string();
+    rapidjson::Document doc;
+    doc.Parse(body.c_str());
+    if (doc.HasParseError() || !doc.IsObject()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "invalid request JSON");
+    }
+    auto nodes_it = doc.FindMember("nodes");
+    if (nodes_it == doc.MemberEnd() || !nodes_it->value.IsArray() || nodes_it->value.Empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "nodes must be a non-empty array");
+    }
+
+    std::vector<RotateCloudUniqueIdNodeReq> req_nodes;
+    req_nodes.reserve(nodes_it->value.Size());
+    for (const auto& item : nodes_it->value.GetArray()) {
+        if (!item.IsObject()) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "each node entry must be a JSON object");
+        }
+        auto get_required_string = [&](const char* field, std::string* out) -> bool {
+            if (!item.HasMember(field) || !item[field].IsString()) {
+                return false;
+            }
+            *out = item[field].GetString();
+            return !out->empty();
+        };
+
+        RotateCloudUniqueIdNodeReq node_req;
+        if (!get_required_string("instance_id", &node_req.instance_id)) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "instance_id must not be empty");
+        }
+        if (!get_required_string("cluster_id", &node_req.cluster_id)) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "cluster_id must not be empty");
+        }
+        if (!get_required_string("host", &node_req.host)) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "host must not be empty");
+        }
+        if (!item.HasMember("port") || !item["port"].IsInt()) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "port must be a valid int32");
+        }
+        node_req.port = item["port"].GetInt();
+        if (node_req.port <= 0 || node_req.port > 65535) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "port must be in range [1, 65535]");
+        }
+        if (!get_required_string("new_cloud_unique_id", &node_req.new_cloud_unique_id)) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "new_cloud_unique_id must not be empty");
+        }
+        req_nodes.push_back(std::move(node_req));
+    }
+
+    RotateCloudUniqueIdResultPB result;
+    auto [code, msg] = service->rotate_cloud_unique_id(req_nodes, &result);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+    return http_json_reply_message(MetaServiceCode::OK, "OK", result);
 }
 
 } // namespace doris::cloud

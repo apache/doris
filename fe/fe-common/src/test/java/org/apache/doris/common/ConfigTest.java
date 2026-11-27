@@ -85,6 +85,8 @@ public class ConfigTest {
                 "key_store_password",
                 "auth_token",
                 "fe_meta_auth_token",
+                "http_token",
+                "cloud_unique_id",
                 "mysql_ssl_default_ca_certificate_password",
                 "mysql_ssl_default_server_certificate_password",
                 "initial_root_password");

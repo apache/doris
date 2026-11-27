@@ -265,6 +265,21 @@ message NodeInfoPB {
     optional string host = 13;
     optional string public_endpoint = 14;
     optional string private_endpoint = 15;
+    optional string previous_cloud_unique_id = 16;
+    optional int64 previous_cloud_unique_id_expire_at = 17;
+    optional int64 cloud_unique_id_mtime = 18;
+}
+
+message RotateCloudUniqueIdNodeResultPB {
+    optional string instance_id = 1;
+    optional string cluster_id = 2;
+    optional string host = 3;
+    optional int32 port = 4;
+    optional int64 mtime = 5;
+}
+
+message RotateCloudUniqueIdResultPB {
+    repeated RotateCloudUniqueIdNodeResultPB nodes = 1;
 }
 
 enum NodeStatusPB {
