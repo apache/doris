@@ -175,6 +175,18 @@ public class AuditEvent {
 
     public long pushToAuditLogQueueTime;
 
+    // The execution that produced BE statistics may differ from the user-visible statement.
+    // This is internal audit bookkeeping and must not become an audit log field.
+    private transient String statisticsQueryId;
+
+    public String getStatisticsQueryId() {
+        return statisticsQueryId == null ? queryId : statisticsQueryId;
+    }
+
+    public void setStatisticsQueryId(String statisticsQueryId) {
+        this.statisticsQueryId = statisticsQueryId;
+    }
+
     public static class AuditEventBuilder {
 
         private AuditEvent auditEvent = new AuditEvent();
