@@ -45,6 +45,9 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeState* state, Runtim
     return Status::OK();
 };
 
+// Pre-existing complexity debt from the target/broadcast/remote branching below is not addressed
+// here to keep this change focused.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     _check_state({State::READY_TO_PUBLISH});
@@ -76,6 +79,8 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
     if (!_has_remote_target) {
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
+        // The merger copies this wrapper before later merges, so plain local consumers can read
+        // the producer wrapper independently, including with mixed local and merge targets.
         RETURN_IF_ERROR(do_merge());
         RETURN_IF_ERROR(_send_to_local_targets(state, this, false));
     } else if (build_hash_table) {
@@ -88,7 +93,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         DCHECK(_is_broadcast_join);
     }
 
-    // wrapper may moved to rf merger, release wrapper here to make sure thread safe
+    // Release the producer reference after consumers and the merger hold their own references.
     _wrapper.reset();
     set_state(State::PUBLISHED);
     return Status::OK();
