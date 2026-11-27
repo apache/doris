@@ -415,8 +415,15 @@ public class AnalysisManager implements Writable {
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
         // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
         // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
-        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
-                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
+        long rowCount = 0;
+        if (!StatisticsUtil.isEmptyTable(table, analysisMethod)) {
+            rowCount = table.getRowCount();
+            if (rowCount <= 0 && table instanceof HMSExternalTable) {
+                rowCount = ((HMSExternalTable) table).getRowCountForAnalyze();
+            } else if (rowCount <= 0) {
+                rowCount = table.fetchRowCount();
+            }
+        }
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());

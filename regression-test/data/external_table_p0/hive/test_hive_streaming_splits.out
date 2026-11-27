@@ -225,6 +225,30 @@
 -- !streaming_128_32_union_limit --
 10
 
+-- !cold_listing_1024_limit --
+10
+
+-- !bounded_listing_1024_unpartitioned_aggregate --
+120	7140	120	660
+
+-- !bounded_listing_1024_partitioned_aggregate --
+120	7140	120	660	240
+
+-- !bounded_listing_1024_single_partition_limit --
+10
+
+-- !cold_listing_0_limit --
+10
+
+-- !bounded_listing_0_unpartitioned_aggregate --
+120	7140	120	660
+
+-- !bounded_listing_0_partitioned_aggregate --
+120	7140	120	660	240
+
+-- !bounded_listing_0_single_partition_limit --
+10
+
 -- !ctas --
 120	7140	120	660
 

@@ -33,6 +33,11 @@ suite("test_hive_streaming_splits", "p0,external") {
     def settings = ["enable_external_table_batch_mode", "num_files_in_batch_mode",
                     "num_partitions_in_batch_mode", "split_batch_size", "split_queue_capacity"]
     def saved = settings.collectEntries { name -> [(name): sql("show variables like '${name}'")[0][1]] }
+    def catalogProperties = sql("show catalog ${catalog}").collectEntries { row -> [(row[0]): row[1]] }
+    def savedListingBudgets = [
+        "hive.file_listing_cache_entry_max_bytes": catalogProperties.get("hive.file_listing_cache_entry_max_bytes", "8388608"),
+        "hive.file_listing_cache_pending_max_bytes": catalogProperties.get("hive.file_listing_cache_pending_max_bytes", "67108864")
+    ]
     try {
         sql "create database if not exists ${catalog}.hive_streaming_splits"
         sql "use ${catalog}.hive_streaming_splits"
@@ -122,6 +127,33 @@ suite("test_hive_streaming_splits", "p0,external") {
             }
             checkResults("streaming_${limits[0]}_${limits[1]}")
         }
+        // ALTER replaces the cache; test cold LIMIT and complete scans with abandoned or disabled candidates.
+        for (def candidateBytes : [1024, 0]) {
+            sql """alter catalog ${catalog} set properties (
+                'hive.file_listing_cache_entry_max_bytes'='${candidateBytes}',
+                'hive.file_listing_cache_pending_max_bytes'='4096')"""
+            sql "use ${catalog}.hive_streaming_splits"
+            quickTest("cold_listing_${candidateBytes}_limit", """select count(*) from
+                (select id from streaming_unpartitioned limit 10) limited""", true)
+            quickTest("bounded_listing_${candidateBytes}_unpartitioned_aggregate", """select
+                count(*), sum(id), count(distinct id), sum(file_id) from streaming_unpartitioned""", true)
+            quickTest("bounded_listing_${candidateBytes}_partitioned_aggregate", """select
+                count(*), sum(id), count(distinct id), sum(file_id), sum(p) from streaming_partitioned""", true)
+            quickTest("bounded_listing_${candidateBytes}_single_partition_limit", """select count(*) from
+                (select id from streaming_partitioned where p=1 limit 10) limited""", true)
+        }
+        savedListingBudgets.each { name, value ->
+            sql "alter catalog ${catalog} set properties ('${name}'='${value}')"
+        }
+        sql "use ${catalog}.hive_streaming_splits"
+        test {
+            sql """alter catalog ${catalog} set properties ('hive.file_listing_cache_entry_max_bytes'='-1')"""
+            exception "hive.file_listing_cache_entry_max_bytes is wrong"
+        }
+        test {
+            sql """alter catalog ${catalog} set properties ('hive.file_listing_cache_pending_max_bytes'='-1')"""
+            exception "hive.file_listing_cache_pending_max_bytes is wrong"
+        }
         // CTAS probes an absent target before creating and resolving it in the same statement.
         sql """create table streaming_ctas properties ('file_format'='parquet')
             as select id, file_id from streaming_unpartitioned"""
@@ -139,6 +171,9 @@ suite("test_hive_streaming_splits", "p0,external") {
             exception "split_queue_capacity value should greater than or equal 1"
         }
     } finally {
+        savedListingBudgets.each { name, value ->
+            sql "alter catalog ${catalog} set properties ('${name}'='${value}')"
+        }
         saved.each { name, value -> sql "set ${name}=${value}" }
     }
 }

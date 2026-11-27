@@ -25,6 +25,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemIOException;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
@@ -63,7 +64,10 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -105,6 +109,56 @@ public class DFSFileSystem extends RemoteFileSystem {
         return Status.OK;
     }
 
+
+    @Override
+    public org.apache.doris.fs.RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            BooleanSupplier cancelled) {
+        return new org.apache.doris.fs.RemoteIterator<RemoteFile>() {
+            private RemoteIterator<LocatedFileStatus> iterator;
+            private boolean closed;
+
+            @Override
+            public boolean hasNext() throws FileSystemIOException {
+                if (closed) {
+                    return false;
+                }
+                if (cancelled.getAsBoolean()) {
+                    throw new CancellationException("File listing cancelled");
+                }
+                try {
+                    if (iterator == null) {
+                        Path path = new Path(remotePath);
+                        iterator = getLocatedFiles(recursive, nativeFileSystem(path), path);
+                    }
+                    return hdfsProperties.getHadoopAuthenticator().doAs(iterator::hasNext);
+                } catch (FileNotFoundException e) {
+                    throw new FileSystemIOException(Status.ErrCode.NOT_FOUND, e.getMessage(), e);
+                } catch (IOException e) {
+                    throw new FileSystemIOException(Status.ErrCode.COMMON_ERROR, e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public RemoteFile next() throws FileSystemIOException {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                try {
+                    LocatedFileStatus file = hdfsProperties.getHadoopAuthenticator().doAs(iterator::next);
+                    return new RemoteFile(file.getPath(), file.isDirectory(), file.getLen(), file.getBlockSize(),
+                            file.getModificationTime(), file.getBlockLocations());
+                } catch (IOException e) {
+                    throw new FileSystemIOException(Status.ErrCode.COMMON_ERROR, e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                iterator = null;
+            }
+        };
+    }
 
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {

@@ -41,8 +41,129 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalRowCountCacheTest {
+    @Test
+    public void testAnalyzePublishesCompletedEstimateWithoutBlockingOrdinaryReads() throws Exception {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch complete = new CountDownLatch(1);
+        Mockito.when(table.fetchRowCountWithMetaCache(false)).thenReturn(-1L);
+        Mockito.when(table.fetchRowCountForAnalyze()).thenAnswer(call -> {
+            started.countDown();
+            Assertions.assertTrue(complete.await(10, TimeUnit.SECONDS));
+            return 420L;
+        });
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return table;
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService requests = Executors.newFixedThreadPool(2);
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+            Assertions.assertEquals(-1L, cache.getCachedRowCount(1, 2, 3, false));
+            Future<Long> analyze = requests.submit(() -> cache.getRowCountForAnalyze(1, 2, 3));
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Future<Long> ordinary = requests.submit(() -> cache.getCachedRowCount(1, 2, 3, false));
+            Assertions.assertEquals(-1L, ordinary.get(5, TimeUnit.SECONDS),
+                    "An ordinary planner must not wait for explicit directory enumeration");
+            complete.countDown();
+            Assertions.assertEquals(420L, analyze.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(420L, cache.getCachedRowCount(1, 2, 3, false));
+            Mockito.verify(table, Mockito.times(1)).fetchRowCountWithMetaCache(false);
+        } finally {
+            complete.countDown();
+            requests.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAnalyzeCompletionIsFencedByEveryInvalidationScope() throws Exception {
+        AtomicReference<ExternalTable> currentTable = new AtomicReference<>();
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return currentTable.get();
+            }
+        };
+        for (int scope = 0; scope < 3; scope++) {
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            CountDownLatch started = new CountDownLatch(1);
+            CountDownLatch complete = new CountDownLatch(1);
+            Mockito.when(table.fetchRowCountForAnalyze()).thenAnswer(call -> {
+                started.countDown();
+                Assertions.assertTrue(complete.await(10, TimeUnit.SECONDS));
+                return 420L;
+            });
+            currentTable.set(table);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            try {
+                ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+                Future<Long> analyze = requests.submit(() -> cache.getRowCountForAnalyze(1, 2, 3));
+                Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+                if (scope == 0) {
+                    cache.invalidateTable(1, 2, 3);
+                } else if (scope == 1) {
+                    cache.invalidateDb(1, 2);
+                } else {
+                    cache.invalidateCatalog(1);
+                }
+                complete.countDown();
+                Assertions.assertEquals(-1L, analyze.get(10, TimeUnit.SECONDS));
+                Assertions.assertEquals(-1L, cache.getCachedRowCountIfPresent(1, 2, 3));
+                ExternalTable replacement = Mockito.mock(ExternalTable.class);
+                Mockito.when(replacement.fetchRowCountForAnalyze()).thenReturn(84L);
+                currentTable.set(replacement);
+                Assertions.assertEquals(84L, cache.getRowCountForAnalyze(1, 2, 3));
+                Assertions.assertEquals(84L, cache.getCachedRowCountIfPresent(1, 2, 3));
+            } finally {
+                complete.countDown();
+                requests.shutdownNow();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void testLateOrdinaryLoadCannotReplaceCompletedAnalysisEstimate() throws Exception {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch complete = new CountDownLatch(1);
+        Mockito.when(table.fetchRowCountWithMetaCache(false)).thenAnswer(call -> {
+            started.countDown();
+            Assertions.assertTrue(complete.await(10, TimeUnit.SECONDS));
+            return -1L;
+        });
+        Mockito.when(table.fetchRowCountForAnalyze()).thenReturn(420L);
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return table;
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+            Future<Long> ordinary = requests.submit(() -> cache.getCachedRowCount(1, 2, 3, false));
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(420L, cache.getRowCountForAnalyze(1, 2, 3));
+            complete.countDown();
+            Assertions.assertEquals(-1L, ordinary.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(420L, cache.getCachedRowCount(1, 2, 3, false));
+        } finally {
+            complete.countDown();
+            requests.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
     @Test
     public void testCatalogCacheResetSuppressesPerDatabaseRowCountScan() {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);

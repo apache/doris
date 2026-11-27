@@ -36,13 +36,76 @@ import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HMSAnalysisTaskTest {
+
+    @Test
+    public void testColdMetadataAnalyzeUsesKnownRowsOrFallsBackToSql() throws Exception {
+        for (boolean partition : new boolean[] {true, false}) {
+            for (long rows : new long[] {32, -1}) {
+                HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+                Column column = new Column("p", PrimitiveType.INT);
+                Mockito.when(table.getPartitionColumns()).thenReturn(
+                        partition ? ImmutableList.of(column) : Collections.emptyList());
+                Mockito.when(table.getPartitionNames()).thenReturn(ImmutableSet.of("p=12"));
+                Mockito.when(table.getRowCount()).thenReturn(-1L);
+                Mockito.when(table.getRowCountForAnalyze()).thenReturn(rows);
+                Mockito.when(table.getName()).thenReturn("test");
+                Mockito.when(table.fillColumnStatistics(Mockito.eq("p"), Mockito.anyMap(), Mockito.anyMap()))
+                        .thenAnswer(call -> {
+                            Map<String, String> params = call.getArgument(2);
+                            params.put("ndv", "1");
+                            params.put("null_count", "0");
+                            params.put("min", "12");
+                            params.put("max", "12");
+                            params.put("avg_len", "4");
+                            return true;
+                        });
+                AtomicInteger sqlFallbacks = new AtomicInteger();
+                AtomicReference<String> metadataSql = new AtomicReference<>();
+                HMSAnalysisTask task = new HMSAnalysisTask() {
+                    @Override
+                    protected void doFull() {
+                        sqlFallbacks.incrementAndGet();
+                    }
+
+                    @Override
+                    protected void runQuery(String sql) {
+                        metadataSql.set(sql);
+                    }
+                };
+                task.col = column;
+                task.tbl = table;
+                task.setTable(table);
+                task.catalog = Mockito.mock(CatalogIf.class);
+                task.db = Mockito.mock(DatabaseIf.class);
+                Mockito.when(task.catalog.getName()).thenReturn("hms");
+                Mockito.when(task.db.getFullName()).thenReturn("default");
+                task.info = new AnalysisInfoBuilder().setColName("p")
+                        .setJobType(AnalysisInfo.JobType.MANUAL).setUsingSqlForExternalTable(false).build();
+                task.doExecute();
+                Mockito.verify(table).getRowCountForAnalyze();
+                if (rows < 0) {
+                    Assertions.assertNull(metadataSql.get());
+                    Assertions.assertEquals(1, sqlFallbacks.get());
+                    continue;
+                }
+                Assertions.assertEquals(0, sqlFallbacks.get());
+                Assertions.assertTrue(metadataSql.get().contains("32 AS `row_count`"));
+                Assertions.assertTrue(metadataSql.get().contains("128 AS `data_size`"));
+            }
+        }
+    }
 
     @Test
     public void testNeedLimit(@Mocked HMSExternalTable tableIf)

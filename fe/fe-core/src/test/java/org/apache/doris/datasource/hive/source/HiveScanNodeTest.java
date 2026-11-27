@@ -95,6 +95,8 @@ public class HiveScanNodeTest {
                 new org.apache.doris.common.UserException("Partition location does not exist: /missing"));
         Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.isNull(), Mockito.same(table))).thenThrow(wrapper);
+        Mockito.when(cache.openFiles(Mockito.any(), Mockito.anyBoolean(), Mockito.isNull(),
+                Mockito.same(table), Mockito.any())).thenThrow(wrapper);
         java.util.concurrent.CompletableFuture<org.apache.doris.common.UserException> failure =
                 new java.util.concurrent.CompletableFuture<>();
         Mockito.doAnswer(call -> {

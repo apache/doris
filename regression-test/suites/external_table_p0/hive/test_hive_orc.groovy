@@ -231,11 +231,11 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             sql """use `test_hive_orc_mapping_varbinary`.`default`"""
 
             explain {
-                sql("select  binary_col from  orc_all_types order by binary_col,string_col asc limit 10;")
+                sql("select /*+ SET_VAR(topn_filter_ratio=1000000) */ binary_col from orc_all_types order by binary_col,string_col asc limit 10;")
                 contains("TOPN OPT:1")
             }
             explain {
-                sql("select  binary_col from  orc_all_types order by binary_col asc limit 10;")
+                sql("select /*+ SET_VAR(topn_filter_ratio=1000000) */ binary_col from orc_all_types order by binary_col asc limit 10;")
                 contains("TOPN OPT:1")
             }
             order_qt_sql_topn_binary_col1 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col asc limit 10; """

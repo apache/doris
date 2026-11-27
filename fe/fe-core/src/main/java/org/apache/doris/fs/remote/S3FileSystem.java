@@ -62,6 +62,12 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
+    public org.apache.doris.fs.RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            java.util.function.BooleanSupplier cancelled) throws org.apache.doris.fs.FileSystemIOException {
+        return ((S3ObjStorage) getObjStorage()).listFilesIterator(remotePath, recursive, cancelled);
+    }
+
+    @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.listFiles(remotePath, recursive, result);

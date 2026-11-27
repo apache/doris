@@ -47,6 +47,44 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MetaCacheEntryTest {
 
     @Test
+    public void testStreamingPublicationHonorsMutationAndRetirementInBothCacheModes() {
+        for (boolean weighted : new boolean[] {false, true}) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(10000));
+            ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                    1L, "test", "stream", OptionalLong.empty(), OptionalLong.empty());
+            CacheSpec spec = weighted ? CacheSpec.ofWeight(true, 600, 10, 10000) : CacheSpec.of(true, 600, 10);
+            MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>("stream", key -> new byte[1],
+                    spec, executor, false, false,
+                    (key, value) -> MetaCacheSizeEstimate.complete(value.length), weighted ? budget : null);
+            try {
+                try (MetaCacheEntry<String, byte[]>.StreamingLoad load = entry.beginStreamingLoad("k")) {
+                    entry.invalidateIf(key -> key.equals("k"));
+                    Assert.assertFalse(load.publish(new byte[10]));
+                }
+                try (MetaCacheEntry<String, byte[]>.StreamingLoad load = entry.beginStreamingLoad("k")) {
+                    Assert.assertTrue(load.publish(new byte[10]));
+                }
+                byte[] fresh = new byte[20];
+                try (MetaCacheEntry<String, byte[]>.StreamingLoad load = entry.beginStreamingLoad("k")) {
+                    entry.put("k", fresh);
+                    Assert.assertFalse(load.publish(new byte[30]));
+                    load.invalidateIfCurrent();
+                    Assert.assertSame(fresh, entry.peekIfPresent("k"));
+                }
+                try (MetaCacheEntry<String, byte[]>.StreamingLoad load = entry.beginStreamingLoad("k")) {
+                    entry.close();
+                    Assert.assertFalse(load.publish(new byte[40]));
+                }
+            } finally {
+                entry.close();
+                budget.close();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
     public void testCompactStringPayloadEstimate() {
         // Latin-1 characters weigh one byte, other characters two; the estimate scales with
         // string length so skewed payloads dominate their entries.

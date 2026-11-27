@@ -85,11 +85,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -124,6 +126,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ENTRY_PARTITION_VALUES = "partition_values";
     public static final String ENTRY_PARTITION = "partition";
     public static final String ENTRY_FILE = "file";
+    public static final String ENTRY_FILE_SUMMARY = "file_summary";
 
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
     public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
@@ -144,6 +147,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry;
     private final EntryHandle<PartitionCacheKey, HivePartition> partitionEntry;
     private final EntryHandle<FileCacheKey, FileCacheValue> fileEntry;
+    private final EntryHandle<FileCacheKey, Long> fileSummaryEntry;
+    private final Map<Long, HiveFileListingCache> fileListingCaches = new ConcurrentHashMap<>();
     private final PartitionCacheCoordinator partitionCacheCoordinator = new PartitionCacheCoordinator();
 
     public HiveExternalMetaCache(ExecutorService refreshExecutor, ExecutorService fileListingExecutor) {
@@ -181,14 +186,37 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                         Config.external_cache_expire_time_seconds_after_access,
                         Config.max_hive_partition_cache_num)));
         fileEntry = registerEntry(MetaCacheEntryDef.of(
-                ENTRY_FILE,
-                FileCacheKey.class,
-                FileCacheValue.class,
-                this::loadFileCacheValue,
-                CacheSpec.of(
-                        true,
-                        Config.external_cache_expire_time_seconds_after_access,
-                        Config.max_external_file_cache_num)));
+                ENTRY_FILE, FileCacheKey.class, FileCacheValue.class,
+                (MetaCacheEntry.OwnerBoundLoader<FileCacheKey, FileCacheValue>) this::loadFileCacheValue,
+                CacheSpec.of(true, Config.external_cache_expire_time_seconds_after_access,
+                        Config.max_external_file_cache_num))
+                .withSizeEstimator((key, value) -> value.getEstimatedCacheBytes() > 0
+                        ? MetaCacheSizeEstimate.complete(value.getEstimatedCacheBytes())
+                        : MetaCacheSizeEstimate.incomplete("unprepared_file_listing")));
+        fileSummaryEntry = registerEntry(MetaCacheEntryDef.contextualOnly(
+                ENTRY_FILE_SUMMARY, FileCacheKey.class, Long.class,
+                CacheSpec.of(true, Config.external_cache_expire_time_seconds_after_access,
+                        Config.max_external_file_cache_num))
+                .withSizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(
+                        HiveFileListingSizeEstimator.baseBytes(key) + 24L)));
+    }
+
+    @Override
+    public void initCatalog(long catalogId, Map<String, String> properties) {
+        Map<String, String> policy = new HashMap<>(properties);
+        // The scalar survives list abandonment, but follows the list's TTL/disable policy.
+        String filePrefix = CacheSpec.metaCacheKeyPrefix(ENGINE) + ENTRY_FILE + ".";
+        String summaryPrefix = CacheSpec.metaCacheKeyPrefix(ENGINE) + ENTRY_FILE_SUMMARY + ".";
+        for (String option : java.util.Arrays.asList("enable", "ttl-second", "capacity")) {
+            if (properties.containsKey(filePrefix + option)) {
+                policy.put(summaryPrefix + option, properties.get(filePrefix + option));
+            }
+        }
+        String legacyTtl = properties.get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND);
+        if (legacyTtl != null && !properties.containsKey(filePrefix + "ttl-second")) {
+            policy.put(summaryPrefix + "ttl-second", legacyTtl);
+        }
+        super.initCatalog(catalogId, policy);
     }
 
     @Override
@@ -197,8 +225,9 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     @Override
-    public void invalidateCatalog(long catalogId) {
+    public synchronized void invalidateCatalog(long catalogId) {
         super.invalidateCatalog(catalogId);
+        fileListingCaches.remove(catalogId);
         advanceFileCacheInvalidationGeneration(catalogId);
         // A cache-policy ALTER rebuilds the catalog's cache group under the SAME catalog id, so
         // the generation counters must stay monotonic: statement-scoped file-task keys embed
@@ -208,12 +237,19 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     @Override
+    public synchronized void close() {
+        super.close();
+        fileListingCaches.clear();
+    }
+
+    @Override
     public void onCatalogPermanentlyRemoved(long catalogId) {
         // The id is never reused; without this, create/use/drop churn would accumulate counter
         // map nodes for the FE lifetime. In-flight scans cannot recreate the records because
         // the counter helpers only allocate while the catalog's entry group exists.
         fileCacheInvalidationGenerations.remove(catalogId);
         fileCacheValueGenerations.remove(catalogId);
+        fileListingCaches.remove(catalogId);
     }
 
     @Override
@@ -231,6 +267,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         MetaCacheEntry<FileCacheKey, FileCacheValue> files = fileEntry.getIfInitialized(catalogId);
         if (files != null) {
             files.invalidateAll();
+        }
+        MetaCacheEntry<FileCacheKey, Long> summaries = fileSummaryEntry.getIfInitialized(catalogId);
+        if (summaries != null) {
+            summaries.invalidateAll();
         }
         advanceFileCacheInvalidationGeneration(catalogId);
     }
@@ -253,6 +293,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
         invalidateIfInitialized(fileEntry, catalogId, key -> key.isSameTable(tableId));
+        invalidateIfInitialized(fileSummaryEntry, catalogId, key -> key.isSameTable(tableId));
         advanceFileCacheInvalidationGeneration(catalogId);
     }
 
@@ -355,8 +396,24 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return loadPartition(key);
     }
 
-    private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
+    private FileCacheValue loadFileCacheValue(MetaCacheEntry<FileCacheKey, FileCacheValue> owner, FileCacheKey key) {
+        if (owner.isClosed()) {
+            return null;
+        }
+        HiveFileListingCache listing = fileListingCache(key.catalogId);
+        if (!listing.owns(owner)) {
+            // A retired entry's background refresh must never acquire leases from its replacement.
+            return null;
+        }
+        try {
+            return listing.refresh(key,
+                    () -> openDirectory(key, new FileSystemDirectoryLister(), null, () -> false));
+        } catch (FileSystemIOException e) {
+            throw new CacheException("failed to refresh Hive files for %s", e, key);
+        }
+    }
+
+    private void stampFileCacheGeneration(FileCacheKey key, FileCacheValue value) {
         AtomicLong generation = fileCacheValueGenerations.get(key.catalogId);
         if (generation == null && fileEntry.getIfInitialized(key.catalogId) != null) {
             generation = fileCacheValueGenerations.computeIfAbsent(
@@ -369,7 +426,199 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
         // A stale in-flight load after a permanent drop must not recreate the counter record.
         value.setCacheGeneration(generation == null ? 0L : generation.incrementAndGet());
-        return value;
+    }
+
+    private HiveFileListingCache fileListingCache(long catalogId) {
+        while (true) {
+            MetaCacheEntry<FileCacheKey, FileCacheValue> entry = fileEntry.get(catalogId);
+            HiveFileListingCache cached = fileListingCaches.get(catalogId);
+            if (cached != null && cached.owns(entry)) {
+                return cached;
+            }
+            MetaCacheEntry<FileCacheKey, Long> summaries = fileSummaryEntry.getIfInitialized(catalogId);
+            // Both leases must belong to the same physical catalog group. ALTER can retire the group
+            // between the two lookups; retry preparation outside every registry/map monitor.
+            if (summaries == null || fileEntry.getIfInitialized(catalogId) != entry) {
+                continue;
+            }
+            Map<String, String> properties = hmsCatalog(catalogId).getProperties();
+            long entryLimit = Long.parseLong(properties.getOrDefault(
+                    HMSExternalCatalog.FILE_LISTING_CACHE_ENTRY_MAX_BYTES, "8388608"));
+            long pendingLimit = Long.parseLong(properties.getOrDefault(
+                    HMSExternalCatalog.FILE_LISTING_CACHE_PENDING_MAX_BYTES, "67108864"));
+            HiveFileListingCache cache = fileListingCaches.compute(catalogId, (id, current) -> {
+                if (entry.isClosed() || (current != null && current.owns(entry))) {
+                    return current;
+                }
+                return new HiveFileListingCache(entry, summaries, entryLimit, pendingLimit);
+            });
+            if (cache == null) {
+                continue;
+            }
+            return cache;
+        }
+    }
+
+    private FileCacheKey fileKey(HivePartition partition) {
+        NameMapping mapping = partition.getNameMapping();
+        long id = Util.genIdByName(mapping.getLocalDbName(), mapping.getLocalTblName());
+        return partition.isDummyPartition()
+                ? FileCacheKey.createDummyCacheKey(mapping.getCtlId(), id, partition.getPath(),
+                        partition.getInputFormat())
+                : new FileCacheKey(mapping.getCtlId(), id, partition.getPath(), partition.getInputFormat(),
+                        partition.getPartitionValues());
+    }
+
+    public HiveFileIterator openFiles(HivePartition partition, boolean withCache, DirectoryLister lister,
+            TableIf table, BooleanSupplier cancelled) throws FileSystemIOException {
+        FileCacheKey key = fileKey(partition);
+        if (!withCache) {
+            return openDirectory(key, lister, table, cancelled);
+        }
+        return fileListingCache(key.catalogId).open(key,
+                () -> openDirectory(key, lister, table, cancelled), cancelled);
+    }
+
+    /** No directory I/O: ordinary planning must not enumerate cold directories to estimate rows. */
+    public long getCachedFileSize(List<HivePartition> partitions) {
+        long total = 0;
+        for (HivePartition partition : partitions) {
+            FileCacheKey key = fileKey(partition);
+            MetaCacheEntry<FileCacheKey, Long> entry = fileSummaryEntry.getIfInitialized(key.catalogId);
+            Long size = entry == null ? null : entry.peekIfPresent(key);
+            if (size == null) {
+                return -1;
+            }
+            total = MetaCacheWeightUtils.saturatedAdd(total, size);
+        }
+        return total;
+    }
+
+    private HiveFileIterator openDirectory(FileCacheKey key, DirectoryLister lister, TableIf table,
+            BooleanSupplier cancelled) throws FileSystemIOException {
+        HMSExternalCatalog catalog = hmsCatalog(key.catalogId);
+        FileCacheValue metadata = new FileCacheValue();
+        List<String> values = new ArrayList<>(key.getPartitionValues());
+        values.replaceAll(value -> HIVE_DEFAULT_PARTITION.equals(value) ? null : value);
+        metadata.setPartitionValues(values);
+        stampFileCacheGeneration(key, metadata);
+        return new HiveFileIterator() {
+            private RemoteIterator<RemoteFile> iterator;
+            private LocationPath path;
+            private HiveFileStatus next;
+            private boolean closed;
+            private boolean observedFile;
+
+            @Override
+            public FileCacheValue metadata() {
+                return metadata;
+            }
+
+            @Override
+            public boolean hasNext() throws FileSystemIOException {
+                if (closed) {
+                    return false;
+                }
+                if (cancelled.getAsBoolean()) {
+                    throw new CancellationException("Hive file listing cancelled");
+                }
+                if (next != null) {
+                    return true;
+                }
+                ClassLoader previous = Thread.currentThread().getContextClassLoader();
+                try {
+                    Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+                    if (iterator == null) {
+                        path = LocationPath.of(key.getLocation(),
+                                catalog.getCatalogProperty().getStoragePropertiesMap());
+                        FileSystemCache.FileSystemCacheKey fsKey = new FileSystemCache.FileSystemCacheKey(
+                                path.getFsIdentifier(), path.getStorageProperties());
+                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
+                                .getRemoteFileSystem(fsKey);
+                        metadata.setSplittable(HiveUtil.isSplittable(
+                                fs, key.inputFormat, path.getNormalizedLocation()));
+                        iterator = lister.listFilesUncached(fs, Boolean.parseBoolean(catalog.getProperties()
+                                .getOrDefault("hive.recursive_directories", "true")), table,
+                                path.getNormalizedLocation(), cancelled);
+                    }
+                    while (iterator.hasNext()) {
+                        if (cancelled.getAsBoolean()) {
+                            throw new CancellationException("Hive file listing cancelled");
+                        }
+                        RemoteFile file = iterator.next();
+                        observedFile = true;
+                        if (!FileCacheValue.isFileVisible(file.getPath())) {
+                            continue;
+                        }
+                        next = new HiveFileStatus();
+                        next.setPath(LocationPath.of(file.getPath().toString(), path.getStorageProperties()));
+                        next.setBlockLocations(file.getBlockLocations());
+                        next.setLength(file.getSize());
+                        next.setBlockSize(file.getBlockSize());
+                        next.setModificationTime(file.getModificationTime());
+                        return true;
+                    }
+                    return false;
+                } catch (FileSystemIOException e) {
+                    // A missing location can be ignored only before any remote file was observed.
+                    if (!observedFile && e.getErrorCode().orElse(null) == ErrCode.NOT_FOUND
+                            && Boolean.parseBoolean(catalog.getProperties()
+                                    .getOrDefault("hive.ignore_absent_partitions", "true"))) {
+                        return false;
+                    }
+                    throw e;
+                } catch (UserException e) {
+                    throw new FileSystemIOException("Failed to list Hive location " + key.getLocation(), e);
+                } finally {
+                    Thread.currentThread().setContextClassLoader(previous);
+                }
+            }
+
+            @Override
+            public HiveFileStatus next() throws FileSystemIOException {
+                if (!hasNext()) {
+                    throw new java.util.NoSuchElementException();
+                }
+                HiveFileStatus file = next;
+                next = null;
+                return file;
+            }
+
+            @Override
+            public void close() throws FileSystemIOException {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                next = null;
+                if (iterator != null) {
+                    RemoteIterator<RemoteFile> opened = iterator;
+                    iterator = null;
+                    opened.close();
+                }
+            }
+        };
+    }
+
+    private FileCacheValue materializeFiles(FileCacheKey key, DirectoryLister lister, TableIf table) {
+        FileCacheValue hit = fileEntry.get(key.catalogId).getIfPresent(key);
+        if (hit != null) {
+            return hit;
+        }
+        HiveFileIterator opened = fileListingCache(key.catalogId).open(key,
+                () -> openDirectory(key, lister, table, () -> false), () -> false);
+        try (HiveFileIterator iterator = opened) {
+            FileCacheValue result = new FileCacheValue();
+            while (iterator.hasNext()) {
+                result.getFiles().add(iterator.next());
+            }
+            result.setSplittable(iterator.metadata().isSplittable());
+            result.setPartitionValues(iterator.metadata().getPartitionValues());
+            result.setCacheGeneration(iterator.metadata().getCacheGeneration());
+            return result;
+        } catch (FileSystemIOException e) {
+            throw new CacheException("failed to list Hive location %s", e, key);
+        }
     }
 
     private HMSExternalCatalog hmsCatalog(long catalogId) {
@@ -633,8 +882,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         List<FileCacheValue> fileLists;
         try {
             if (withCache) {
-                MetaCacheEntry<FileCacheKey, FileCacheValue> fileEntry = this.fileEntry.get(catalogId);
-                fileLists = keys.stream().map(fileEntry::get).collect(Collectors.toList());
+                fileLists = keys.stream().map(key -> materializeFiles(key, directoryLister, table))
+                        .collect(Collectors.toList());
             } else if (concurrent) {
                 List<Future<FileCacheValue>> futures = keys.stream().map(
                                 key -> fileListingExecutor.submit(() -> loadFiles(key, directoryLister, table)))
@@ -746,6 +995,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         if (fileEntry != null) {
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
             fileEntry.invalidateIf(k -> k.isSameTable(tableId));
+            invalidateIfInitialized(fileSummaryEntry, catalogId, k -> k.isSameTable(tableId));
             advanceFileCacheInvalidationGeneration(catalogId);
         }
     }
@@ -802,6 +1052,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             // cache, so file cache invalidation still runs when the table's partition-values cache entry has
             // been evicted while its file listings are still cached.
             List<String> values = HiveUtil.toPartitionValues(partitionName);
+            invalidateIfInitialized(fileSummaryEntry, catalogId,
+                    k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
 
             PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
             HivePartition partition = partitionEntry.peekIfPresent(partKey);
@@ -1201,7 +1453,9 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     @Data
     public static class FileCacheValue {
-        private final List<HiveFileStatus> files = Lists.newArrayList();
+        private final List<HiveFileStatus> files;
+        private long estimatedCacheBytes;
+
         // Monotonic per-catalog load counter stamped by loadFileCacheValue. Statement scan-reuse
         // keys include this value so an automatic refresh, TTL expiry reload, or capacity-eviction
         // reload of the global entry produces a different key and cannot be reused by an earlier
@@ -1210,6 +1464,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private boolean isSplittable;
         protected List<String> partitionValues;
         private AcidInfo acidInfo;
+
+        public FileCacheValue() {
+            this(Lists.newArrayList());
+        }
+
+        FileCacheValue(List<HiveFileStatus> files) {
+            this.files = files;
+        }
 
         public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {

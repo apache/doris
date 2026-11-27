@@ -34,6 +34,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -154,6 +155,25 @@ public class AnalysisManagerTest {
             Assertions.assertEquals(ScheduleType.AUTOMATIC, analysisInfo.scheduleType);
             Assertions.assertEquals(AnalysisMethod.SAMPLE, analysisInfo.analysisMethod);
             Assertions.assertTrue(analysisInfo.collectHotValue);
+        }
+    }
+
+    @Test
+    public void testColdHiveAnalyzeRecordsEstimatedRowCountInJob() {
+        AnalysisManager manager = new AnalysisManager();
+        Env env = Mockito.mock(Env.class);
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(30001L);
+        Mockito.when(table.getRowCount()).thenReturn(-1L);
+        Mockito.when(table.getRowCountForAnalyze()).thenReturn(32L);
+        AnalyzeTableCommand command = mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE, false, false);
+        Mockito.when(command.getTable()).thenReturn(table);
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            AnalysisInfo info = manager.buildAnalysisJobInfo(command);
+            Assertions.assertEquals(32L, info.rowCount);
+            Mockito.verify(table).getRowCountForAnalyze();
+            Mockito.verify(table, Mockito.never()).fetchRowCount();
         }
     }
 

@@ -25,6 +25,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FileSystemDirectoryLister implements DirectoryLister {
+    @Override
+    public RemoteIterator<RemoteFile> listFilesUncached(FileSystem fs, boolean recursive, TableIf table,
+            String location, java.util.function.BooleanSupplier cancelled) throws FileSystemIOException {
+        return fs.listFilesIterator(location, recursive, cancelled);
+    }
+
     public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException {
         List<RemoteFile> result = new ArrayList<>();

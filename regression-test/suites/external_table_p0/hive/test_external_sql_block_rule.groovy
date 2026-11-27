@@ -70,6 +70,9 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     assertEquals("4", baseRows[3][0].toString())
     assertEquals("y", baseRows[3][3].toString())
 
+    // Cardinality limits need a known estimate; a cold file listing has no complete size hint.
+    sql """analyze table ${catalog_name}.${db_name}.${table_name} (id) with sync"""
+
     // Clean up existing rules and users
     sql """drop sql_block_rule if exists hive_partition_rule"""
     sql """drop sql_block_rule if exists hive_split_rule"""

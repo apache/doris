@@ -43,6 +43,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
+import org.apache.doris.datasource.hive.HiveFileIterator;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
@@ -381,7 +382,7 @@ public class HiveScanNode extends FileQueryScanNode {
             String broker, int numBackends, CountSplitPlan countPlan) {
         return new SplitProducer.BatchSource() {
             private Iterator<FileCacheValue> fileCaches = Collections.emptyIterator();
-            private Iterator<HiveExternalMetaCache.HiveFileStatus> files = Collections.emptyIterator();
+            private HiveFileIterator files = HiveFileIterator.of(new FileCacheValue());
             private Iterator<Split> ranges = Collections.emptyIterator();
             private FileCacheValue currentCache;
             private long targetSize;
@@ -413,6 +414,10 @@ public class HiveScanNode extends FileQueryScanNode {
             private boolean loadNextFileRanges() throws IOException, UserException {
                 while (splitAssignment.needMoreSplit()) {
                     if (files.hasNext()) {
+                        // A cold cursor initializes metadata on its first pull; reuse it for this partition.
+                        if (currentCache == null) {
+                            currentCache = files.metadata();
+                        }
                         HiveExternalMetaCache.HiveFileStatus file = files.next();
                         ranges = fileSplitter.splitFileIterator(file.getPath(), targetSize,
                                 file.getBlockLocations(), file.getLength(), file.getModificationTime(),
@@ -420,10 +425,10 @@ public class HiveScanNode extends FileQueryScanNode {
                                 new HiveSplitCreator(currentCache.getAcidInfo()));
                         return true;
                     }
+                    files.close();
                     if (fileCaches.hasNext()) {
                         currentCache = fileCaches.next();
-                        files = currentCache.getFiles() == null ? Collections.emptyIterator()
-                                : currentCache.getFiles().iterator();
+                        files = HiveFileIterator.of(currentCache);
                         continue;
                     }
                     // One producer batch can span partitions, and one partition can span batches.
@@ -439,8 +444,18 @@ public class HiveScanNode extends FileQueryScanNode {
                         if (index >= prunedPartitions.size()) {
                             return false;
                         }
+                        HivePartition partition = prunedPartitions.get(index);
+                        if (countPlan == null) {
+                            files = cache.openFiles(partition, Config.max_external_file_cache_num > 0,
+                                    directoryLister, hmsTable,
+                                    () -> !splitAssignment.needMoreSplit() || Thread.currentThread().isInterrupted());
+                            targetSize = determineTargetFileSplitSize(Collections.emptyList(), true);
+                            needSplit = true;
+                            currentCache = null;
+                            continue;
+                        }
                         loaded = getFileCachesByPartitions(cache,
-                                Collections.singletonList(prunedPartitions.get(index)), broker, true);
+                                Collections.singletonList(partition), broker, true);
                     }
                     targetSize = determineTargetFileSplitSize(loaded, true);
                     needSplit = countPlan == null ? needSplitFiles(loaded, numBackends) : countPlan.needSplit;
@@ -450,9 +465,10 @@ public class HiveScanNode extends FileQueryScanNode {
             }
 
             @Override
-            public void close() {
+            public void close() throws IOException {
                 ranges = Collections.emptyIterator();
-                files = Collections.emptyIterator();
+                files.close();
+                files = HiveFileIterator.of(new FileCacheValue());
                 fileCaches = Collections.emptyIterator();
                 currentCache = null;
             }

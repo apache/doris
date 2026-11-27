@@ -23,9 +23,12 @@ import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.RemoteFile;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 
 /**
  * File system interface.
@@ -93,6 +96,41 @@ public interface FileSystem {
      * </pre>
      * */
     Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
+
+    /** Native implementations page lazily. Broker retains its existing single-RPC listing boundary. */
+    default RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            BooleanSupplier cancelled) throws FileSystemIOException {
+        if (cancelled.getAsBoolean()) {
+            throw new CancellationException("File listing cancelled");
+        }
+        List<RemoteFile> files = new ArrayList<>();
+        Status status = listFiles(remotePath, recursive, files);
+        if (!status.ok()) {
+            throw new FileSystemIOException(status.getErrCode(), status.getErrMsg());
+        }
+        return new RemoteIterator<RemoteFile>() {
+            private int index;
+
+            @Override
+            public boolean hasNext() {
+                return index < files.size();
+            }
+
+            @Override
+            public RemoteFile next() {
+                if (!hasNext()) {
+                    throw new java.util.NoSuchElementException();
+                }
+                // Broker's RPC is eager; release consumed results as the split producer advances.
+                return files.set(index++, null);
+            }
+
+            @Override
+            public void close() {
+                files.clear();
+            }
+        };
+    }
 
     /**
      * List files in remotePath by wildcard <br/>
