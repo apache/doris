@@ -1397,6 +1397,7 @@ start_hive_stack() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
+    local iceberg_data_url="${ICEBERG_DATA_ARCHIVE_URL:-https://doris-teamcity-regression.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/iceberg_data_spark40_paimon210.zip}"
     if [[ "${HOST_OS}" == "Darwin" ]]; then
         export ICEBERG_POSTGRES_IMAGE="${ICEBERG_POSTGRES_IMAGE:-postgres:14}"
     fi
@@ -1426,15 +1427,15 @@ start_iceberg() {
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
                 if [[ "${HOST_OS}" == "Darwin" ]]; then
-                    curl -fL -o iceberg_data_spark40_paimon142.zip \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
+                    curl -fL -o iceberg_data_spark40_paimon210.zip \
+                        "${iceberg_data_url}"
                 else
-                    wget -P "${ROOT}/docker-compose/iceberg" \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
+                    wget -O iceberg_data_spark40_paimon210.zip \
+                        "${iceberg_data_url}"
                 fi
-                unzip iceberg_data_spark40_paimon142.zip
+                unzip iceberg_data_spark40_paimon210.zip
                 mv iceberg_data data
-                rm -rf iceberg_data_spark40_paimon142.zip
+                rm -rf iceberg_data_spark40_paimon210.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
