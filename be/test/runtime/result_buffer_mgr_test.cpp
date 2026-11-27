@@ -103,7 +103,9 @@ TEST_F(ResultBufferMgrTest, normal_cancel) {
     std::shared_ptr<ResultBlockBufferBase> control_block1;
     EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false).ok());
 
+    EXPECT_EQ(buffer_mgr._buffer_count.load(), 1);
     EXPECT_TRUE(buffer_mgr.cancel(query_id, Status::InternalError("")));
+    EXPECT_EQ(buffer_mgr._buffer_count.load(), 0);
 }
 
 TEST_F(ResultBufferMgrTest, cancel_no_block) {

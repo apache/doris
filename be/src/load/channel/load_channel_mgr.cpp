@@ -58,10 +58,8 @@ static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
 }
 
 LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
-    REGISTER_HOOK_METRIC(load_channel_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _load_channels.size();
-    });
+    REGISTER_HOOK_METRIC(load_channel_count,
+                         [this]() { return _load_channel_count.load(std::memory_order_relaxed); });
 }
 
 void LoadChannelMgr::stop() {
@@ -110,6 +108,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                                           params.sender_ip(), params.backend_id(),
                                           params.enable_profile(), wg_id));
             _load_channels.insert({load_id, channel});
+            _load_channel_count.store(_load_channels.size(), std::memory_order_relaxed);
         }
     }
 
@@ -206,6 +205,7 @@ Status LoadChannelMgr::_cancel_load_channel(const std::shared_ptr<LoadChannel>& 
         return Status::OK();
     }
     _load_channels.erase(it);
+    _load_channel_count.store(_load_channels.size(), std::memory_order_relaxed);
     _record_cancelled_load_channel(load_id, std::string(channel->cancel_status().msg()));
     return Status::OK();
 }
@@ -222,6 +222,7 @@ void LoadChannelMgr::_finish_load_channel(const std::shared_ptr<LoadChannel>& ch
             return;
         }
         _load_channels.erase(it);
+        _load_channel_count.store(_load_channels.size(), std::memory_order_relaxed);
         auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
         _load_state_channels->release(handle);
     }
@@ -243,6 +244,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             // cancel() only updates the shared status; it takes no writer locks.
             RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
             _load_channels.erase(load_id);
+            _load_channel_count.store(_load_channels.size(), std::memory_order_relaxed);
             _record_cancelled_load_channel(load_id,
                                            std::string(cancelled_channel->cancel_status().msg()));
         } else {
@@ -312,6 +314,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }
+        _load_channel_count.store(_load_channels.size(), std::memory_order_relaxed);
     }
 
     // Publish cancellation to retained RPCs before releasing the cleanup references.

@@ -141,11 +141,13 @@ TEST_F(ArrowFlightCancelTest, CancelledStatusCoversQueryAndInstanceIds) {
     ASSERT_TRUE(_mgr.create_sender(_state.query_id(), 16, &parallel_buffer, &_state, true,
                                    arrow::schema({arrow::field("value", arrow::int64())}))
                         .ok());
+    EXPECT_EQ(_mgr._buffer_count.load(), 2);
     const auto failure = Status::InvalidArgument("failed before fetching schema");
     _mgr.cancel_arrow_flight_buffers(_state.query_id(), failure);
     EXPECT_TRUE(_buffer->_result_batch_queue.empty());
     EXPECT_TRUE(_dep->ready());
     EXPECT_TRUE(_mgr._buffer_map.empty());
+    EXPECT_EQ(_mgr._buffer_count.load(), 0);
     EXPECT_TRUE(_mgr._arrow_flight_query_buffers.empty());
     for (const auto& id : {_id, _state.query_id()}) {
         std::shared_ptr<ArrowFlightResultBlockBuffer> found;

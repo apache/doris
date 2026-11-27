@@ -47,10 +47,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT
 ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each ResultBlockBufferBase has a limited queue size of 1024, it's not needed to count the
     // actual size of all ResultBlockBufferBase.
-    REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
-        // std::lock_guard<std::mutex> l(_buffer_map_lock);
-        return _buffer_map.size();
-    });
+    REGISTER_HOOK_METRIC(result_buffer_block_count,
+                         [this]() { return _buffer_count.load(std::memory_order_relaxed); });
 }
 
 void ResultBufferMgr::stop() {
@@ -94,6 +92,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         _buffer_map.insert(std::make_pair(unique_id, control_block));
+        _buffer_count.store(_buffer_map.size(), std::memory_order_relaxed);
         if (arrow_flight) {
             _arrow_flight_query_buffers[state->query_id()].insert(unique_id);
         }
@@ -161,6 +160,7 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
         }
         iter->second->cancel(reason);
         _buffer_map.erase(iter);
+        _buffer_count.store(_buffer_map.size(), std::memory_order_relaxed);
     }
     return exist;
 }
@@ -190,6 +190,7 @@ void ResultBufferMgr::cancel_arrow_flight_buffers(const TUniqueId& query_id, con
             cancel_at_time(time(nullptr) + config::result_buffer_cancelled_interval_time,
                            buffer_id);
             _buffer_map.erase(it);
+            _buffer_count.store(_buffer_map.size(), std::memory_order_relaxed);
         }
         _arrow_flight_query_buffers.erase(query);
     }

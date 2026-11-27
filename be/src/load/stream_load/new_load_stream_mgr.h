@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -45,14 +46,17 @@ public:
     Status put(const UniqueId& id, std::shared_ptr<StreamLoadContext> stream) {
         {
             std::lock_guard<std::mutex> l(_lock);
-            DBUG_EXECUTE_IF("NewLoadStreamMgr.test_duplicated_load_id",
-                            _stream_map.emplace(id, stream));
+            DBUG_EXECUTE_IF("NewLoadStreamMgr.test_duplicated_load_id", {
+                _stream_map.emplace(id, stream);
+                _stream_count.store(_stream_map.size(), std::memory_order_relaxed);
+            });
             if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
                 std::stringstream ss;
                 ss << "id: " << id << " already exist";
                 return Status::InternalError(ss.str());
             }
             _stream_map.emplace(id, stream);
+            _stream_count.store(_stream_map.size(), std::memory_order_relaxed);
         }
 
         VLOG_NOTICE << "put stream load pipe: " << id;
@@ -74,6 +78,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
             _stream_map.erase(iter);
+            _stream_count.store(_stream_map.size(), std::memory_order_relaxed);
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }
     }
@@ -81,5 +86,7 @@ public:
 private:
     std::mutex _lock;
     std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _stream_map;
+    // Publish the size under _lock so the metric hook can read it without a nested lock.
+    std::atomic<size_t> _stream_count {0};
 };
 } // namespace doris
