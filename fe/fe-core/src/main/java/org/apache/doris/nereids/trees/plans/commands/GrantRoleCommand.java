@@ -35,6 +35,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * GRANT role [, role] TO user_identity
@@ -72,12 +73,38 @@ public class GrantRoleCommand extends Command implements ForwardWithSync {
             FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not grant role");
         }
 
-        checkRolePrivileges();
+        checkRolePrivileges(roles);
     }
 
+    /** The gate of every role grant or revoke: grant_priv. A revoke takes nothing, so it needs no more. */
     public static void checkRolePrivileges() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/REVOKE");
+        }
+    }
+
+    /**
+     * Granting a role is granting a membership, not a copy of the privileges the role carries today:
+     * the role's privileges can change later and every holder follows. So the grantor needs grant_priv
+     * and must hold the role itself; admin_priv grants any role. Holding every privilege the role
+     * carries is not holding the role, and granting privileges stays a separate act with its own rule.
+     * To hold a role is to have it granted in Doris: a role that reaches a session from outside (an LDAP
+     * group, the role mapping of an authentication integration) is governed there and does not count,
+     * since a grant made on its strength would outlive it as a stored membership.
+     */
+    public static void checkRolePrivileges(List<String> roleNames) throws AnalysisException {
+        checkRolePrivileges();
+        ConnectContext ctx = ConnectContext.get();
+        Env env = Env.getCurrentEnv();
+        if (env.getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            return;
+        }
+        Set<String> heldRoles = env.getAuth().getRolesByUser(ctx.getCurrentUserIdentity(), true);
+        for (String roleName : roleNames) {
+            if (!heldRoles.contains(roleName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "ADMIN or membership of role '" + roleName + "'");
+            }
         }
     }
 

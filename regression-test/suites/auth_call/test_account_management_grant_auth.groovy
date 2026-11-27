@@ -71,8 +71,15 @@ suite("test_account_management_grant_auth","p0,auth_call") {
     sql """grant grant_priv on *.*.* to '${user}'"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE USER ${user_derive} IDENTIFIED BY '${pwd}';"""
-        sql """ALTER USER ${user_derive} IDENTIFIED BY "${pwd}";"""
-        sql """SET PASSWORD FOR '${user_derive}' = PASSWORD('${pwd}')"""
+        // another account's credentials need admin_priv; grant_priv alone does not change them
+        test {
+            sql """ALTER USER ${user_derive} IDENTIFIED BY "${pwd}";"""
+            exception "denied"
+        }
+        test {
+            sql """SET PASSWORD FOR '${user_derive}' = PASSWORD('${pwd}')"""
+            exception "denied"
+        }
         test {
             sql """SET PROPERTY FOR '${user_derive}' 'max_user_connections' = '1000';"""
             exception "denied"

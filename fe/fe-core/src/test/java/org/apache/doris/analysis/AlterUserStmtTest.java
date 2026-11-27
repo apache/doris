@@ -52,6 +52,9 @@ public class AlterUserStmtTest {
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(accessManager.checkGlobalPriv(Mockito.any(ConnectContext.class), Mockito.eq(PrivPredicate.GRANT)))
                 .thenReturn(true);
+        // The cases here run as an administrator: another account's certificate requirement needs admin_priv.
+        Mockito.when(accessManager.checkGlobalPriv(Mockito.any(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN)))
+                .thenReturn(true);
         return mockedEnv;
     }
 
