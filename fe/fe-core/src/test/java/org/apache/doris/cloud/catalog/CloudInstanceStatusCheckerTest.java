@@ -101,7 +101,8 @@ public class CloudInstanceStatusCheckerTest {
         addComputeGroup("standby_cg_id", "standby_cg");
         Mockito.doReturn(instanceResponseWithVirtualComputeGroup()).when(cloudSystemInfoService).getCloudInstance();
 
-        new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+        new CloudInstanceStatusChecker(cloudSystemInfoService)
+                .check(cloudSystemInfoService.getCloudInstance().getInstance());
 
         CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
@@ -132,7 +133,8 @@ public class CloudInstanceStatusCheckerTest {
         Mockito.doReturn(instanceResponse(propertiesInMetaService))
                 .when(cloudSystemInfoService).getCloudInstance();
 
-        new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+        new CloudInstanceStatusChecker(cloudSystemInfoService)
+                .check(cloudSystemInfoService.getCloudInstance().getInstance());
 
         Assertions.assertEquals(propertiesInMetaService.getPropertiesMap(), computeGroup.getProperties());
         Assertions.assertEquals(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT,
@@ -145,7 +147,7 @@ public class CloudInstanceStatusCheckerTest {
         Mockito.doReturn(instanceResponseWithVirtualComputeGroup()).when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
 
         Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg_id"));
     }
@@ -155,7 +157,7 @@ public class CloudInstanceStatusCheckerTest {
         Mockito.doReturn(instanceResponseWithEmptyComputeGroups()).when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
 
         Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
     }
@@ -167,7 +169,7 @@ public class CloudInstanceStatusCheckerTest {
         Mockito.doReturn(instanceResponseWithVirtualComputeGroup()).when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
 
         Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg_id"));
     }
@@ -189,17 +191,17 @@ public class CloudInstanceStatusCheckerTest {
                 .when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
 
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg_id"));
 
         addComputeGroup("missing_active_cg_id", "missing_active_cg");
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg_id"));
 
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
     }
 
@@ -210,10 +212,10 @@ public class CloudInstanceStatusCheckerTest {
                 .when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg_id"));
 
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertNull(cloudSystemInfoService.getComputeGroupById("vcg_id"));
         Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
     }
@@ -225,11 +227,11 @@ public class CloudInstanceStatusCheckerTest {
                 .when(cloudSystemInfoService).getCloudInstance();
 
         CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         long failedSyncTime = 1L;
         failedSyncTimes(checker).put("vcg_id", failedSyncTime);
 
-        checker.runAfterCatalogReady();
+        checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
         Assertions.assertEquals(failedSyncTime, failedSyncTimes(checker).get("vcg_id"));
     }
 
@@ -252,7 +254,8 @@ public class CloudInstanceStatusCheckerTest {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
                     Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
 
-            new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+            new CloudInstanceStatusChecker(cloudSystemInfoService)
+                    .check(cloudSystemInfoService.getCloudInstance().getInstance());
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
                     Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         } finally {
@@ -324,7 +327,7 @@ public class CloudInstanceStatusCheckerTest {
                     Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
 
             CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
-            checker.runAfterCatalogReady();
+            checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
             List<Long> rebuiltJobIds = cacheHotspotManager.getCloudWarmUpJobs().values().stream()
                     .filter(job -> job.getJobType() == CloudWarmUpJob.JobType.CLUSTER)
                     .filter(job -> "standby_cg".equals(job.getSrcClusterName()))
@@ -333,7 +336,7 @@ public class CloudInstanceStatusCheckerTest {
                     .collect(java.util.stream.Collectors.toList());
             Assertions.assertEquals(2, rebuiltJobIds.size());
 
-            checker.runAfterCatalogReady();
+            checker.check(cloudSystemInfoService.getCloudInstance().getInstance());
 
             for (long rebuiltJobId : rebuiltJobIds) {
                 CloudWarmUpJob job = cacheHotspotManager.getCloudWarmUpJob(rebuiltJobId);
@@ -355,7 +358,8 @@ public class CloudInstanceStatusCheckerTest {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
                     Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(false);
 
-            new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+            new CloudInstanceStatusChecker(cloudSystemInfoService)
+                    .check(cloudSystemInfoService.getCloudInstance().getInstance());
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
                     Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         }

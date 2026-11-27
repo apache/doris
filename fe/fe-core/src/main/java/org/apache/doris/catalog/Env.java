@@ -2285,7 +2285,7 @@ public class Env {
 
     // During backup-restore recovery, the restored metadata may contain FE entries with old IP
     // addresses from the source cluster. Find the FE entry by node name and update its host to
-    // the current node's actual address. This must run before CloudClusterChecker starts to
+    // the current node's actual address. This must run before cloud node reconciliation starts to
     // prevent it from dropping the only FE and leaving the BDB group empty.
     private void updateRecoveryFrontendHostIfNeeded() {
         if (Config.isNotCloudMode()) {

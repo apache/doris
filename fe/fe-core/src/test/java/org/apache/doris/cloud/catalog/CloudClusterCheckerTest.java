@@ -22,7 +22,9 @@ import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -31,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -70,6 +72,70 @@ class CloudClusterCheckerTest {
     void tearDown() {
         mockedEnv.close();
         Config.cloud_unique_id = originalCloudUniqueId;
+    }
+
+    @Test
+    void testUnifiedCycleInstallsPhysicalGroupBeforeRefreshingProperties() {
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Cloud.ClusterPB group = physical("physical", "physical", "127.0.0.1").toBuilder()
+                .putProperties(CloudComputeGroupMeta.BALANCE_TYPE, "without_warmup").build();
+        Mockito.doReturn(instance(group)).when(service).getCloudInstance();
+
+        new CloudMetadataSynchronizer(service).runAfterCatalogReady();
+
+        Assertions.assertNotNull(service.getComputeGroupById("physical"));
+        Assertions.assertEquals(group.getPropertiesMap(), service.getComputeGroupById("physical").getProperties());
+        Mockito.verify(service).getCloudInstance();
+        Mockito.verify(service, Mockito.never()).getCloudCluster(Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString());
+    }
+
+    @Test
+    void testFrontendSelectionPrefersIdOverName() throws Exception {
+        String originalId = Config.cloud_sql_server_cluster_id;
+        String originalName = Config.cloud_sql_server_cluster_name;
+        try {
+            Config.cloud_sql_server_cluster_id = "selected";
+            Config.cloud_sql_server_cluster_name = "other";
+            checkFrontendSelection("127.0.0.2");
+        } finally {
+            Config.cloud_sql_server_cluster_id = originalId;
+            Config.cloud_sql_server_cluster_name = originalName;
+        }
+    }
+
+    @Test
+    void testFrontendSelectionFallsBackToName() throws Exception {
+        String originalId = Config.cloud_sql_server_cluster_id;
+        String originalName = Config.cloud_sql_server_cluster_name;
+        try {
+            Config.cloud_sql_server_cluster_id = "";
+            Config.cloud_sql_server_cluster_name = "other";
+            checkFrontendSelection("127.0.0.3");
+        } finally {
+            Config.cloud_sql_server_cluster_id = originalId;
+            Config.cloud_sql_server_cluster_name = originalName;
+        }
+    }
+
+    private void checkFrontendSelection(String expectedHost) throws Exception {
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        Mockito.when(env.getFrontends(Mockito.any(FrontendNodeType.class)))
+                .thenAnswer(invocation -> new ArrayList<>());
+        Mockito.doNothing().when(service).updateFrontends(Mockito.anyList(), Mockito.anyList());
+        Cloud.ClusterPB byId = frontendCluster("selected", "by_id", "127.0.0.2");
+        Cloud.ClusterPB byName = frontendCluster("other", "other", "127.0.0.3");
+
+        new CloudClusterChecker(service).check(instance(byId, byName).getInstance());
+
+        Mockito.verify(service).updateFrontends(Mockito.argThat(nodes -> nodes.size() == 1
+                && nodes.get(0).getHost().equals(expectedHost)), Mockito.argThat(List::isEmpty));
+    }
+
+    private Cloud.ClusterPB frontendCluster(String id, String name, String ip) {
+        return Cloud.ClusterPB.newBuilder().setClusterId(id).setClusterName(name).setType(Cloud.ClusterPB.Type.SQL)
+                .addNodes(Cloud.NodeInfoPB.newBuilder().setIp(ip).setEditLogPort(9010)
+                        .setNodeType(Cloud.NodeInfoPB.NodeType.FE_FOLLOWER).setCloudUniqueId(id)).build();
     }
 
     @Test
@@ -145,7 +211,7 @@ class CloudClusterCheckerTest {
         try {
             Future<?> staleCycle = executor.submit(() -> {
                 try (MockedStatic<Env> ignored = mockEnv()) {
-                    new CloudInstanceStatusChecker(service).runAfterCatalogReady();
+                    new CloudInstanceStatusChecker(service).check(service.getCloudInstance().getInstance());
                 }
             });
             Assertions.assertTrue(responseFetched.await(30, TimeUnit.SECONDS));
@@ -268,17 +334,13 @@ class CloudClusterCheckerTest {
     }
 
     private void syncPhysical(Cloud.ClusterPB... groups) throws Exception {
-        Mockito.doReturn(Cloud.GetClusterResponse.newBuilder().setStatus(ok())
-                .addAllCluster(List.of(groups)).build()).when(service).getCloudCluster("", "", "");
         // The production reconciliation entry, including add, delete, diff and validation.
-        Method method = CloudClusterChecker.class.getDeclaredMethod("checkCloudBackends");
-        method.setAccessible(true);
-        method.invoke(new CloudClusterChecker(service));
+        new CloudClusterChecker(service).checkCloudBackends(List.of(groups));
     }
 
     private void syncInstance(Cloud.ClusterPB... groups) {
         Mockito.doReturn(instance(groups)).when(service).getCloudInstance();
-        new CloudInstanceStatusChecker(service).runAfterCatalogReady();
+        new CloudInstanceStatusChecker(service).check(service.getCloudInstance().getInstance());
     }
 
     private Cloud.GetInstanceResponse instance(Cloud.ClusterPB... groups) {

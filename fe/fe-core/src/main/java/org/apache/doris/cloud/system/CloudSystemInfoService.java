@@ -263,7 +263,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterNameToId.remove(oldClusterName, clusterId);
     }
 
-    // Physical and virtual group checkers fetch and apply snapshots independently.
+    // Physical topology can also arrive through journal replay while virtual groups are refreshed from MS.
+    // Older FE versions additionally fetch physical and virtual snapshots with independent checkers.
     // For example:
     // 1. A current physical snapshot installs name -> newId.
     // 2. A delayed virtual snapshot overwrites it with name -> oldId.

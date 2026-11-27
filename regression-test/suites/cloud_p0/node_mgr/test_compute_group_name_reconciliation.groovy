@@ -18,8 +18,7 @@
 import groovy.json.JsonOutput
 import org.apache.doris.regression.suite.ClusterOptions
 
-// Run with a cloud image containing the checker debug points below. For a pre-fix
-// reproduction, keep the debug points but revert the reconciliation changes.
+// Run with a cloud image containing the metadata synchronizer debug points below.
 suite('test_compute_group_name_reconciliation', 'cloud_p0,docker') {
     if (!isCloudMode()) {
         return
@@ -36,9 +35,8 @@ suite('test_compute_group_name_reconciliation', 'cloud_p0,docker') {
         def ms = cluster.getAllMetaservices().get(0)
         def msEndpoint = "${ms.host}:${ms.httpPort}"
         def feLog = new File(cluster.getFeByIndex(1).getLogFilePath())
-        def physicalPause = 'CloudClusterChecker.checkCloudBackends.pause'
-        def instancePause = 'CloudInstanceStatusChecker.runAfterCatalogReady.pause'
-        def stalePause = 'CloudInstanceStatusChecker.afterGetInstance.pause'
+        def syncPause = 'CloudMetadataSynchronizer.beforeFetch.pause'
+        def stalePause = 'CloudMetadataSynchronizer.afterGetInstance.pause'
         def debug = GetDebugPoint()
 
         def alterCluster = { operation, group ->
@@ -89,68 +87,54 @@ suite('test_compute_group_name_reconciliation', 'cloud_p0,docker') {
             sql 'INSERT INTO test_compute_group_name_reconciliation VALUES (1), (2), (3)'
 
             // 1. A single checker cycle sees a same-name replacement on distinct BEs.
-            pause(physicalPause, 'recreate')
+            pause(syncPause, 'recreate')
             alterCluster('drop_cluster', [cluster_id: old.cluster_id, cluster_name: 'cg_reused'])
             alterCluster('drop_cluster', [cluster_id: spare.cluster_id, cluster_name: 'cg_spare'])
             alterCluster('add_cluster', [cluster_id: 'cg_recreated_id', cluster_name: 'cg_reused',
                     type: 'COMPUTE', nodes: spare.nodes])
-            resume(physicalPause)
+            resume(syncPause)
             waitPhysical('cg_reused', 'cg_recreated_id', [old.cluster_id, spare.cluster_id])
             order_qt_recreated 'SELECT k FROM test_compute_group_name_reconciliation'
 
             // 2. Rename A and reuse its old name for B before the next checker cycle.
-            pause(physicalPause, 'rename')
+            pause(syncPause, 'rename')
             alterCluster('rename_cluster', [cluster_id: 'cg_recreated_id', cluster_name: 'cg_renamed'])
             alterCluster('add_cluster', [cluster_id: 'cg_reuse_after_rename_id', cluster_name: 'cg_reused',
                     type: 'COMPUTE', nodes: old.nodes])
-            resume(physicalPause)
+            resume(syncPause)
             waitPhysical('cg_renamed', 'cg_recreated_id', [old.cluster_id, spare.cluster_id])
             order_qt_renamed 'SELECT k FROM test_compute_group_name_reconciliation'
             waitPhysical('cg_reused', 'cg_reuse_after_rename_id', [old.cluster_id, spare.cluster_id])
             order_qt_reused 'SELECT k FROM test_compute_group_name_reconciliation'
 
-            // 3. Hold an old virtual-group response while the physical checker installs
-            // a newer same-name physical group. Then let the old response overwrite it.
+            // 3. Hold a snapshot containing a virtual group while MS replaces it with a physical group.
+            // The next unified cycle must converge both topology and names from the same snapshot.
             cluster.addBackend(1, 'cg_snapshot_spare')
             def snapshotSpare = remoteGroup('cg_snapshot_spare')
             waitPhysical('cg_snapshot_spare', snapshotSpare.cluster_id, [])
             sql 'USE @compute_cluster'
-            pause(instancePause, 'before_virtual')
+            pause(syncPause, 'before_virtual')
             alterCluster('add_cluster', [cluster_id: 'cg_stale_virtual_id', cluster_name: 'cg_snapshot',
                     type: 'VIRTUAL', cluster_names: ['compute_cluster', 'cg_renamed'],
                     cluster_policy: [type: 'ActiveStandby', active_cluster_name: 'compute_cluster',
                             standby_cluster_names: ['cg_renamed']]])
             debug.enableDebugPointForAllFEs(stalePause,
                     [cluster_id: 'cg_stale_virtual_id', phase: 'stale_response', timeout: '180'])
-            resume(instancePause)
+            resume(syncPause)
             awaitUntil(30) { feLog.text.contains("${stalePause} phase=stale_response") }
             alterCluster('drop_cluster', [cluster_id: 'cg_stale_virtual_id', cluster_name: 'cg_snapshot'])
             alterCluster('drop_cluster', [cluster_id: snapshotSpare.cluster_id, cluster_name: 'cg_snapshot_spare'])
             alterCluster('add_cluster', [cluster_id: 'cg_current_physical_id', cluster_name: 'cg_snapshot',
                     type: 'COMPUTE', nodes: snapshotSpare.nodes])
-            waitPhysical('cg_snapshot', 'cg_current_physical_id', [snapshotSpare.cluster_id])
-            sql 'USE @compute_cluster'
-            pause(physicalPause, 'hold_repair')
-            debug.enableDebugPointForAllFEs(instancePause, [phase: 'after_stale', timeout: '180'])
+            // No independent physical checker can install the replacement while this cycle is paused.
+            assertFalse(sql_return_maparray('SHOW BACKENDS').any {
+                parseJson(it.Tag).compute_group_id == 'cg_current_physical_id'
+            })
             resume(stalePause)
-            awaitUntil(30) { feLog.text.contains("${instancePause} phase=after_stale") }
-            awaitUntil(30) {
-                sql_return_maparray('SHOW COMPUTE GROUPS').any {
-                    it.Name == 'cg_snapshot' && it.SubComputeGroups.contains('cg_renamed')
-                }
-            }
-
-            // Current instance data removes V. P's BEs remain, but its name is now missing.
-            resume(instancePause)
-            awaitUntil(60) {
-                !sql_return_maparray('SHOW COMPUTE GROUPS').any { it.Name == 'cg_snapshot' }
-            }
-            // No node or name change in MS: only periodic mapping repair can restore P.
-            resume(physicalPause)
             waitPhysical('cg_snapshot', 'cg_current_physical_id', [snapshotSpare.cluster_id])
             order_qt_repaired 'SELECT k FROM test_compute_group_name_reconciliation'
 
-            // Check stability after several subsequent physical AND instance cycles.
+            // Check stability after several subsequent unified cycles.
             3.times {
                 def logOffset = feLog.text.length()
                 awaitUntil(30) {
@@ -162,8 +146,7 @@ suite('test_compute_group_name_reconciliation', 'cloud_p0,docker') {
             }
         } finally {
             resume(stalePause)
-            resume(instancePause)
-            resume(physicalPause)
+            resume(syncPause)
         }
     }
 }
