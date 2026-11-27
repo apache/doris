@@ -529,26 +529,40 @@ TEST(AggregateStateParametersTest, CollectZeroAndNegativeLimits) {
 
 TEST(AggregateStateParametersTest, CollectNoLimitSerializationSize) {
     auto check = [](const char* name, const ColumnWithTypeAndName& value, size_t empty_size,
-                    size_t populated_size) {
+                    size_t populated_size, int version) {
         SCOPED_TRACE(name);
         SCOPED_TRACE(value.type->get_name());
-        auto function = AggregateFunctionSimpleFactory::instance().get(
-                name, {value.type}, nullptr, false, BeExecVersionManager::get_newest_version());
+        SCOPED_TRACE(version);
+        auto function = AggregateFunctionSimpleFactory::instance().get(name, {value.type}, nullptr,
+                                                                       false, version);
         ASSERT_NE(function, nullptr);
-        function->set_version(BeExecVersionManager::get_newest_version());
+        function->set_version(version);
         StateParameterChecks checks(function);
         checks.check_serialization_size({value}, empty_size, populated_size);
     };
 
-    // The legacy -1 field takes two bytes: one length byte and one ZigZag byte.
-    for (const auto* name : {"collect_list", "group_array", "array_agg"}) {
-        check(name, argument<DataTypeInt32>(7), 4, 8);
-        check(name, argument<DataTypeString>("a"), 6, 7 + sizeof(IColumn::Offset));
-        check(name, quantiles({}), sizeof(size_t) + 2, sizeof(size_t) + 6);
-    }
-    for (const auto* name : {"collect_set", "group_uniq_array"}) {
-        check(name, argument<DataTypeInt32>(7), 4, 8);
-        check(name, argument<DataTypeString>("a"), 4, 7);
+    for (int version : {SUPPORT_COLLECT_LIST_NATIVE_SERIALIZATION_VERSION - 1,
+                        BeExecVersionManager::get_newest_version()}) {
+        // The legacy -1 field takes two bytes: one length byte and one ZigZag byte.
+        for (const auto* name : {"collect_list", "group_array", "array_agg"}) {
+            check(name, argument<DataTypeInt32>(7), 4, 8, version);
+            check(name, argument<DataTypeString>("a"), 6, 7 + sizeof(IColumn::Offset), version);
+            if (version < SUPPORT_COLLECT_LIST_NATIVE_SERIALIZATION_VERSION) {
+                // JSON encodes one empty array as a length-prefixed "[]" string.
+                check(name, quantiles({}), sizeof(size_t) + 2, sizeof(size_t) + 6, version);
+            } else {
+                // Native Array(Nullable(DOUBLE)) has three column headers even with no rows.
+                constexpr size_t column_header_size = sizeof(bool) + 2 * sizeof(size_t);
+                constexpr size_t empty_size = sizeof(UInt64) + 3 * column_header_size + 2;
+                // Collecting one empty array adds an offset but no nested values or null flags.
+                check(name, quantiles({}), empty_size, empty_size + sizeof(ColumnArray::Offset64),
+                      version);
+            }
+        }
+        for (const auto* name : {"collect_set", "group_uniq_array"}) {
+            check(name, argument<DataTypeInt32>(7), 4, 8, version);
+            check(name, argument<DataTypeString>("a"), 4, 7, version);
+        }
     }
 }
 

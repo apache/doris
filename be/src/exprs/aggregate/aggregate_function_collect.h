@@ -28,6 +28,7 @@
 #include <string>
 #include <type_traits>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -38,7 +39,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/pod_array_fwd.h"
+#include "core/pod_array.h"
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -48,6 +49,7 @@
 namespace doris {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
+    static constexpr bool use_versioned_serde = false;
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -120,6 +122,7 @@ struct AggregateFunctionCollectSetData {
 template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectSetData<T, HasLimit> {
+    static constexpr bool use_versioned_serde = false;
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
@@ -190,6 +193,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectListData {
+    static constexpr bool use_versioned_serde = false;
     static constexpr PrimitiveType PType = T;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -253,6 +257,7 @@ struct AggregateFunctionCollectListData {
 template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
+    static constexpr bool use_versioned_serde = false;
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
@@ -321,6 +326,7 @@ template <PrimitiveType T, bool HasLimit>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
              !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
+    static constexpr bool use_versioned_serde = true;
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using Self = AggregateFunctionCollectListData<T, HasLimit>;
@@ -352,6 +358,52 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         }
     }
 
+    void write(BufferWritable& buf, const IDataType& column_type, int query_version) const {
+        // A mixed cluster still uses the old query version: old BEs can only read JSON states.
+        if (query_version < SUPPORT_COLLECT_LIST_NATIVE_SERIALIZATION_VERSION) {
+            write(buf);
+            return;
+        }
+
+        // JSON can split the single array string a","b into two elements. Serialize the
+        // column in place and frame only the actual native bytes, as nullable array_agg does.
+        const auto capacity = cast_set<size_t>(
+                column_type.get_uncompressed_serialized_bytes(*column_data, query_version));
+        buf.resize(sizeof(UInt64) + capacity);
+        auto* begin = buf.data() + sizeof(UInt64);
+        const char* end = nullptr;
+        try {
+            end = column_type.serialize(*column_data, begin, query_version);
+        } catch (...) {
+            buf.resize(0);
+            throw;
+        }
+        DORIS_CHECK_LE(end, begin + capacity);
+        const auto serialized_bytes = static_cast<UInt64>(end - begin);
+        memcpy(buf.data(), &serialized_bytes, sizeof(serialized_bytes));
+        const auto frame_bytes = sizeof(serialized_bytes) + cast_set<size_t>(serialized_bytes);
+        buf.resize(frame_bytes);
+        buf.add_offset(frame_bytes);
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf, const IDataType& column_type, int query_version) {
+        // Match the sender's query version, including when this BE supports a newer version.
+        if (query_version < SUPPORT_COLLECT_LIST_NATIVE_SERIALIZATION_VERSION) {
+            read(buf);
+            return;
+        }
+
+        UInt64 serialized_bytes = 0;
+        buf.read_binary(serialized_bytes);
+        const auto* begin = buf.data();
+        column_data->clear();
+        const auto* end = column_type.deserialize(begin, &column_data, query_version);
+        DORIS_CHECK_EQ(end, begin + serialized_bytes);
+        buf.add_offset(serialized_bytes);
+        read_var_int(max_size, buf);
+    }
+
     void write(BufferWritable& buf) const {
         const size_t size = column_data->size();
         buf.write_binary(size);
@@ -359,8 +411,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         DataTypeSerDe::FormatOptions opt;
         auto timezone = cctz::utc_time_zone();
         opt.timezone = &timezone;
-        // TODO: Refactor this aggregate state serialization to avoid
-        // round-tripping through a human-readable string format.
+        // Preserve this text format exactly for queries involving older BEs.
         auto tmp_str = ColumnString::create();
         VectorBufferWriter tmp_buf(*tmp_str.get());
 
@@ -479,12 +530,20 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        if constexpr (Data::use_versioned_serde) {
+            this->data(place).write(buf, *this->argument_types[0], this->version);
+        } else {
+            this->data(place).write(buf);
+        }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
+        if constexpr (Data::use_versioned_serde) {
+            this->data(place).read(buf, *this->argument_types[0], this->version);
+        } else {
+            this->data(place).read(buf);
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
