@@ -15,12 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.sql.DriverManager
+
 suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    String driver_url = context.config.otherConfigs.get("jdbcDriverUrl") ?:
+            "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     // String driver_url = "mysql-connector-j-8.4.0.jar"
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
@@ -37,7 +40,7 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
         "type"="jdbc",
         "user"="root",
         "password"="123456",
-        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&rewriteBatchedStatements=false&continueBatchOnError=false",
         "driver_url" = "${driver_url}",
         "driver_class" = "com.mysql.cj.jdbc.Driver"
     );"""
@@ -96,6 +99,27 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     // ========== Test 5: Verify row count with assertTrue ==========
     def result = sql """ select count(*) from ${test_table} where id = '${uuid3}' """
     assertTrue(result[0][0] == 3, "Expected 3 rows for uuid3 but got ${result[0][0]} — transaction may not have been committed")
+
+    // A duplicate in the second batch must not commit the successful first batch.
+    // Use a separate table so this failure cannot interfere with the shared insert fixture.
+    DriverManager.getConnection("jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "root", "123456").withCloseable { mysql ->
+        mysql.createStatement().withCloseable { statement ->
+            statement.execute("DROP TABLE IF EXISTS jdbc_writer_rollback_target")
+            statement.execute("CREATE TABLE jdbc_writer_rollback_target(id INT PRIMARY KEY) ENGINE=InnoDB")
+            statement.execute("INSERT INTO jdbc_writer_rollback_target VALUES (2)")
+        }
+    }
+    sql "refresh catalog ${catalog_name}"
+    sql "set enable_odbc_transcation = true"
+    sql "set parallel_pipeline_task_num = 1"
+    sql "set batch_size = 1"
+    test {
+        sql """insert into jdbc_writer_rollback_target
+               select number + 1 from numbers("number"="2") order by number"""
+        exception "Duplicate entry"
+    }
+    order_qt_rollback_visible_rows "select id from jdbc_writer_rollback_target order by id"
 
     // clean
     sql """ set enable_odbc_transcation = false """

@@ -216,10 +216,10 @@ public class PaimonJniWriterTest {
         ioManagerField.setAccessible(true);
         ioManagerField.set(writer, ioManager);
 
-        Assertions.assertDoesNotThrow(writer::close);
+        Assertions.assertDoesNotThrow(() -> writer.close());
         Assertions.assertTrue(channel.getPathFile().exists());
         Assertions.assertEquals(12, currentBytes.get());
-        Assertions.assertDoesNotThrow(writer::close);
+        Assertions.assertDoesNotThrow(() -> writer.close());
         spillWriter.deleteChannel();
         Assertions.assertEquals(0, currentBytes.get());
     }

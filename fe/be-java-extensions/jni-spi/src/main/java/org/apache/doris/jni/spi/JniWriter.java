@@ -52,6 +52,11 @@ public abstract class JniWriter {
 
     protected abstract void closeInternal() throws IOException;
 
+    /** Writers without transactional state keep the legacy cleanup behavior. */
+    protected void closeInternal(boolean succeeded) throws IOException {
+        closeInternal();
+    }
+
     /** Same key syntax as {@link JniScanner#collectStatistics()}. */
     protected Map<String, String> collectStatistics() {
         return Collections.emptyMap();
@@ -90,6 +95,13 @@ public abstract class JniWriter {
     public final void close() throws IOException {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
             closeInternal();
+        }
+    }
+
+    /** Finalizes the writer using BE's terminal outcome, then releases its resources. */
+    public final void close(boolean succeeded) throws IOException {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
+            closeInternal(succeeded);
         }
     }
 

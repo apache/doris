@@ -18,6 +18,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 
 #include "format/transformer/vfile_format_transformer.h"
@@ -57,12 +58,14 @@ public:
     Status open() override;
     Status write(const Block& block) override;
     Status close() override;
+    Status close(bool succeeded);
     int64_t written_len() override;
 
     // Retrieve statistics from Java-side writer (calls JniWriter.getStatistics())
     std::map<std::string, std::string> get_statistics();
 
 private:
+    Status _close(std::optional<bool> succeeded);
     Status _init_jni_writer(JNIEnv* env, int batch_size);
 
     std::string _plugin;

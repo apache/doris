@@ -116,6 +116,7 @@ struct WriterApi {
     MethodId write;
     MethodId get_statistics;
     MethodId close;
+    MethodId close_with_status;
 };
 
 // The single Java entry point BE calls into, wrapping

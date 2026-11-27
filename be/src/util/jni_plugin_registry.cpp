@@ -101,6 +101,7 @@ Status PluginRegistry::_init_writer_api() {
     RETURN_IF_ERROR(
             cls.get_method(env, "getStatistics", "()Ljava/util/Map;", &_writer_api.get_statistics));
     RETURN_IF_ERROR(cls.get_method(env, "close", "()V", &_writer_api.close));
+    RETURN_IF_ERROR(cls.get_method(env, "close", "(Z)V", &_writer_api.close_with_status));
     return Status::OK();
 }
 

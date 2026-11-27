@@ -65,6 +65,7 @@ class JniWriterContractTest {
         assertSignature("write", void.class, Map.class);
         assertSignature("getStatistics", Map.class);
         assertSignature("close", void.class);
+        assertSignature("close", void.class, boolean.class);
     }
 
     /**
@@ -142,6 +143,50 @@ class JniWriterContractTest {
         }
     }
 
+    @Test
+    void explicitOutcomeReachesHookAndRestoresLoaderEvenOnFailure() throws Exception {
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader caller = new URLClassLoader(new URL[0], null);
+        List<Boolean> outcomes = new ArrayList<>();
+        IOException failure = new IOException("close failure");
+        JniWriter writer = new RecordingWriter() {
+            @Override
+            protected void closeInternal(boolean succeeded) throws IOException {
+                Assertions.assertSame(getClass().getClassLoader(), Thread.currentThread().getContextClassLoader());
+                outcomes.add(succeeded);
+                if (!succeeded) {
+                    throw failure;
+                }
+            }
+        };
+        try {
+            Thread.currentThread().setContextClassLoader(caller);
+            writer.close(true);
+            Assertions.assertSame(caller, Thread.currentThread().getContextClassLoader());
+            Assertions.assertSame(failure, Assertions.assertThrows(IOException.class, () -> writer.close(false)));
+            Assertions.assertSame(caller, Thread.currentThread().getContextClassLoader());
+            Assertions.assertEquals(Arrays.asList(true, false), outcomes);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    void explicitOutcomeDefaultsToLegacyCleanupUnderPluginLoader() throws Exception {
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(new URLClassLoader(new URL[0], null));
+            RecordingWriter writer = new RecordingWriter();
+            writer.close(false);
+            Assertions.assertSame(RecordingWriter.class.getClassLoader(), writer.observed.get("closeInternal"));
+            writer.observed.clear();
+            writer.close(true);
+            Assertions.assertSame(RecordingWriter.class.getClassLoader(), writer.observed.get("closeInternal"));
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
     /** The block BE hands write(): a zero-column table, which is enough to exercise the contract. */
     private static VectorTable emptyBlock() {
         return VectorTable.createWritableTable(new ColumnType[0], new String[0], 4);
@@ -164,7 +209,7 @@ class JniWriterContractTest {
                         + " concrete plugin class");
     }
 
-    private static final class RecordingWriter extends JniWriter {
+    private static class RecordingWriter extends JniWriter {
         private final Map<String, ClassLoader> observed = new HashMap<>();
         private boolean failOnOpen;
 

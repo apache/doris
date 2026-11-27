@@ -56,19 +56,29 @@ public:
 
     Status write(RuntimeState*, Block&) override {
         reservation_seen_by_write = thread_context()->thread_mem_tracker_mgr->reserved_mem();
-        return Status::OK();
+        ++writes;
+        return writes == fail_on_write ? Status::IOError("injected batch failure") : Status::OK();
     }
 
     Status finish(RuntimeState*) override {
+        ++finishes;
         reservation_seen_by_finish = thread_context()->thread_mem_tracker_mgr->reserved_mem();
         return Status::OK();
     }
 
-    Status close(Status) override {
+    Status close(Status status) override {
+        ++closes;
+        terminal_status = status;
         reservation_seen_by_close = thread_context()->thread_mem_tracker_mgr->reserved_mem();
-        return Status::OK();
+        return close_status;
     }
 
+    int writes = 0;
+    int finishes = 0;
+    int closes = 0;
+    int fail_on_write = 0;
+    Status terminal_status;
+    Status close_status;
     int64_t reservation_seen_by_write = 0;
     int64_t reservation_seen_by_finish = 0;
     int64_t reservation_seen_by_close = 0;
@@ -180,6 +190,56 @@ TEST_F(AsyncResultWriterTest, OpenFailureDrainsQueuedReservation) {
     EXPECT_FALSE(writer.get_writer_status().ok());
     EXPECT_EQ(0, thread_context()->thread_mem_tracker_mgr->reserved_mem());
     EXPECT_EQ(0, GlobalMemoryArbitrator::process_reserved_memory());
+}
+
+TEST_F(AsyncResultWriterTest, SuccessfulEosFinishesAndClosesOnce) {
+    AsyncWriterHarness harness;
+    RecordingAsyncWriter writer(harness.dependency, harness.finish_dependency, Status::OK());
+    harness.prepare(&writer);
+    Block block = make_block();
+    ASSERT_TRUE(writer.sink(&block, true).ok());
+    harness.process(&writer);
+    EXPECT_EQ(1, writer.writes);
+    EXPECT_EQ(1, writer.finishes);
+    EXPECT_EQ(1, writer.closes);
+    EXPECT_TRUE(writer.terminal_status.ok());
+    EXPECT_EQ(nullptr, harness.finish_dependency->is_blocked_by(nullptr));
+}
+
+TEST_F(AsyncResultWriterTest, SecondBatchFailureSkipsFinishAndPreservesFirstError) {
+    AsyncWriterHarness harness;
+    RecordingAsyncWriter writer(harness.dependency, harness.finish_dependency, Status::OK());
+    harness.prepare(&writer);
+    writer.fail_on_write = 2;
+    writer.close_status = Status::IOError("secondary cleanup failure");
+    Block first = make_block();
+    Block second = make_block();
+    ASSERT_TRUE(writer.sink(&first, false).ok());
+    ASSERT_TRUE(writer.sink(&second, true).ok());
+    harness.process(&writer);
+    EXPECT_EQ(2, writer.writes);
+    EXPECT_EQ(0, writer.finishes);
+    EXPECT_EQ(1, writer.closes);
+    EXPECT_EQ(Status::IOError("injected batch failure").to_string(),
+              writer.terminal_status.to_string());
+    EXPECT_EQ(writer.terminal_status.to_string(), writer.get_writer_status().to_string());
+    EXPECT_EQ(nullptr, harness.finish_dependency->is_blocked_by(nullptr));
+}
+
+TEST_F(AsyncResultWriterTest, ForcedCancellationSkipsWritesAndFinishButStillCloses) {
+    AsyncWriterHarness harness;
+    RecordingAsyncWriter writer(harness.dependency, harness.finish_dependency, Status::OK());
+    harness.prepare(&writer);
+    Block block = make_block();
+    ASSERT_TRUE(writer.sink(&block, true).ok());
+    Status cancelled = Status::Cancelled("cancel before processing");
+    writer.force_close(cancelled);
+    harness.process(&writer);
+    EXPECT_EQ(0, writer.writes);
+    EXPECT_EQ(0, writer.finishes);
+    EXPECT_EQ(1, writer.closes);
+    EXPECT_EQ(cancelled.to_string(), writer.terminal_status.to_string());
+    EXPECT_EQ(nullptr, harness.finish_dependency->is_blocked_by(nullptr));
 }
 
 } // namespace doris

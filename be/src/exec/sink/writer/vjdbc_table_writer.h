@@ -32,6 +32,7 @@
 namespace doris {
 
 class Block;
+class RuntimeState;
 
 /**
  * VJdbcTableWriter writes data to external JDBC targets via JNI.
@@ -39,8 +40,7 @@ class Block;
  * Refactored to use VJniFormatTransformer (same pattern as VMCPartitionWriter for MaxCompute).
  * The Java side writer is JdbcJniWriter which extends JniWriter.
  *
- * Transaction control (begin/commit/rollback) is handled through additional JNI method calls
- * to the Java JdbcJniWriter instance.
+ * Explicit transactions are finalized by Java close(boolean), using the terminal BE status.
  */
 class VJdbcTableWriter final : public AsyncResultWriter {
 public:
@@ -59,8 +59,13 @@ private:
     // Build the writer_params map from TDataSink
     static std::map<std::string, std::string> _build_writer_params(const TDataSink& t_sink);
 
+    Status _transaction_status(Status status);
+
     std::unique_ptr<VJniFormatTransformer> _writer;
     std::map<std::string, std::string> _writer_params;
     bool _use_transaction = false;
+    // Only the async writer thread accesses these; its task context owns the RuntimeState.
+    RuntimeState* _state = nullptr;
+    bool _successful_eos = false;
 };
 } // namespace doris

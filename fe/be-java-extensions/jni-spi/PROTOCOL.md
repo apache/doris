@@ -63,6 +63,16 @@ reason described on `JniScanner`.
 | `write` | `(Ljava/util/Map;)V` |
 | `getStatistics` | `()Ljava/util/Map;` |
 | `close` | `()V` |
+| `close` | `(Z)V` |
+
+`close(Z)V` carries the terminal outcome: true authorizes successful finalization, false
+aborts. The JDBC Catalog sink sends true only after successful EOS and a final check of
+writer/query status, just before JNI dispatch. Cancellation visible after this decision cannot
+undo a commit already in progress. Transactional writers must still release resources on false.
+The legacy `close()V` remains for existing callers (including successful TVF writes); writers
+without transactional state delegate the new hook to their existing cleanup implementation.
+Native code, SPI, bootstrap and plugin jars must be deployed from the same build; the API major
+version is incremented for this new public/protected surface.
 
 `JniScannerContractTest` and `JniWriterContractTest` fail if any of these is renamed, re-signed,
 moved off the base class, or made overridable — one test per table, because the two are resolved by

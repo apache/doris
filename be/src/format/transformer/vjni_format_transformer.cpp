@@ -98,6 +98,14 @@ Status VJniFormatTransformer::write(const Block& block) {
 }
 
 Status VJniFormatTransformer::close() {
+    return _close(std::nullopt);
+}
+
+Status VJniFormatTransformer::close(bool succeeded) {
+    return _close(succeeded);
+}
+
+Status VJniFormatTransformer::_close(std::optional<bool> succeeded) {
     if (_closed || !_opened) {
         return Status::OK();
     }
@@ -106,7 +114,14 @@ Status VJniFormatTransformer::close() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
 
-    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->close).call());
+    // false is an explicit rollback decision, not a request to use the legacy close entry point.
+    if (succeeded.has_value()) {
+        RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->close_with_status)
+                                .with_arg(static_cast<jboolean>(*succeeded))
+                                .call());
+    } else {
+        RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->close).call());
+    }
     RETURN_ERROR_IF_EXC(env);
 
     return Status::OK();
