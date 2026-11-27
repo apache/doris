@@ -28,19 +28,19 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
-import java.util.List;
 
 class StructOrdinalTest {
     @Test
     void normalizationMustNotBindWrappedOrdinals() {
-        StructType type = new StructType(List.of(new StructField("a", IntegerType.INSTANCE, true, "")));
+        StructType type = new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, "")));
         SlotReference slot = new SlotReference("s", type);
         // Call the rewrite directly. SQL analysis rejects these values before this rule runs.
-        for (String text : List.of("4294967297", "-4294967295",
+        for (String text : ImmutableList.of("4294967297", "-4294967295",
                 "18446744073709551617", "-18446744073709551615")) {
             ElementAt expression = new ElementAt(slot, new LargeIntLiteral(new BigInteger(text)));
             Expression rewritten = Deencapsulation.invoke(NormalizeElementAt.class, "normalize", expression);
@@ -54,9 +54,9 @@ class StructOrdinalTest {
     @Test
     void preserveSelectorPrecision() {
         // One field is enough. These out-of-range values have low 32 or 64 bits equal to 1.
-        StructType type = new StructType(List.of(new StructField("a", IntegerType.INSTANCE, true, "")));
+        StructType type = new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, "")));
         SlotReference slot = new SlotReference("s", type);
-        for (String text : List.of("4294967297", "-4294967295",
+        for (String text : ImmutableList.of("4294967297", "-4294967295",
                 "18446744073709551617", "-18446744073709551615")) {
             IntegerLikeLiteral index = new LargeIntLiteral(new BigInteger(text));
             Assertions.assertNull(type.getFieldByOrdinal(index.getBigDecimalValue()));

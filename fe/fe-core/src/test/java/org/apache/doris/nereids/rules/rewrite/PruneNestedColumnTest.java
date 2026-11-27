@@ -1786,7 +1786,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         Assertions.assertNull(outOfBounds);
 
         // These ordinals have low bits equal to one. Resolve the original value before pruning.
-        for (String value : List.of("4294967297", "-18446744073709551615")) {
+        for (String value : ImmutableList.of("4294967297", "-18446744073709551615")) {
             Assertions.assertNull(AccessPathExpressionCollector.resolveStructField(type,
                     new org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral(
                             new java.math.BigInteger(value))));

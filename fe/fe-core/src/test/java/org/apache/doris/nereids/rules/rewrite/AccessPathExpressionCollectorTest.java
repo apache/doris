@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,17 +39,17 @@ public class AccessPathExpressionCollectorTest {
 
     @Test
     public void testWideOrdinalDoesNotPruneToWrappedField() {
-        StructType type = new StructType(List.of(new StructField("a", IntegerType.INSTANCE, true, "")));
+        StructType type = new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, "")));
         SlotReference slot = new SlotReference("s", type);
         // Direct collection reaches the rule that SQL type analysis would reject first.
         // An invalid ordinal must retain the root path instead of selecting field a.
-        for (String value : List.of("1", "4294967297", "-18446744073709551615")) {
+        for (String value : ImmutableList.of("1", "4294967297", "-18446744073709551615")) {
             Multimap<Integer, CollectAccessPathResult> paths = ArrayListMultimap.create();
             new AccessPathExpressionCollector(null, paths, false, false).collect(
                     new ElementAt(slot, new LargeIntLiteral(new BigInteger(value))));
             List<CollectAccessPathResult> results = new ArrayList<>(paths.get(slot.getExprId().asInt()));
             Assertions.assertEquals(1, results.size());
-            Assertions.assertEquals(value.equals("1") ? List.of("s", "a") : List.of("s"),
+            Assertions.assertEquals(value.equals("1") ? ImmutableList.of("s", "a") : ImmutableList.of("s"),
                     results.get(0).getPath());
         }
     }
