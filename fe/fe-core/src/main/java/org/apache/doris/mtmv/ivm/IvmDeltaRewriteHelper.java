@@ -373,6 +373,13 @@ public class IvmDeltaRewriteHelper {
         }
     }
 
+    /** Prefer building an inner or cross join on the delta even when join reordering is disabled. */
+    LogicalJoin<?, ?> withDeltaOnRight(LogicalJoin<?, ?> join, boolean deltaOnLeft,
+            IvmDeltaRewriteState rewriteState) {
+        return deltaOnLeft && join.getJoinType().isInnerOrCrossJoin() && !join.hasDistributeHint()
+                && !rewriteState.keepJoinOrder() ? join.swap() : join;
+    }
+
     /**
      * Wrap an internal copy with a unique subquery alias and keep its slot mapping valid.
      */

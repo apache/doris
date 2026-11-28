@@ -61,6 +61,8 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.LeadingHint;
+import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
@@ -1519,6 +1521,12 @@ public class StatementContext implements Closeable {
 
     public void addHint(Hint hint) {
         this.hints.add(hint);
+    }
+
+    /** Whether the statement has a successful join-order hint. */
+    public boolean hasSuccessfulJoinOrderHint() {
+        return hints.stream().anyMatch(hint -> (hint instanceof OrderedHint || hint instanceof LeadingHint)
+                && hint.isSuccess());
     }
 
     public List<Hint> getHints() {

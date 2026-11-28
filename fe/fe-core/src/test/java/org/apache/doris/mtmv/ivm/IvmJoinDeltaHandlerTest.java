@@ -230,6 +230,14 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalUnion union = findOnlyUnion(mergedPlan);
 
         Assertions.assertEquals(2, union.children().size());
+        List<LogicalJoin> contributionJoins = union.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertEquals(2, contributionJoins.size());
+        for (LogicalJoin<?, ?> join : contributionJoins) {
+            Assertions.assertFalse(join.left()
+                    .anyMatch(node -> IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((Plan) node)));
+            Assertions.assertTrue(join.right()
+                    .anyMatch(node -> IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((Plan) node)));
+        }
         assertUnionChildrenAlign(union);
         assertUnionOutputsDoNotReuseChildExprIds(union);
         assertUnionChildrenDoNotShareExprIds(union);

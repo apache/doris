@@ -158,20 +158,27 @@ class IvmJoinDeltaHandler {
             return rewriteOuterContribution(join, deltaOnLeft, delta, leftInput, rightInput, rewriteState);
         } else if (deltaOnLeft) {
             Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = helper.preSnapshot(join.right(), rewriteState);
-            return rewriteInnerJoinContribution(join, delta.plan,
+            return rewriteInnerJoinContribution(join, true, delta.plan,
                     helper.mapBusinessOutputs(join.left().getOutput(), delta.plan.getOutput()),
-                    rightPreSnapshot.first, rightPreSnapshot.second, delta);
+                    rightPreSnapshot.first, rightPreSnapshot.second, delta, rewriteState);
         } else {
             Pair<Plan, Map<Slot, Slot>> leftPostSnapshot = helper.postSnapshot(join.left(), rewriteState);
-            return rewriteInnerJoinContribution(join, leftPostSnapshot.first,
+            return rewriteInnerJoinContribution(join, false, leftPostSnapshot.first,
                     helper.mapBusinessOutputs(join.left().getOutput(), leftPostSnapshot.first.getOutput()), delta.plan,
-                    helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta);
+                    helper.mapBusinessOutputs(join.right().getOutput(), delta.plan.getOutput()), delta, rewriteState);
         }
     }
 
     private IvmDeltaRewriteResult rewriteOuterContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
             boolean deltaOnLeft, IvmDeltaRewriteResult delta, SideInput leftInput, SideInput rightInput,
             IvmDeltaRewriteState rewriteState) {
+        // Keep the current OUTER and repair ANTI join directions for now.
+        // 1. With join reordering enabled, SemiJoinCommute can turn RIGHT joins back into LEFT joins
+        //    and recover broadcast of a small snapshot.
+        // 2. With join reordering disabled, turning a LEFT equi-join into a RIGHT join removes the
+        //    small snapshot broadcast option and can require shuffle.
+        // 3. If simplification removes the cross-input equality while the RIGHT direction is retained,
+        //    the nested-loop join gathers both inputs. LEFT OUTER can still run in parallel.
         boolean preservedSideDelta = (deltaOnLeft && join.getJoinType().isLeftOuterJoin())
                 || (!deltaOnLeft && join.getJoinType().isRightOuterJoin());
         if (preservedSideDelta) {
@@ -183,15 +190,16 @@ class IvmJoinDeltaHandler {
     }
 
     private IvmDeltaRewriteResult rewriteInnerJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Plan leftPlan, Map<Slot, Slot> leftMapping, Plan rightPlan, Map<Slot, Slot> rightMapping,
-            IvmDeltaRewriteResult delta) {
+            boolean deltaOnLeft, Plan leftPlan, Map<Slot, Slot> leftMapping,
+            Plan rightPlan, Map<Slot, Slot> rightMapping, IvmDeltaRewriteResult delta,
+            IvmDeltaRewriteState rewriteState) {
         Map<Slot, Slot> slotMapping = new HashMap<>(leftMapping);
         slotMapping.putAll(rightMapping);
         helper.mapJoinConjunctInputs(join, leftPlan, rightPlan, slotMapping);
-        LogicalJoin<Plan, Plan> rewrittenJoin = new LogicalJoin<>(join.getJoinType(),
+        LogicalJoin<?, ?> rewrittenJoin = helper.withDeltaOnRight(new LogicalJoin<>(join.getJoinType(),
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                leftPlan, rightPlan, JoinReorderContext.EMPTY);
+                leftPlan, rightPlan, JoinReorderContext.EMPTY), deltaOnLeft, rewriteState);
         Slot dmlFactorSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
@@ -295,10 +303,11 @@ class IvmJoinDeltaHandler {
                 : JoinType.INNER_JOIN;
         Map<Slot, Slot> slotMapping = new HashMap<>(deltaContext.leftInput.mapping);
         slotMapping.putAll(deltaContext.rightInput.mapping);
-        LogicalJoin<Plan, Plan> newJoin = new LogicalJoin<>(joinType,
+        LogicalJoin<?, ?> newJoin = helper.withDeltaOnRight(new LogicalJoin<>(joinType,
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), slotMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), slotMapping), join.getDistributeHint(),
-                deltaContext.leftInput.plan, deltaContext.rightInput.plan, JoinReorderContext.EMPTY);
+                deltaContext.leftInput.plan, deltaContext.rightInput.plan, JoinReorderContext.EMPTY),
+                deltaContext.isDeltaOnLeft, deltaContext.rewriteState);
         // The joined-row branch changes the join type, so its output slots/schema are not the same as the
         // original outer join output. Project it back before unioning with the repair branches.
         return projectJoinContribution(join,
