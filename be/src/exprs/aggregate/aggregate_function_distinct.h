@@ -151,10 +151,26 @@ struct AggregateFunctionDistinctGenericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             for (const auto& elem : rhs.data) {
-                StringRef key = elem;
-                key.data = arena.insert(key.data, key.size);
-                data.emplace(key);
+                insert_borrowed(elem, arena);
             }
+        }
+    }
+
+    // `key` borrows its bytes from the input column or another state. Copy them into the arena
+    // only for a new key: the arena keeps every allocation until it is destroyed, so a copy made
+    // for a duplicate would be dead memory until then.
+    void insert_borrowed(StringRef key, Arena& arena) {
+        if constexpr (stable) {
+            // Read the index before lazy_emplace: the map counts the new slot before it calls
+            // the constructor callback.
+            const auto index = static_cast<uint32_t>(data.size());
+            data.lazy_emplace(key, [&](const auto& ctor) {
+                ctor(StringRef(arena.insert(key.data, key.size), key.size), index);
+            });
+        } else {
+            data.lazy_emplace(key, [&](const auto& ctor) {
+                ctor(StringRef(arena.insert(key.data, key.size), key.size));
+            });
         }
     }
 
@@ -195,14 +211,7 @@ struct AggregateFunctionDistinctSingleGenericData
     using Base = AggregateFunctionDistinctGenericData<stable>;
     using Base::data;
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena& arena) {
-        auto key = columns[0]->get_data_at(row_num);
-        key.data = arena.insert(key.data, key.size);
-
-        if constexpr (stable) {
-            data.emplace(key, data.size());
-        } else {
-            data.insert(key);
-        }
+        Base::insert_borrowed(columns[0]->get_data_at(row_num), arena);
     }
 
     MutableColumns get_arguments(const DataTypes& argument_types) const {
@@ -240,10 +249,17 @@ struct AggregateFunctionDistinctMultipleGenericData
             key.size += cur_ref.size;
         }
 
+        bool inserted = false;
         if constexpr (stable) {
-            data.emplace(key, data.size());
+            inserted = data.emplace(key, data.size()).second;
         } else {
-            data.emplace(key);
+            inserted = data.emplace(key).second;
+        }
+        // The key must be serialized to be looked up. A duplicate's bytes are the last arena
+        // allocation, so give them back instead of keeping them until the end of the query.
+        if (!inserted) {
+            const auto* rolled_back = static_cast<const char*>(arena.rollback(key.size));
+            DCHECK_EQ(rolled_back, key.data);
         }
     }
 

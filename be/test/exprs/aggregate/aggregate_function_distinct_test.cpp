@@ -243,5 +243,190 @@ TEST_P(DistinctMergeDispatchTest, GenericStringStateOwnsKeysAfterInputBufferIsRe
 
 INSTANTIATE_TEST_SUITE_P(NullImplementations, DistinctMergeDispatchTest, testing::Bool());
 
+constexpr size_t kValueSize = 201;
+
+// `count` distinct strings of kValueSize bytes each.
+std::vector<std::string> distinct_values(size_t count) {
+    std::vector<std::string> values;
+    for (size_t i = 0; i < count; ++i) {
+        auto suffix = std::to_string(1000 + i);
+        values.push_back(std::string(kValueSize - suffix.size(), 'x') + suffix);
+    }
+    return values;
+}
+
+// `rows` rows that cycle over `values`.
+ColumnString::MutablePtr cycling_column(const std::vector<std::string>& values, size_t rows) {
+    auto column = ColumnString::create();
+    for (size_t row = 0; row < rows; ++row) {
+        const auto& value = values[row % values.size()];
+        column->insert_data(value.data(), value.size());
+    }
+    return column;
+}
+
+std::vector<std::string> column_values(const IColumn& column) {
+    std::vector<std::string> values;
+    for (size_t i = 0; i < column.size(); ++i) {
+        values.push_back(column.get_data_at(i).to_string());
+    }
+    return values;
+}
+
+std::vector<std::string> sorted(std::vector<std::string> values) {
+    std::ranges::sort(values);
+    return values;
+}
+
+template <typename T>
+class DistinctGenericArenaTest : public testing::Test {};
+
+// The stable states keep the first-insertion order for DISTINCT ... ORDER BY.
+using StableModes = testing::Types<std::false_type, std::true_type>;
+TYPED_TEST_SUITE(DistinctGenericArenaTest, StableModes);
+
+// The arena frees nothing before it is destroyed, so its used size is what the state keeps.
+TYPED_TEST(DistinctGenericArenaTest, SingleAddCopiesEachDistinctValueOnce) {
+    constexpr bool stable = TypeParam::value;
+    using Data = AggregateFunctionDistinctSingleGenericData<stable>;
+    // 100 values outgrow the arena's first chunk.
+    auto values = distinct_values(100);
+    values.emplace_back();
+    auto column = cycling_column(values, 20000);
+    const IColumn* columns[] = {column.get()};
+    Data data;
+    Arena arena;
+
+    for (size_t row = 0; row < column->size(); ++row) {
+        data.add(columns, 1, row, arena);
+    }
+
+    // Copying before the lookup kept a copy of every non-empty row: 19,802 * 201 bytes.
+    EXPECT_EQ(arena.used_size(), 100 * kValueSize);
+    std::ranges::fill(column->get_chars(), '?');
+    auto arguments = data.get_arguments({std::make_shared<DataTypeString>()});
+    if constexpr (stable) {
+        EXPECT_EQ(column_values(*arguments[0]), values);
+    } else {
+        EXPECT_EQ(sorted(column_values(*arguments[0])), sorted(values));
+    }
+}
+
+TYPED_TEST(DistinctGenericArenaTest, MultipleAddRollsBackDuplicateKeys) {
+    constexpr bool stable = TypeParam::value;
+    using Data = AggregateFunctionDistinctMultipleGenericData<stable>;
+    const auto values = distinct_values(10);
+    auto first = cycling_column(values, 20000);
+    auto second = cycling_column({"|"}, first->size());
+    const IColumn* columns[] = {first.get(), second.get()};
+    Data data;
+    Arena arena;
+
+    for (size_t row = 0; row < values.size(); ++row) {
+        data.add(columns, 2, row, arena);
+    }
+    const size_t used_by_distinct_keys = arena.used_size();
+    for (size_t row = values.size(); row < first->size(); ++row) {
+        data.add(columns, 2, row, arena);
+    }
+
+    // A duplicate is serialized to be looked up, then rolled back.
+    EXPECT_EQ(arena.used_size(), used_by_distinct_keys);
+    std::ranges::fill(first->get_chars(), '?');
+    auto arguments = data.get_arguments(
+            {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()});
+    if constexpr (stable) {
+        EXPECT_EQ(column_values(*arguments[0]), values);
+    } else {
+        EXPECT_EQ(sorted(column_values(*arguments[0])), sorted(values));
+    }
+    EXPECT_EQ(column_values(*arguments[1]), std::vector<std::string>(values.size(), "|"));
+}
+
+TYPED_TEST(DistinctGenericArenaTest, MultipleAddRollsBackDuplicateKeyThatMovedToANewChunk) {
+    constexpr bool stable = TypeParam::value;
+    using Data = AggregateFunctionDistinctMultipleGenericData<stable>;
+    auto first = cycling_column({"a"}, 100);
+    auto second = cycling_column(distinct_values(1), first->size());
+    const IColumn* columns[] = {first.get(), second.get()};
+    const size_t first_size = columns[0]->serialize_size_at(0);
+    const size_t key_size = first_size + columns[1]->serialize_size_at(0);
+    // The first chunk holds one key, plus room for the first column of the next row only.
+    Arena arena(key_size + first_size + 15 /* the arena's right padding */);
+    Data data;
+
+    data.add(columns, 2, 0, arena);
+    EXPECT_EQ(arena.used_size(), key_size);
+    // The duplicate's key outgrows the chunk and is copied, as one range, to a new chunk. The
+    // rollback frees that range; the copy of the first column left in the old chunk stays.
+    data.add(columns, 2, 1, arena);
+    EXPECT_EQ(arena.used_size(), key_size + first_size);
+    for (size_t row = 2; row < first->size(); ++row) {
+        data.add(columns, 2, row, arena);
+    }
+    EXPECT_EQ(arena.used_size(), key_size + first_size);
+
+    auto arguments = data.get_arguments(
+            {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()});
+    EXPECT_EQ(column_values(*arguments[0]), std::vector<std::string> {"a"});
+    EXPECT_EQ(column_values(*arguments[1]), distinct_values(1));
+}
+
+TEST(DistinctGenericArenaMergeTest, MergeCopiesOnlyNewKeys) {
+    using Data = AggregateFunctionDistinctSingleGenericData<false>;
+    const auto values = distinct_values(10);
+    Data destination;
+    Arena arena;
+    {
+        auto column = cycling_column(values, values.size());
+        const IColumn* columns[] = {column.get()};
+        Data source;
+        Arena source_arena;
+        for (size_t row = 0; row < column->size(); ++row) {
+            source.add(columns, 1, row, source_arena);
+        }
+        for (int repeat = 0; repeat < 1000; ++repeat) {
+            destination.merge(source, arena);
+        }
+    }
+
+    // Copying before the lookup used 1,000 * 10 * 201 bytes here.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+    auto arguments = destination.get_arguments({std::make_shared<DataTypeString>()});
+    EXPECT_EQ(sorted(column_values(*arguments[0])), sorted(values));
+}
+
+TEST(DistinctGenericArenaMergeTest, DeserializeAndMergeCopiesOnlyNewKeys) {
+    using Data = AggregateFunctionDistinctSingleGenericData<false>;
+    const auto values = distinct_values(10);
+    auto serialized = ColumnString::create();
+    {
+        auto column = cycling_column(values, values.size());
+        const IColumn* columns[] = {column.get()};
+        Data source;
+        Arena source_arena;
+        for (size_t row = 0; row < column->size(); ++row) {
+            source.add(columns, 1, row, source_arena);
+        }
+        VectorBufferWriter writer(*serialized);
+        source.serialize(writer);
+        writer.commit();
+    }
+
+    Data destination;
+    Arena arena;
+    for (int repeat = 0; repeat < 100; ++repeat) {
+        Data scratch;
+        VectorBufferReader reader(serialized->get_data_at(0));
+        destination.deserialize_and_merge(scratch, reader, arena);
+    }
+
+    // Copying before the lookup used 100 * 10 * 201 bytes here.
+    EXPECT_EQ(arena.used_size(), 10 * kValueSize);
+    std::ranges::fill(serialized->get_chars(), '?');
+    auto arguments = destination.get_arguments({std::make_shared<DataTypeString>()});
+    EXPECT_EQ(sorted(column_values(*arguments[0])), sorted(values));
+}
+
 } // namespace
 } // namespace doris
